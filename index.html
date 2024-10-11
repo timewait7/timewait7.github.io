@@ -146,13 +146,13 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">14</span>
+          <span class="site-state-item-count">20</span>
           <span class="site-state-item-name">posts</span>
         </a>
       </div>
       <div class="site-state-item site-state-categories">
           <a href="/categories/">
-        <span class="site-state-item-count">11</span>
+        <span class="site-state-item-count">14</span>
         <span class="site-state-item-name">categories</span></a>
       </div>
       <div class="site-state-item site-state-tags">
@@ -187,6 +187,1217 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/adbd2430.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="timewait7">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Hexo">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="undefined | Hexo">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/adbd2430.html" class="post-title-link" itemprop="url">Redis面试题</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+      
+
+      <time title="Created: 2024-10-06 17:01:50 / Modified: 17:03:36" itemprop="dateCreated datePublished" datetime="2024-10-06T17:01:50+08:00">2024-10-06</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/Redis/" itemprop="url" rel="index"><span itemprop="name">Redis</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h3 id="如何设置键值对的过期时间"><a href="#如何设置键值对的过期时间" class="headerlink" title="如何设置键值对的过期时间"></a>如何设置键值对的过期时间</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 方式一：通过 EXPIRE、PEXPIRE 命令设置键的生存时间</span></span><br><span class="line">SET key value</span><br><span class="line">EXPIRE key 5</span><br><span class="line"></span><br><span class="line"><span class="comment"># 方式二：通过 EXPIREAT、PEXPIREAT 命令设置键的过期时间</span></span><br><span class="line">SET key value</span><br><span class="line">EXPIREAT key 137725730</span><br><span class="line"></span><br><span class="line"><span class="comment"># 方式三：只能用于字符串键</span></span><br><span class="line">SETEX key seconds value</span><br></pre></td></tr></table></figure>
+
+<p>PS：<code>EXPIRE</code>、<code>PEXPIRE</code>、<code>EXPIREAT</code>、底层都是调用<code>PEXPIREAT</code>。</p>
+<h3 id="用Redis实现分布式锁"><a href="#用Redis实现分布式锁" class="headerlink" title="用Redis实现分布式锁"></a>用Redis实现分布式锁</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> org.springframework.data.redis.core.RedisTemplate;</span><br><span class="line"><span class="keyword">import</span> org.springframework.data.redis.core.ValueOperations;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">RedisDistributedLock</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> <span class="type">String</span> <span class="variable">LOCK_KEY</span> <span class="operator">=</span> <span class="string">&quot;myLock&quot;</span>;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> <span class="type">int</span> <span class="variable">LOCK_EXPIRE_TIME</span> <span class="operator">=</span> <span class="number">5000</span>; <span class="comment">// 锁过期时间，单位毫秒</span></span><br><span class="line"></span><br><span class="line">    <span class="keyword">private</span> RedisTemplate&lt;String, String&gt; redisTemplate;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="title function_">RedisDistributedLock</span><span class="params">(RedisTemplate&lt;String, String&gt; redisTemplate)</span> &#123;</span><br><span class="line">        <span class="built_in">this</span>.redisTemplate = redisTemplate;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="type">boolean</span> <span class="title function_">acquireLock</span><span class="params">()</span> &#123;</span><br><span class="line">        ValueOperations&lt;String, String&gt; valueOperations = redisTemplate.opsForValue();</span><br><span class="line">        <span class="comment">// 尝试获取分布式锁</span></span><br><span class="line">        <span class="type">Boolean</span> <span class="variable">result</span> <span class="operator">=</span> valueOperations.setIfAbsent(LOCK_KEY, <span class="string">&quot;locked&quot;</span>); <span class="comment">// RedisTemplate 的 setIfAbsent 方法，如果键不存在则设置键值对并返回 true，否则返回 false</span></span><br><span class="line">        <span class="keyword">if</span> (result != <span class="literal">null</span> &amp;&amp; result) &#123;</span><br><span class="line">            <span class="comment">// 成功获取到锁，设置锁的过期时间</span></span><br><span class="line">            redisTemplate.expire(LOCK_KEY, LOCK_EXPIRE_TIME, TimeUnit.MILLISECONDS); <span class="comment">// 设置键的过期时间，单位毫秒</span></span><br><span class="line">            <span class="keyword">return</span> <span class="literal">true</span>;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> <span class="literal">false</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">releaseLock</span><span class="params">()</span> &#123;</span><br><span class="line">        redisTemplate.delete(LOCK_KEY); <span class="comment">// 删除键</span></span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 使用分布式锁的业务逻辑</span></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">doBusinessWithLock</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">if</span> (acquireLock()) &#123;</span><br><span class="line">            <span class="keyword">try</span> &#123;</span><br><span class="line">                <span class="comment">// 获得分布式锁后执行业务逻辑</span></span><br><span class="line">                System.out.println(<span class="string">&quot;Acquired lock, do business logic...&quot;</span>);</span><br><span class="line">                Thread.sleep(<span class="number">3000</span>); <span class="comment">// 模拟业务处理时间</span></span><br><span class="line">            &#125; <span class="keyword">catch</span> (InterruptedException e) &#123;</span><br><span class="line">                e.printStackTrace();</span><br><span class="line">            &#125; <span class="keyword">finally</span> &#123;</span><br><span class="line">                releaseLock(); <span class="comment">// 业务处理完成后释放锁</span></span><br><span class="line">                System.out.println(<span class="string">&quot;Released lock.&quot;</span>);</span><br><span class="line">            &#125;</span><br><span class="line">        &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">            <span class="comment">// 未获得分布式锁，执行其他逻辑</span></span><br><span class="line">            System.out.println(<span class="string">&quot;Failed to acquire lock, do other logic...&quot;</span>);</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> &#123;</span><br><span class="line">        <span class="comment">// 创建 RedisTemplate 实例并设置连接信息</span></span><br><span class="line">        RedisTemplate&lt;String, String&gt; redisTemplate = <span class="keyword">new</span> <span class="title class_">RedisTemplate</span>&lt;&gt;();</span><br><span class="line">        <span class="comment">// 设置 Redis 连接工厂、序列化方式等</span></span><br><span class="line">        <span class="comment">// ...</span></span><br><span class="line"></span><br><span class="line">        <span class="type">RedisDistributedLock</span> <span class="variable">distributedLock</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">RedisDistributedLock</span>(redisTemplate);</span><br><span class="line">        distributedLock.doBusinessWithLock();</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>在使用 Redis 实现分布式锁时，需要注意以下几点：</p>
+<ol>
+<li>锁的键名和值应该具有足够的唯一性，避免与其他锁冲突。</li>
+<li>在获取锁时，要注意处理竞争条件（例如使用 SETNX 指令）以确保只有一个客户端能够成功获取锁。</li>
+<li>在释放锁时，要检查当前锁的值是否与期望值匹配，以确保只有持有锁的客户端能够成功释放锁。</li>
+<li>要设置适当的锁过期时间，避免锁被永久持有，防止死锁。</li>
+<li>在使用分布式锁时，要考虑 Redis 的高可用性和容错性，例如使用 Redis 集群或者哨兵模式来保障锁的可靠性。</li>
+</ol>
+<h3 id="Redis分布式锁可能存在的问题"><a href="#Redis分布式锁可能存在的问题" class="headerlink" title="Redis分布式锁可能存在的问题"></a>Redis分布式锁可能存在的问题</h3><ol>
+<li>竞争条件（Race Condition）：在多个客户端同时尝试获取锁时，可能会出现竞争条件，导致多个客户端都成功获得锁，从而引发并发访问资源的问题。</li>
+<li>死锁（Deadlock）：如果某个持有锁的客户端在业务处理期间发生异常或崩溃，导致没有释放锁的操作，可能会出现死锁的情况，导致其他客户端无法获得锁。</li>
+<li>锁过期（Lock Expiration）：为了避免死锁，通常会给锁设置过期时间，但如果业务处理时间较长，超过了锁的过期时间，可能会导致其他客户端误认为锁已经释放，从而引发并发访问资源的问题。</li>
+<li>锁的重入性（Lock Reentrancy）：在某些场景下，同一个客户端可能需要多次获取同一个锁，例如嵌套的业务处理逻辑。如果分布式锁没有支持锁的重入性，可能会导致同一个客户端无法在业务处理期间重新获取锁，从而引发死锁或并发访问资源的问题。</li>
+<li>性能开销（Performance Overhead）：使用分布式锁可能会增加系统的性能开销，例如频繁的锁获取和锁释放操作，以及锁的管理和维护。如果锁的使用不当，可能会影响系统的性能和响应时间。</li>
+</ol>
+<h3 id="缓存击穿、缓存穿透、缓存雪崩"><a href="#缓存击穿、缓存穿透、缓存雪崩" class="headerlink" title="缓存击穿、缓存穿透、缓存雪崩"></a>缓存击穿、缓存穿透、缓存雪崩</h3><ul>
+<li><p>缓存击穿：指的是在使用缓存时，一个或多个缓存键过期或者不存在，导致大量请求直接绕过缓存，直接请求数据库或其他后端服务，从而对后端系统造成了较大的压力。这通常发生在高并发的情况下，导致数据库或其他后端服务出现性能瓶颈。</p>
+<p>解决方案：可以通过设置热点数据的缓存过期时间较长，或者使用互斥锁等机制，在缓存失效时只有一个线程去加载数据，并在加载完数据后更新缓存。</p>
+</li>
+<li><p>缓存穿透：指的是在查询数据时，请求的数据在缓存中不存在，但是也不在后端系统中，导致大量的请求直接请求后端系统，从而对后端系统造成了较大的压力。这通常发生在恶意请求或者查询不存在的数据的情况下。</p>
+<p>解决方案：可以在查询前通过布隆过滤器等机制进行缓存层的数据校验，从而过滤掉不存在的数据，避免对后端系统的无效请求。</p>
+</li>
+<li><p>缓存雪崩：指的是在缓存中大量的缓存键在同一时刻过期或者失效，导致大量请求直接请求后端系统，从而对后端系统造成了较大的压力。这通常发生在缓存键的过期时间设置不合理或者缓存服务器出现故障时。</p>
+<p>解决方案：可以通过设置缓存键的过期时间随机化，避免同时大量缓存键过期；使用多级缓存策略，如热缓存、冷缓存、持久化缓存等，以保证缓存的高可用性；使用缓存自动补偿策略，如使用异步更新缓存，从而在缓存失效时自动重新加载数据，避免请求直接访问后端系统。</p>
+</li>
+</ul>
+<h3 id="Redis持久化：RDB和AOF"><a href="#Redis持久化：RDB和AOF" class="headerlink" title="Redis持久化：RDB和AOF"></a>Redis持久化：RDB和AOF</h3><p>Redis支持多种方式的持久化，包括RDB（Redis Database）持久化和AOF（Append-Only File）持久化。</p>
+<ul>
+<li><p>RDB：RDB持久化是将Redis的数据以二进制格式保存到硬盘上的一种方式。当设定的条件满足时，Redis会将当前内存中的数据生成一个快照（Snapshot），并保存到硬盘上的一个RDB文件中。</p>
+<p>RDB文件可以用于数据的备份、恢复以及迁移。</p>
+<p>RDB的优点是生成的文件较小，对性能影响较小；缺点是可能会因为定期生成快照导致数据丢失。</p>
+</li>
+<li><p>AOF：AOF持久化是将Redis的写操作以追加的方式保存到硬盘上的一种方式。每当Redis执行一条写命令时，相应的写操作会被追加到AOF文件的末尾，而不是直接写入到内存中。</p>
+<p>AOF文件记录了所有的写操作，可以用于数据的恢复。</p>
+<p>AOF的优点是可以提供更高的数据安全性，因为每一条写命令都会被记录下来；缺点是生成的文件相对较大，对性能影响较大。</p>
+</li>
+</ul>
+<h3 id="Redis和Memcached-的比较"><a href="#Redis和Memcached-的比较" class="headerlink" title="Redis和Memcached 的比较"></a>Redis和Memcached 的比较</h3><ol>
+<li>数据类型支持：Redis支持丰富的数据类型，包括字符串（string）、哈希（hash）、列表（list）、集合（set）、有序集合（sorted set）等，而Memcached仅支持简单的键值对数据模型。</li>
+<li>持久化支持：Redis支持持久化机制，可以将数据存储到磁盘上，以便在重启或宕机时能够保留数据，而Memcached不支持数据持久化。</li>
+<li>复杂计算和数据处理：Redis支持复杂的计算和数据处理功能，如分布式锁、发布&#x2F;订阅、事务等，而Memcached仅作为简单的键值对缓存，不支持复杂的数据处理操作。</li>
+<li>分布式支持：Redis支持分布式架构，可以通过搭建Redis集群来实现高可用和高性能的缓存解决方案，而Memcached不支持分布式架构，通常需要借助其他工具来实现分布式缓存。</li>
+<li>内存管理：Redis提供了丰富的内存管理功能，如内存淘汰策略、过期时间设置等，而Memcached较为简单，没有像Redis那样的内存管理功能。</li>
+<li>多线程支持：Memcached采用多线程模型，能够充分利用多核处理器的优势，而Redis采用单线程模型，对于某些高并发场景可能需要额外的优化。</li>
+<li>数据一致性：Memcached不保证数据的持久性和一致性，而Redis提供了持久化机制和复制机制，可以保证数据的持久性和一致性。</li>
+</ol>
+<h3 id="Redis事务机制"><a href="#Redis事务机制" class="headerlink" title="Redis事务机制"></a>Redis事务机制</h3><p>Redis 提供了类似于传统关系型数据库的事务概念，允许在一系列的 Redis 命令中进行原子性操作，保证多个命令的执行要么全部成功，要么全部失败，不存在部分成功或部分失败的情况。</p>
+<p>Redis 的事务使用 MULTI、EXEC、WATCH 和 DISCARD 四个命令来实现。具体的步骤如下：</p>
+<ol>
+<li>使用 MULTI 命令开始一个事务。</li>
+<li>在 MULTI 和 EXEC 之间，可以执行多个 Redis 命令，这些命令会被放入一个事务队列中，但不会立即被执行。</li>
+<li>使用 EXEC 命令来执行事务中的所有命令，Redis 会按照事务队列中的顺序依次执行这些命令。</li>
+<li>如果事务中的所有命令都执行成功，返回所有命令的执行结果；如果事务中的命令有一个失败，那么所有命令都不会被执行，返回错误。</li>
+<li>使用 WATCH 命令可以监视一个或多个 Redis 键，如果在事务执行期间这些键被其他客户端修改，事务会被打断。</li>
+<li>使用 DISCARD 命令可以取消当前事务，清空事务队列中的命令。</li>
+</ol>
+<p>需要注意的是，Redis 的事务并不是像关系型数据库那样支持回滚的，即使事务中的某个命令执行失败，其他命令也会继续执行。因此，在使用 Redis 事务时，需要谨慎处理错误情况，并在需要回滚的情况下，通过应用层的处理来实现。</p>
+<h3 id="Redis-的数据过期策略"><a href="#Redis-的数据过期策略" class="headerlink" title="Redis 的数据过期策略"></a>Redis 的数据过期策略</h3><ol>
+<li>主动过期策略：在写入数据时，可以为每个键值对设置一个过期时间（TTL，Time To Live），Redis会在键值对的过期时间到达后主动删除该键值对。这种策略是最常用的过期策略，可以有效地控制数据的生命周期。</li>
+<li>惰性过期策略：在读取数据时，如果发现键值对已经过期，则会删除该键值对并返回空值。这种策略可以避免在写入数据时进行额外的时间和空间开销，但可能导致过期键值对在读取时仍然存在一段时间。</li>
+<li>定期过期策略：Redis会每隔一段时间（默认是每秒钟）检查一部分过期键值对，并删除其中过期的键值对。这种策略可以在不占用太多CPU资源的情况下，定期地清理过期键值对，保持数据集的相对干净。</li>
+</ol>
+<h3 id="Redis-为什么这么快"><a href="#Redis-为什么这么快" class="headerlink" title="Redis 为什么这么快"></a>Redis 为什么这么快</h3><ol>
+<li>内存存储：Redis将数据存储在内存中，而不是在磁盘上。由于内存的读写速度比磁盘快得多，这使得Redis能够实现非常快的读写操作。</li>
+<li>简单的数据结构：Redis支持多种简单的数据结构，如字符串、哈希、列表、集合和有序集合等，这些数据结构都是基于内存的，并且在处理时非常高效。这种简单的数据结构使得Redis在处理数据时能够保持高效率。</li>
+<li>单线程的优点：尽管Redis是单线程的，但它通过异步IO和事件驱动的方式来处理客户端请求，避免了多线程中的锁和竞争等开销，从而减少了系统的复杂性。此外，单线程也使得Redis的操作是原子的，不会出现多线程并发操作导致的数据不一致问题。</li>
+<li>高效的网络通信：Redis使用了高效的网络通信协议，例如RESP（REdis Serialization Protocol），它是一种轻量级的二进制协议，能够快速地将数据传输到客户端。这有助于提高Redis的响应速度。</li>
+</ol>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/2f57a694.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="timewait7">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Hexo">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="undefined | Hexo">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/2f57a694.html" class="post-title-link" itemprop="url">正则表达式</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+      
+
+      <time title="Created: 2024-10-06 16:39:44 / Modified: 16:51:04" itemprop="dateCreated datePublished" datetime="2024-10-06T16:39:44+08:00">2024-10-06</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E6%AD%A3%E5%88%99%E8%A1%A8%E8%BE%BE%E5%BC%8F/" itemprop="url" rel="index"><span itemprop="name">正则表达式</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h2 id="匹配字符"><a href="#匹配字符" class="headerlink" title="匹配字符"></a>匹配字符</h2><p><code>.</code></p>
+<table>
+<thead>
+<tr>
+<th>字符</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>.</code></td>
+<td>匹配任意单个字符</td>
+</tr>
+<tr>
+<td><code>+</code></td>
+<td>匹配一个或多个字符</td>
+</tr>
+<tr>
+<td><code>?</code></td>
+<td>匹配零个或一个字符</td>
+</tr>
+<tr>
+<td><code>*</code></td>
+<td>匹配零个或多个字符</td>
+</tr>
+</tbody></table>
+<h2 id="匹配字符集中的字符"><a href="#匹配字符集中的字符" class="headerlink" title="匹配字符集中的字符"></a>匹配字符集中的字符</h2><p><code>[字符集]</code>：如 <code>[abc]</code> 匹配 a 或 b 或 c。</p>
+<p>字符区间：<code>[0-9]</code> 等价于 <code>[0123456789]</code></p>
+<p><code>[^abc]</code>：匹配除 abc 外所有字符</p>
+<h2 id="空白元字符"><a href="#空白元字符" class="headerlink" title="空白元字符"></a>空白元字符</h2><table>
+<thead>
+<tr>
+<th>元字符</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>\b</code></td>
+<td>回退并删除一个字符</td>
+</tr>
+<tr>
+<td><code>\f</code></td>
+<td>换页符</td>
+</tr>
+<tr>
+<td><code>\n</code></td>
+<td>换行符</td>
+</tr>
+<tr>
+<td><code>\r</code></td>
+<td>回车符</td>
+</tr>
+<tr>
+<td><code>\t</code></td>
+<td>水平制表符</td>
+</tr>
+<tr>
+<td><code>\v</code></td>
+<td>垂直制表符</td>
+</tr>
+</tbody></table>
+<p><code>\r\n</code> 是一些操作系统（如Windows）的文本行结束标签，因此模式 <code>\r\n\r\n</code> 可以用来找出文件中的空白行。</p>
+<p>Unix 和 Linux 使用 <code>\n</code> 来结束文本行，因此在 Unix&#x2F;Linux 上匹配空白行使用 <code>\n\n</code> 即可。</p>
+<hr>
+<h2 id="匹配特定的字符类别"><a href="#匹配特定的字符类别" class="headerlink" title="匹配特定的字符类别"></a>匹配特定的字符类别</h2><h3 id="匹配（非）数字"><a href="#匹配（非）数字" class="headerlink" title="匹配（非）数字"></a>匹配（非）数字</h3><table>
+<thead>
+<tr>
+<th>元字符</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>\d</code></td>
+<td>任何一个数字字符，等价于<code>[0-9]</code></td>
+</tr>
+<tr>
+<td><code>\D</code></td>
+<td>任何一个非数字字符，等价于<code>[^0-9]</code></td>
+</tr>
+</tbody></table>
+<h3 id="匹配（非）字母数字和下划线"><a href="#匹配（非）字母数字和下划线" class="headerlink" title="匹配（非）字母数字和下划线"></a>匹配（非）字母数字和下划线</h3><table>
+<thead>
+<tr>
+<th>元字符</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>\w</code></td>
+<td>等价于 <code>[a-zA-Z0-9_]</code></td>
+</tr>
+<tr>
+<td><code>\W</code></td>
+<td>等价于 <code>[^a-zA-Z0-9_]</code></td>
+</tr>
+</tbody></table>
+<h3 id="匹配（非）空白字符"><a href="#匹配（非）空白字符" class="headerlink" title="匹配（非）空白字符"></a>匹配（非）空白字符</h3><table>
+<thead>
+<tr>
+<th>元字符</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>\s</code></td>
+<td>等价于 <code>[\f\n\r\t\v]</code></td>
+</tr>
+<tr>
+<td><code>\S</code></td>
+<td>等价于 <code>[^\f\n\r\t\v]</code></td>
+</tr>
+</tbody></table>
+<h3 id="匹配-16-进制"><a href="#匹配-16-进制" class="headerlink" title="匹配 16 进制"></a>匹配 16 进制</h3><p><code>\x</code></p>
+<h3 id="匹配-8-进制"><a href="#匹配-8-进制" class="headerlink" title="匹配 8 进制"></a>匹配 8 进制</h3><p><code>\0</code></p>
+<hr>
+<h2 id="POSIX-字符类"><a href="#POSIX-字符类" class="headerlink" title="POSIX 字符类"></a>POSIX 字符类</h2><table>
+<thead>
+<tr>
+<th>字符类</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>[:alnum:]</code></td>
+<td>等价于 <code>[a-zA-Z0-9]</code></td>
+</tr>
+<tr>
+<td><code>[:digit:]</code></td>
+<td>等价于 <code>[0-9]</code></td>
+</tr>
+<tr>
+<td><code>[:alpha:]</code></td>
+<td>等价于 <code>[a-zA-Z]</code></td>
+</tr>
+<tr>
+<td><code>[:lower:]</code></td>
+<td>等价于 <code>[a-z]</code></td>
+</tr>
+<tr>
+<td><code>[:upper:]</code></td>
+<td>等价于 <code>[A-Z]</code></td>
+</tr>
+<tr>
+<td><code>[:space:]</code></td>
+<td>任何一个空白字符，包括空格</td>
+</tr>
+<tr>
+<td><code>[:xdigit:]</code></td>
+<td>任何一个十六进制数，等价于 <code>[a-fA-F0-9]</code></td>
+</tr>
+</tbody></table>
+<h2 id="匹配重复次数"><a href="#匹配重复次数" class="headerlink" title="匹配重复次数"></a>匹配重复次数</h2><ul>
+<li>精确次数：<code>&#123;m&#125;</code></li>
+<li>区间次数：<code>&#123;m, n&#125;</code></li>
+<li>至少多少次：<code>&#123;m, &#125;</code></li>
+</ul>
+<h2 id="防止过度匹配"><a href="#防止过度匹配" class="headerlink" title="防止过度匹配"></a>防止过度匹配</h2><p><code>*</code> 和 <code>+</code> 都是所谓的“贪婪型”元字符，它们会尽可能地从一段文本的开头一直匹配到这段文本的末尾，而不是从这段文本的开头匹配到碰到第一个匹配时为止。</p>
+<p>如果不需要这种“贪婪行为”，可以使用这些元字符的“懒惰型”版本，给贪婪型元字符加上一个 <code>?</code> 后缀即可。</p>
+<table>
+<thead>
+<tr>
+<th>贪婪型元字符</th>
+<th>懒惰型元字符</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>*</code></td>
+<td><code>*?</code></td>
+</tr>
+<tr>
+<td><code>+</code></td>
+<td><code>+?</code></td>
+</tr>
+<tr>
+<td><code>&#123;n, &#125;</code></td>
+<td><code>&#123;n, &#125;?</code></td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="单词边界"><a href="#单词边界" class="headerlink" title="单词边界"></a>单词边界</h2><p><code>\b</code>：如 <code>\bhello\b</code> 将严格匹配文本中 <code>hello</code>，而不匹配包含 <code>hello</code> 的其他内容。</p>
+<p><code>\b</code> 匹配的是一个这样的位置，这个位置位于一个能够用来构成单词的字符（字母、数字和下划线，也就是与\w相匹配的字符）和一个不能用来构成单词的字符（也就是与\W相匹配的字符）之间。</p>
+<h2 id="字符串边界"><a href="#字符串边界" class="headerlink" title="字符串边界"></a>字符串边界</h2><p><code>^</code>：匹配文本的开头</p>
+<p><code>$</code>：匹配文本的结尾</p>
+<p><code>(?m)</code>：按行匹配</p>
+<p>如：模式 <code>(?m)^\s*//.*$</code> 可以找出程序中所有的单行注释</p>
+<h2 id="子表达式"><a href="#子表达式" class="headerlink" title="子表达式"></a>子表达式</h2><p>用来表明重复次数的元字符（如 ? 或 * 或 {2}，等等）只作用于紧挨着它的前一个字符或元字符，为了表明希望多个字符重复出现，需要使用子表达式。</p>
+<p>如 <code>(((\d&#123;1, 2&#125;)|(1\d&#123;2&#125;)|(2[0-4]\d)|(25[0-5]))\.)&#123;3&#125;((\d&#123;1, 2&#125;)|(1\d&#123;2&#125;)|(2[0-4]\d)|(25[0-5]))</code> 可以匹配点分十进制IP地址。</p>
+<h2 id="回溯引用"><a href="#回溯引用" class="headerlink" title="回溯引用"></a>回溯引用</h2><p>回溯引用允许正则表达式模式引用前面的匹配结果。</p>
+<p>如想找出文本里所有连续重复出现的单词：<code>[ ]+(\w+)[ ]+\1</code></p>
+<p><code>[ ]+</code> 匹配一个或多个空格，<code>\w+</code> 匹配一个或多个字母数字字符，<code>[ ]+</code> 匹配随后的空格。</p>
+<p><code>\1</code> 是一个回溯引用，而它引用的正是前面划分出来的那个子表达式：当 <code>(\w+)</code>匹配到单词 of 的时候，<code>\1</code>也匹配单词 of 。这样就能找到重复出现的单词。</p>
+<p><code>\1</code> 代表第 1 个子表达式，<code>\2</code> 代表第 2 个子表达式，依次类推。</p>
+<p>回溯引用匹配通常从 1 开始计数。在许多实现里，<code>\0</code> 用来代表整个正则表达式。</p>
+<hr>
+<p>回溯引用在文本替换中的应用：将格式如 313-555-1234 的电话号码替换为（313）555-1234。</p>
+<ul>
+<li><p>正则表达式：<code>(\d&#123;3&#125;)(-)(\d&#123;3&#125;)(-)(\d&#123;4&#125;)</code></p>
+</li>
+<li><p>替换：<code>($1) $3-$5</code></p>
+</li>
+</ul>
+<h2 id="大小写转换"><a href="#大小写转换" class="headerlink" title="大小写转换"></a>大小写转换</h2><table>
+<thead>
+<tr>
+<th>元字符</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>\l</code></td>
+<td>把下一个字符转换为小写</td>
+</tr>
+<tr>
+<td><code>\u</code></td>
+<td>把下一个字符转换为大写</td>
+</tr>
+<tr>
+<td><code>\L</code></td>
+<td>把 <code>\L</code> 到 <code>\E</code> 之间的字符全部转换为小写</td>
+</tr>
+<tr>
+<td><code>\U</code></td>
+<td>把 <code>\U</code> 到 <code>\E</code> 之间的字符全部转换为大写</td>
+</tr>
+<tr>
+<td><code>\E</code></td>
+<td>结束 <code>\L</code> 或 <code>\U</code> 转换</td>
+</tr>
+</tbody></table>
+<p>如将一级标题内的文字转换为大写：</p>
+<ul>
+<li>正则表达式：<code>(&lt;[Hh]1&gt;(.*?)(&lt;[/Hh]1&gt;))</code></li>
+<li>替换：<code>$1\U$2\E$3</code></li>
+</ul>
+<hr>
+<h2 id="前后查找"><a href="#前后查找" class="headerlink" title="前后查找"></a>前后查找</h2><h3 id="向前查找"><a href="#向前查找" class="headerlink" title="向前查找: (?=)"></a>向前查找: <code>(?=)</code></h3><ul>
+<li>文本</li>
+</ul>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">http://www.forta.com</span><br><span class="line">https://mail.forta.com</span><br><span class="line">ftp://ftp.forta/com</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>正则表达式</li>
+</ul>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">.+(?=:)</span><br></pre></td></tr></table></figure>
+
+<p><code>(?=:)</code> 向前查找 <code>:</code> ，结果不包含 <code>:</code>。</p>
+<h3 id="向后查找"><a href="#向后查找" class="headerlink" title="向后查找: (?&lt;=)"></a>向后查找: <code>(?&lt;=)</code></h3><ul>
+<li>文本</li>
+</ul>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">ABC01: $23.45</span><br><span class="line">CFMX1: $899.00</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>正则表达式1</li>
+</ul>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">\$[0-9.]+</span><br></pre></td></tr></table></figure>
+
+<p>这个模式能把 <code>$23.45</code> 和 <code>$899.00</code> 都找出来</p>
+<ul>
+<li>正则表达式2</li>
+</ul>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[0-9.]+</span><br></pre></td></tr></table></figure>
+
+<p>如果想找出不带 <code>$</code> 的价格，去掉 <code>$</code> 的表达式 <code>[0-9.]+</code> 可以符合，但是同时也会把其他数字匹配出来。</p>
+<p>这时候就是向后查找派上用场的地方。</p>
+<ul>
+<li>正则表达式3</li>
+</ul>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">(?&lt;=\$)[0-9.]+</span><br></pre></td></tr></table></figure>
+
+<p>这个表达式会查找所有以 <code>$</code> 开头的价格，但是不把 <code>$</code> 包含到结果里。</p>
+<hr>
+<h3 id="结合前后查找"><a href="#结合前后查找" class="headerlink" title="结合前后查找"></a>结合前后查找</h3><p>如下正则表达式可以匹配 <code>&lt;title&gt;&lt;/title&gt;</code> 标签内的文本：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">(?&lt;=&lt;[tT][iI][tT][lL][eE]&gt;.*(?=&lt;/[tT][iI][tT][lL][eE]&gt;))</span><br></pre></td></tr></table></figure>
+
+<h3 id="对前后查找取非"><a href="#对前后查找取非" class="headerlink" title="对前后查找取非"></a>对前后查找取非</h3><table>
+<thead>
+<tr>
+<th>操作符</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>(?=)</code></td>
+<td>向前查找以某字符（串）结束的文本</td>
+</tr>
+<tr>
+<td><code>(?!)</code></td>
+<td>向前查找不以某字符（串）结束的文本</td>
+</tr>
+<tr>
+<td><code>(?&lt;=)</code></td>
+<td>向后查找以某字符（串）开头的文本</td>
+</tr>
+<tr>
+<td><code>(?&lt;!)</code></td>
+<td>向后查找不以某字符（串）开头的文本</td>
+</tr>
+</tbody></table>
+<p>如 <code>(?=\$)\d+</code> 查找以 <code>$</code> 开头的价格文本；</p>
+<p>而 <code>\b(?&lt;!\$)\d+\b</code> 查找不以 <code>$</code> 开头的数字文本。</p>
+<hr>
+<h2 id="条件"><a href="#条件" class="headerlink" title="条件"></a>条件</h2><h3 id="回溯引用条件"><a href="#回溯引用条件" class="headerlink" title="回溯引用条件"></a>回溯引用条件</h3><p>文本：有效的号码格式是前两个</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">123-456-7890</span><br><span class="line">(123) 456-7890</span><br><span class="line">(123)-456-7890</span><br><span class="line">(123 456-7890</span><br><span class="line">(123-456-7890</span><br></pre></td></tr></table></figure>
+
+<p>正则表达式：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">(\()?\d&#123;3&#125;(?(1)\)|-)\d&#123;3&#125;-\d&#123;4&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>?(1)</code> 会回溯引用第一个子表达式并通过判断 <code>\(</code> 是否出现，如果出现，就使用 <code>\)</code>，否则使用 <code>-</code>。</p>
+<h3 id="前后查找条件"><a href="#前后查找条件" class="headerlink" title="前后查找条件"></a>前后查找条件</h3><p>前后查找条件只在一个向前查找或向后查找操作取得成功的情况下才允许一个表达式被使用。</p>
+<p>问题描述：</p>
+<p>美国邮政编码有两种格式，一种是12345形式的ZIP格式，另一种是12345-6789形式的ZIP+4格式。只有ZIP+4格式才必须使用连字符来分隔前5位和后4位数字。</p>
+<p>正则表达式：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">\d&#123;5&#125;(?(?=-)-\d&#123;4&#125;)</span><br></pre></td></tr></table></figure>
+
+<p><code>\d&#123;5&#125;</code> 匹配前5位数字，接下来 <code>(?=-)</code> 向前查找 <code>-</code>，如果 <code>-</code> 存在，就使用 <code>-\d&#123;4&#125;</code>。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/ad24756a.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="timewait7">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Hexo">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="undefined | Hexo">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/ad24756a.html" class="post-title-link" itemprop="url">逻辑思维题</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+      
+
+      <time title="Created: 2024-10-06 16:38:04 / Modified: 16:51:04" itemprop="dateCreated datePublished" datetime="2024-10-06T16:38:04+08:00">2024-10-06</time>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h2 id="小白鼠试毒药"><a href="#小白鼠试毒药" class="headerlink" title="小白鼠试毒药"></a>小白鼠试毒药</h2><ol>
+<li>把瓶子用二进制进行编号，30只老鼠五位二进制就够了</li>
+<li>让第 i 只小白鼠喝掉编号从右起第 i 位为 1 的水，每只老鼠的死活都可以确定出二进制数中的一位</li>
+</ol>
+<h2 id="100个人按灯"><a href="#100个人按灯" class="headerlink" title="100个人按灯"></a>100个人按灯</h2><p>问题描述：有100盏灯,编号依次为1,2,3.100,电灯全部关着。现在来了100个人,第一个人把所有的灯开关按下；第二个人隔一个灯按下（2,4,6…）；第三个人每隔两个灯按下（3,6,9…）.第100个人隔99个灯按下（100）,最后还有几盏灯，那几盏灯亮着？</p>
+<p>最后亮着的灯的编号会是完全平方数，因为只有完全平方数的因数是奇数个，会被操作奇数次，从而保持亮着的状态。</p>
+<p>在1到100之间，完全平方数有10个，分别是1、4、9、16、25、36、49、64、81、100。</p>
+<p>所以，最后亮着的灯的编号分别是1、4、9、16、25、36、49、64、81、100。共有10盏灯亮着。</p>
+<h2 id="100的阶乘有几个0"><a href="#100的阶乘有几个0" class="headerlink" title="100的阶乘有几个0"></a>100的阶乘有几个0</h2><p>100的阶乘（100!）有多少个末尾的零，可以通过计算其因式分解中10的因子个数来确定，因为末尾的零是由2和5相乘得到的。</p>
+<p>首先，我们将100!进行因式分解。100!表示从1乘到100的连续整数的乘积，可以写成：</p>
+<p>100! &#x3D; 1 × 2 × 3 × 4 × … × 99 × 100</p>
+<p>接下来，我们观察乘法中每一项的因子中2和5的个数。</p>
+<p>在100!中，偶数的因子2的个数明显比5多，因为每隔一个数就会有一个偶数出现，而偶数都包含因子2。所以，我们只需要关注100!中5的因子个数。</p>
+<p>在100!中，5、10、15、20、…、95、100这些数都包含因子5，共有20个数。而25、50、75、100这些数包含两个因子5，所以需要将其计算在内。</p>
+<p>因此，100!中总共有20 + 4 &#x3D; 24个因子5。</p>
+<p>综上所述，100!末尾共有24个零。</p>
+<h2 id="用天平找最轻-重的球"><a href="#用天平找最轻-重的球" class="headerlink" title="用天平找最轻&#x2F;重的球"></a>用天平找最轻&#x2F;重的球</h2><p>问题描述：8个球，一个轻，天平2次找出来</p>
+<p>第一次称重：将任意三个球放在天平的一边，再将另外三个球放在另一边，剩下的两个球不放在天平上。如果天平平衡，则轻的球在剩下的两个球中，可以直接通过目测或者手感来找出轻的球。如果天平不平衡，那么轻的球一定在轻的那一边。</p>
+<p>第二次称重：将轻的那一边的三个球中的两个球放在天平的一边，将剩下的一个球放在另一边。如果天平平衡，则剩下的那个球就是轻的球；如果天平不平衡，那么轻的球就是轻的那一边的球。</p>
+<h2 id="2017的2017-次方的最后一位数"><a href="#2017的2017-次方的最后一位数" class="headerlink" title="2017的2017 次方的最后一位数"></a>2017的2017 次方的最后一位数</h2><p>计算2017的2017次方的最后一位数，可以使用数论中的数学性质来简化计算。根据数学性质，一个整数的末位数只和该整数的个位数有关，而与其他位数无关。</p>
+<p>首先，我们观察2017的个位数是什么。2017除以10的余数是7，因此2017的个位数是7。</p>
+<p>接下来，我们观察7的幂的个位数的规律。我们可以列举一些7的幂，看看个位数的变化：</p>
+<p>7^1 &#x3D; 7 7^2 &#x3D; 49 7^3 &#x3D; 343 7^4 &#x3D; 2401 7^5 &#x3D; 16807 …</p>
+<p>可以观察到，7的幂的个位数会在7、9、3、1这四个数字之间循环。具体地，7^1的个位数是7，7^2的个位数是9，7^3的个位数是3，7^4的个位数是1，7^5的个位数又是7，以此类推。</p>
+<p>因此，我们可以利用这个规律来简化计算2017的2017次方的个位数。2017除以4的余数是1，所以2017的2017次方的个位数也是1。</p>
+<p>综上所述，2017的2017次方的最后一位数是1。</p>
+<h2 id="有25匹马，五个赛道，用最少比赛次数将25匹马排序"><a href="#有25匹马，五个赛道，用最少比赛次数将25匹马排序" class="headerlink" title="有25匹马，五个赛道，用最少比赛次数将25匹马排序"></a>有25匹马，五个赛道，用最少比赛次数将25匹马排序</h2><p>可以通过以下步骤将25匹马在5个赛道上进行比赛，用最少的次数将其排序：</p>
+<ol>
+<li>将25匹马分为5组，每组5匹马。这可以通过随机分组或者按照某种规则进行分组，例如将25匹马按照体重、年龄等特征进行分组，使得每组中的马尽量均匀。</li>
+<li>在第一个赛道上比赛这5组马，记录每组马的名次（即第1到第5名）。</li>
+<li>在第二个赛道上，取每组的第1名进行比赛，记录这5匹马的名次。</li>
+<li>在第三个赛道上，取第一步中未参加第二轮比赛的马（即每组的第2到第5名）和第二步中的第1名共15匹马进行比赛，记录这15匹马的名次。</li>
+<li>在第四个赛道上，取第二步中的第2名和第三步中的前两名共4匹马，再加上第一步中未参加前三轮比赛的马（即每组的第4和第5名），共7匹马进行比赛，记录这7匹马的名次。</li>
+<li>在第五个赛道上，取第三步中的第3名和第四步中的前三名共4匹马，再加上第二步中未参加前四轮比赛的马（即每组的第5名），共5匹马进行比赛，记录这5匹马的名次。</li>
+<li>根据每匹马在所有比赛中的名次，可以确定它们的排序。</li>
+</ol>
+<p>通过这种方法，最多需要进行5轮比赛，就可以将25匹马排序，并且在每轮比赛中都充分利用了赛道上的比较次数，从而达到了最少比赛次数的目的。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/8badff60.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="timewait7">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Hexo">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="undefined | Hexo">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/8badff60.html" class="post-title-link" itemprop="url">计算机网络面试题</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+      
+
+      <time title="Created: 2024-10-06 16:29:56 / Modified: 16:51:04" itemprop="dateCreated datePublished" datetime="2024-10-06T16:29:56+08:00">2024-10-06</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%BD%91%E7%BB%9C/" itemprop="url" rel="index"><span itemprop="name">计算机网络</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h2 id="cookie、session、token"><a href="#cookie、session、token" class="headerlink" title="cookie、session、token"></a>cookie、session、token</h2><p>Cookie、Session、Token 是三种常用于身份认证和状态管理的 Web 开发中的概念，它们之间有以下区别：</p>
+<ol>
+<li>Cookie（Cookie）：是服务器发送并保存到客户端的一小段文本信息，通常用于存储用户的身份认证信息、用户偏好设置等。Cookie 通常由服务器生成并通过 HTTP 头部发送给客户端，客户端的浏览器会将 Cookie 存储在客户端，并在每次请求同一域名下的网页时将 Cookie 自动附加到请求头中发送给服务器。</li>
+<li>Session（会话）：是服务器端用于跟踪用户状态的一种机制。在服务器端创建一个 Session 对象，为每个用户分配一个唯一的 Session ID，将这个 Session ID 通过 Cookie 或者 URL 参数发送给客户端。客户端在后续的请求中会将这个 Session ID 附加到请求头或者 URL 中，服务器通过这个 Session ID 来识别不同的用户，并从 Session 对象中获取相应的状态信息。与 Cookie 不同，Session 数据存储在服务器端，客户端只保存 Session ID，具有一定的安全性。</li>
+<li>Token（令牌）：是一种在身份认证中使用的授权凭证，通常是一个字符串。服务器在用户身份认证成功后，生成一个 Token，并将其发送给客户端。客户端在后续的请求中将 Token 附加到请求头或者其他方式发送给服务器，服务器通过验证 Token 的有效性来进行身份认证。Token 可以包含用户信息、权限信息等，并且通常使用加密算法进行签名，具有较高的安全性和灵活性。相比于 Cookie 和 Session，Token 更加适合用于跨域认证和无状态服务。</li>
+</ol>
+<p>总结：Cookie 是存储在客户端的文本信息，Session 是服务器端用于跟踪用户状态的机制，Token 是一种授权凭证。Cookie 存储在客户端，Session 存储在服务器端，Token 通常在客户端和服务器端之间传递。Token 具有较高的安全性和灵活性，适合用于跨域认证和无状态服务。</p>
+<h2 id="HTTP-1-0、1-1、2-0-的区别"><a href="#HTTP-1-0、1-1、2-0-的区别" class="headerlink" title="HTTP 1.0、1.1、2.0 的区别"></a>HTTP 1.0、1.1、2.0 的区别</h2><p>HTTP（Hypertext Transfer Protocol）是一种用于在Web中传输数据的协议，常见的版本包括HTTP 1.0、HTTP 1.1和HTTP 2.0。它们之间有以下区别：</p>
+<ol>
+<li>性能：HTTP 2.0相较于HTTP 1.0和HTTP 1.1有更好的性能。HTTP 1.0和HTTP 1.1使用串行方式传输数据，即每个请求和响应都必须按照顺序进行处理，而HTTP 2.0使用二进制帧（binary frames）和多路复用（multiplexing）技术，可以同时发送多个请求和响应，从而提高了并发性能和响应速度。</li>
+<li>头部压缩：HTTP 2.0支持头部压缩，可以减少传输的头部数据量，从而降低了网络传输的开销。而HTTP 1.0和HTTP 1.1每次请求和响应都需要传输完整的头部信息，增加了网络传输的负担。</li>
+<li>服务器推送：HTTP 2.0支持服务器推送（server push）功能，服务器可以在客户端请求之前主动将一些资源推送给客户端，从而减少客户端的请求次数和等待时间，提高了页面加载速度。而HTTP 1.0和HTTP 1.1需要客户端发送请求才能获取资源。</li>
+<li>安全性：HTTP 2.0默认使用TLS（Transport Layer Security）加密通信，从而提供了更好的安全性，可以防止数据被窃取和篡改。而HTTP 1.0和HTTP 1.1的通信默认是明文的，需要额外的安全措施，例如HTTPS协议来保护通信安全。</li>
+<li>兼容性：HTTP 2.0对之前的HTTP版本进行了优化，可以兼容HTTP 1.1，即使在不支持HTTP 2.0的环境下，仍然可以使用HTTP 1.1进行通信。而HTTP 1.0和HTTP 1.1之间的兼容性较低，一些HTTP 1.1的特性在HTTP 1.0中不支持。</li>
+</ol>
+<h2 id="TCP三次握手-四次挥手"><a href="#TCP三次握手-四次挥手" class="headerlink" title="TCP三次握手&amp;四次挥手"></a>TCP三次握手&amp;四次挥手</h2><p>TCP三次握手（Three-Way Handshake）是建立TCP连接时使用的一种通信过程，用于确保客户端和服务器之间建立可靠的连接。</p>
+<p>TCP三次握手的步骤如下：</p>
+<ol>
+<li>第一步（客户端发送 SYN）：客户端发送一个带有SYN（同步序列号）标志的TCP包，表示客户端请求建立连接。此时客户端进入SYN_SENT状态。</li>
+<li>第二步（服务器发送 SYN+ACK）：服务器收到客户端的SYN包后，如果同意建立连接，会发送一个带有SYN和ACK（确认序列号）标志的TCP包作为应答。此时服务器进入SYN_RCVD状态。</li>
+<li>第三步（客户端发送 ACK）：客户端收到服务器的SYN+ACK包后，会发送一个带有ACK标志的TCP包，确认对服务器的连接请求。此时客户端和服务器都进入已建立连接（ESTABLISHED）状态，可以开始进行数据传输。</li>
+</ol>
+<p>TCP三次握手的主要目的包括：</p>
+<ol>
+<li>确保双方的通信能力：通过三次握手，客户端和服务器可以互相确认对方的通信能力，并确保双方都能够正常发送和接收TCP包。</li>
+<li>防止过期的连接请求：TCP协议中可能存在因网络延迟或其他原因导致连接请求过期的情况。通过三次握手，可以避免过期的连接请求对后续连接的干扰。</li>
+</ol>
+<p>TCP四次挥手（Four-Way Handshake）是用于关闭TCP连接时的一种通信过程，用于在客户端和服务器之间正常终止连接。</p>
+<p>TCP四次挥手的步骤如下：</p>
+<ol>
+<li>第一步（客户端发送 FIN）：客户端发送一个带有FIN（结束标志）标志的TCP包，表示客户端不再发送数据，并请求关闭连接。此时客户端进入FIN_WAIT_1状态。</li>
+<li>第二步（服务器发送 ACK）：服务器收到客户端的FIN包后，会发送一个带有ACK（确认标志）标志的TCP包作为应答，确认对客户端的连接关闭请求。此时服务器进入CLOSE_WAIT状态，而客户端进入FIN_WAIT_2状态。</li>
+<li>第三步（服务器发送 FIN）：服务器发送一个带有FIN标志的TCP包，表示服务器也希望关闭连接。此时服务器进入LAST_ACK状态。</li>
+<li>第四步（客户端发送 ACK）：客户端收到服务器的FIN包后，会发送一个带有ACK标志的TCP包作为应答，确认对服务器的连接关闭请求。此时客户端进入TIME_WAIT状态。</li>
+</ol>
+<p>在客户端发送最后一个ACK包后，经过一个固定的时间（通常为两倍的最大段生存时间，即2MSL，MSL为Maximum Segment Lifetime，表示一个TCP段在网络中的最长生存时间），客户端和服务器的连接会被正式关闭，并进入CLOSED状态。</p>
+<p>TCP四次挥手的主要目的包括：</p>
+<ol>
+<li>双方确认连接关闭：通过四次挥手，客户端和服务器可以互相确认对方的连接关闭请求，并确保连接在双方都已经结束后才会断开。</li>
+<li>完整传输未确认的数据：在进行连接关闭时，可能还存在未确认的数据包在传输中。通过四次挥手，可以确保在关闭连接前，已经传输的未确认数据可以被完整地接收和处理。</li>
+</ol>
+<p>需要注意的是，TCP四次挥手中的TIME_WAIT状态是为了防止“网络中的孤儿连接”（Orphaned Connection）问题，即在连接关闭后，可能仍然存在网络中延迟到达的TCP包，导致连接被错误地重新建立。TIME_WAIT状态的持续时间通常较短，可以根据具体的实现和网络环境进行配置。</p>
+<h2 id="time-wait是客户端状态还是服务器状态，为什么要等待2MSL"><a href="#time-wait是客户端状态还是服务器状态，为什么要等待2MSL" class="headerlink" title="time_wait是客户端状态还是服务器状态，为什么要等待2MSL"></a>time_wait是客户端状态还是服务器状态，为什么要等待2MSL</h2><p>TIME_WAIT是指TCP连接关闭后，主动关闭连接的一方（通常是客户端）进入的一种状态，而不是服务器状态。</p>
+<p>TCP连接关闭后，主动关闭连接的一方（发送了最后的ACK包）会进入TIME_WAIT状态，并在这个状态下等待一段时间，通常是两倍的最大段生存时间（Maximum Segment Lifetime, MSL）。MSL是指一个TCP段在网络中的最长生存时间，通常为30秒到2分钟不等，具体取决于系统和网络配置。</p>
+<p>等待2MSL的目的是为了确保在网络中所有可能存在的延迟、丢包、重传等情况下，原先连接的所有TCP包都能够被完全清除，以避免出现“网络中的孤儿连接”（Orphaned Connection）问题。如果在TIME_WAIT状态结束后，再次遇到相同的IP地址和端口号的连接请求，那么该连接请求可以被安全地确认为是一个新的连接，而不是与之前的连接混淆。</p>
+<p>需要注意的是，TIME_WAIT状态对于服务器而言是一种资源消耗，因为服务器需要为每个处于TIME_WAIT状态的连接保留一定的资源，例如内存和端口号等。因此，在某些高负载的服务器环境中，可以通过调整系统的TCP参数来缩短TIME_WAIT状态的持续时间，以减少资源消耗。但需要小心的是，过短的TIME_WAIT时间可能会导致出现连接复用问题，因此需要根据实际情况进行配置。</p>
+<h2 id="TCP和UDP的区别"><a href="#TCP和UDP的区别" class="headerlink" title="TCP和UDP的区别"></a>TCP和UDP的区别</h2><p>TCP（Transmission Control Protocol）和UDP（User Datagram Protocol）是两种常用的传输层协议，用于在计算机网络中进行数据传输。它们有以下几点主要的区别：</p>
+<ol>
+<li>连接导向 vs 无连接：TCP是一种面向连接的协议，它在通信双方建立连接后，通过可靠的数据传输和确认机制来保证数据的可靠性和完整性。而UDP是一种无连接的协议，通信双方之间没有建立连接的过程，每次发送数据都是独立的，不保证数据的可靠性和完整性。</li>
+<li>可靠性 vs 高效性：TCP提供可靠的数据传输，保证数据的顺序、完整性和可靠性，确保数据在传输过程中不会丢失或损坏。而UDP不保证数据的可靠性，因此传输速度较快，适用于对实时性要求较高但对可靠性要求不高的应用，如音频、视频等。</li>
+<li>流式传输 vs 报文传输：TCP提供面向流的传输方式，数据在发送端和接收端之间被视为连续的字节流，没有固定的消息边界。而UDP提供面向报文的传输方式，每个UDP包都是独立的，具有固定的消息边界，接收端可以直接读取到完整的消息。</li>
+<li>拥塞控制 vs 无拥塞控制：TCP具有拥塞控制机制，可以在网络拥塞时自动调整传输速率，避免网络拥塞导致的丢包和数据传输延迟。而UDP没有拥塞控制机制，发送速率不受限制，容易导致网络拥塞和数据丢失。</li>
+<li>连接状态管理：TCP维护连接的状态信息，包括连接的建立、维护和关闭，需要较多的资源和处理开销。而UDP没有连接状态的管理，通信双方之间没有复杂的握手和状态维护过程，资源开销较小。</li>
+<li>应用场景：TCP适用于对数据可靠性要求较高的应用，例如文件传输、网页浏览、电子邮件等。UDP适用于对数据实时性要求较高的应用，例如实时语音、实时视频、在线游戏等。</li>
+</ol>
+<h2 id="HTTP状态码"><a href="#HTTP状态码" class="headerlink" title="HTTP状态码"></a>HTTP状态码</h2><p>HTTP（Hypertext Transfer Protocol）状态码是在客户端向服务器发起请求后，服务器返回的一个3位数字的状态码，用于表示服务器对请求的处理结果的标识。HTTP状态码用于描述客户端与服务器之间的通信状态，帮助客户端了解服务器处理请求时的情况。以下是一些常见的HTTP状态码及其含义：</p>
+<p>1xx（信息性状态码）：表示服务器已接收到请求，但需要进一步处理。</p>
+<ul>
+<li>100 Continue：服务器已接收到请求的一部分，并且要求客户端继续发送剩余部分。</li>
+</ul>
+<p>2xx（成功状态码）：表示服务器已成功接收、理解并处理请求。</p>
+<ul>
+<li>200 OK：请求成功，服务器返回请求的数据。</li>
+<li>201 Created：请求成功，服务器创建了新资源并返回资源的URI。</li>
+<li>204 No Content：请求成功，但服务器没有返回任何数据。</li>
+</ul>
+<p>3xx（重定向状态码）：表示需要进一步操作以完成请求。</p>
+<ul>
+<li>301 Moved Permanently：请求的资源已永久移动到新位置，客户端应该更新链接。</li>
+<li>302 Found &#x2F; 307 Temporary Redirect：请求的资源暂时移动到新位置，客户端应该继续使用原始链接。</li>
+</ul>
+<p>4xx（客户端错误状态码）：表示客户端发送的请求有错误。</p>
+<ul>
+<li>400 Bad Request：请求错误，服务器无法理解请求。</li>
+<li>401 Unauthorized：未授权，需要提供有效的身份验证信息。</li>
+<li>403 Forbidden：禁止访问，客户端没有权限访问请求的资源。</li>
+<li>404 Not Found：请求的资源不存在。</li>
+</ul>
+<p>5xx（服务器错误状态码）：表示服务器在处理请求时出现错误。</p>
+<ul>
+<li>500 Internal Server Error：服务器内部错误，无法完成请求。</li>
+<li>502 Bad Gateway：网关错误，表示服务器作为代理或网关从上游服务器接收到无效的响应。</li>
+<li>503 Service Unavailable：服务不可用，服务器暂时无法处理请求。</li>
+</ul>
+<h2 id="HTTP缓存"><a href="#HTTP缓存" class="headerlink" title="HTTP缓存"></a>HTTP缓存</h2><p>HTTP缓存是一种在客户端（如浏览器）和服务器之间进行数据传输时，通过保存已获取的资源的副本来提高性能和减少带宽消耗的技术。</p>
+<p>HTTP缓存可以在客户端缓存和服务器端缓存两个层面上进行，分别称为客户端缓存和代理服务器缓存。下面是一些常见的HTTP缓存相关的概念和技术：</p>
+<ol>
+<li>缓存控制：HTTP协议通过使用一些缓存控制头字段来控制缓存行为，例如<code>Cache-Control</code>、<code>Expires</code>、<code>ETag</code>、<code>Last-Modified</code>等。这些头字段可以告诉客户端或代理服务器是否应该缓存资源，以及缓存资源的有效期、验证方式等。</li>
+<li>强缓存：通过设置<code>Cache-Control</code>或<code>Expires</code>头字段，服务器可以指示客户端在一定时间内直接使用缓存的资源，而无需请求服务器验证资源的有效性。这可以有效减少对服务器的请求，提高性能。</li>
+<li>协商缓存：通过设置<code>ETag</code>和<code>Last-Modified</code>头字段，服务器可以在客户端请求时判断资源是否发生了变化，从而避免返回重复的资源。客户端可以通过发送<code>If-None-Match</code>和<code>If-Modified-Since</code>头字段来验证资源的有效性，并在资源未发生变化时使用缓存。</li>
+<li>缓存策略：缓存策略是一种定义如何使用缓存的规则或策略，例如最大缓存时间、缓存的资源类型、缓存的范围等。不同的应用场景和资源类型可能需要不同的缓存策略来达到最佳性能。</li>
+<li>缓存的优势：HTTP缓存可以显著提高Web应用的性能，减少网络带宽的消耗，降低服务器的负载，提升用户体验。良好的缓存策略可以减少重复请求，缩短响应时间，降低服务器端的资源消耗，从而提高系统的可伸缩性和性能。</li>
+</ol>
+<p>需要注意的是，不当的缓存策略可能导致资源过期或资源不一致的问题，因此在使用HTTP缓存时应该根据具体的应用场景和需求进行合理的配置和管理。</p>
+<h2 id="Cookie保存时间"><a href="#Cookie保存时间" class="headerlink" title="Cookie保存时间"></a>Cookie保存时间</h2><p>Cookie（HTTP Cookie）是一种在客户端（例如浏览器）和服务器之间传递的小型文本文件，用于在Web应用中存储和传递有关用户会话和状态的信息。Cookie通常具有一定的保存时间，可以通过设置过期时间来控制其有效期。</p>
+<p>在HTTP协议中，Cookie可以通过设置Expires（过期时间）或Max-Age（最大生存时间）属性来指定其有效期。这两个属性的单位都是秒，用于表示Cookie的保存时间。</p>
+<ol>
+<li>Expires属性：通过设置Expires属性，服务器可以指定Cookie的过期时间，即Cookie在客户端的保存时间。一旦超过过期时间，客户端会自动删除该Cookie。Expires属性的值是一个GMT格式的日期字符串，例如：”Thu, 01 Jan 1970 00:00:00 GMT”。</li>
+<li>Max-Age属性：通过设置Max-Age属性，服务器可以指定Cookie的最大生存时间，即Cookie在客户端的保存时间。Max-Age属性的值是一个整数，表示从当前时间开始，Cookie的有效期持续的秒数。例如，设置Max-Age为3600表示Cookie的有效期为1小时。</li>
+</ol>
+<p>需要注意的是，不同浏览器对Cookie的最长保存时间有一定的限制，一般情况下不会超过20年。同时，如果未设置过期时间或最大生存时间，或者设置为0，那么Cookie将成为会话Cookie，只在当前会话期间有效，即关闭浏览器后会自动删除。</p>
+<p>在使用Cookie时，应当合理设置其过期时间或最大生存时间，以保护用户隐私和确保系统的安全性。特别是在存储敏感信息如用户认证信息时，应采取额外的安全措施，例如加密存储或使用安全的Cookie属性，如Secure属性和HttpOnly属性，以提高Cookie的安全性。</p>
+<h2 id="TCP粘包和拆包"><a href="#TCP粘包和拆包" class="headerlink" title="TCP粘包和拆包"></a>TCP粘包和拆包</h2><ul>
+<li>粘包和拆包是TCP传输过程中可能出现的问题。</li>
+<li>粘包是指发送端在发送多个数据包时，由于网络传输的不确定性，这些数据包可能会被合并成一个大的数据包到达接收端，导致接收端难以正确解析。</li>
+<li>拆包是指发送端在发送一个数据包时，由于网络传输的不确定性，这个数据包可能会被拆分成多个小的数据包到达接收端，导致接收端难以完整地接收数据。</li>
+<li>解决粘包和拆包问题的方法包括定长消息、消息边界标识和消息长度标识等。</li>
+</ul>
+<h2 id="sessionID除了放在Cookie中还可以放在哪"><a href="#sessionID除了放在Cookie中还可以放在哪" class="headerlink" title="sessionID除了放在Cookie中还可以放在哪"></a>sessionID除了放在Cookie中还可以放在哪</h2><p>除了将SessionID放在Cookie中，还可以将SessionID放在其他地方，例如：</p>
+<ol>
+<li>URL参数：可以将SessionID作为URL的参数，附加在URL的末尾或者通过查询字符串的方式传递给服务器。例如：<a target="_blank" rel="noopener" href="http://example.com/page?sessionID=1234567890%E3%80%82">http://example.com/page?sessionID=1234567890。</a></li>
+<li>请求头：可以将SessionID放在HTTP请求的头部，例如自定义的HTTP头部字段中，用于传递SessionID给服务器。例如：在请求头中添加 “X-SessionID: 1234567890” 字段。</li>
+<li>请求体：可以将SessionID放在请求体中的某个字段中，通过POST请求或其他类似的方式传递给服务器。</li>
+<li>服务器端存储：在服务器端，可以将SessionID存储在服务器的内存、文件系统、数据库或其他形式的持久化存储中，而不将SessionID传递给客户端。客户端请求时，服务器通过其他方式识别用户的会话状态，无需将SessionID传递给客户端。</li>
+</ol>
+<h2 id="一个页面的加载过程"><a href="#一个页面的加载过程" class="headerlink" title="一个页面的加载过程"></a>一个页面的加载过程</h2><ol>
+<li>DNS解析：用户在浏览器地址栏中输入网址后，浏览器会首先进行DNS解析，将域名解析成对应的IP地址，用于后续的网络连接。</li>
+<li>建立TCP连接：浏览器通过HTTP或HTTPS协议与服务器建立TCP连接，包括三次握手过程。</li>
+<li>发起HTTP请求：建立TCP连接后，浏览器向服务器发送HTTP请求，请求网页的资源，如HTML、CSS、JavaScript、图片等。</li>
+<li>服务器处理请求：服务器接收到浏览器的请求后，进行相应的处理，如生成动态网页、从数据库获取数据等。</li>
+<li>服务器响应：服务器将生成的网页资源打包成HTTP响应，包含响应头和响应体，发送给浏览器。</li>
+<li>接收响应：浏览器接收到服务器的HTTP响应后，开始解析响应头和响应体。</li>
+<li>渲染页面：浏览器解析HTML、CSS等资源，构建DOM树、CSSOM树和渲染树，然后进行页面布局和渲染，将网页内容显示在用户的屏幕上。</li>
+<li>下载其他资源：页面渲染过程中，浏览器可能会继续下载其他资源，如图片、JavaScript、字体等。</li>
+<li>执行JavaScript：如果网页中包含JavaScript代码，浏览器会执行JavaScript代码，实现网页的交互和动态效果。</li>
+<li>页面加载完成：当所有的网页资源都加载完毕，并且JavaScript代码执行完毕时，页面加载完成，用户可以与页面进行交互。</li>
+</ol>
+<h2 id="TCP拥塞控制"><a href="#TCP拥塞控制" class="headerlink" title="TCP拥塞控制"></a>TCP拥塞控制</h2><p>TCP拥塞控制是一种网络拥塞管理机制，用于防止网络中的拥塞现象，确保网络的稳定性和可靠性。TCP拥塞控制主要通过以下几种算法来实现：</p>
+<ol>
+<li>慢启动：TCP连接刚建立时，发送方会以较小的发送窗口开始发送数据，然后随着时间的推移逐渐增加发送窗口的大小，从而实现发送速率的慢启动，以避免一开始就发送过多的数据导致网络拥塞。</li>
+<li>拥塞避免：一旦发送方通过慢启动阶段，发送窗口达到一定大小后，就会进入拥塞避免阶段，此时发送方会根据网络的拥塞情况，逐渐增加发送窗口的大小，但增速较慢，以避免过快地发送数据导致网络拥塞。</li>
+<li>快速重传：如果发送方收到了3个重复的确认（即接收方对同一数据包进行3次确认），说明有数据包丢失，此时发送方会立即重传丢失的数据包，而不等待超时重传的时间。</li>
+<li>快速恢复：当发送方进行快速重传时，会将拥塞窗口减半，并进入快速恢复阶段，在快速恢复阶段，发送方会继续以较慢的速率逐渐增加发送窗口的大小，以逐步恢复正常的发送速率。</li>
+<li>超时重传：如果发送方在规定的超时时间内没有收到确认信息，就认为数据包丢失，会立即重传丢失的数据包。</li>
+</ol>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/9a0369ec.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="timewait7">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Hexo">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="undefined | Hexo">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/9a0369ec.html" class="post-title-link" itemprop="url">布隆过滤器</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+      
+
+      <time title="Created: 2024-10-06 11:32:15 / Modified: 16:51:04" itemprop="dateCreated datePublished" datetime="2024-10-06T11:32:15+08:00">2024-10-06</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E7%AE%97%E6%B3%95/" itemprop="url" rel="index"><span itemprop="name">算法</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <p>布隆过滤器（Bloom Filter）是一种空间高效、快速判断某个元素是否存在于集合中的数据结构。它由布隆于1970年提出，主要用于大规模数据集合的快速查找和去重。</p>
+<p>布隆过滤器的基本思想是使用多个独立的哈希函数将元素映射到一个位数组（或称为布隆过滤器的位向量）中，并将这些位数组初始化为0。当要插入一个元素时，通过这些哈希函数计算得到的多个哈希值对应的位都被设置为1。当要查询一个元素是否存在时，同样通过这些哈希函数计算得到的多个哈希值对应的位都被检查，如果其中有任意一个位为0，则表示元素一定不存在；如果所有位都为1，则表示元素可能存在，但并不一定存在，可能会存在一定的误判率。</p>
+<p>布隆过滤器的优点是占用空间小，插入和查询操作的时间复杂度都是O(k)，其中k是哈希函数的数量。此外，布隆过滤器可以处理非常大的数据集合，而且对于插入和查询操作的响应速度非常快。然而，布隆过滤器的缺点是存在一定的误判率，即在查询时可能会出现”误判为存在”的情况，因此在使用时需要注意选择合适的哈希函数数量和位数组大小，以及合理设置误判率的阈值。</p>
+<p>布隆过滤器在实际应用中有很多用途，例如在数据库、缓存、网络路由器、爬虫等领域中都有广泛的应用，特别是在处理大规模数据集合时，可以显著减少存储和查询的开销。但需要注意的是，布隆过滤器并不适用于所有情况，因为它存在一定的误判率，并且无法删除已插入的元素，因此在选择使用时需要根据具体应用场景进行评估。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> java.util.BitSet;</span><br><span class="line"><span class="keyword">import</span> java.nio.charset.StandardCharsets;</span><br><span class="line"><span class="keyword">import</span> java.security.MessageDigest;</span><br><span class="line"><span class="keyword">import</span> java.security.NoSuchAlgorithmException;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">BloomFilter</span> &#123;</span><br><span class="line">    <span class="keyword">private</span> BitSet bitArray;</span><br><span class="line">    <span class="keyword">private</span> <span class="type">int</span> m; <span class="comment">// 位数组的大小</span></span><br><span class="line">    <span class="keyword">private</span> <span class="type">int</span> k; <span class="comment">// 哈希函数的数量</span></span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="title function_">BloomFilter</span><span class="params">(<span class="type">int</span> m, <span class="type">int</span> k)</span> &#123;</span><br><span class="line">        <span class="built_in">this</span>.m = m;</span><br><span class="line">        <span class="built_in">this</span>.k = k;</span><br><span class="line">        <span class="built_in">this</span>.bitArray = <span class="keyword">new</span> <span class="title class_">BitSet</span>(m);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">private</span> <span class="type">int</span>[] hash(String data) &#123;</span><br><span class="line">        <span class="type">int</span>[] hashValues = <span class="keyword">new</span> <span class="title class_">int</span>[k];</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            <span class="type">MessageDigest</span> <span class="variable">md</span> <span class="operator">=</span> MessageDigest.getInstance(<span class="string">&quot;SHA-256&quot;</span>);</span><br><span class="line">            <span class="type">byte</span>[] hashBytes = md.digest(data.getBytes(StandardCharsets.UTF_8));</span><br><span class="line">            <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; k; i++) &#123;</span><br><span class="line">                hashValues[i] = Math.abs((<span class="type">int</span>) (hashBytes[(i * <span class="number">4</span>) % hashBytes.length]) % m);</span><br><span class="line">            &#125;</span><br><span class="line">        &#125; <span class="keyword">catch</span> (NoSuchAlgorithmException e) &#123;</span><br><span class="line">            e.printStackTrace();</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> hashValues;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">insert</span><span class="params">(String data)</span> &#123;</span><br><span class="line">        <span class="type">int</span>[] hashValues = hash(data);</span><br><span class="line">        <span class="keyword">for</span> (<span class="type">int</span> hashValue : hashValues) &#123;</span><br><span class="line">            bitArray.set(hashValue);</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="type">boolean</span> <span class="title function_">query</span><span class="params">(String data)</span> &#123;</span><br><span class="line">        <span class="type">int</span>[] hashValues = hash(data);</span><br><span class="line">        <span class="keyword">for</span> (<span class="type">int</span> hashValue : hashValues) &#123;</span><br><span class="line">            <span class="keyword">if</span> (!bitArray.get(hashValue)) &#123;</span><br><span class="line">                <span class="keyword">return</span> <span class="literal">false</span>;</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> <span class="literal">true</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> &#123;</span><br><span class="line">        <span class="comment">// 创建布隆过滤器，位数组大小为100，哈希函数数量为3</span></span><br><span class="line">        <span class="type">BloomFilter</span> <span class="variable">bloomFilter</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">BloomFilter</span>(<span class="number">100</span>, <span class="number">3</span>);</span><br><span class="line"></span><br><span class="line">        <span class="comment">// 插入元素</span></span><br><span class="line">        bloomFilter.insert(<span class="string">&quot;apple&quot;</span>);</span><br><span class="line">        bloomFilter.insert(<span class="string">&quot;banana&quot;</span>);</span><br><span class="line">        bloomFilter.insert(<span class="string">&quot;cherry&quot;</span>);</span><br><span class="line"></span><br><span class="line">        <span class="comment">// 查询元素是否存在</span></span><br><span class="line">        System.out.println(bloomFilter.query(<span class="string">&quot;apple&quot;</span>)); <span class="comment">// true</span></span><br><span class="line">        System.out.println(bloomFilter.query(<span class="string">&quot;grape&quot;</span>)); <span class="comment">// false</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/779e2fcd.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="timewait7">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Hexo">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="undefined | Hexo">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/779e2fcd.html" class="post-title-link" itemprop="url">分布式基本理论</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+      
+
+      <time title="Created: 2024-10-06 11:30:04 / Modified: 16:51:04" itemprop="dateCreated datePublished" datetime="2024-10-06T11:30:04+08:00">2024-10-06</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E5%88%86%E5%B8%83%E5%BC%8F/" itemprop="url" rel="index"><span itemprop="name">分布式</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h2 id="CAP"><a href="#CAP" class="headerlink" title="CAP"></a>CAP</h2><p>CAP理论由计算机科学家Eric Brewer于2000年提出，它强调了在分布式系统中，这三个概念之间的相互制约关系。</p>
+<ol>
+<li>一致性（Consistency）：在分布式系统中，当有多个副本（节点）时，保证所有的副本在同一时刻具有相同的数据值。即在进行数据更新操作后，所有副本的数据应该保持一致。</li>
+<li>可用性（Availability）：在分布式系统中，系统在任何时候都应该对客户端请求进行响应，即系统具有良好的可用性，不会因为某些节点的故障而导致整个系统不可用。</li>
+<li>分区容错性（Partition Tolerance）：在分布式系统中，即使系统中存在节点之间的网络分区（通信故障），系统仍然应该继续正常运行，保证数据的一致性和可用性。</li>
+</ol>
+<p>CAP理论指出，一个分布式系统最多只能同时满足其中的两个特性，无法同时满足三个特性。这是由于在分布式系统中，网络通信的不确定性和节点故障的存在可能导致一致性、可用性和分区容错性之间的冲突。因此，在设计和选择分布式系统时，需要根据具体的业务需求和系统要求进行权衡和选择，根据实际情况在一致性、可用性和分区容错性之间做出合适的权衡。</p>
+<h2 id="BASE"><a href="#BASE" class="headerlink" title="BASE"></a>BASE</h2><p>BASE是分布式计算领域中一种对CAP理论的一种放松，它强调在分布式系统中，一致性（Consistency）可以相对放松，以提高系统的可用性（Availability）和容错性（Partition Tolerance）。</p>
+<p>BASE是以下三个概念的缩写：</p>
+<ol>
+<li>基本可用性（Basically Available）：系统在面临故障、分区或者其他异常情况时，可以保证继续提供基本的服务，即系统应该始终保持可用状态，响应客户端请求。</li>
+<li>软状态（Soft state）：系统中的状态信息不需要强一致性，即系统中的状态可以在不同的时间和节点之间存在不一致的情况，允许存在一段时间的中间状态。</li>
+<li>最终一致性（Eventual consistency）：系统保证最终达到一致性，但在更新操作之后，系统中的数据可能会存在一段时间的不一致，直到最终达到一致状态。</li>
+</ol>
+<h2 id="集群下的session管理"><a href="#集群下的session管理" class="headerlink" title="集群下的session管理"></a>集群下的session管理</h2><p>在集群（Cluster）下的 Session 管理是指在分布式系统中，对用户会话（Session）进行管理的方式。在分布式系统中，用户的请求可能会被多个服务器处理，因此需要一种方式来保证用户的 Session 数据在不同的服务器之间共享和同步，以确保用户的 Session 数据的一致性和可用性。</p>
+<p>以下是几种常见的集群下的 Session 管理方式：</p>
+<ol>
+<li>共享存储：可以使用共享存储技术（如共享数据库、共享文件系统等）来存储 Session 数据，各个服务器都可以访问共享存储中的 Session 数据，从而实现 Session 的共享和同步。这种方式可以保证 Session 数据的一致性，但可能会存在性能瓶颈和单点故障的风险。</li>
+<li>Session 复制：可以将 Session 数据复制到集群中的每个服务器上，当用户的请求被某个服务器处理时，该服务器可以直接访问本地的 Session 数据，无需访问共享存储，从而避免了性能瓶颈和单点故障的问题。但是，这种方式需要对 Session 数据进行复制和同步，可能会导致网络传输和存储开销较大。</li>
+<li>Sticky Session：也称为粘性 Session，即在用户的请求中包含 Session 标识（如 Session ID），服务器根据该标识将用户的请求路由到之前处理过该 Session 的服务器上。这样可以确保用户的请求在整个会话期间都被路由到同一个服务器上，从而保证 Session 数据的一致性。但是，这种方式可能会导致服务器负载不均衡，某些服务器的负载较重，而其他服务器负载较轻。</li>
+<li>分布式缓存：可以使用分布式缓存技术（如 Redis、Memcached 等）来存储 Session 数据，各个服务器可以通过缓存访问 Session 数据。这种方式可以提供较好的性能和扩展性，但需要考虑缓存数据的一致性和过期管理等问题。</li>
+</ol>
+<h2 id="一致性哈希"><a href="#一致性哈希" class="headerlink" title="一致性哈希"></a>一致性哈希</h2><p>一致性哈希（Consistent Hashing）是一种在分布式计算中用于处理节点动态变化的哈希算法。它主要用于在分布式系统中对数据进行分片（sharding）和负载均衡（load balancing）。</p>
+<p>传统的哈希算法在添加或删除节点时，可能会导致大量的数据迁移，从而影响系统的性能和可用性。一致性哈希算法通过引入虚拟节点（或称为虚拟副本）的概念，可以在节点动态变化时，减少数据迁移的成本，从而提高了系统的可扩展性和容错性。</p>
+<p>一致性哈希算法的基本原理如下：</p>
+<ol>
+<li>将哈希空间（通常是一个固定的哈希环）映射到节点空间（例如服务器节点）。</li>
+<li>将数据的哈希值映射到哈希空间中的一个位置。</li>
+<li>当需要存储或查找数据时，先计算数据的哈希值，然后根据哈希值在哈希空间中找到对应的位置。</li>
+<li>数据被存储在离其哈希位置最近的节点上，或者由最近的节点负责处理。</li>
+</ol>
+<p>由于节点空间通常较小，节点的加入或删除只会影响到哈希空间中的一小部分位置，从而只需要对受影响的数据进行迁移，而不需要对整个数据集进行迁移，从而减少了数据迁移的成本。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/48fa22ae.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="timewait7">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Hexo">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="undefined | Hexo">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/48fa22ae.html" class="post-title-link" itemprop="url">领域驱动设计基本概念</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+      
+
+      <time title="Created: 2024-10-06 10:55:19 / Modified: 16:51:04" itemprop="dateCreated datePublished" datetime="2024-10-06T10:55:19+08:00">2024-10-06</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/DDD/" itemprop="url" rel="index"><span itemprop="name">DDD</span></a>
+        </span>
+    </span>
+
+  
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <p>领域驱动设计（DDD）是一种软件设计方法，通过将软件系统的设计与实际业务领域进行紧密关联，从而使软件系统更好地满足业务需求。其核心概念包括：</p>
+<ul>
+<li>领域模型（Domain Model）：对业务领域中的实体、值对象、聚合等概念的抽象和建模，用于表示业务领域的核心概念和规则。</li>
+<li>聚合（Aggregate）：一组相关的领域对象的集合，作为一个整体进行管理和操作，保持一致性和完整性。</li>
+<li>领域事件（Domain Event）：表示领域中发生的重要事件，可以被其他部分监听和处理，用于解耦和处理业务逻辑。</li>
+<li>领域服务（Domain Service）：处理业务逻辑，但不拥有状态的服务，通常用于完成复杂的业务操作。</li>
+<li>限界上下文（Bounded Context）：表示一个边界内的业务领域，用于划分复杂系统的不同部分，避免混淆和耦合。</li>
+</ul>
+<h2 id="什么是聚合"><a href="#什么是聚合" class="headerlink" title="什么是聚合"></a>什么是聚合</h2><p>聚合是领域驱动设计中的一个重要概念，用于管理和操作一组相关的领域对象，保持一致性和完整性。聚合有以下几个作用和设计原则：</p>
+<ul>
+<li>事务边界：聚合是一个事务边界，表示一组对象在业务操作中应该保持一致性。所有的变更操作都应该在同一个事务中进行，要么全部成功，要么全部失败，从而保持聚合内的数据一致性。</li>
+<li>封装性：聚合应该对外部隐藏其内部的状态和实现细节，只暴露必要的接口和方法，限制外部直接访问内部状态，从而保护聚合的完整性和一致性。</li>
+<li>边界清晰：聚合应该在业务上有明确定义的边界，用于划分复杂系统的不同部分，避免混淆和耦合。</li>
+<li>单一责任：聚合应该只负责一个明确的业务功能，不应该包含多个不相关的业务逻辑，从而保持聚合的简单性和高内聚性。</li>
+</ul>
+<h2 id="什么是聚合根"><a href="#什么是聚合根" class="headerlink" title="什么是聚合根"></a>什么是聚合根</h2><p>聚合根（Aggregate Root）是领域驱动设计（DDD）中的一个重要概念，用于表示在领域模型中的聚合（Aggregate）的根实体。聚合是一组相关联的实体和值对象的集合，它们共同形成了一个有意义的整体，聚合根是这个聚合中的一个特定实体，负责维护整个聚合的一致性和完整性。</p>
+<p>聚合根在领域驱动设计中有以下几个特点：</p>
+<ol>
+<li>聚合根是聚合的入口点：聚合根是聚合的公共访问点，它是外部世界与聚合内部的交互入口，所有对聚合内部实体和值对象的操作都应该通过聚合根进行。</li>
+<li>聚合根负责维护聚合的一致性和完整性：聚合根负责协调聚合内部实体和值对象之间的关系，以保持聚合的一致性和完整性。聚合根负责在聚合内部进行操作，确保聚合内的实体和值对象之间的状态保持一致。</li>
+<li>聚合根定义聚合的边界：聚合根定义了聚合的边界，它决定了哪些实体和值对象属于聚合的一部分，哪些不属于。聚合根应该包含足够的信息，使得聚合能够自我完整地处理业务逻辑，并保持内部实体和值对象的一致性。</li>
+<li>聚合根是唯一标识聚合的元素：聚合根通常具有唯一标识，用于在系统中标识和定位聚合。聚合根的唯一标识可以作为聚合的外部引用，用于在系统中识别和操作聚合。</li>
+</ol>
+<p>需要注意的是，聚合根并不一定是领域模型中的根实体，它可以是任何在聚合中具有特殊角色的实体。在设计聚合时，需要仔细考虑聚合根的选择，并确保聚合根能够有效地维护聚合的一致性和完整性。聚合根的设计应该遵循领域驱动设计的原则，包括封装、聚合边界、限界上下文等。</p>
+<h2 id="什么是领域事件"><a href="#什么是领域事件" class="headerlink" title="什么是领域事件"></a>什么是领域事件</h2><p>领域事件（Domain Event）是领域驱动设计中的一个概念，用于表示领域中发生的重要事件。它是对业务领域中发生的事实或状态变化的一种抽象，可以被其他部分监听和处理。</p>
+<p>领域事件具有以下几个特点：</p>
+<ul>
+<li>事件驱动：领域事件是基于事件驱动的设计模式，通过发布&#x2F;订阅（Publish&#x2F;Subscribe）机制，将事件发送给对该事件感兴趣的订阅者，从而实现解耦和松散耦合的目的。</li>
+<li>异步处理：领域事件通常是异步处理的，即事件的发生和处理是在不同的时间和处理单元中进行的，从而提高系统的性能和响应性。</li>
+<li>可溯源性：领域事件记录了领域中发生的事实，可以作为系统的审计日志，帮助进行系统的溯源和故障诊断。</li>
+<li>高内聚性：领域事件通常与领域模型紧密相关，用于表示业务领域中的业务逻辑和状态变化，从而保持系统的高内聚性。</li>
+</ul>
+<p>在领域驱动设计中，领域事件可以作为一种有效的方式来处理业务逻辑的复杂性和变化，实现业务流程的灵活性和可扩展性。</p>
+<p>此外，领域事件还可以用于实现业务之间的解耦和协同，促进团队间的合作和自治。通过引入领域事件，可以将业务中的重要状态变化和事实进行抽象和建模，从而可以在系统中进行事件的发布、订阅和处理，使不同的业务模块能够通过事件进行解耦，实现独立演进和灵活组合。</p>
+<p>领域事件的设计和使用需要谨慎，需要考虑事件的粒度、命名、内容和生命周期管理等因素。合理地使用领域事件可以提高系统的可维护性、可扩展性和可测试性，从而更好地支持复杂业务需求和系统的演进。</p>
+<h2 id="什么是领域服务"><a href="#什么是领域服务" class="headerlink" title="什么是领域服务"></a>什么是领域服务</h2><p>领域服务（Domain Services）是领域驱动设计（DDD）中的一个概念，它用于处理领域模型中的业务逻辑和操作，但不属于特定的实体或值对象。领域服务通常用于处理涉及多个实体或值对象的业务逻辑，或者处理领域模型中的跨聚合根的操作。</p>
+<p>领域服务通常具有以下特点：</p>
+<ol>
+<li>封装业务逻辑：领域服务封装了领域模型中的业务逻辑和操作，可以包含一系列的方法或操作，用于实现特定的业务需求。</li>
+<li>无状态性：领域服务通常是无状态的，不保存任何状态信息，每次调用时都需要传入所需的参数。这有助于避免状态的混淆和复杂性，并且使领域服务更加灵活和可测试。</li>
+<li>跨聚合根操作：领域服务可以处理涉及多个聚合根（Aggregate Root）的业务逻辑，协调聚合根之间的交互和操作。这有助于避免在聚合根之间引入过多的耦合和复杂性。</li>
+<li>业务关注点：领域服务通常关注于解决业务问题，而不是技术实现。它们应该与具体的技术实现解耦，从而可以更好地应对业务需求的变化。</li>
+</ol>
+<p>领域服务在DDD中被用于处理复杂的业务逻辑、协调不同聚合根之间的操作，以及处理一些无法归属于特定实体或值对象的业务需求。合理使用领域服务可以帮助实现领域模型的高内聚、低耦合，并提高代码的可维护性和可测试性。</p>
+<h2 id="值对象和实体有什么区别"><a href="#值对象和实体有什么区别" class="headerlink" title="值对象和实体有什么区别"></a>值对象和实体有什么区别</h2><p>在领域驱动设计（DDD）中，值对象（Value Object）和实体（Entity）是两种不同的领域模型对象，它们有以下区别：</p>
+<ol>
+<li>不可变性（Immutability）：值对象是不可变的，一旦创建就不能修改其状态。而实体是可变的，可以在其生命周期内改变其状态。</li>
+<li>等同性比较（Equality Comparison）：值对象的相等性是基于其属性值的比较，即如果两个值对象的属性值相等，则它们被视为相等。而实体的相等性一般是基于其唯一标识（例如数据库中的主键）的比较，即使两个实体的属性值相等，但如果它们的唯一标识不同，则被视为不相等。</li>
+<li>身份与生命周期（Identity and Lifecycle）：值对象没有明确的身份（Identity），它们的主要作用是描述一组属性值，通常用于表示不可变的属性或属性组合。而实体有明确的身份，通常通过唯一标识来区分不同的实体，并且实体具有生命周期，可以在系统中创建、更新和删除。</li>
+<li>持久化（Persistence）：值对象通常不会单独进行持久化，它们通常作为实体的属性而存在，当实体被持久化时，值对象也会一同被持久化。而实体通常需要被持久化到数据库或其他数据存储中，以便能够在系统重启或持久化状态时重新加载。</li>
+<li>业务规则（Business Rules）：值对象通常包含与业务相关的属性和行为，但它们不会包含复杂的业务规则，因为值对象的主要目的是描述属性值。而实体通常包含复杂的业务规则和行为，因为实体具有更丰富的状态和行为。</li>
+</ol>
+<p>总的来说，值对象主要用于描述不可变的属性或属性组合，通常没有明确的身份和生命周期，并且不会单独进行持久化。而实体则具有明确的身份和生命周期，通常需要进行持久化，并且可能包含复杂的业务规则和行为。在DDD中，合理使用值对象和实体可以帮助进行更好的领域建模和设计，从而更好地满足业务需求。</p>
+<h2 id="DDD中的六边形架构"><a href="#DDD中的六边形架构" class="headerlink" title="DDD中的六边形架构"></a>DDD中的六边形架构</h2><p>六边形架构（Hexagonal Architecture），又称为端口和适配器架构（Ports and Adapters Architecture），是领域驱动设计（Domain-Driven Design，DDD）中一种常用的架构模式。它是一种将业务逻辑从外部依赖解耦的架构模式，强调业务逻辑应该独立于外部技术和框架，以便更好地管理复杂的业务规则和逻辑。</p>
+<p>六边形架构的主要特点是通过定义端口（Ports）和适配器（Adapters）的方式，将应用程序划分为不同的层，包括内部核心层、外部依赖层和应用程序接口层。其中：</p>
+<ul>
+<li>内部核心层：包含了业务领域的核心逻辑，也是应用程序的核心。它包括领域模型、领域服务等，负责处理业务逻辑和业务规则。</li>
+<li>外部依赖层：包含了与外部系统的交互，如数据库、消息队列、外部服务等。它负责处理与外部系统的通信和数据存储。</li>
+<li>应用程序接口层：包含了应用程序的接口，可以是用户界面、API接口等。它负责处理用户输入、输出和应用程序的交互。</li>
+</ul>
+<p>六边形架构通过定义清晰的接口和适配器来实现内外部之间的解耦，从而使得业务逻辑能够独立于外部技术和框架进行演进和变化。这种架构模式能够提高应用程序的可测试性、可扩展性和可维护性，同时也能够更好地支持领域驱动设计的实践，使业务规则和领域模型更加清晰和可管理。</p>
+<h2 id="DDD的CQRS模式"><a href="#DDD的CQRS模式" class="headerlink" title="DDD的CQRS模式"></a>DDD的CQRS模式</h2><p>CQRS（Command Query Responsibility Segregation）是领域驱动设计（DDD）中的一种架构模式，用于将应用程序的读操作和写操作分离。</p>
+<p>在传统的应用程序中，读操作和写操作通常是通过相同的模型和数据访问层进行处理的。而在CQRS模式中，读操作和写操作被明确地分离为两个不同的部分，分别使用不同的模型和数据访问层来处理。</p>
+<p>具体而言，CQRS模式包含以下几个核心概念：</p>
+<ul>
+<li>命令（Command）：表示对系统的写操作，例如创建、更新或删除数据。命令负责修改系统的状态。</li>
+<li>查询（Query）：表示对系统的读操作，例如获取数据或查询数据。查询负责从系统中读取数据，但不修改系统的状态。</li>
+<li>模型分离：CQRS模式通过明确地分离写操作和读操作的模型，使其可以独立演进和优化。通常，写操作会使用一个更加面向行为的领域模型，而读操作则使用一个更加面向查询的模型，例如数据传输对象（DTO）。</li>
+<li>数据访问层分离：CQRS模式还将写操作和读操作的数据访问层进行分离。通常，写操作会使用一个更加高效的、面向事务的数据访问层，而读操作则使用一个更加高性能的、面向查询的数据访问层。</li>
+</ul>
+<p>CQRS模式的优势包括：</p>
+<ul>
+<li>灵活性：通过明确地分离读写操作，CQRS模式允许应用程序能够灵活地针对不同的读写操作选择合适的优化策略，从而提高性能和可伸缩性。</li>
+<li>可测试性：CQRS模式将读写操作分离，使得可以对读写操作分别进行单元测试和集成测试，从而提高测试的粒度和效果。</li>
+<li>显式性：CQRS模式通过明确地定义命令和查询的方式，使得应用程序的行为和数据访问更加明确和可理解。</li>
+<li>解耦性：CQRS模式通过明确地分离读写操作的模型和数据访问层，降低了不同操作之间的耦合，从而使得应用程序更加灵活和可维护。</li>
+</ul>
+<p>需要注意的是，CQRS模式并不是适用于所有应用程序的通用解决方案，而是根据应用程序的特点和需求选择合适的架构模式。在应用CQRS模式时，需要仔细考虑应用程序的复杂性、性能需求、团队的技术能力等因素，并进行适当的设计和实施。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
     <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/6a343b7f.html">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
@@ -205,7 +1416,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/post/6a343b7f.html" class="post-title-link" itemprop="url">Redis入门</a>
+          <a href="/post/6a343b7f.html" class="post-title-link" itemprop="url">Redis基本命令</a>
         </h2>
 
         <div class="post-meta-container">
@@ -215,9 +1426,15 @@
         <i class="far fa-calendar"></i>
       </span>
       <span class="post-meta-item-text">Posted on</span>
-      
 
-      <time title="Created: 2024-09-17 15:11:25 / Modified: 21:34:39" itemprop="dateCreated datePublished" datetime="2024-09-17T15:11:25+08:00">2024-09-17</time>
+      <time title="Created: 2024-09-17 15:11:25" itemprop="dateCreated datePublished" datetime="2024-09-17T15:11:25+08:00">2024-09-17</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">Edited on</span>
+      <time title="Modified: 2024-09-22 00:06:04" itemprop="dateModified" datetime="2024-09-22T00:06:04+08:00">2024-09-22</time>
     </span>
     <span class="post-meta-item">
       <span class="post-meta-item-icon">
@@ -529,9 +1746,15 @@
         <i class="far fa-calendar"></i>
       </span>
       <span class="post-meta-item-text">Posted on</span>
-      
 
-      <time title="Created: 2024-09-15 17:52:09 / Modified: 23:52:05" itemprop="dateCreated datePublished" datetime="2024-09-15T17:52:09+08:00">2024-09-15</time>
+      <time title="Created: 2024-09-15 17:52:09" itemprop="dateCreated datePublished" datetime="2024-09-15T17:52:09+08:00">2024-09-15</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">Edited on</span>
+      <time title="Modified: 2024-09-20 22:27:27" itemprop="dateModified" datetime="2024-09-20T22:27:27+08:00">2024-09-20</time>
     </span>
     <span class="post-meta-item">
       <span class="post-meta-item-icon">
@@ -561,7 +1784,7 @@
 <ul>
 <li>初始化虚拟机</li>
 </ul>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 仅创建一个Vagrantfile</span></span><br><span class="line">vagrant init centos/7</span><br></pre></td></tr></table></figure>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 仅创建一个Vagrantfile</span></span><br><span class="line"><span class="built_in">mkdir</span> vm</span><br><span class="line"><span class="built_in">cd</span> vm</span><br><span class="line">vagrant init centos/7</span><br></pre></td></tr></table></figure>
 
 <ul>
 <li>启动虚拟机</li>
@@ -574,7 +1797,7 @@
 <figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">vagrant ssh</span><br></pre></td></tr></table></figure>
 
 <h2 id="安装docker"><a href="#安装docker" class="headerlink" title="安装docker"></a>安装docker</h2><ul>
-<li>写在旧版docker</li>
+<li>卸载旧版docker</li>
 </ul>
 <figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">sudo yum remove docker \</span><br><span class="line">                  docker-client \</span><br><span class="line">                  docker-client-latest \</span><br><span class="line">                  docker-common \</span><br><span class="line">                  docker-latest \</span><br><span class="line">                  docker-latest-logrotate \</span><br><span class="line">                  docker-logrotate \</span><br><span class="line">                  docker-engine</span><br></pre></td></tr></table></figure>
 
@@ -620,7 +1843,7 @@
 <li><strong>Host:</strong> <code>127.0.0.1</code> （从 <code>vagrant ssh-config</code> 中获取的 <code>HostName</code>）</li>
 <li><strong>Port:</strong> <code>2222</code> （从 <code>vagrant ssh-config</code> 中获取的 <code>Port</code>）</li>
 <li><strong>User:</strong> <code>vagrant</code> （从 <code>vagrant ssh-config</code> 中获取的 <code>User</code>）</li>
-<li><strong>Private Key</strong>: 选择 <code>IdentityFile</code> 的路径，路径可以从 <code>vagrant ssh-config</code> 输出中找到（例如 <code>/path/to/private_key</code>）。</li>
+<li><strong>Private Key</strong>: 选择 <code>IdentityFile</code> 的路径（从 <code>vagrant ssh-config</code> 中获取的 <code>/path/to/private_key</code>）。</li>
 </ul>
 </blockquote>
 <img src="/post/f8d4142b/Tabby%E8%BF%9E%E6%8E%A5%E8%99%9A%E6%8B%9F%E6%9C%BA.png" class="">
@@ -640,1030 +1863,6 @@
 </ul>
 </li>
 </ol>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/89826705.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="timewait7">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="Hexo">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content="undefined | Hexo">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/89826705.html" class="post-title-link" itemprop="url">Docker入门</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-
-      <time title="Created: 2024-09-12 01:12:25" itemprop="dateCreated datePublished" datetime="2024-09-12T01:12:25+08:00">2024-09-12</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar-check"></i>
-      </span>
-      <span class="post-meta-item-text">Edited on</span>
-      <time title="Modified: 2024-09-16 13:51:58" itemprop="dateModified" datetime="2024-09-16T13:51:58+08:00">2024-09-16</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">In</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/Docker/" itemprop="url" rel="index"><span itemprop="name">Docker</span></a>
-        </span>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h2 id="Docker架构图"><a href="#Docker架构图" class="headerlink" title="Docker架构图"></a>Docker架构图</h2><img src="/post/89826705/Docker%E6%9E%B6%E6%9E%84%E5%9B%BE.png" class="">
-
-<h2 id="Docker与虚拟机"><a href="#Docker与虚拟机" class="headerlink" title="Docker与虚拟机"></a>Docker与虚拟机</h2><img src="/post/89826705/Docker%E4%B8%8E%E8%99%9A%E6%8B%9F%E6%9C%BA%E6%8A%BD%E8%B1%A1%E5%9B%BE.png" class="">
-
-<h2 id="Docker常用命令"><a href="#Docker常用命令" class="headerlink" title="Docker常用命令"></a>Docker常用命令</h2><h3 id="镜像命令"><a href="#镜像命令" class="headerlink" title="镜像命令"></a>镜像命令</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 列出所有镜像</span></span><br><span class="line">docker images</span><br><span class="line"></span><br><span class="line"><span class="comment"># 只显示镜像ID</span></span><br><span class="line">docker images -q</span><br><span class="line"></span><br><span class="line"><span class="comment"># 搜索镜像</span></span><br><span class="line">docker search mysql</span><br><span class="line"></span><br><span class="line"><span class="comment"># 下载镜像</span></span><br><span class="line">docker pull mysql</span><br><span class="line"></span><br><span class="line"><span class="comment"># 下载指定版本镜像</span></span><br><span class="line">docker pull mysql:5.7</span><br><span class="line"></span><br><span class="line"><span class="comment"># 删除镜像</span></span><br><span class="line">docker rmi 镜像ID</span><br><span class="line"></span><br><span class="line"><span class="comment"># 删除多个镜像</span></span><br><span class="line">docker rmi 镜像1ID 镜像2ID ...</span><br><span class="line"></span><br><span class="line"><span class="comment"># 删除所有镜像</span></span><br><span class="line">docker rmi $(docker images -aq)</span><br></pre></td></tr></table></figure>
-
-<h3 id="容器命令"><a href="#容器命令" class="headerlink" title="容器命令"></a>容器命令</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 显示当前运行中的容器</span></span><br><span class="line">docker ps</span><br><span class="line"></span><br><span class="line"><span class="comment"># 显示所有容器，包括已停止的</span></span><br><span class="line">docker ps -a</span><br><span class="line"></span><br><span class="line"><span class="comment"># 显示最近创建的容器</span></span><br><span class="line">docker ps -a -n=1</span><br><span class="line"></span><br><span class="line"><span class="comment"># 只显示容器ID</span></span><br><span class="line">docker ps -aq</span><br><span class="line"></span><br><span class="line"><span class="comment"># 运行容器</span></span><br><span class="line">docker run image</span><br><span class="line"></span><br><span class="line"><span class="comment"># 运行并进入容器</span></span><br><span class="line">docker run -it image /bin/bash</span><br><span class="line"></span><br><span class="line"><span class="comment"># 删除容器</span></span><br><span class="line">docker <span class="built_in">rm</span> 容器ID</span><br><span class="line"></span><br><span class="line"><span class="comment"># 删除所有容器</span></span><br><span class="line">docker <span class="built_in">rm</span> -f $(docker images -aq)</span><br><span class="line">docker ps -aq | args docker <span class="built_in">rm</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 启动容器</span></span><br><span class="line">docker start 容器ID</span><br><span class="line"></span><br><span class="line"><span class="comment"># 停止容器</span></span><br><span class="line">docker stop 容器ID</span><br><span class="line"></span><br><span class="line"><span class="comment"># 重启容器</span></span><br><span class="line">docker restart 容器ID</span><br><span class="line"></span><br><span class="line"><span class="comment"># 杀掉容器</span></span><br><span class="line">docker <span class="built_in">kill</span> 容器ID</span><br></pre></td></tr></table></figure>
-
-
-
-<h3 id="其他命令"><a href="#其他命令" class="headerlink" title="其他命令"></a>其他命令</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 后台启动容器</span></span><br><span class="line">docker run -d image</span><br><span class="line"></span><br><span class="line">docker run -d centos /bin/bash -c <span class="string">&quot;while true;do echo hello;sleep 1;done&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 查看日志</span></span><br><span class="line">docker logs -tf --<span class="built_in">tail</span> 10 容器ID</span><br><span class="line"></span><br><span class="line"><span class="comment"># 查看容器中进程信息</span></span><br><span class="line">docker top 容器ID</span><br><span class="line"></span><br><span class="line"><span class="comment"># 查看容器详细信息</span></span><br><span class="line">docker inspect 容器ID</span><br><span class="line"></span><br><span class="line"><span class="comment"># 进入容器</span></span><br><span class="line">docker <span class="built_in">exec</span> -it 容器ID /bin/bash</span><br><span class="line"></span><br><span class="line"><span class="comment"># 将容器内文件拷贝到宿主机</span></span><br><span class="line">docker <span class="built_in">cp</span> 容器ID:文件 宿主机文件夹</span><br></pre></td></tr></table></figure>
-
-
-
-<h2 id="Docker镜像"><a href="#Docker镜像" class="headerlink" title="Docker镜像"></a>Docker镜像</h2><h3 id="联合文件系统"><a href="#联合文件系统" class="headerlink" title="联合文件系统"></a>联合文件系统</h3><h3 id="镜像分层"><a href="#镜像分层" class="headerlink" title="镜像分层"></a>镜像分层</h3><h3 id="提交镜像"><a href="#提交镜像" class="headerlink" title="提交镜像"></a>提交镜像</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># docker commit -a=&quot;author&quot; -m=&quot;commit message&quot; 容器ID 镜像名称:版本</span></span><br><span class="line">docker commit -a=<span class="string">&quot;timewait7&quot;</span> -m=<span class="string">&quot;make image&quot;</span> b81bafd07762 tomcat02:1.0</span><br></pre></td></tr></table></figure>
-
-<h2 id="容器数据卷"><a href="#容器数据卷" class="headerlink" title="容器数据卷"></a>容器数据卷</h2><h3 id="挂载方式"><a href="#挂载方式" class="headerlink" title="挂载方式"></a>挂载方式</h3><ul>
-<li>指定路径挂载</li>
-</ul>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 启动镜像centos，将宿主机的/home/mount目录挂载到容器的/home目录</span></span><br><span class="line">docker run -it -v /home/mount:/home centos /bin/bash</span><br></pre></td></tr></table></figure>
-
-<ul>
-<li>匿名挂载</li>
-</ul>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 匿名挂载</span></span><br><span class="line"><span class="comment"># -P(大写) 随机映射端口</span></span><br><span class="line"><span class="comment"># /etc/nginx 容器路径</span></span><br><span class="line">docker run -d -P --name nginx02 -v /etc/nginx nginx</span><br></pre></td></tr></table></figure>
-
-<ul>
-<li>具名挂载</li>
-</ul>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 具名挂载</span></span><br><span class="line"><span class="comment"># test 卷名</span></span><br><span class="line">docker run -d -P --name nginx02 -v <span class="built_in">test</span>:/etc/nginx nginx</span><br></pre></td></tr></table></figure>
-
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 查看挂载的卷的列表</span></span><br><span class="line">docker volume <span class="built_in">ls</span></span><br></pre></td></tr></table></figure>
-
-<img src="/post/89826705/%E6%9F%A5%E7%9C%8B%E6%8C%82%E8%BD%BD%E7%9A%84%E5%8D%B7%E7%9A%84%E5%88%97%E8%A1%A8.png" class="">
-
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 查看挂载的卷的详情</span></span><br><span class="line">docker volume inspect <span class="built_in">test</span></span><br></pre></td></tr></table></figure>
-
-<img src="/post/89826705/%E6%9F%A5%E7%9C%8B%E6%8C%82%E8%BD%BD%E7%9A%84%E5%8D%B7%E7%9A%84%E8%AF%A6%E6%83%85.png" class="">
-
-<h2 id="DockerFile"><a href="#DockerFile" class="headerlink" title="DockerFile"></a>DockerFile</h2><ul>
-<li>编写Docker file</li>
-</ul>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">FROM centos</span><br><span class="line"></span><br><span class="line">VOLUME [&quot;volume1&quot;, &quot;volume2&quot;]</span><br><span class="line"></span><br><span class="line">CMD echo &quot;------end-----&quot;</span><br><span class="line"></span><br><span class="line">CMD /bin/bash</span><br></pre></td></tr></table></figure>
-
-<ul>
-<li>构建镜像</li>
-</ul>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">docker build -f dockerfile -t imagename:tag .</span><br></pre></td></tr></table></figure>
-
-<img src="/post/89826705/Dockerfile%E6%9E%84%E5%BB%BA%E9%95%9C%E5%83%8F.png" class="">
-
-<ul>
-<li>运行</li>
-</ul>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">docker run -it imagename /bin/bash</span><br><span class="line"><span class="built_in">ls</span></span><br></pre></td></tr></table></figure>
-
-<img src="/post/89826705/%E8%BF%90%E8%A1%8CDockerfile%E6%9E%84%E5%BB%BA%E7%9A%84%E9%95%9C%E5%83%8F.png" class="">
-
-<ul>
-<li>查看挂载的数据卷</li>
-</ul>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">docker inspsect 容器ID</span><br></pre></td></tr></table></figure>
-
-<img src="/post/89826705/Dockerfile%E6%9E%84%E5%BB%BA%E9%95%9C%E5%83%8F%E5%B9%B6%E6%8C%82%E8%BD%BD%E6%95%B0%E6%8D%AE%E5%8D%B7.png" class="">
-
-
-
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">docker run -it --name docker01 customize-centos:1.0 /bin/bash</span><br><span class="line"></span><br><span class="line">docker run -it --name docker02 --volumes-from docker01 customize-centos:1.0 /bin/bash</span><br></pre></td></tr></table></figure>
-
-<p>此时docker01和docker02的数据卷volume1和volume2共享</p>
-<h3 id="Dockerfile常用指令"><a href="#Dockerfile常用指令" class="headerlink" title="Dockerfile常用指令"></a>Dockerfile常用指令</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">FROM <span class="comment"># 指明基于哪个镜像构建</span></span><br><span class="line">LABEL <span class="comment"># 标记镜像信息，添加元数据</span></span><br><span class="line">ARG <span class="comment"># 定义构建镜像时使用的变量</span></span><br><span class="line">ENV <span class="comment"># 指定环境变量</span></span><br><span class="line">VOLUME <span class="comment"># 创建一个数据卷挂载点</span></span><br><span class="line">USER <span class="comment"># 指定运行容器时的用户名</span></span><br><span class="line">WORKDIR <span class="comment"># 配置工作目录</span></span><br><span class="line">EXPOSE <span class="comment"># 容器运行时的端口</span></span><br><span class="line">ADD <span class="comment"># 从本地或URL添加文件或压缩包到镜像中，并自动解压</span></span><br><span class="line">COPY <span class="comment"># 拷贝文件或目录到镜像</span></span><br><span class="line">ONBUILD <span class="comment"># 创建子镜像时自动执行的命令</span></span><br><span class="line">SHELL <span class="comment"># 指定默认shell类型</span></span><br><span class="line">RUN <span class="comment"># 构建镜像时运行的命令</span></span><br><span class="line">CMD <span class="comment"># 运行镜像时执行的命令，默认最后一个生效</span></span><br><span class="line">ENTRYPOINT <span class="comment"># 指定镜像的默认入口命令</span></span><br><span class="line">STOPSINGAL <span class="comment"># 指定退出的信号值</span></span><br><span class="line">HEALTHCHECK <span class="comment"># 配置启动容器如何进行健康检查</span></span><br></pre></td></tr></table></figure>
-
-<ul>
-<li>编写Dockerfile</li>
-</ul>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">FROM centos</span><br><span class="line"></span><br><span class="line">MAINTAINER timewait7&lt;1029776125@qq.com&gt;</span><br><span class="line"></span><br><span class="line">ENV MYPATH /usr/local</span><br><span class="line">WORKDIR $MYPATH</span><br><span class="line"></span><br><span class="line">RUN yum -y install vim</span><br><span class="line">RUN yum -y install net-tools</span><br><span class="line"></span><br><span class="line">EXPOSE 80</span><br><span class="line"></span><br><span class="line">CMD echo $MYPATH</span><br><span class="line">CMD echo &quot;------end------&quot;</span><br><span class="line">CMD /bin/bash</span><br></pre></td></tr></table></figure>
-
-<ul>
-<li>构建镜像</li>
-</ul>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">docker build -f centos-dockerfile -t enchanced-centos .</span><br></pre></td></tr></table></figure>
-
-<ul>
-<li>查看镜像构建过程</li>
-</ul>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">history</span> 镜像ID</span><br></pre></td></tr></table></figure>
-
-<h3 id="实战：制作Tomcat镜像"><a href="#实战：制作Tomcat镜像" class="headerlink" title="实战：制作Tomcat镜像"></a>实战：制作Tomcat镜像</h3><ul>
-<li>编写Dockerfile</li>
-</ul>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">FROM centos</span><br><span class="line"></span><br><span class="line">MAINTAINER timewait7&lt;1029776125@qq.com&gt;</span><br><span class="line"></span><br><span class="line">ADD jdk-8u202-linux-x64.tar.gz /usr/local</span><br><span class="line">ADD apache-tomcat-9.0.94.tar.gz /usr/local</span><br><span class="line"></span><br><span class="line">ENV MYPATH /usr/local</span><br><span class="line">WORKDIR $MYPATH</span><br><span class="line"></span><br><span class="line">ENV JAVA_HOME /usr/local/jdk1.8.0_202</span><br><span class="line">ENV CLASSPATH $JAVA_HOME/lib/dt/jar $JAVA_HOME/lib/tools.jar</span><br><span class="line">ENV CATALINA_HOME /usr/local/apache-tomcat-9.0.94</span><br><span class="line">ENV CATALINA_BASE /usr/local/apache-tomcat-9.0.94</span><br><span class="line">ENV PATH $PATH:$JAVA_HOME/bin:$CATALINA_HOME/lib:$CATALINA_HOME/bin</span><br><span class="line"></span><br><span class="line">EXPOSE 8080</span><br><span class="line"></span><br><span class="line">CMD /usr/local/apache-tomcat-9.0.94/bin/startup.sh &amp;&amp; tail -F /usr/local/apache-tomcat-9.0.94/bin/logs/catalina.out</span><br></pre></td></tr></table></figure>
-
-<ul>
-<li>构建镜像</li>
-</ul>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 以Dockerfile作为文件名，构建时不需要通过 -f 参数指定文件</span></span><br><span class="line">docker build -t diytomcat .</span><br></pre></td></tr></table></figure>
-
-<img src="/post/89826705/%E6%9E%84%E5%BB%BA%E9%95%9C%E5%83%8F%E8%BF%87%E7%A8%8B.png" class="">
-
-<ul>
-<li>启动镜像</li>
-</ul>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">docker run -d -p 8080:8080 --name diytomcat -v /home/mount/tomcat/test:/usr/local/apache-tomcat-9.0.94/webapps/test -v /home/mount/tomcat/logs:/usr/local/apache-tomcat-9.0.94/logs diytomcat</span><br></pre></td></tr></table></figure>
-
-<ul>
-<li>测试tomcat</li>
-</ul>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 依次执行以下步骤</span></span><br><span class="line"><span class="built_in">cd</span> /home/mount/tomcat/test</span><br><span class="line"><span class="built_in">mkdir</span> WEB-INF</span><br><span class="line"><span class="built_in">cd</span> WEB-INF</span><br><span class="line">vi web.xml</span><br><span class="line"><span class="built_in">cd</span> ..</span><br><span class="line">vi index.jsp</span><br></pre></td></tr></table></figure>
-
-<p><code>web.xml</code></p>
-<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">web-app</span> <span class="attr">version</span>=<span class="string">&quot;2.4&quot;</span></span></span><br><span class="line"><span class="tag">    <span class="attr">xmlns</span>=<span class="string">&quot;http://java.sun.com/xml/ns/j2ee&quot;</span></span></span><br><span class="line"><span class="tag">    <span class="attr">xmlns:xsi</span>=<span class="string">&quot;http://www.w3.org/2001/XMLSchema-instance&quot;</span></span></span><br><span class="line"><span class="tag">    <span class="attr">xsi:schemaLocation</span>=<span class="string">&quot;http://java.sun.com/xml/ns/j2ee</span></span></span><br><span class="line"><span class="string"><span class="tag">        http://java.sun.com/xml/ns/j2ee/web-app_2_4.xsd&quot;</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">web-app</span>&gt;</span></span><br></pre></td></tr></table></figure>
-
-<p><code>index.jsp</code></p>
-<figure class="highlight jsp"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">&lt;!DOCTYPE html&gt;</span><br><span class="line">&lt;html lang=<span class="string">&quot;en&quot;</span>&gt;</span><br><span class="line">&lt;head&gt;</span><br><span class="line">    &lt;meta charset=<span class="string">&quot;UTF-8&quot;</span>&gt;</span><br><span class="line">    &lt;meta name=<span class="string">&quot;viewport&quot;</span> content=<span class="string">&quot;width=device-width, initial-scale=1.0&quot;</span>&gt;</span><br><span class="line">    &lt;title&gt;Hello World JSP&lt;/title&gt;</span><br><span class="line">&lt;/head&gt;</span><br><span class="line">&lt;body&gt;</span><br><span class="line">    &lt;h1&gt;Hello, World!&lt;/h1&gt;</span><br><span class="line">&lt;% System.out.println(<span class="string">&quot;----------logs----------&quot;</span>); %&gt;</span><br><span class="line">&lt;/body&gt;</span><br><span class="line">&lt;/html&gt;</span><br></pre></td></tr></table></figure>
-
-<img src="/post/89826705/image-20240915230103023.png" class="" title="image-20240915230103023">
-
-<img src="/post/89826705/image-20240915230216263.png" class="" title="image-20240915230216263">
-
-<h2 id="Docker网络"><a href="#Docker网络" class="headerlink" title="Docker网络"></a>Docker网络</h2><h3 id="自定义网络"><a href="#自定义网络" class="headerlink" title="自定义网络"></a>自定义网络</h3><p>Docker网络基本命令<code>docker network</code></p>
-<p>自定义网络</p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">docker network create --driver bridge --subnet 192.168.0.0/16 --gateway 192.168.0.1 mynet</span><br></pre></td></tr></table></figure>
-
-<p>在自定义网络中启动容器</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">docker run -d -P --name tomcat-mynet-01 --net mynet tomcat</span><br><span class="line"></span><br><span class="line">docker run -d -P --name tomcat-mynet-02 --net mynet tomcat</span><br></pre></td></tr></table></figure>
-
-<p>查看网络详情</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">docker inspect mynet</span><br></pre></td></tr></table></figure>
-
-<img src="/post/89826705/image-20240916103407172.png" class="" title="image-20240916103407172">
-
-<p>进入其中一个容器，通过容器名称和容器IP都可以ping通</p>
-<img src="/post/89826705/image-20240916103552139.png" class="" title="image-20240916103552139">
-
-<h3 id="网络联通"><a href="#网络联通" class="headerlink" title="网络联通"></a>网络联通</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">docker network connect 网络名 容器名</span><br></pre></td></tr></table></figure>
-
-<img src="/post/89826705/image-20240916110819809.png" class="" title="image-20240916110819809">
-
-<p>查看mynet详情会发现，<code>docker network connect</code>命令会把指定容器加到指定网络维护的容器列表</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">docker network inspect mynet</span><br></pre></td></tr></table></figure>
-
-<img src="/post/89826705/image-20240916111008850.png" class="" title="image-20240916111008850">
-
-<h3 id="实战：部署Redis集群"><a href="#实战：部署Redis集群" class="headerlink" title="实战：部署Redis集群"></a>实战：部署Redis集群</h3><ul>
-<li>创建redis网络</li>
-</ul>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">docker network create --driver bridge --subnet 172.38.0.0/16 --gateway 172.38.0.1 redis-net</span><br></pre></td></tr></table></figure>
-
-<ul>
-<li>集群配置文件脚本</li>
-</ul>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">for port in $(seq 1 6); \</span><br><span class="line">do \</span><br><span class="line">mkdir -p /mydata/redis/node-$&#123;port&#125;/conf</span><br><span class="line">touch /mydata/redis/node-$&#123;port&#125;/conf/redis.conf</span><br><span class="line">cat &lt;&lt; EOF &gt; /mydata/redis/node-$&#123;port&#125;/conf/redis.conf</span><br><span class="line">port 6379</span><br><span class="line">bind 0.0.0.0</span><br><span class="line">cluster-enabled yes</span><br><span class="line">cluster-config-file nodes.conf</span><br><span class="line">cluster-node-timeout 5000</span><br><span class="line">cluster-announce-ip 172.38.0.1$&#123;port&#125;</span><br><span class="line">cluster-announce-port 6379</span><br><span class="line">cluster-announce-bus-port 16379</span><br><span class="line">appendonly yes</span><br><span class="line">EOF</span><br><span class="line">done</span><br></pre></td></tr></table></figure>
-
-<ul>
-<li>启动容器，创建集群节点</li>
-</ul>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># node-01</span></span><br><span class="line">docker run -d -p 6371:6379 -p 16371:16379 --name redis-01 \</span><br><span class="line">-v /mydata/redis/node-1/data:/data \</span><br><span class="line">-v /mydata/redis/node-1/conf/redis.conf:/etc/redis/redis.conf \</span><br><span class="line">--net redis-net --ip 172.38.0.11 redis:5.0.9-alpine3.11 redis-server /etc/redis/redis.conf</span><br><span class="line"></span><br><span class="line"><span class="comment"># node-02</span></span><br><span class="line">docker run -d -p 6372:6379 -p 16372:16379 --name redis-02 \</span><br><span class="line">-v /mydata/redis/node-2/data:/data \</span><br><span class="line">-v /mydata/redis/node-2/conf/redis.conf:/etc/redis/redis.conf \</span><br><span class="line">--net redis-net --ip 172.38.0.12 redis:5.0.9-alpine3.11 redis-server /etc/redis/redis.conf</span><br><span class="line"></span><br><span class="line"><span class="comment"># 其他节点类推</span></span><br></pre></td></tr></table></figure>
-
-<ul>
-<li>创建集群</li>
-</ul>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">redis-cli --cluster create 172.38.0.11:6379 172.38.0.12:6379 172.38.0.13:6379 172.38.0.14:6379 172.38.0.15:6379 172.38.0.16:6379 --cluster-replicas 1</span><br></pre></td></tr></table></figure>
-
-<img src="/post/89826705/image-20240916133527083.png" class="" title="image-20240916133527083">
-
-<ul>
-<li>以集群方式创建redis客户端</li>
-</ul>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">redis-cli -c</span><br></pre></td></tr></table></figure>
-
-<ul>
-<li>查看集群信息</li>
-</ul>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">cluster info</span><br></pre></td></tr></table></figure>
-
-<img src="/post/89826705/image-20240916133836873.png" class="" title="image-20240916133836873">
-
-<ul>
-<li>查看集群节点</li>
-</ul>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">cluster nodes</span><br></pre></td></tr></table></figure>
-
-<img src="/post/89826705/image-20240916133936635.png" class="" title="image-20240916133936635">
-
-<ul>
-<li>测试集群高可用</li>
-</ul>
-<figure class="highlight sh"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 设置一个键值对</span></span><br><span class="line"><span class="built_in">set</span> hello world</span><br></pre></td></tr></table></figure>
-
-<img src="/post/89826705/image-20240916134512178.png" class="" title="image-20240916134512178">
-
-<p>停掉redis-01节点，redis-05自动升级为master</p>
-<img src="/post/89826705/image-20240916134700142.png" class="" title="image-20240916134700142">
-
-<p>此时依然可以<code>get hello</code>依然可以成功返回值</p>
-<img src="/post/89826705/image-20240916135154195.png" class="" title="image-20240916135154195">
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/53c5a4e7.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="timewait7">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="Hexo">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content="undefined | Hexo">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/53c5a4e7.html" class="post-title-link" itemprop="url">SpringBoot参数校验</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-
-      <time title="Created: 2024-09-10 22:45:04" itemprop="dateCreated datePublished" datetime="2024-09-10T22:45:04+08:00">2024-09-10</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar-check"></i>
-      </span>
-      <span class="post-meta-item-text">Edited on</span>
-      <time title="Modified: 2024-09-11 21:34:56" itemprop="dateModified" datetime="2024-09-11T21:34:56+08:00">2024-09-11</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h2 id="简介"><a href="#简介" class="headerlink" title="简介"></a>简介</h2><p>JSR303 定义了 Bean 校验的标准 validation-api，hibernate validation 是对这个标准的实现，Spring Validation 则是对 hibernate validation 的二次封装。</p>
-<h2 id="简单使用"><a href="#简单使用" class="headerlink" title="简单使用"></a>简单使用</h2><h3 id="引入依赖"><a href="#引入依赖" class="headerlink" title="引入依赖"></a>引入依赖</h3><figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">dependency</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">groupId</span>&gt;</span>org.hibernate.validator<span class="tag">&lt;/<span class="name">groupId</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">artifactId</span>&gt;</span>hibernate-validator<span class="tag">&lt;/<span class="name">artifactId</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">dependency</span>&gt;</span></span><br></pre></td></tr></table></figure>
-
-<p>对于 web 服务来说，大部分情况下，请求参数分为如下两种形式：</p>
-<ul>
-<li>GET 请求，使用 <code>@RequestParam</code> 和 <code>@PathVariable</code> 传递参数</li>
-<li>POST 和 PUT 请求，使用 <code>@RequestBody</code> 传递参数</li>
-</ul>
-<h3 id="GET-请求参数校验"><a href="#GET-请求参数校验" class="headerlink" title="GET 请求参数校验"></a>GET 请求参数校验</h3><p>GET 请求一般用 <code>@RequestParam</code> 或 <code>@PathVariable</code>  传参，需在 Controller 上加 <code>@Validated</code> 注解，并在接口参数加约束注解，自动参数校验才能生效。校验失败会抛出 <code>javax.validation.ConstraintViolationException</code> 异常。</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@RestController</span></span><br><span class="line"><span class="meta">@RequestMapping(&quot;user&quot;)</span></span><br><span class="line"><span class="meta">@Validated</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">UserController</span> &#123;</span><br><span class="line">    <span class="meta">@GetMapping</span></span><br><span class="line">    <span class="keyword">public</span> UserDTO <span class="title function_">getUser</span><span class="params">(<span class="meta">@RequestParam(&quot;userId&quot;)</span> <span class="meta">@NotBlank</span> String userId)</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="keyword">new</span> <span class="title class_">UserDTO</span>();</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<h3 id="POST-PUT-请求参数校验"><a href="#POST-PUT-请求参数校验" class="headerlink" title="POST&#x2F;PUT 请求参数校验"></a>POST&#x2F;PUT 请求参数校验</h3><p>POST 或 PUT 请求一般用 <code>@RequestBody</code> 传参，后端使用 DTO 对象接收参数，只需要在 DTO 对象前加上 <code>@Valid</code> 或 <code>@Validated</code> 注解就可以实现自动参数校验，校验失败会抛出 <code>org.springframework.web.bind.MethodArgumentNotValidException</code> 异常。</p>
-<p>比如有一个保存 <code>User</code> 的接口，要求 <code>username</code> 长度是 2-10 个字符，<code>password</code> 长度不小于 6 个字符</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Data</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">UserDTO</span> &#123;</span><br><span class="line">    <span class="meta">@NotNull</span></span><br><span class="line">    <span class="meta">@Length(min = 2, max = 10)</span></span><br><span class="line">    <span class="keyword">private</span> String username;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@NotNull</span></span><br><span class="line">    <span class="meta">@Length(min = 6, max = 10)</span></span><br><span class="line">    <span class="keyword">private</span> String password;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@RestController</span></span><br><span class="line"><span class="meta">@RequestMapping(&quot;user&quot;)</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">UserController</span> &#123;</span><br><span class="line">    <span class="meta">@PostMapping(&quot;save&quot;)</span></span><br><span class="line">    <span class="keyword">public</span> UserDTO <span class="title function_">saveUser</span><span class="params">(<span class="meta">@RequestBody</span> <span class="meta">@Validated</span> UserDTO userDTO)</span> &#123; <span class="comment">// 也可以使用 @Valid</span></span><br><span class="line">        <span class="keyword">return</span> userDTO;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<h3 id="统一异常处理"><a href="#统一异常处理" class="headerlink" title="统一异常处理"></a>统一异常处理</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@RestControllerAdvice(&quot;com.tw.codesnippet&quot;)</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">CommonExceptionAdvice</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@ExceptionHandler(MethodArgumentNotValidException.class)</span></span><br><span class="line">    <span class="meta">@ResponseStatus(HttpStatus.OK)</span></span><br><span class="line">    <span class="meta">@ResponseBody</span></span><br><span class="line">    <span class="keyword">public</span> Result <span class="title function_">handleMethodArgumentNotValidException</span><span class="params">(MethodArgumentNotValidException ex)</span> &#123;</span><br><span class="line">        <span class="keyword">final</span> <span class="type">BindingResult</span> <span class="variable">bindingResult</span> <span class="operator">=</span> ex.getBindingResult();</span><br><span class="line">        <span class="type">String</span> <span class="variable">msg</span> <span class="operator">=</span> bindingResult.getFieldError().getField() + <span class="string">&quot;:&quot;</span> + bindingResult.getFieldError().getDefaultMessage();</span><br><span class="line">        <span class="keyword">return</span> Result.failed(ResultEnum.VALIDATE_FAILED.getCode(), msg);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@ExceptionHandler(ConstraintViolationException.class)</span></span><br><span class="line">    <span class="meta">@ResponseStatus(HttpStatus.OK)</span></span><br><span class="line">    <span class="meta">@ResponseBody</span></span><br><span class="line">    <span class="keyword">public</span> Result <span class="title function_">handleConstraintViolationException</span><span class="params">(ConstraintViolationException ex)</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> Result.failed(ResultEnum.VALIDATE_FAILED.getCode(), ex.getMessage());</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<h2 id="进阶使用"><a href="#进阶使用" class="headerlink" title="进阶使用"></a>进阶使用</h2><h3 id="分组校验"><a href="#分组校验" class="headerlink" title="分组校验"></a>分组校验</h3><p>在实际开发中，存在多个接口使用同一个DTO来接口参数的情况，而不同的接口需要校验的字段以及规则可能不一样，这时在DTO的字段上笼统地加上约束注解无法达到这个目的。为此，Spring Validation提供了分组校验功能。</p>
-<p>还是上面这个例子，保存<code>User</code>时，<code>userId</code>可以为空，但是更新时，<code>userId</code>不允许为空。</p>
-<ul>
-<li>DTO字段上的约束注解指定分组</li>
-</ul>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Data</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">UserDTO</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@NotBlank(groups = Update.class)</span></span><br><span class="line">    <span class="keyword">private</span> String userId;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@NotBlank(groups = &#123;Save.class, Update.class&#125;)</span></span><br><span class="line">    <span class="meta">@Length(min = 2, max = 10, groups = &#123;Save.class, Update.class&#125;)</span></span><br><span class="line">    <span class="keyword">private</span> String username;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@NotBlank(groups = &#123;Save.class, Update.class&#125;)</span></span><br><span class="line">    <span class="meta">@Length(min = 6, max = 10, groups = &#123;Save.class, Update.class&#125;)</span></span><br><span class="line">    <span class="keyword">private</span> String password;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">interface</span> <span class="title class_">Save</span> &#123;</span><br><span class="line"></span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">interface</span> <span class="title class_">Update</span> &#123;</span><br><span class="line"></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<ul>
-<li>接口参数的<code>@Validated</code>注解指定分组</li>
-</ul>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@RestController</span></span><br><span class="line"><span class="meta">@RequestMapping(&quot;user&quot;)</span></span><br><span class="line"><span class="meta">@Validated</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">UserController</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@PostMapping(&quot;save&quot;)</span></span><br><span class="line">    <span class="keyword">public</span> UserDTO <span class="title function_">saveUser</span><span class="params">(<span class="meta">@RequestBody</span> <span class="meta">@Validated(UserDTO.Save.class)</span> UserDTO userDTO)</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> userDTO;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@PutMapping(&quot;update&quot;)</span></span><br><span class="line">    <span class="keyword">public</span> UserDTO <span class="title function_">updateUser</span><span class="params">(<span class="meta">@RequestBody</span> <span class="meta">@Validated(UserDTO.Update.class)</span> UserDTO userDTO)</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> userDTO;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>PS：此时不能使用<code>@Valid</code>注解，因为<code>@Valid</code>不具有分组校验功能</p>
-<h3 id="嵌套校验"><a href="#嵌套校验" class="headerlink" title="嵌套校验"></a>嵌套校验</h3><p>如果DTO的某个字段是一个对象，要自动校验这个对象的属性，就得用到嵌套校验。</p>
-<ul>
-<li>在DTO对象字段加上<code>@Valid</code>注解</li>
-</ul>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Data</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">UserDTO</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@NotBlank(groups = Update.class)</span></span><br><span class="line">    <span class="keyword">private</span> String userId;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@NotBlank(groups = &#123;Save.class, Update.class&#125;)</span></span><br><span class="line">    <span class="meta">@Length(min = 2, max = 10, groups = &#123;Save.class, Update.class&#125;)</span></span><br><span class="line">    <span class="keyword">private</span> String username;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@NotBlank(groups = &#123;Save.class, Update.class&#125;)</span></span><br><span class="line">    <span class="meta">@Length(min = 6, max = 10, groups = &#123;Save.class, Update.class&#125;)</span></span><br><span class="line">    <span class="keyword">private</span> String password;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@NotNull(groups = &#123;Save.class, Update.class&#125;)</span></span><br><span class="line">    <span class="meta">@Valid</span></span><br><span class="line">    <span class="keyword">private</span> Address address;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Data</span></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">Address</span> &#123;</span><br><span class="line"></span><br><span class="line">        <span class="meta">@NotBlank(groups = &#123;Save.class, Update.class&#125;)</span></span><br><span class="line">        <span class="keyword">private</span> String country;</span><br><span class="line"></span><br><span class="line">        <span class="meta">@NotBlank(groups = &#123;Save.class, Update.class&#125;)</span></span><br><span class="line">        <span class="keyword">private</span> String state;</span><br><span class="line"></span><br><span class="line">        <span class="meta">@NotBlank(groups = &#123;Save.class, Update.class&#125;)</span></span><br><span class="line">        <span class="keyword">private</span> String city;</span><br><span class="line"></span><br><span class="line">        <span class="meta">@NotBlank(groups = &#123;Save.class, Update.class&#125;)</span></span><br><span class="line">        <span class="keyword">private</span> String street;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">interface</span> <span class="title class_">Save</span> &#123;</span><br><span class="line"></span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">interface</span> <span class="title class_">Update</span> &#123;</span><br><span class="line"></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<h3 id="自定义校验"><a href="#自定义校验" class="headerlink" title="自定义校验"></a>自定义校验</h3><p>有时框架提供的校验无法满足业务复杂的校验需求，此时可以自定义校验注解。</p>
-<ul>
-<li>自定义注解</li>
-</ul>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Target(&#123;ElementType.FIELD, ElementType.PARAMETER&#125;)</span></span><br><span class="line"><span class="meta">@Retention(RetentionPolicy.RUNTIME)</span></span><br><span class="line"><span class="meta">@Documented</span></span><br><span class="line"><span class="meta">@Constraint(validatedBy = PhoneValidator.class)</span></span><br><span class="line"><span class="keyword">public</span> <span class="meta">@interface</span> Phone &#123;</span><br><span class="line"></span><br><span class="line">    String <span class="title function_">message</span><span class="params">()</span> <span class="keyword">default</span> <span class="string">&quot;无效的手机号&quot;</span>;</span><br><span class="line"></span><br><span class="line">    Class&lt;?&gt;[] groups() <span class="keyword">default</span> &#123;&#125;;</span><br><span class="line"></span><br><span class="line">    Class&lt;? <span class="keyword">extends</span> <span class="title class_">Payload</span>&gt;[] payload() <span class="keyword">default</span> &#123;&#125;;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<ul>
-<li>实现自定义校验器</li>
-</ul>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">PhoneValidator</span> <span class="keyword">implements</span> <span class="title class_">ConstraintValidator</span>&lt;Phone, String&gt; &#123;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> <span class="type">Pattern</span> <span class="variable">PHONE_PATTERN</span> <span class="operator">=</span> Pattern.compile(<span class="string">&quot;^1[3-9]\\d&#123;9&#125;$&quot;</span>);</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> <span class="type">boolean</span> <span class="title function_">isValid</span><span class="params">(String value, ConstraintValidatorContext context)</span> &#123;</span><br><span class="line">        <span class="keyword">if</span> (StrUtil.isBlank(value)) &#123;</span><br><span class="line">            <span class="keyword">return</span> <span class="literal">false</span>;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> PHONE_PATTERN.matcher(value).matches();</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/97d9585e.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="timewait7">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="Hexo">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content="undefined | Hexo">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/97d9585e.html" class="post-title-link" itemprop="url">接口统一返回结构</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-
-      <time title="Created: 2024-09-10 00:09:33" itemprop="dateCreated datePublished" datetime="2024-09-10T00:09:33+08:00">2024-09-10</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar-check"></i>
-      </span>
-      <span class="post-meta-item-text">Edited on</span>
-      <time title="Modified: 2024-09-11 01:23:02" itemprop="dateModified" datetime="2024-09-11T01:23:02+08:00">2024-09-11</time>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <p>接口统一返回结构有利于对接接口的开发人员更加清晰地知道接口是否调用成功。</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">interface</span> <span class="title class_">IResult</span> &#123;</span><br><span class="line"></span><br><span class="line">    Integer <span class="title function_">getCode</span><span class="params">()</span>;</span><br><span class="line"></span><br><span class="line">    String <span class="title function_">getMessage</span><span class="params">()</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">enum</span> <span class="title class_">ResultEnum</span> <span class="keyword">implements</span> <span class="title class_">IResult</span> &#123;</span><br><span class="line"></span><br><span class="line">    SUCCESS(<span class="number">2001</span>, <span class="string">&quot;接口调用成功&quot;</span>),</span><br><span class="line"></span><br><span class="line">    FAILED(<span class="number">2002</span>, <span class="string">&quot;接口调用失败&quot;</span>),</span><br><span class="line"></span><br><span class="line">    VALIDATE_FAILED(<span class="number">2003</span>, <span class="string">&quot;参数校验失败&quot;</span>),</span><br><span class="line"></span><br><span class="line">    FORBIDDEN(<span class="number">2004</span>, <span class="string">&quot;禁止访问&quot;</span>)</span><br><span class="line"></span><br><span class="line">    ;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> Integer code;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> String message;</span><br><span class="line"></span><br><span class="line">    ResultEnum(Integer code, String message) &#123;</span><br><span class="line">        <span class="built_in">this</span>.code = code;</span><br><span class="line">        <span class="built_in">this</span>.message = message;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> Integer <span class="title function_">getCode</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> code;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> String <span class="title function_">getMessage</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> message;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Data</span></span><br><span class="line"><span class="meta">@AllArgsConstructor</span></span><br><span class="line"><span class="meta">@NoArgsConstructor</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">Result</span>&lt;T&gt; &#123;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">private</span> Integer code;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">private</span> String message;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">private</span> T data;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> &lt;T&gt; Result&lt;T&gt; <span class="title function_">success</span><span class="params">(T data)</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="keyword">new</span> <span class="title class_">Result</span>&lt;&gt;(ResultEnum.SUCCESS.getCode(), ResultEnum.SUCCESS.getMessage(), data);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> &lt;T&gt; Result&lt;T&gt; <span class="title function_">success</span><span class="params">(String message, T data)</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="keyword">new</span> <span class="title class_">Result</span>&lt;&gt;(ResultEnum.SUCCESS.getCode(), message, data);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> Result&lt;?&gt; failed() &#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="keyword">new</span> <span class="title class_">Result</span>&lt;&gt;(ResultEnum.FAILED.getCode(), ResultEnum.FAILED.getMessage(), <span class="literal">null</span>);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> Result&lt;?&gt; failed(String message) &#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="keyword">new</span> <span class="title class_">Result</span>&lt;&gt;(ResultEnum.FAILED.getCode(), message, <span class="literal">null</span>);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> Result&lt;?&gt; failed(IResult result) &#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="keyword">new</span> <span class="title class_">Result</span>&lt;&gt;(result.getCode(), result.getMessage(), <span class="literal">null</span>);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@RestController</span></span><br><span class="line"><span class="meta">@RequestMapping(&quot;hello&quot;)</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">HelloController</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@GetMapping(&quot;world&quot;)</span></span><br><span class="line">    <span class="keyword">public</span> Result&lt;String&gt; <span class="title function_">helloWorld</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> Result.success(<span class="string">&quot;Hello, World!&quot;</span>);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@GetMapping(&quot;java&quot;)</span></span><br><span class="line">    <span class="keyword">public</span> Result&lt;String&gt; <span class="title function_">helloJava</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> Result.success(<span class="string">&quot;Hello, Java!&quot;</span>);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>现在所有接口的返回结构都统一了，但每个接口都要写上封装的逻辑也是一项很重复的工作，可以通过实现<code>ResponseBodyAdvice</code>对结果统一包装。</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@RestControllerAdvice(basePackages = &quot;com.tw.codesnippet&quot;)</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">ResponseAdvice</span> <span class="keyword">implements</span> <span class="title class_">ResponseBodyAdvice</span>&lt;Object&gt; &#123;</span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> <span class="type">boolean</span> <span class="title function_">supports</span><span class="params">(MethodParameter returnType, Class&lt;? extends HttpMessageConverter&lt;?&gt;&gt; converterType)</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="literal">true</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> Object <span class="title function_">beforeBodyWrite</span><span class="params">(Object body, MethodParameter returnType, MediaType selectedContentType, Class&lt;? extends HttpMessageConverter&lt;?&gt;&gt; selectedConverterType, ServerHttpRequest request, ServerHttpResponse response)</span> &#123;</span><br><span class="line">        <span class="keyword">if</span> (body <span class="keyword">instanceof</span> Result) &#123;</span><br><span class="line">            <span class="keyword">return</span> body;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> Result.success(body);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>此时Controller层的代码就可以简化如下</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@RestController</span></span><br><span class="line"><span class="meta">@RequestMapping(&quot;hello&quot;)</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">HelloController</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@GetMapping(&quot;world&quot;)</span></span><br><span class="line">    <span class="keyword">public</span> String <span class="title function_">helloWorld</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="string">&quot;Hello, World!&quot;</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@GetMapping(&quot;java&quot;)</span></span><br><span class="line">    <span class="keyword">public</span> String <span class="title function_">helloJava</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="string">&quot;Hello, Python!&quot;</span>;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>但如果调用上面的接口会抛出如下异常<code>Result cannot be cast to class java.lang.String</code>，debug可以发现，如果接口的返回值是String类型，<code>beforeBodyWrite</code>的<code>selectedConverterType</code>使用的是<code>StringHttpMessageConverter</code>，而接口是其他类型返回值时<code>selectedConverterType</code>使用的则是<code>MappingJackson2HttpMessageConverter</code>。</p>
-<p>为了解决这个问题，网上的解决办法是添加一个<code>MappingJackson2HttpMessageConverter</code></p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Configuration</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">WebConfig</span> <span class="keyword">implements</span> <span class="title class_">WebMvcConfigurer</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">configureMessageConverters</span><span class="params">(List&lt;HttpMessageConverter&lt;?&gt;&gt; converters)</span> &#123;</span><br><span class="line">        converters.add(<span class="number">0</span>, <span class="keyword">new</span> <span class="title class_">MappingJackson2HttpMessageConverter</span>());</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>但实际运行会发现，<code>selectedConverterType</code>的类型依然是<code>StringHttpMessageConverter</code>，具体原因是：当接口返回String时，Spring默认会优先使用<code>StringHttpMessageConverter</code>来处理，即使在<code>WebConfig</code>里添加了<code>MappingJackson2HttpMessageConverter</code>。</p>
-<p>要让Spring使用<code>MappingJackson2HttpMessageConverter</code>来处理String返回值并生成JSON，可以通过以下几种方法：</p>
-<ol>
-<li>删除<code>StringHttpMessageConverter</code>，确保Spring使用<code>MappingJackson2HttpMessageConverter</code>作为转换器</li>
-</ol>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Configuration</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">WebConfig</span> <span class="keyword">implements</span> <span class="title class_">WebMvcConfigurer</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">configureMessageConverters</span><span class="params">(List&lt;HttpMessageConverter&lt;?&gt;&gt; converters)</span> &#123;</span><br><span class="line">        converters.removeIf(converter -&gt; converter <span class="keyword">instanceof</span> StringHttpMessageConverter);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<ol start="2">
-<li>显示指定 <code>Content-Type</code> 和 <code>Accept</code> 头</li>
-</ol>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">curl -H <span class="string">&quot;Accept: application/json&quot;</span> http://localhost:8080/hello/world</span><br></pre></td></tr></table></figure>
-
-<p>在客户端的请求中明确指定 <code>Accept: application/json</code>，这样 Spring 会根据 <code>Accept</code> 头使用 <code>MappingJackson2HttpMessageConverter</code> 来生成 JSON 响应。</p>
-<ol start="3">
-<li>对于String类型，让接口返回<code>Result&lt;String&gt;</code></li>
-</ol>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/35215128.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="timewait7">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="Hexo">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content="undefined | Hexo">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/35215128.html" class="post-title-link" itemprop="url">代码片段</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-
-      <time title="Created: 2024-08-28 21:33:59" itemprop="dateCreated datePublished" datetime="2024-08-28T21:33:59+08:00">2024-08-28</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar-check"></i>
-      </span>
-      <span class="post-meta-item-text">Edited on</span>
-      <time title="Modified: 2024-09-10 00:09:54" itemprop="dateModified" datetime="2024-09-10T00:09:54+08:00">2024-09-10</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">In</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/%E4%BB%A3%E7%A0%81%E7%89%87%E6%AE%B5/" itemprop="url" rel="index"><span itemprop="name">代码片段</span></a>
-        </span>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h2 id="Java"><a href="#Java" class="headerlink" title="Java"></a>Java</h2><h3 id="获取请求路径上的参数"><a href="#获取请求路径上的参数" class="headerlink" title="获取请求路径上的参数"></a>获取请求路径上的参数</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Component</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">UserContextInterceptor</span> <span class="keyword">implements</span> <span class="title class_">HandlerInterceptor</span> &#123;</span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> <span class="type">boolean</span> <span class="title function_">preHandle</span><span class="params">(HttpServletRequest request, HttpServletResponse response, Object handler)</span> &#123;</span><br><span class="line">        <span class="keyword">final</span> Map&lt;String, String&gt; pathVariables = (Map&lt;String, String&gt;) request.getAttribute(</span><br><span class="line">                HandlerMapping.URI_TEMPLATE_VARIABLES_ATTRIBUTE);</span><br><span class="line">        <span class="type">var</span> <span class="variable">projectId</span> <span class="operator">=</span> pathVariables.get(<span class="string">&quot;project_id&quot;</span>);</span><br><span class="line">        <span class="keyword">return</span> <span class="literal">true</span>;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<h2 id="Thread"><a href="#Thread" class="headerlink" title="Thread"></a>Thread</h2><h3 id="Thread-Pool"><a href="#Thread-Pool" class="headerlink" title="Thread Pool"></a>Thread Pool</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> java.util.concurrent.ExecutorService;</span><br><span class="line"></span><br><span class="line"><span class="comment">/**</span></span><br><span class="line"><span class="comment"> * 创建线程池，线程池大小等于Java虚拟机处理的个数</span></span><br><span class="line"><span class="comment"> */</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">ThreadPool</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> ExecutorService <span class="title function_">createFixedThreadPool</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> Executors.newFixedThreadPool(Runtime.getRuntime().available());</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/1069a098.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="timewait7">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="Hexo">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content="undefined | Hexo">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/1069a098.html" class="post-title-link" itemprop="url">MySQL命令</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-      
-
-      <time title="Created: 2024-08-28 20:56:48 / Modified: 21:01:26" itemprop="dateCreated datePublished" datetime="2024-08-28T20:56:48+08:00">2024-08-28</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">In</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/%E5%91%BD%E4%BB%A4%E6%B8%85%E5%8D%95/" itemprop="url" rel="index"><span itemprop="name">命令清单</span></a>
-        </span>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h2 id="查看支持哪些存储引擎"><a href="#查看支持哪些存储引擎" class="headerlink" title="查看支持哪些存储引擎"></a>查看支持哪些存储引擎</h2><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">SHOW ENGINES;</span><br></pre></td></tr></table></figure>
-
-<h2 id="查看表结构"><a href="#查看表结构" class="headerlink" title="查看表结构"></a>查看表结构</h2><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">SHOW CREATE TABLE table_name;</span><br></pre></td></tr></table></figure>
-
-<h2 id="查看系统变量"><a href="#查看系统变量" class="headerlink" title="查看系统变量"></a>查看系统变量</h2><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">SHOW VARIABLES LIKE &#x27;default_storage_engine&#x27;;</span><br></pre></td></tr></table></figure>
-
-<h2 id="查看状态变量"><a href="#查看状态变量" class="headerlink" title="查看状态变量"></a>查看状态变量</h2><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">SHOW STATUS LIKE &#x27;thread%&#x27;;</span><br></pre></td></tr></table></figure>
-
-<h2 id="查看字符集和比较规则"><a href="#查看字符集和比较规则" class="headerlink" title="查看字符集和比较规则"></a>查看字符集和比较规则</h2><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"># 其中 * 是 server、database、table、column </span><br><span class="line">SHOW VARIABLES LIKE &#x27;character_set_*&#x27;; </span><br><span class="line">SHOW VARIABLES LIKE &#x27;collation_*&#x27;;</span><br></pre></td></tr></table></figure>
-
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/ff12c0cf.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="timewait7">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="Hexo">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content="undefined | Hexo">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/ff12c0cf.html" class="post-title-link" itemprop="url">Vim命令</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-      
-
-      <time title="Created: 2024-08-27 23:03:11 / Modified: 23:08:39" itemprop="dateCreated datePublished" datetime="2024-08-27T23:03:11+08:00">2024-08-27</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">In</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/%E5%91%BD%E4%BB%A4%E6%B8%85%E5%8D%95/" itemprop="url" rel="index"><span itemprop="name">命令清单</span></a>
-        </span>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <p>x：删除当前字符</p>
-<p>dd：删除当前行，并存到剪切板</p>
-<p>p&#x2F;P：在当前行下面&#x2F;上面粘贴</p>
-<p>hjkl：←↓↑→</p>
-<p>u：撤销</p>
-<p>:set number：设置行号</p>
-<p>v：可视化选择</p>
-<p>gU&#x2F;gu：大写&#x2F;小写</p>
-<h2 id="各种插入模式"><a href="#各种插入模式" class="headerlink" title="各种插入模式"></a>各种插入模式</h2><p>i：在当前光标前插入</p>
-<p>a：在当前光标后插入</p>
-<p>o：在当前行下面插入一行</p>
-<p>O：在当前行上面插入一行</p>
-<p>cw：替换光标所在位置到一个单词结尾的字符</p>
-<h2 id="光标移动"><a href="#光标移动" class="headerlink" title="光标移动"></a><strong>光标移动</strong></h2><p>0：到行头</p>
-<p>^：到本行第一个不是blank的字符</p>
-<p>$：到行尾</p>
-<p>g_：到本行最后一个不是blank的字符</p>
-<p>nG&#x2F;:n：跳到第n行</p>
-<p>gg：跳到第一行</p>
-<p>G：跳到最后一行</p>
-<p>w：跳到下一个单词开头</p>
-<p>e：跳到当前单词结尾</p>
-<p>*：匹配光标当前所在单词，移到下一个</p>
-<p>#：匹配光标当前所在单词，移到上一个</p>
-<p>f<ch>：到下一个字符ch处</p>
-<p>2f<ch>：在当前行查找出现的第2个ch</p>
-<p>t<ch>：跳到ch前一个字符</p>
-<h2 id="打开-保存-退出文件"><a href="#打开-保存-退出文件" class="headerlink" title="打开&#x2F;保存&#x2F;退出文件"></a>打开&#x2F;保存&#x2F;退出文件</h2><p>:e file：打开文件</p>
-<p>:saveas file：另存为</p>
-<p>:bn&#x2F;:bp：切到下一个&#x2F;上一个文件</p>
-<p>:b数字：切到指定的文件</p>
-<h2 id="重复命令"><a href="#重复命令" class="headerlink" title="重复命令"></a><strong>重复命令</strong></h2><p>.：重复上一条命令</p>
-<p>N<command>：重复命令n次</p>
-<h2 id="拷贝"><a href="#拷贝" class="headerlink" title="拷贝"></a><strong>拷贝</strong></h2><p>y：拷贝</p>
-<p>0y$：拷贝一行</p>
-<p>ye：拷贝光标所在位置到单词结尾</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/82734d8.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="timewait7">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="Hexo">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content="undefined | Hexo">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/82734d8.html" class="post-title-link" itemprop="url">Linux入门</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-
-      <time title="Created: 2024-08-27 23:02:52" itemprop="dateCreated datePublished" datetime="2024-08-27T23:02:52+08:00">2024-08-27</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar-check"></i>
-      </span>
-      <span class="post-meta-item-text">Edited on</span>
-      <time title="Modified: 2024-09-18 00:31:05" itemprop="dateModified" datetime="2024-09-18T00:31:05+08:00">2024-09-18</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">In</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/Linux/" itemprop="url" rel="index"><span itemprop="name">Linux</span></a>
-        </span>
-    </span>
-
-  
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h2 id="虚拟机网络连接的三种方式"><a href="#虚拟机网络连接的三种方式" class="headerlink" title="虚拟机网络连接的三种方式"></a>虚拟机网络连接的三种方式</h2><h3 id="桥接模式-Bridged"><a href="#桥接模式-Bridged" class="headerlink" title="桥接模式 (Bridged)"></a>桥接模式 (Bridged)</h3><blockquote>
-<p>桥接模式下，虚拟机与宿主机位于同一个物理网络中。虚拟机通过宿主机的物理网卡直接连接到网络，并获得与宿主机相同网段的IP地址。这使得虚拟机与其他网络设备可以直接进行通信，类似于它自己是一台物理机。</p>
-<p>常用于需要虚拟机像物理机一样直接访问外部网络的情况，如文件服务器、Web服务器等。</p>
-</blockquote>
-<h3 id="网络地址转换-NAT"><a href="#网络地址转换-NAT" class="headerlink" title="网络地址转换 (NAT)"></a>网络地址转换 (NAT)</h3><blockquote>
-<p>NAT模式下，虚拟机通过宿主机的网络连接访问外部网络。宿主机为虚拟机提供一个虚拟网卡，并将虚拟机的网络请求转换为宿主机的网络请求。这种方式类似于路由器工作原理，虚拟机自己不能被外部网络直接访问，但可以访问外部资源。</p>
-<p>常用于需要虚拟机访问外部网络但无需被外部设备访问的场景，比如开发和测试环境。</p>
-</blockquote>
-<h3 id="仅主机模式-Host-only"><a href="#仅主机模式-Host-only" class="headerlink" title="仅主机模式 (Host-only)"></a>仅主机模式 (Host-only)</h3><blockquote>
-<p>仅主机模式下，虚拟机只能与宿主机进行网络通信，无法访问外部网络。这种模式创建了一个虚拟的网络环境，虚拟机只能和宿主机或其他配置为Host-only模式的虚拟机通信。</p>
-<p>适用于需要完全封闭的网络环境，如局域网测试或调试等。</p>
-</blockquote>
-<h2 id="文件系统"><a href="#文件系统" class="headerlink" title="文件系统"></a>文件系统</h2><p>Linux系统中，一切皆文件。</p>
-<img src="/post/82734d8/image-20240917223411860.png" class="" title="image-20240917223411860">
-
-<p>目录说明：</p>
-<ul>
-<li>&#x2F;bin：存放基本的用户命令文件，如ls、cp等</li>
-<li>&#x2F;boot：存放启动系统所需文件</li>
-<li>&#x2F;dev：设备文件</li>
-<li><strong>&#x2F;etc：存放系统和应用程序的配置文件</strong></li>
-<li>&#x2F;home：存放用户的主目录</li>
-<li>&#x2F;lib：存放系统程序和内核所需的共享库文件</li>
-<li>&#x2F;media：系统自动识别移动设备并挂载这个目录</li>
-<li>&#x2F;mnt：将外部存储挂载到当前目录</li>
-<li>&#x2F;opt：存放可选的第三方软件包</li>
-<li>&#x2F;proc：虚拟文件系统，提供关于内核和进程的信息</li>
-<li>&#x2F;root：超级用户（root）的主目录</li>
-<li>&#x2F;sbin：存放系统管理命令和工具</li>
-<li>&#x2F;srv：存放系统提供的服务的数据，如Web服务器的数据</li>
-<li>&#x2F;tmp：存放临时文件</li>
-<li><strong>&#x2F;usr：存放应用程序和库，包括大多数系统工具和应用程序</strong></li>
-<li>&#x2F;var：存放动态数据，如日志、缓存、邮件等</li>
-<li><strong>&#x2F;usr&#x2F;local：存放通过源码安装的软件</strong></li>
-</ul>
-<h2 id="查找某段时间内的日志"><a href="#查找某段时间内的日志" class="headerlink" title="查找某段时间内的日志"></a>查找某段时间内的日志</h2><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">sed -n <span class="string">&#x27;/2022-11-25Tll11:40:*/,/2022-11-30Tll11:50:*/p&#x27;</span> performance-service-stable.log </span><br><span class="line">sed -n <span class="string">&#x27;/2022-11-25T14:15:*/,/2022-11-25T15:*/p&#x27;</span> performance-service-dev.log</span><br><span class="line">sed -n <span class="string">&#x27;/2024-01-25 08:54:*/,/2024-01-25 08:55:*/p&#x27;</span> data-puzzle-service.log</span><br></pre></td></tr></table></figure>
-
-<h2 id="根据关键字查找手册页"><a href="#根据关键字查找手册页" class="headerlink" title="根据关键字查找手册页"></a>根据关键字查找手册页</h2><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">man -k keyword</span><br></pre></td></tr></table></figure>
-
-<h2 id="清空文件"><a href="#清空文件" class="headerlink" title="清空文件"></a>清空文件</h2><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">echo</span> -n &gt; file_name</span><br><span class="line"></span><br><span class="line"><span class="built_in">cat</span> /dev/null &gt; file_name</span><br></pre></td></tr></table></figure>
-
-<h2 id="Linux系统目录"><a href="#Linux系统目录" class="headerlink" title="Linux系统目录"></a>Linux系统目录</h2><h2 id="文件基本属性"><a href="#文件基本属性" class="headerlink" title="文件基本属性"></a>文件基本属性</h2><img src="/post/82734d8/image-20240916235314084.png" class="" title="image-20240916235314084">
-
-<ul>
-<li>[d] 目录</li>
-<li>[-] 文件</li>
-<li>[l] 链接</li>
-<li>[b] 存储设备</li>
-<li>[c] 串行端口设备，如鼠标、键盘</li>
-</ul>
-<h3 id="修改属性"><a href="#修改属性" class="headerlink" title="修改属性"></a>修改属性</h3><ul>
-<li>修改属组 <code>chgrp [-R] 属组 文件</code></li>
-<li>修改属主 <code>chown [-R] 属主 文件</code></li>
-<li>同时修改属组和属主 <code>chown [-R] 属主:属组 文件</code></li>
-<li>修改文件权限</li>
-</ul>
-<h3 id="文件链接"><a href="#文件链接" class="headerlink" title="文件链接"></a>文件链接</h3><ul>
-<li>硬链接 <code>ln sourcefile hard-link</code></li>
-</ul>
-<img src="/post/82734d8/image-20240917004132527.png" class="" title="image-20240917004132527">
-
-<ul>
-<li>软链接 <code>ln sourcefile soft-link</code></li>
-</ul>
-<img src="/post/82734d8/image-20240917004243758.png" class="" title="image-20240917004243758">
-
-<ul>
-<li>查看文件inode信息</li>
-</ul>
-<img src="/post/82734d8/image-20240917004859065.png" class="" title="image-20240917004859065">
-
-<h2 id="查看文件"><a href="#查看文件" class="headerlink" title="查看文件"></a>查看文件</h2><p>网络配置目录：<code>/etc/sysconfig/network-scripts</code></p>
-<h3 id="cat-tac-nl"><a href="#cat-tac-nl" class="headerlink" title="cat &amp; tac &amp; nl"></a>cat &amp; tac &amp; nl</h3><h3 id="more-less"><a href="#more-less" class="headerlink" title="more &amp; less"></a>more &amp; less</h3><table>
-<thead>
-<tr>
-<th></th>
-<th>功能</th>
-<th></th>
-<th>功能</th>
-<th></th>
-<th>功能</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>&#x2F;keyword</td>
-<td>向下查找关键字</td>
-<td>n</td>
-<td>向下查找</td>
-<td>N</td>
-<td>向上查找</td>
-</tr>
-<tr>
-<td>?keyword</td>
-<td>向上查找关键字</td>
-<td>n</td>
-<td>向上查找</td>
-<td>N</td>
-<td>向下查找</td>
-</tr>
-</tbody></table>
-<h3 id="head-tail"><a href="#head-tail" class="headerlink" title="head &amp; tail"></a>head &amp; tail</h3><h2 id="创建文件"><a href="#创建文件" class="headerlink" title="创建文件"></a>创建文件</h2><h2 id="账号管理"><a href="#账号管理" class="headerlink" title="账号管理"></a>账号管理</h2><p>添加账号：<code>useradd -m username</code> 添加用户并创建主目录</p>
-<p>删除账号：<code>userdel -r username</code> 删除用户并删除主目录</p>
-<p>修改账号: <code>usermod -d /home/test username</code> 修改用户主目录</p>
-<p>切换账号：<code>su username</code></p>
-<p>修改账号密码：<code>passwd username</code></p>
-<p>锁定账号： <code>passwd -l username</code>  或 <code>passwd -d username</code></p>
-<p>解锁账号：<code>passwd -u username</code></p>
-<figure class="highlight shell"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">[vagrant@localhost ~]$ cat /etc/passwd</span><br><span class="line">root:x:0:0:root:/root:/bin/bash</span><br><span class="line">bin:x:1:1:bin:/bin:/sbin/nologin</span><br><span class="line">daemon:x:2:2:daemon:/sbin:/sbin/nologin</span><br><span class="line">adm:x:3:4:adm:/var/adm:/sbin/nologin</span><br><span class="line">lp:x:4:7:lp:/var/spool/lpd:/sbin/nologin</span><br><span class="line">sync:x:5:0:sync:/sbin:/bin/sync</span><br><span class="line">shutdown:x:6:0:shutdown:/sbin:/sbin/shutdown</span><br></pre></td></tr></table></figure>
-
-<blockquote>
-<p>账号名:密码:用户ID:用户组ID:描述:主目录:登录shell</p>
-</blockquote>
-<h2 id="用户组管理"><a href="#用户组管理" class="headerlink" title="用户组管理"></a>用户组管理</h2><p>添加用户组：<code>groupadd -g 500 groupname</code> 创建用户组并制定用户组id</p>
-<p>删除用户组：<code>groupdel groupname</code></p>
-<p>修改用户组：<code>groupmod -g 600 -n newgroupname groupname</code> </p>
-<h2 id="磁盘管理"><a href="#磁盘管理" class="headerlink" title="磁盘管理"></a>磁盘管理</h2><p>查看文件系统整体使用情况：<code>df -h</code> </p>
-<blockquote>
-<p>-h 以可读形式展示</p>
-</blockquote>
-<p>查看当前目录文件大小：<code>du -ah</code></p>
-<blockquote>
-<p>-a 查看当前目录及其子目录中的所有文件大小</p>
-<p>-h 以可读形式展示</p>
-</blockquote>
-<h2 id="进程管理"><a href="#进程管理" class="headerlink" title="进程管理"></a>进程管理</h2><p>查看系统运行中的进程信息：<code>ps</code></p>
-<p>常用参数</p>
-<ul>
-<li>-a：显示所有进程，除会话首进程和无终端进程</li>
-<li>-u：显示进程的详细信息</li>
-<li>-x：显示进程运行时的参数</li>
-<li>-e&#x2F;-A：显示所有进程</li>
-<li>-f：以完整格式显示，包括父进程ID</li>
-</ul>
-<img src="/post/82734d8/image-20240917103223950.png" class="" title="image-20240917103223950">
-
-<img src="/post/82734d8/image-20240917103250778.png" class="" title="image-20240917103250778">
-
 
       
     </div>
