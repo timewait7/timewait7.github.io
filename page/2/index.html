@@ -409,7 +409,7 @@
         <i class="far fa-calendar-check"></i>
       </span>
       <span class="post-meta-item-text">Edited on</span>
-      <time title="Modified: 2024-10-30 02:02:00" itemprop="dateModified" datetime="2024-10-30T02:02:00+08:00">2024-10-30</time>
+      <time title="Modified: 2024-10-30 22:31:05" itemprop="dateModified" datetime="2024-10-30T22:31:05+08:00">2024-10-30</time>
     </span>
     <span class="post-meta-item">
       <span class="post-meta-item-icon">
@@ -675,7 +675,7 @@
 <h3 id="网络"><a href="#网络" class="headerlink" title="网络"></a>网络</h3><p>默认情况下，所有容器都是以bridge方式连接到Docker的一个虚拟网桥上，如下图。</p>
 <img src="/post/89826705/image-20241030004706881.png" class="" title="image-20241030004706881">
 
-<p>通过默认网桥连接的容器之间只能通过ip可以互相访问，但如果容器重启，ip地址变了，相关的ip配置未同步修改，就会导致容器之间不通。解决办法是创建自定义网络，并将需要互相访问的容器加入该网络，这样容器之间就可以通过容器名互相访问，不会受ip地址变化的影响。</p>
+<p>通过默认网桥连接的容器之间只能通过ip互相访问，如果容器重启，ip地址变了，相关的ip配置未同步修改，就会导致容器之间不通。解决办法是创建自定义网络，并将需要互相访问的容器加入该网络，这样容器之间就可以通过容器名互相访问，不会受ip地址变化的影响。</p>
 <p>Docker常用网络命令：</p>
 <table>
 <thead>
@@ -714,6 +714,30 @@
 </tr>
 </tbody></table>
 <p>PS：容器可以先启动再通过命令 <code>docker network connect</code> 加入指定网络，也可以在启动容器时通过选项 <code>--network 网络名</code> 直接加入指定网络。两者的区别在于：方式一会同时加入默认网络docker0和指定网络，方式二只会加入指定网络。</p>
+<h4 id="实战1"><a href="#实战1" class="headerlink" title="实战1"></a>实战1</h4><h5 id="创建网络"><a href="#创建网络" class="headerlink" title="创建网络"></a>创建网络</h5><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 创建一个名为test的网络</span></span><br><span class="line">docker network create <span class="built_in">test</span></span><br></pre></td></tr></table></figure>
+
+<h5 id="创建数据库容器"><a href="#创建数据库容器" class="headerlink" title="创建数据库容器"></a>创建数据库容器</h5><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">docker run -d \</span><br><span class="line">--name mysql \</span><br><span class="line">-p 3306:3306 \</span><br><span class="line">-e TZ=Asia/Shanghai \</span><br><span class="line">-e MYSQL_ROOT_PASSWORD=123456 \</span><br><span class="line">-v /root/mysql/data:/var/lib/mysql \</span><br><span class="line">-v /root/mysql/init:/docker-entrypoint-initdb.d \</span><br><span class="line">-v /root/mysql/conf:/etc/mysql/conf.d \</span><br><span class="line">mysql</span><br></pre></td></tr></table></figure>
+
+<h5 id="部署后端应用"><a href="#部署后端应用" class="headerlink" title="部署后端应用"></a>部署后端应用</h5><ol>
+<li><p>准备jar包和Dockerfile文件，假设放在虚拟机的&#x2F;root目录下</p>
+</li>
+<li><p>构建镜像</p>
+</li>
+</ol>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> /root</span><br><span class="line">docker built -t appname .</span><br></pre></td></tr></table></figure>
+
+<ol start="3">
+<li>创建容器并运行</li>
+</ol>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 运行容器并连接网络test</span></span><br><span class="line">docker run -d --name imagename -p 8080:8080 --network <span class="built_in">test</span> appname</span><br></pre></td></tr></table></figure>
+
+<h5 id="部署前端应用"><a href="#部署前端应用" class="headerlink" title="部署前端应用"></a>部署前端应用</h5><ol>
+<li>将前端项目和nginx配置文件放在&#x2F;root&#x2F;nginx目录下</li>
+<li>创建容器并运行</li>
+</ol>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">docker run -d \</span><br><span class="line">--name nginx \</span><br><span class="line">-p 18080:18080 \</span><br><span class="line">-p 18081:18081 \</span><br><span class="line">-v /root/nginx/html:/usr/share/nginx/html \</span><br><span class="line">-v /root/nginx/nginx.conf:/etc/nginx/nginx.conf \</span><br><span class="line">--network <span class="built_in">test</span> \</span><br><span class="line">nginx</span><br></pre></td></tr></table></figure>
+
+<p>经过以上步骤，数据库、后端项目、前端项目就能够互相连通。</p>
 <h4 id="实战：部署Redis集群"><a href="#实战：部署Redis集群" class="headerlink" title="实战：部署Redis集群"></a>实战：部署Redis集群</h4><ul>
 <li>创建redis网络</li>
 </ul>
