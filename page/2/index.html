@@ -145,7 +145,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">30</span>
+          <span class="site-state-item-count">31</span>
           <span class="site-state-item-name">posts</span>
         </a>
       </div>
@@ -178,6 +178,137 @@
     </div>
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/a81125b7.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="Hexo">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="undefined | Hexo">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/a81125b7.html" class="post-title-link" itemprop="url">记使用Collectors.toMap()遇到的2个坑</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2024-10-14 23:54:38" itemprop="dateCreated datePublished" datetime="2024-10-14T23:54:38+08:00">2024-10-14</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar-check"></i>
+      </span>
+      <span class="post-meta-item-text">Edited on</span>
+      <time title="Modified: 2024-10-15 00:26:54" itemprop="dateModified" datetime="2024-10-15T00:26:54+08:00">2024-10-15</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/Java/" itemprop="url" rel="index"><span itemprop="name">Java</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>528</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>2 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <p>JDK 8 引入了 stream，极大地简化了日常开发中的集合处理，但是如果使用不当，也会带来一些问题，其中 <code>Collectors.toMap()</code> 就需要谨慎使用。下面简单记录一下使用 <code>Collectors.toMap()</code> 过程中遇到的两个问题。</p>
+<p>先准备一个实体类：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Data</span></span><br><span class="line"><span class="meta">@AllArgsConstructor</span></span><br><span class="line"><span class="meta">@NoArgsConstructor</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">User</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">private</span> Long id;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">private</span> String name;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h2 id="问题1：key重复"><a href="#问题1：key重复" class="headerlink" title="问题1：key重复"></a>问题1：key重复</h2><p>单元测试：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Test</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">testToMapWithDuplicateKey</span><span class="params">()</span> &#123;</span><br><span class="line">    List&lt;User&gt; users = Arrays.asList(</span><br><span class="line">        <span class="keyword">new</span> <span class="title class_">User</span>(<span class="number">1L</span>, <span class="string">&quot;Tom&quot;</span>),</span><br><span class="line">        <span class="keyword">new</span> <span class="title class_">User</span>(<span class="number">1L</span>, <span class="string">&quot;Jerry&quot;</span>));</span><br><span class="line"></span><br><span class="line">    <span class="keyword">final</span> Map&lt;Long, String&gt; map = users.stream().collect(Collectors.toMap(User::getId, User::getName));</span><br><span class="line">    System.out.println(map);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>运行测试方法会看到如下报错：</p>
+<img src="/post/a81125b7/image-20241015001026308.png" class="" title="image-20241015001026308">
+
+
+
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">private</span> <span class="keyword">static</span> &lt;T, K, V&gt;</span><br><span class="line">BiConsumer&lt;Map&lt;K, V&gt;, T&gt; <span class="title function_">uniqKeysMapAccumulator</span><span class="params">(Function&lt;? <span class="built_in">super</span> T, ? extends K&gt; keyMapper,</span></span><br><span class="line"><span class="params">                                                Function&lt;? <span class="built_in">super</span> T, ? extends V&gt; valueMapper)</span> &#123;</span><br><span class="line">    <span class="keyword">return</span> (map, element) -&gt; &#123;</span><br><span class="line">        <span class="type">K</span> <span class="variable">k</span> <span class="operator">=</span> keyMapper.apply(element);</span><br><span class="line">        <span class="type">V</span> <span class="variable">v</span> <span class="operator">=</span> Objects.requireNonNull(valueMapper.apply(element));</span><br><span class="line">        <span class="type">V</span> <span class="variable">u</span> <span class="operator">=</span> map.putIfAbsent(k, v);</span><br><span class="line">        <span class="keyword">if</span> (u != <span class="literal">null</span>) <span class="keyword">throw</span> duplicateKeyException(k, u, v);</span><br><span class="line">    &#125;;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>点击进入报错的源码，可以看到如果 key 重复，jdk 默认的处理方式是抛出异常。为了解决这个问题，需要用户自定义处理 key 重复的策略，比如用新值覆盖旧值：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Test</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">testToMapWithDuplicateKey</span><span class="params">()</span> &#123;</span><br><span class="line">    List&lt;User&gt; users = Arrays.asList(</span><br><span class="line">        <span class="keyword">new</span> <span class="title class_">User</span>(<span class="number">1L</span>, <span class="string">&quot;Tom&quot;</span>),</span><br><span class="line">        <span class="keyword">new</span> <span class="title class_">User</span>(<span class="number">1L</span>, <span class="string">&quot;Jerry&quot;</span>));</span><br><span class="line"></span><br><span class="line">    <span class="keyword">final</span> Map&lt;Long, String&gt; map = users.stream().collect(Collectors.toMap(User::getId, User::getName, (oldVal, newVal) -&gt; newVal));</span><br><span class="line">    System.out.println(map);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h2 id="问题2：value为null"><a href="#问题2：value为null" class="headerlink" title="问题2：value为null"></a>问题2：value为null</h2><p>单元测试：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Test</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">testToMapWithNullValue</span><span class="params">()</span> &#123;</span><br><span class="line">    List&lt;User&gt; users = Arrays.asList(</span><br><span class="line">        <span class="keyword">new</span> <span class="title class_">User</span>(<span class="number">1L</span>, <span class="string">&quot;Tom&quot;</span>),</span><br><span class="line">        <span class="keyword">new</span> <span class="title class_">User</span>(<span class="number">2L</span>, <span class="literal">null</span>));</span><br><span class="line"></span><br><span class="line">    <span class="keyword">final</span> Map&lt;Long, String&gt; map = users.stream().collect(Collectors.toMap(User::getId, User::getName, (oldVal, newVal) -&gt; newVal));</span><br><span class="line">    System.out.println(map);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>运行测试方法可以看到如下报错：</p>
+<img src="/post/a81125b7/image-20241015001918076.png" class="" title="image-20241015001918076">
+
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Override</span></span><br><span class="line"><span class="keyword">public</span> V <span class="title function_">merge</span><span class="params">(K key, V value,</span></span><br><span class="line"><span class="params">               BiFunction&lt;? <span class="built_in">super</span> V, ? <span class="built_in">super</span> V, ? extends V&gt; remappingFunction)</span> &#123;</span><br><span class="line">    <span class="keyword">if</span> (value == <span class="literal">null</span>)</span><br><span class="line">        <span class="keyword">throw</span> <span class="keyword">new</span> <span class="title class_">NullPointerException</span>();</span><br><span class="line">    <span class="comment">// ......</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>进入源码，可以看到 jdk 在合并 key 相同的元素时，如果 value 为 null，会直接抛出异常。处理这个问题，可以先过滤掉 value 可能为 null 的数据，或返回默认值。</p>
+<p>过滤掉name为null的数据：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Test</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">testToMapWithNullValue</span><span class="params">()</span> &#123;</span><br><span class="line">    List&lt;User&gt; users = Arrays.asList(</span><br><span class="line">        <span class="keyword">new</span> <span class="title class_">User</span>(<span class="number">1L</span>, <span class="string">&quot;Tom&quot;</span>),</span><br><span class="line">        <span class="keyword">new</span> <span class="title class_">User</span>(<span class="number">2L</span>, <span class="literal">null</span>));</span><br><span class="line"></span><br><span class="line">    <span class="keyword">final</span> Map&lt;Long, String&gt; map = users.stream()</span><br><span class="line">        .filter(user -&gt; user.getName() != <span class="literal">null</span>)</span><br><span class="line">        .collect(Collectors.toMap(User::getId, User::getName, (oldVal, newVal) -&gt; newVal));</span><br><span class="line">    System.out.println(map);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>如果name为null，默认返回空字符串：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Test</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">testToMapWithNullValue</span><span class="params">()</span> &#123;</span><br><span class="line">    List&lt;User&gt; users = Arrays.asList(</span><br><span class="line">        <span class="keyword">new</span> <span class="title class_">User</span>(<span class="number">1L</span>, <span class="string">&quot;Tom&quot;</span>),</span><br><span class="line">        <span class="keyword">new</span> <span class="title class_">User</span>(<span class="number">2L</span>, <span class="literal">null</span>));</span><br><span class="line"></span><br><span class="line">    <span class="keyword">final</span> Map&lt;Long, String&gt; map = users.stream()</span><br><span class="line">        .collect(Collectors.toMap(User::getId, it -&gt; Optional.ofNullable(it.getName()).orElse(<span class="string">&quot;&quot;</span>), (oldVal, newVal) -&gt; newVal));</span><br><span class="line">    System.out.println(map);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -1860,209 +1991,8 @@
 
 
 
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/f8d4142b.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="Hexo">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content="undefined | Hexo">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/f8d4142b.html" class="post-title-link" itemprop="url">Vagrant使用入门</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-
-      <time title="Created: 2024-09-15 17:52:09" itemprop="dateCreated datePublished" datetime="2024-09-15T17:52:09+08:00">2024-09-15</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar-check"></i>
-      </span>
-      <span class="post-meta-item-text">Edited on</span>
-      <time title="Modified: 2024-10-27 17:06:00" itemprop="dateModified" datetime="2024-10-27T17:06:00+08:00">2024-10-27</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">In</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/%E8%99%9A%E6%8B%9F%E6%9C%BA/" itemprop="url" rel="index"><span itemprop="name">虚拟机</span></a>
-        </span>
-    </span>
-
-  
-    <span class="post-meta-break"></span>
-    <span class="post-meta-item" title="Word count in article">
-      <span class="post-meta-item-icon">
-        <i class="far fa-file-word"></i>
-      </span>
-      <span class="post-meta-item-text">Word count in article: </span>
-      <span>736</span>
-    </span>
-    <span class="post-meta-item" title="Reading time">
-      <span class="post-meta-item-icon">
-        <i class="far fa-clock"></i>
-      </span>
-      <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>3 mins.</span>
-    </span>
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h2 id="创建虚拟机"><a href="#创建虚拟机" class="headerlink" title="创建虚拟机"></a>创建虚拟机</h2><ul>
-<li>安装Vagrant</li>
-</ul>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">brew tap hashicorp/tap</span><br><span class="line">brew install hashicorp/tap/hashicorp-vagrant</span><br></pre></td></tr></table></figure>
-
-<ul>
-<li>初始化虚拟机</li>
-</ul>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 仅创建一个Vagrantfile</span></span><br><span class="line"><span class="built_in">mkdir</span> vm</span><br><span class="line"><span class="built_in">cd</span> vm</span><br><span class="line">vagrant init centos/7</span><br></pre></td></tr></table></figure>
-
-<ul>
-<li>启动虚拟机</li>
-</ul>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 这一步才是拉取并启动镜像</span></span><br><span class="line">vagrant up</span><br></pre></td></tr></table></figure>
-
-<ul>
-<li>连接虚拟机</li>
-</ul>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">vagrant ssh</span><br></pre></td></tr></table></figure>
-
-<h2 id="安装docker"><a href="#安装docker" class="headerlink" title="安装docker"></a>安装docker</h2><ul>
-<li>卸载旧版docker</li>
-</ul>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">sudo yum remove docker \</span><br><span class="line">                  docker-client \</span><br><span class="line">                  docker-client-latest \</span><br><span class="line">                  docker-common \</span><br><span class="line">                  docker-latest \</span><br><span class="line">                  docker-latest-logrotate \</span><br><span class="line">                  docker-logrotate \</span><br><span class="line">                  docker-engine</span><br></pre></td></tr></table></figure>
-
-<ul>
-<li>安装yum-utils并设置docker仓库</li>
-</ul>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">sudo yum install -y yum-utils</span><br><span class="line">sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo</span><br></pre></td></tr></table></figure>
-
-<ul>
-<li><p>安装docker</p>
-<ul>
-<li><p>安装最新版</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">sudo yum install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin</span><br></pre></td></tr></table></figure>
-</li>
-<li><p>安装指定版本</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 查看docker版本</span></span><br><span class="line">yum list docker-ce --showduplicates | <span class="built_in">sort</span> -r</span><br><span class="line"></span><br><span class="line">docker-ce.x86_64    3:27.1.1-1.el9    docker-ce-stable</span><br><span class="line">docker-ce.x86_64    3:27.1.0-1.el9    docker-ce-stable</span><br><span class="line">&lt;...&gt;</span><br><span class="line"></span><br><span class="line"><span class="comment"># 安装指定版本</span></span><br><span class="line">sudo yum install docker-ce-&lt;VERSION_STRING&gt; docker-ce-cli-&lt;VERSION_STRING&gt; containerd.io docker-buildx-plugin docker-compose-plugin</span><br></pre></td></tr></table></figure></li>
-</ul>
-</li>
-<li><p>启动docker</p>
-</li>
-</ul>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">sudo systemctl start docker</span><br><span class="line"></span><br><span class="line"><span class="comment"># 设置开机默认启动</span></span><br><span class="line">sudo systemctl <span class="built_in">enable</span> docker</span><br><span class="line"></span><br><span class="line"><span class="comment"># 设置容器自动启动</span></span><br><span class="line">docker run -d --restart=always --name 容器名称 镜像</span><br><span class="line"></span><br><span class="line"><span class="comment"># 修改容器自动启动</span></span><br><span class="line">docker update --restart=always 容器ID</span><br></pre></td></tr></table></figure>
-
-<h2 id="端口转发"><a href="#端口转发" class="headerlink" title="端口转发"></a>端口转发</h2><p>假设在虚拟机中启动了一个tomcat镜像，要想在宿主机中的访问该tomcat，需配置端口转发。打开Vagrantfile，按如下修改配置：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">config.vm.network &quot;forwarded_port&quot;, guest: 8080, host: 8080</span><br></pre></td></tr></table></figure>
-
-<p>修改完Vagrantfile后，需重启虚拟机</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">vagrant reload</span><br></pre></td></tr></table></figure>
-
-<h2 id="Tabby连接虚拟机"><a href="#Tabby连接虚拟机" class="headerlink" title="Tabby连接虚拟机"></a>Tabby连接虚拟机</h2><p>Tabby是一个类终端的ssh客户端，使用Tabby连接到虚拟机后，可以向虚拟机上传文件。操作步骤如下：</p>
-<ol>
-<li>获取虚拟机的SSH信息</li>
-</ol>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 进入Vagrantfile所在目录</span></span><br><span class="line">vagrant ssh-config</span><br><span class="line"></span><br><span class="line"><span class="comment"># 执行上述命令，将得到连接虚拟机所需的ssh信息：</span></span><br><span class="line">Host default</span><br><span class="line">  HostName 127.0.0.1</span><br><span class="line">  User vagrant</span><br><span class="line">  Port 2222</span><br><span class="line">  IdentityFile /path/to/private_key</span><br></pre></td></tr></table></figure>
-
-<ol start="2">
-<li>配置Tabby连接</li>
-</ol>
-<blockquote>
-<p>在 Tabby 中，点击 <code>Profiles</code> -&gt; <code>New Profile</code>。</p>
-<p>在 <code>Connection</code> 选项卡中设置以下信息：</p>
-<ul>
-<li><strong>Host:</strong> <code>127.0.0.1</code> （从 <code>vagrant ssh-config</code> 中获取的 <code>HostName</code>）</li>
-<li><strong>Port:</strong> <code>2222</code> （从 <code>vagrant ssh-config</code> 中获取的 <code>Port</code>）</li>
-<li><strong>User:</strong> <code>vagrant</code> （从 <code>vagrant ssh-config</code> 中获取的 <code>User</code>）</li>
-<li><strong>Private Key</strong>: 选择 <code>IdentityFile</code> 的路径（从 <code>vagrant ssh-config</code> 中获取的 <code>/path/to/private_key</code>）。</li>
-</ul>
-</blockquote>
-<img src="/post/f8d4142b/Tabby%E8%BF%9E%E6%8E%A5%E8%99%9A%E6%8B%9F%E6%9C%BA.png" class="">
-
-<ol start="3">
-<li><p>上传文件</p>
-<p>如果以下两种方式上传失败，请注意vagrant对虚拟机中的目的路径是否有写权限，如果没有，需要用chmod和chown命令修改文件的属性以获得写权限。</p>
-<ul>
-<li><p>图形界面化方式</p>
-<img src="/post/f8d4142b/Tabby%E4%B8%8A%E4%BC%A0%E6%96%87%E4%BB%B6%E5%88%B0%E8%99%9A%E6%8B%9F%E6%9C%BA.png" class="">
-</li>
-<li><p>命令行方式</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># /path/to/private_key 连接虚拟机的ssh信息中的IdentityFile</span></span><br><span class="line"><span class="comment"># /Users/yourname/Documents/example.txt 宿主机文件路径</span></span><br><span class="line">scp -i /path/to/private_key -P 2222 /Users/yourname/Documents/example.txt vagrant@127.0.0.1:/home/vagrant/</span><br></pre></td></tr></table></figure>
-
-<p>PS：该命令在宿主机命令行终端中执行</p>
-</li>
-</ul>
-</li>
-</ol>
-<h2 id="问题"><a href="#问题" class="headerlink" title="问题"></a>问题</h2><h3 id="问题1"><a href="#问题1" class="headerlink" title="问题1"></a>问题1</h3><img src="/post/f8d4142b/image-20241027114900897.png" class="" title="image-20241027114900897">
-
-<p>解决方法</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">su root</span><br><span class="line">sed -i <span class="string">&#x27;s/mirrorlist/#mirrorlist/g&#x27;</span> /etc/yum.repos.d/CentOS-*</span><br><span class="line">sed -i <span class="string">&#x27;s|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g&#x27;</span> /etc/yum.repos.d/CentOS-*</span><br></pre></td></tr></table></figure>
-
-<h3 id="问题2"><a href="#问题2" class="headerlink" title="问题2"></a>问题2</h3><img src="/post/f8d4142b/image-20241027115202371.png" class="" title="image-20241027115202371">
-
-<p>解决方法：使用阿里云镜像</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">sudo yum-config-manager --add-repo http://mirrors.aliyun.com/docker-ce/linux/centos/docker-ce.repo</span><br></pre></td></tr></table></figure>
-
-<h3 id="问题3"><a href="#问题3" class="headerlink" title="问题3"></a>问题3</h3><img src="/post/f8d4142b/image-20241027135816837.png" class="" title="image-20241027135816837">
-
-<p>解决方法：添加镜像</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">&#123;</span><br><span class="line">  <span class="string">&quot;registry-mirrors&quot;</span>: [</span><br><span class="line">        <span class="string">&quot;https://xxx.mirror.aliyuncs.com&quot;</span>,</span><br><span class="line">        <span class="string">&quot;https://docker.mirrors.ustc.edu.cn&quot;</span>,</span><br><span class="line">        <span class="string">&quot;https://docker.m.daocloud.io&quot;</span>,</span><br><span class="line">        <span class="string">&quot;https://dockerproxy.com&quot;</span>,</span><br><span class="line">        <span class="string">&quot;https://docker.nju.edu.cn&quot;</span>,</span><br><span class="line">        <span class="string">&quot;http://hammal.staronearth.win/&quot;</span>,</span><br><span class="line">        <span class="string">&quot;http://hub.staronearth.win/&quot;</span></span><br><span class="line">  ]</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
   <nav class="pagination">
-    <a class="extend prev" rel="prev" title="Previous page" aria-label="Previous page" href="/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/">1</a><span class="page-number current">2</span><a class="page-number" href="/page/3/">3</a><a class="extend next" rel="next" title="Next page" aria-label="Next page" href="/page/3/"><i class="fa fa-angle-right"></i></a>
+    <a class="extend prev" rel="prev" title="Previous page" aria-label="Previous page" href="/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/">1</a><span class="page-number current">2</span><a class="page-number" href="/page/3/">3</a><a class="page-number" href="/page/4/">4</a><a class="extend next" rel="next" title="Next page" aria-label="Next page" href="/page/3/"><i class="fa fa-angle-right"></i></a>
   </nav>
 
 </div>
@@ -2090,7 +2020,7 @@
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
-    <span title="Reading time total">2:06</span>
+    <span title="Reading time total">2:08</span>
   </span>
 </div>
 
