@@ -19,19 +19,19 @@
 
 <script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":false,"version":"8.20.0","exturl":false,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"copycode":{"enable":true,"style":"flat"},"fold":{"enable":false,"height":500},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"lazyload":false,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":false,"nav":null},"stickytabs":false,"motion":{"enable":true,"async":false,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"prism":false,"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.xml","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js"></script>
 
-    <meta name="description" content="MySQL查询当OFFSET值很大时（如LIMIT 100000, 10），为什么查询会变慢 原因：MySQL需先扫描并跳过offset + limit行，再返回结果。  优化方案：  使用索引覆盖扫描： 123SELECT * FROM orders WHERE id &gt;&#x3D; (SELECT id FROM orders ORDER BY id LIMIT 100000, 1)ORDER B">
+    <meta name="description" content="MySQL SQL 优化: 深入理解执行计划（EXPLAIN）、索引原理（B+树, 哈希, 覆盖索引, 最左前缀）、锁机制（行锁、表锁、间隙锁、MVCC）、事务隔离级别实现原理。 分库分表: 理解分片策略（水平&#x2F;垂直）、路由算法、分布式 ID 生成方案（Snowflake 等）、面临的挑战（跨库查询、事务）。 NoSQL 选型: 了解 MongoDB, Elasticsearch, Ca">
 <meta property="og:type" content="article">
 <meta property="og:title" content="学习&amp;面试-数据存储">
 <meta property="og:url" content="http://timewait7.github.io/post/32511a71.html">
 <meta property="og:site_name" content="Hexo">
-<meta property="og:description" content="MySQL查询当OFFSET值很大时（如LIMIT 100000, 10），为什么查询会变慢 原因：MySQL需先扫描并跳过offset + limit行，再返回结果。  优化方案：  使用索引覆盖扫描： 123SELECT * FROM orders WHERE id &gt;&#x3D; (SELECT id FROM orders ORDER BY id LIMIT 100000, 1)ORDER B">
+<meta property="og:description" content="MySQL SQL 优化: 深入理解执行计划（EXPLAIN）、索引原理（B+树, 哈希, 覆盖索引, 最左前缀）、锁机制（行锁、表锁、间隙锁、MVCC）、事务隔离级别实现原理。 分库分表: 理解分片策略（水平&#x2F;垂直）、路由算法、分布式 ID 生成方案（Snowflake 等）、面临的挑战（跨库查询、事务）。 NoSQL 选型: 了解 MongoDB, Elasticsearch, Ca">
 <meta property="og:locale" content="en_US">
 <meta property="og:image" content="http://timewait7.github.io/post/32511a71/1726212535664-4bb3f3ff-704a-4706-84c8-a046a8486657.webp">
 <meta property="og:image" content="https://cdn.tobebetterjavaer.com/stutymore/redis-20240918114125.png">
 <meta property="og:image" content="https://cdn.tobebetterjavaer.com/tobebetterjavaer/images/sidebar/sanfene/redis-b7b24e25-d2dc-4457-994f-95bdb3674b8e.png">
 <meta property="og:image" content="http://timewait7.github.io/post/32511a71/image-20250807221917345.png">
 <meta property="article:published_time" content="2025-07-26T12:19:32.000Z">
-<meta property="article:modified_time" content="2025-08-09T02:09:29.250Z">
+<meta property="article:modified_time" content="2025-08-20T00:16:26.910Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:image" content="http://timewait7.github.io/post/32511a71/1726212535664-4bb3f3ff-704a-4706-84c8-a046a8486657.webp">
 
@@ -237,7 +237,7 @@
         <i class="far fa-file-word"></i>
       </span>
       <span class="post-meta-item-text">Word count in article: </span>
-      <span>22k</span>
+      <span>23k</span>
     </span>
     <span class="post-meta-item" title="Reading time">
       <span class="post-meta-item-icon">
@@ -254,7 +254,12 @@
     
     
     
-    <div class="post-body" itemprop="articleBody"><h1 id="MySQL"><a href="#MySQL" class="headerlink" title="MySQL"></a>MySQL</h1><h2 id="查询"><a href="#查询" class="headerlink" title="查询"></a>查询</h2><h3 id="当OFFSET值很大时（如LIMIT-100000-10），为什么查询会变慢"><a href="#当OFFSET值很大时（如LIMIT-100000-10），为什么查询会变慢" class="headerlink" title="当OFFSET值很大时（如LIMIT 100000, 10），为什么查询会变慢"></a>当<code>OFFSET</code>值很大时（如<code>LIMIT 100000, 10</code>），为什么查询会变慢</h3><ul>
+    <div class="post-body" itemprop="articleBody"><h1 id="MySQL"><a href="#MySQL" class="headerlink" title="MySQL"></a>MySQL</h1><ul>
+<li><strong>SQL 优化:</strong> 深入理解执行计划（EXPLAIN）、索引原理（B+树, 哈希, 覆盖索引, 最左前缀）、锁机制（行锁、表锁、间隙锁、MVCC）、事务隔离级别实现原理。</li>
+<li><strong>分库分表:</strong> 理解分片策略（水平&#x2F;垂直）、路由算法、分布式 ID 生成方案（Snowflake 等）、面临的挑战（跨库查询、事务）。</li>
+<li><strong>NoSQL 选型:</strong> 了解 MongoDB, Elasticsearch, Cassandra 等适用场景和核心特性。</li>
+</ul>
+<h2 id="查询"><a href="#查询" class="headerlink" title="查询"></a>查询</h2><h3 id="当OFFSET值很大时（如LIMIT-100000-10），为什么查询会变慢"><a href="#当OFFSET值很大时（如LIMIT-100000-10），为什么查询会变慢" class="headerlink" title="当OFFSET值很大时（如LIMIT 100000, 10），为什么查询会变慢"></a>当<code>OFFSET</code>值很大时（如<code>LIMIT 100000, 10</code>），为什么查询会变慢</h3><ul>
 <li><p><strong>原因</strong>：MySQL需先扫描并跳过<code>offset + limit</code>行，再返回结果。</p>
 </li>
 <li><p><strong>优化方案</strong>：</p>
@@ -1229,7 +1234,10 @@
 <li><strong>Change Buffer 是建立在 Buffer Pool 之上的一个针对特定场景（非唯一二级索引写）的高级优化，核心思想是延迟和合并对索引页的修改操作，以减少昂贵的随机磁盘 I&#x2F;O。</strong></li>
 </ul>
 <p>理解这两者的区别和协作对于深入掌握 InnoDB 的工作原理和进行 MySQL 性能调优至关重要。Buffer Pool 的命中率直接影响整体性能，而合理利用 Change Buffer 可以显著提升涉及非唯一索引的写入效率。</p>
-<h1 id="Redis"><a href="#Redis" class="headerlink" title="Redis"></a>Redis</h1><h2 id="数据结构"><a href="#数据结构" class="headerlink" title="数据结构"></a>数据结构</h2><h3 id="Redis-有哪些数据类型，分别用于哪些场景"><a href="#Redis-有哪些数据类型，分别用于哪些场景" class="headerlink" title="Redis 有哪些数据类型，分别用于哪些场景"></a>Redis 有哪些数据类型，分别用于哪些场景</h3><p><strong>String（字符串）</strong></p>
+<h1 id="Redis"><a href="#Redis" class="headerlink" title="Redis"></a>Redis</h1><ul>
+<li><strong>Redis:</strong> 深入理解数据类型及适用场景、持久化机制（RDB&#x2F;AOF）、内存淘汰策略、集群模式（主从、哨兵、Cluster）、分布式锁实现（Redlock 争议及替代方案）、缓存穿透&#x2F;击穿&#x2F;雪崩解决方案、与数据库一致性策略。了解底层数据结构（SDS, 跳跃表, 字典, 压缩列表等）。</li>
+</ul>
+<h2 id="数据结构"><a href="#数据结构" class="headerlink" title="数据结构"></a>数据结构</h2><h3 id="Redis-有哪些数据类型，分别用于哪些场景"><a href="#Redis-有哪些数据类型，分别用于哪些场景" class="headerlink" title="Redis 有哪些数据类型，分别用于哪些场景"></a>Redis 有哪些数据类型，分别用于哪些场景</h3><p><strong>String（字符串）</strong></p>
 <ul>
 <li><strong>描述</strong>：最基本的数据类型，可存储文本、二进制数据（如图片）、数字（整数或浮点数）。</li>
 <li><strong>典型场景</strong>：<ul>
@@ -1981,13 +1989,13 @@
     <span class="post-meta-item-icon">
       <i class="fa fa-chart-line"></i>
     </span>
-    <span title="Word count total">108k</span>
+    <span title="Word count total">109k</span>
   </span>
   <span class="post-meta-item">
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
-    <span title="Reading time total">6:33</span>
+    <span title="Reading time total">6:37</span>
   </span>
 </div>
 
