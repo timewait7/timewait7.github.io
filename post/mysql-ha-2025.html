@@ -1,0 +1,1438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="本文是《MySQL 原理与优化》的进阶篇，索引&#x2F;SQL 优化&#x2F;锁&#x2F;MVCC 等基础概念见该文（abbrlink：32511a71）。本篇聚焦”单机 MySQL 撑不住之后怎么办”：先解决高可用（主从复制、读写分离、故障自动转移），再解决扩展性（分库分表、ShardingSphere 实战、平滑扩容）。 1. 为什么需要高可用与分库分表1.1 单机 MySQL 的三个瓶">
+<meta property="og:type" content="article">
+<meta property="og:title" content="MySQL 高可用与分库分表实战">
+<meta property="og:url" content="http://timewait7.github.io/post/mysql-ha-2025.html">
+<meta property="og:site_name" content="NexT">
+<meta property="og:description" content="本文是《MySQL 原理与优化》的进阶篇，索引&#x2F;SQL 优化&#x2F;锁&#x2F;MVCC 等基础概念见该文（abbrlink：32511a71）。本篇聚焦”单机 MySQL 撑不住之后怎么办”：先解决高可用（主从复制、读写分离、故障自动转移），再解决扩展性（分库分表、ShardingSphere 实战、平滑扩容）。 1. 为什么需要高可用与分库分表1.1 单机 MySQL 的三个瓶">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2025-10-10T11:00:00.000Z">
+<meta property="article:modified_time" content="2026-08-08T15:38:27.341Z">
+<meta property="article:tag" content="MySQL">
+<meta property="article:tag" content="高可用">
+<meta property="article:tag" content="分库分表">
+<meta property="article:tag" content="ShardingSphere">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/mysql-ha-2025.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/mysql-ha-2025.html","path":"post/mysql-ha-2025.html","title":"MySQL 高可用与分库分表实战"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>MySQL 高可用与分库分表实战 | NexT</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+  <script class="next-config" data-name="mermaid" type="application/json">{"enable":true,"theme":{"light":"default","dark":"dark"},"js":{"url":"/lib/mermaid/dist/mermaid.min.js"}}</script>
+  <script src="/js/third-party/tags/mermaid.js" defer></script>
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<link rel="alternate" href="/atom.xml" title="NexT" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">NexT</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-%E4%B8%BA%E4%BB%80%E4%B9%88%E9%9C%80%E8%A6%81%E9%AB%98%E5%8F%AF%E7%94%A8%E4%B8%8E%E5%88%86%E5%BA%93%E5%88%86%E8%A1%A8"><span class="nav-number">1.</span> <span class="nav-text">1. 为什么需要高可用与分库分表</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-%E5%8D%95%E6%9C%BA-MySQL-%E7%9A%84%E4%B8%89%E4%B8%AA%E7%93%B6%E9%A2%88"><span class="nav-number">1.1.</span> <span class="nav-text">1.1 单机 MySQL 的三个瓶颈</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-2-CAP-%E8%A7%86%E8%A7%92%E4%B8%8B%E7%9A%84-MySQL-%E6%89%A9%E5%B1%95%E8%B7%AF%E5%BE%84"><span class="nav-number">1.2.</span> <span class="nav-text">1.2 CAP 视角下的 MySQL 扩展路径</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E4%B8%BB%E4%BB%8E%E5%A4%8D%E5%88%B6"><span class="nav-number">2.</span> <span class="nav-text">2. 主从复制</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E5%A4%8D%E5%88%B6%E5%8E%9F%E7%90%86%EF%BC%9A%E4%B8%89%E7%BA%BF%E7%A8%8B-binlog"><span class="nav-number">2.1.</span> <span class="nav-text">2.1 复制原理：三线程 + binlog</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E4%BD%8D%E7%82%B9%E5%A4%8D%E5%88%B6-vs-GTID-%E5%A4%8D%E5%88%B6"><span class="nav-number">2.1.1.</span> <span class="nav-text">位点复制 vs GTID 复制</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E5%A4%8D%E5%88%B6%E6%A8%A1%E5%BC%8F%EF%BC%9A%E5%BC%82%E6%AD%A5-%E5%8D%8A%E5%90%8C%E6%AD%A5-%E7%BB%84%E5%A4%8D%E5%88%B6"><span class="nav-number">2.2.</span> <span class="nav-text">2.2 复制模式：异步 &#x2F; 半同步 &#x2F; 组复制</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%BC%82%E6%AD%A5%E5%A4%8D%E5%88%B6%EF%BC%88%E9%BB%98%E8%AE%A4%EF%BC%89"><span class="nav-number">2.2.1.</span> <span class="nav-text">异步复制（默认）</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%8D%8A%E5%90%8C%E6%AD%A5%E5%A4%8D%E5%88%B6%EF%BC%88semi-sync%EF%BC%89"><span class="nav-number">2.2.2.</span> <span class="nav-text">半同步复制（semi-sync）</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E7%BB%84%E5%A4%8D%E5%88%B6%EF%BC%88Group-Replication%EF%BC%8CMGR%EF%BC%89"><span class="nav-number">2.2.3.</span> <span class="nav-text">组复制（Group Replication，MGR）</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-%E4%B8%BB%E4%BB%8E%E5%BB%B6%E8%BF%9F%E7%9A%84%E5%8E%9F%E5%9B%A0"><span class="nav-number">2.3.</span> <span class="nav-text">2.3 主从延迟的原因</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-4-%E5%B9%B6%E8%A1%8C%E5%A4%8D%E5%88%B6%EF%BC%88MTS%EF%BC%8CMulti-Threaded-Slave%EF%BC%89"><span class="nav-number">2.4.</span> <span class="nav-text">2.4 并行复制（MTS，Multi-Threaded Slave）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-5-%E4%B8%BB%E4%BB%8E%E5%88%87%E6%8D%A2%E4%B8%8E%E6%95%85%E9%9A%9C%E6%81%A2%E5%A4%8D"><span class="nav-number">2.5.</span> <span class="nav-text">2.5 主从切换与故障恢复</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E8%AF%BB%E5%86%99%E5%88%86%E7%A6%BB"><span class="nav-number">3.</span> <span class="nav-text">3. 读写分离</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E5%AE%9E%E7%8E%B0%E6%96%B9%E6%A1%88"><span class="nav-number">3.1.</span> <span class="nav-text">3.1 实现方案</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E4%B8%BB%E4%BB%8E%E5%BB%B6%E8%BF%9F%E4%B8%8B%E7%9A%84%E6%95%B0%E6%8D%AE%E4%B8%80%E8%87%B4%E6%80%A7%E5%A4%84%E7%90%86"><span class="nav-number">3.2.</span> <span class="nav-text">3.2 主从延迟下的数据一致性处理</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-Spring-%E4%B8%AD%E5%AE%9E%E7%8E%B0%E5%8A%A8%E6%80%81%E6%95%B0%E6%8D%AE%E6%BA%90"><span class="nav-number">3.3.</span> <span class="nav-text">3.3 Spring 中实现动态数据源</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E9%AB%98%E5%8F%AF%E7%94%A8%E6%9E%B6%E6%9E%84"><span class="nav-number">4.</span> <span class="nav-text">4. 高可用架构</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-MHA%EF%BC%88Master-High-Availability%EF%BC%89"><span class="nav-number">4.1.</span> <span class="nav-text">4.1 MHA（Master High Availability）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-MGR%EF%BC%88MySQL-Group-Replication%EF%BC%8C%E7%BB%84%E5%A4%8D%E5%88%B6%EF%BC%89"><span class="nav-number">4.2.</span> <span class="nav-text">4.2 MGR（MySQL Group Replication，组复制）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-InnoDB-Cluster%EF%BC%88MySQL-Shell-MySQL-Router%EF%BC%89"><span class="nav-number">4.3.</span> <span class="nav-text">4.3 InnoDB Cluster（MySQL Shell + MySQL Router）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-4-Orchestrator-VIP-%E8%87%AA%E5%8A%A8%E6%95%85%E9%9A%9C%E8%BD%AC%E7%A7%BB"><span class="nav-number">4.4.</span> <span class="nav-text">4.4 Orchestrator + VIP 自动故障转移</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-5-%E5%90%84%E6%96%B9%E6%A1%88%E5%AF%B9%E6%AF%94%E4%B8%8E%E9%80%89%E5%9E%8B%E5%BB%BA%E8%AE%AE"><span class="nav-number">4.5.</span> <span class="nav-text">4.5 各方案对比与选型建议</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E5%88%86%E5%BA%93%E5%88%86%E8%A1%A8%E7%90%86%E8%AE%BA"><span class="nav-number">5.</span> <span class="nav-text">5. 分库分表理论</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E5%9E%82%E7%9B%B4%E6%8B%86%E5%88%86-vs-%E6%B0%B4%E5%B9%B3%E6%8B%86%E5%88%86"><span class="nav-number">5.1.</span> <span class="nav-text">5.1 垂直拆分 vs 水平拆分</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E5%88%86%E7%89%87%E9%94%AE%E9%80%89%E6%8B%A9"><span class="nav-number">5.2.</span> <span class="nav-text">5.2 分片键选择</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-%E5%88%86%E7%89%87%E7%AE%97%E6%B3%95"><span class="nav-number">5.3.</span> <span class="nav-text">5.3 分片算法</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-%E5%88%86%E5%BA%93%E5%88%86%E8%A1%A8%E5%B8%A6%E6%9D%A5%E7%9A%84%E9%97%AE%E9%A2%98"><span class="nav-number">5.4.</span> <span class="nav-text">5.4 分库分表带来的问题</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#6-ShardingSphere-%E5%AE%9E%E6%88%98%EF%BC%88%E6%A0%B8%E5%BF%83%EF%BC%89"><span class="nav-number">6.</span> <span class="nav-text">6. ShardingSphere 实战（核心）</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#6-1-ShardingSphere-JDBC-%E6%9E%B6%E6%9E%84%EF%BC%9A%E4%BA%94%E9%98%B6%E6%AE%B5%E5%86%85%E6%A0%B8%E6%BA%90%E7%A0%81%E7%BA%A7%E5%88%86%E6%9E%90"><span class="nav-number">6.1.</span> <span class="nav-text">6.1 ShardingSphere-JDBC 架构：五阶段内核源码级分析</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E9%98%B6%E6%AE%B5%E4%B8%80%EF%BC%9AParse%EF%BC%88SQL-%E8%A7%A3%E6%9E%90%EF%BC%89"><span class="nav-number">6.1.1.</span> <span class="nav-text">阶段一：Parse（SQL 解析）</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E9%98%B6%E6%AE%B5%E4%BA%8C%EF%BC%9ARoute%EF%BC%88%E8%B7%AF%E7%94%B1%EF%BC%89"><span class="nav-number">6.1.2.</span> <span class="nav-text">阶段二：Route（路由）</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E9%98%B6%E6%AE%B5%E4%B8%89%EF%BC%9ARewrite%EF%BC%88SQL-%E6%94%B9%E5%86%99%EF%BC%89"><span class="nav-number">6.1.3.</span> <span class="nav-text">阶段三：Rewrite（SQL 改写）</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E9%98%B6%E6%AE%B5%E5%9B%9B%EF%BC%9AExecute%EF%BC%88%E6%89%A7%E8%A1%8C%EF%BC%89"><span class="nav-number">6.1.4.</span> <span class="nav-text">阶段四：Execute（执行）</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E9%98%B6%E6%AE%B5%E4%BA%94%EF%BC%9AMerge%EF%BC%88%E7%BB%93%E6%9E%9C%E5%BD%92%E5%B9%B6%EF%BC%89"><span class="nav-number">6.1.5.</span> <span class="nav-text">阶段五：Merge（结果归并）</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-2-%E5%88%86%E7%89%87%E9%85%8D%E7%BD%AE%EF%BC%9A%E6%A0%87%E5%87%86%E5%88%86%E7%89%87-%E5%A4%8D%E5%90%88%E5%88%86%E7%89%87-Hint-%E5%BC%BA%E5%88%B6%E8%B7%AF%E7%94%B1"><span class="nav-number">6.2.</span> <span class="nav-text">6.2 分片配置：标准分片 &#x2F; 复合分片 &#x2F; Hint 强制路由</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-3-%E8%AF%BB%E5%86%99%E5%88%86%E7%A6%BB%E9%85%8D%E7%BD%AE%EF%BC%88%E4%B8%80%E4%B8%BB%E5%A4%9A%E4%BB%8E-%E8%B4%9F%E8%BD%BD%E5%9D%87%E8%A1%A1%EF%BC%89"><span class="nav-number">6.3.</span> <span class="nav-text">6.3 读写分离配置（一主多从 + 负载均衡）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-4-%E5%88%86%E5%B8%83%E5%BC%8F%E4%B8%BB%E9%94%AE%EF%BC%9A%E9%9B%AA%E8%8A%B1%E7%AE%97%E6%B3%95%E9%9B%86%E6%88%90"><span class="nav-number">6.4.</span> <span class="nav-text">6.4 分布式主键：雪花算法集成</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-5-%E5%88%86%E5%B8%83%E5%BC%8F%E4%BA%8B%E5%8A%A1%E9%9B%86%E6%88%90%EF%BC%88Seata-AT-%E6%A8%A1%E5%BC%8F-ShardingSphere%EF%BC%89"><span class="nav-number">6.5.</span> <span class="nav-text">6.5 分布式事务集成（Seata AT 模式 + ShardingSphere）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-6-%E6%95%B0%E6%8D%AE%E8%84%B1%E6%95%8F%EF%BC%88encrypt%EF%BC%89"><span class="nav-number">6.6.</span> <span class="nav-text">6.6 数据脱敏（encrypt）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-7-Spring-Boot-3-x-%E5%AE%8C%E6%95%B4%E9%9B%86%E6%88%90%E7%A4%BA%E4%BE%8B%EF%BC%88%E5%8F%AF%E8%BF%90%E8%A1%8C%E9%AA%8C%E8%AF%81%EF%BC%89"><span class="nav-number">6.7.</span> <span class="nav-text">6.7 Spring Boot 3.x 完整集成示例（可运行验证）</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E7%8E%AF%E5%A2%83%E4%B8%8E%E7%89%88%E6%9C%AC"><span class="nav-number">6.7.1.</span> <span class="nav-text">环境与版本</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#pom-xml%EF%BC%88%E5%85%B3%E9%94%AE%E4%BE%9D%E8%B5%96%EF%BC%89"><span class="nav-number">6.7.2.</span> <span class="nav-text">pom.xml（关键依赖）</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#application-yml%EF%BC%88%E5%88%86%E7%89%87-%E7%94%9F%E6%88%90%E9%94%AE-%E8%AF%BB%E5%86%99%E5%88%86%E7%A6%BB%E5%90%88%E5%B9%B6%E7%89%88%EF%BC%89"><span class="nav-number">6.7.3.</span> <span class="nav-text">application.yml（分片 + 生成键 + 读写分离合并版）</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%BB%BA%E8%A1%A8%EF%BC%88%E4%B8%A4%E4%B8%AA%E5%BA%93%E5%90%84%E5%BB%BA%E5%90%8C%E6%A0%B7%E7%9A%84%E5%88%86%E7%89%87%E8%A1%A8-%E7%BB%91%E5%AE%9A%E8%A1%A8%EF%BC%89"><span class="nav-number">6.7.4.</span> <span class="nav-text">建表（两个库各建同样的分片表 + 绑定表）</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%AE%9E%E4%BD%93%E4%B8%8E-Mapper"><span class="nav-number">6.7.5.</span> <span class="nav-text">实体与 Mapper</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E9%AA%8C%E8%AF%81%EF%BC%88%E5%86%99%E4%B8%80%E4%B8%AA-Controller-%E5%90%AF%E5%8A%A8%E6%B5%8B%E8%AF%95%EF%BC%89"><span class="nav-number">6.7.6.</span> <span class="nav-text">验证（写一个 Controller + 启动测试）</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#7-MyCat-%E7%AE%80%E4%BB%8B"><span class="nav-number">7.</span> <span class="nav-text">7. MyCat 简介</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#7-1-MyCat-%E6%9E%B6%E6%9E%84%E4%B8%8E%E6%A0%B8%E5%BF%83%E6%A6%82%E5%BF%B5"><span class="nav-number">7.1.</span> <span class="nav-text">7.1 MyCat 架构与核心概念</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-2-%E5%88%86%E7%89%87%E8%A7%84%E5%88%99%E9%85%8D%E7%BD%AE"><span class="nav-number">7.2.</span> <span class="nav-text">7.2 分片规则配置</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-3-%E8%AF%BB%E5%86%99%E5%88%86%E7%A6%BB%E9%85%8D%E7%BD%AE"><span class="nav-number">7.3.</span> <span class="nav-text">7.3 读写分离配置</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-4-ShardingSphere-Proxy-vs-MyCat-%E5%AF%B9%E6%AF%94"><span class="nav-number">7.4.</span> <span class="nav-text">7.4 ShardingSphere-Proxy vs MyCat 对比</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#8-%E6%89%A9%E5%AE%B9%E6%96%B9%E6%A1%88"><span class="nav-number">8.</span> <span class="nav-text">8. 扩容方案</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#8-1-%E5%81%9C%E6%9C%BA%E6%89%A9%E5%AE%B9-vs-%E5%B9%B3%E6%BB%91%E6%89%A9%E5%AE%B9"><span class="nav-number">8.1.</span> <span class="nav-text">8.1 停机扩容 vs 平滑扩容</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#8-2-%E5%8F%8C%E5%86%99%E8%BF%81%E7%A7%BB%E6%96%B9%E6%A1%88%EF%BC%88%E7%BB%8F%E5%85%B8%E5%9C%A8%E7%BA%BF%E8%BF%81%E7%A7%BB%EF%BC%89"><span class="nav-number">8.2.</span> <span class="nav-text">8.2 双写迁移方案（经典在线迁移）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#8-3-%E4%B8%80%E8%87%B4%E6%80%A7%E5%93%88%E5%B8%8C-%E8%99%9A%E6%8B%9F%E8%8A%82%E7%82%B9%E7%9A%84%E6%9C%80%E5%B0%8F%E6%95%B0%E6%8D%AE%E8%BF%81%E7%A7%BB"><span class="nav-number">8.3.</span> <span class="nav-text">8.3 一致性哈希 + 虚拟节点的最小数据迁移</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#9-%E6%9C%80%E4%BD%B3%E5%AE%9E%E8%B7%B5%E4%B8%8E%E9%81%BF%E5%9D%91%E6%8C%87%E5%8D%97"><span class="nav-number">9.</span> <span class="nav-text">9. 最佳实践与避坑指南</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#9-1-%E5%88%86%E5%BA%93%E5%88%86%E8%A1%A8%E4%B8%8D%E6%98%AF%E9%93%B6%E5%BC%B9"><span class="nav-number">9.1.</span> <span class="nav-text">9.1 分库分表不是银弹</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#9-2-%E5%88%86%E7%89%87%E9%94%AE%E8%AE%BE%E8%AE%A1%E5%8E%9F%E5%88%99"><span class="nav-number">9.2.</span> <span class="nav-text">9.2 分片键设计原则</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#9-3-%E7%9B%91%E6%8E%A7%E4%B8%8E%E5%91%8A%E8%AD%A6"><span class="nav-number">9.3.</span> <span class="nav-text">9.3 监控与告警</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">64</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">14</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">57</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+        <div class="pjax">
+        
+        <div class="sidebar-inner sidebar-post-related">
+          <div class="animated">
+              <div class="links-of-blogroll-title"><i class="fa fa-signs-post fa-fw"></i>
+    Related Posts
+  </div>
+  <ul class="popular-posts">
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/53a2d197.html" rel="bookmark">
+        <time class="popular-posts-time">2025-07-26</time>
+        <br>
+      系统设计方法论
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/32511a71.html" rel="bookmark">
+        <time class="popular-posts-time">2025-07-26</time>
+        <br>
+      MySQL 原理与优化
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/9787b587.html" rel="bookmark">
+        <time class="popular-posts-time">2025-07-26</time>
+        <br>
+      分布式系统核心理论
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/720ca998.html" rel="bookmark">
+        <time class="popular-posts-time">2026-08-06</time>
+        <br>
+      Java 后端面试导航
+      </a>
+    </li>
+  </ul>
+
+          </div>
+        </div>
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/mysql-ha-2025.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="NexT">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="MySQL 高可用与分库分表实战 | NexT">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          MySQL 高可用与分库分表实战
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2025-10-10 19:00:00" itemprop="dateCreated datePublished" datetime="2025-10-10T19:00:00+08:00">2025-10-10</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E6%95%B0%E6%8D%AE%E5%BA%93/" itemprop="url" rel="index"><span itemprop="name">数据库</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>13k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>46 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><p>本文是《MySQL 原理与优化》的进阶篇，索引&#x2F;SQL 优化&#x2F;锁&#x2F;MVCC 等基础概念见该文（abbrlink：<code>32511a71</code>）。本篇聚焦”单机 MySQL 撑不住之后怎么办”：先解决高可用（主从复制、读写分离、故障自动转移），再解决扩展性（分库分表、ShardingSphere 实战、平滑扩容）。</p>
+<h2 id="1-为什么需要高可用与分库分表"><a href="#1-为什么需要高可用与分库分表" class="headerlink" title="1. 为什么需要高可用与分库分表"></a>1. 为什么需要高可用与分库分表</h2><h3 id="1-1-单机-MySQL-的三个瓶颈"><a href="#1-1-单机-MySQL-的三个瓶颈" class="headerlink" title="1.1 单机 MySQL 的三个瓶颈"></a>1.1 单机 MySQL 的三个瓶颈</h3><table>
+<thead>
+<tr>
+<th>瓶颈</th>
+<th>具体表现</th>
+<th>对应解法</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>容量瓶颈</td>
+<td>单表数据过亿，B+ 树高度增加，索引页缓存命中率下降，备份&#x2F;DDL 时间不可接受</td>
+<td>分库分表</td>
+</tr>
+<tr>
+<td>并发瓶颈</td>
+<td>单机连接数（默认 151）打满、锁竞争加剧、IOPS&#x2F;CPU 成为天花板</td>
+<td>读写分离 + 多实例 + 分库</td>
+</tr>
+<tr>
+<td>单点故障</td>
+<td>机器宕机&#x2F;磁盘损坏&#x2F;机房故障，服务直接不可用，数据可能丢失</td>
+<td>主从复制 + 高可用切换</td>
+</tr>
+</tbody></table>
+<p>这三个瓶颈不是”选一个解决”，而是层层递进的关系：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">单机 MySQL</span><br><span class="line">   │</span><br><span class="line">   ├─ 要防止单点故障 ──────► 主从复制（备库兜底）</span><br><span class="line">   │                            │</span><br><span class="line">   ├─ 要提升读吞吐 ────────► 读写分离（一主多从 + 负载均衡）</span><br><span class="line">   │                            │</span><br><span class="line">   └─ 要提升写吞吐/容量 ──► 分库分表（把数据水平切开）</span><br></pre></td></tr></table></figure>
+
+<h3 id="1-2-CAP-视角下的-MySQL-扩展路径"><a href="#1-2-CAP-视角下的-MySQL-扩展路径" class="headerlink" title="1.2 CAP 视角下的 MySQL 扩展路径"></a>1.2 CAP 视角下的 MySQL 扩展路径</h3><p>CAP 定理：一个分布式系统最多同时满足一致性（C）、可用性（A）、分区容错性（P）中的两个。MySQL 生态的所有扩展手段，本质都是在 C 与 A 之间做权衡：</p>
+<ul>
+<li><strong>主从异步复制</strong>：追求 A（主库写完立即返回，从库可能滞后），牺牲 C（短暂读到旧数据）。</li>
+<li><strong>半同步复制&#x2F;组复制</strong>：把 C 拉回来，代价是写延迟上升、吞吐下降。</li>
+<li><strong>分库分表</strong>：数据被切到多个实例，C 从”单实例内强一致”退化为”跨实例需要分布式事务”，这也是 5.4 分库分表问题的根源。</li>
+</ul>
+<p><strong>选型心法</strong>：先问”要解决什么问题”。读多写少 → 读写分离；数据量大 → 分库分表；既想高可用又想低延迟 → 半同步 + 自动切换工具。不要一上来就分库分表——它带来的复杂度（见 5.4）远超单机加配置。</p>
+<h2 id="2-主从复制"><a href="#2-主从复制" class="headerlink" title="2. 主从复制"></a>2. 主从复制</h2><h3 id="2-1-复制原理：三线程-binlog"><a href="#2-1-复制原理：三线程-binlog" class="headerlink" title="2.1 复制原理：三线程 + binlog"></a>2.1 复制原理：三线程 + binlog</h3><p>主从复制的核心是 binlog（二进制日志，记录数据变更事件）。它的流转依赖三个线程：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">主库 MySQL ────────────────► 从库 MySQL</span><br><span class="line">│ Binlog Dump Thread          │</span><br><span class="line">│  (dump binlog 事件)          │ I/O Thread</span><br><span class="line">│                              │  (拉取并写入 relay log)</span><br><span class="line">│  binlog                       │</span><br><span class="line">└─────────────────────────────► relay log</span><br><span class="line">                                │ SQL Thread</span><br><span class="line">                                │  (顺序回放 relay log)</span><br><span class="line">                                ▼</span><br><span class="line">                             数据文件</span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th>线程</th>
+<th>所在节点</th>
+<th>职责</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Binlog Dump Thread</td>
+<td>主库</td>
+<td>监听 binlog 变更，把事件推送给已注册的从库（<code>show master status</code> 记录 File&#x2F;Position，dump 从这个位点开始）</td>
+</tr>
+<tr>
+<td>I&#x2F;O Thread</td>
+<td>从库</td>
+<td>向主库发起 dump 请求，接收 binlog 事件，<strong>顺序追加</strong>写入本地 <code>relay log</code>（中继日志）</td>
+</tr>
+<tr>
+<td>SQL Thread</td>
+<td>从库</td>
+<td>从 relay log 读取事件，<strong>顺序执行</strong>重放，把变更应用到从库数据</td>
+</tr>
+</tbody></table>
+<p>binlog 有三种记录格式，直接影响复制行为：</p>
+<table>
+<thead>
+<tr>
+<th>格式</th>
+<th>记录内容</th>
+<th>优点</th>
+<th>缺点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>STATEMENT</td>
+<td>原始 SQL</td>
+<td>日志量小</td>
+<td>依赖上下文（<code>NOW()</code>、<code>LIMIT</code> 无 order、存储过程等）导致主从不一致</td>
+</tr>
+<tr>
+<td>ROW</td>
+<td>变更前后的整行数据</td>
+<td>最准确，与上下文无关</td>
+<td>日志量大，大事务日志放大</td>
+</tr>
+<tr>
+<td>MIXED</td>
+<td>引擎自动选择</td>
+<td>折中</td>
+<td>仍有不可控分支</td>
+</tr>
+</tbody></table>
+<p>生产环境 5.7+ 建议 <code>binlog_format=ROW</code>，配合 <code>binlog_row_image=FULL</code>（默认），这是半同步、组复制、CDC（Canal）的基石。</p>
+<h4 id="位点复制-vs-GTID-复制"><a href="#位点复制-vs-GTID-复制" class="headerlink" title="位点复制 vs GTID 复制"></a>位点复制 vs GTID 复制</h4><p><strong>位点复制</strong>（5.6 及之前）：靠 <code>binlog 文件名 + 偏移量</code> 定位同步起点。</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">CHANGE MASTER <span class="keyword">TO</span></span><br><span class="line">  MASTER_HOST<span class="operator">=</span><span class="string">&#x27;192.168.1.10&#x27;</span>, MASTER_PORT<span class="operator">=</span><span class="number">3306</span>,</span><br><span class="line">  MASTER_USER<span class="operator">=</span><span class="string">&#x27;repl&#x27;</span>, MASTER_PASSWORD<span class="operator">=</span><span class="string">&#x27;xxx&#x27;</span>,</span><br><span class="line">  MASTER_LOG_FILE<span class="operator">=</span><span class="string">&#x27;mysql-bin.000004&#x27;</span>, MASTER_LOG_POS<span class="operator">=</span><span class="number">154</span>;</span><br></pre></td></tr></table></figure>
+
+<p>问题：主库 binlog 滚动或人为清理后，File&#x2F;Position 就失效了；多级复制（主→从→从）场景位点定位极难。</p>
+<p><strong>GTID 复制</strong>（5.6 引入，5.7&#x2F;8.0 主流）：GTID &#x3D; <code>server_uuid:transaction_id</code>，全局唯一。每个提交的事务都有独立 GTID，从库记录 <code>gtid_executed</code>，靠 GTID 集合自动对齐位点。</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 主从都要开启</span></span><br><span class="line">gtid_mode<span class="operator">=</span><span class="keyword">ON</span></span><br><span class="line">enforce_gtid_consistency<span class="operator">=</span><span class="keyword">ON</span></span><br><span class="line"></span><br><span class="line"><span class="comment">-- 从库</span></span><br><span class="line">CHANGE MASTER <span class="keyword">TO</span></span><br><span class="line">  MASTER_HOST<span class="operator">=</span><span class="string">&#x27;192.168.1.10&#x27;</span>, MASTER_PORT<span class="operator">=</span><span class="number">3306</span>,</span><br><span class="line">  MASTER_USER<span class="operator">=</span><span class="string">&#x27;repl&#x27;</span>, MASTER_PASSWORD<span class="operator">=</span><span class="string">&#x27;xxx&#x27;</span>,</span><br><span class="line">  MASTER_AUTO_POSITION<span class="operator">=</span><span class="number">1</span>;</span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th>对比项</th>
+<th>位点复制</th>
+<th>GTID 复制</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>定位方式</td>
+<td>文件名 + 偏移量</td>
+<td>全局事务 ID 集合自动对齐</td>
+</tr>
+<tr>
+<td>建从库</td>
+<td>需 <code>mysqldump --master-data</code> 记录位点，手工填</td>
+<td><code>AUTO_POSITION=1</code> 自动同步起点</td>
+</tr>
+<tr>
+<td>binlog 滚动</td>
+<td>位点可能失效，需重置</td>
+<td>不受影响</td>
+</tr>
+<tr>
+<td>主从切换</td>
+<td>切换后手工找位点，易错</td>
+<td>新主从关系自动协商，无需手工</td>
+</tr>
+<tr>
+<td>限制</td>
+<td>无</td>
+<td>事务内不支持混合使用临时表与 DDL 等少量场景</td>
+</tr>
+</tbody></table>
+<p><strong>结论：新环境一律 GTID</strong>。8.0 中位点复制仅用于极特殊场景。</p>
+<h3 id="2-2-复制模式：异步-半同步-组复制"><a href="#2-2-复制模式：异步-半同步-组复制" class="headerlink" title="2.2 复制模式：异步 &#x2F; 半同步 &#x2F; 组复制"></a>2.2 复制模式：异步 &#x2F; 半同步 &#x2F; 组复制</h3><h4 id="异步复制（默认）"><a href="#异步复制（默认）" class="headerlink" title="异步复制（默认）"></a>异步复制（默认）</h4><p>主库写完 binlog 就返回成功，dump 线程异步推送。从库永远可能落后，主库宕机时<strong>未推送的 binlog 会丢失</strong>（丢数据），且从库可能选成新主导致数据不一致。</p>
+<h4 id="半同步复制（semi-sync）"><a href="#半同步复制（semi-sync）" class="headerlink" title="半同步复制（semi-sync）"></a>半同步复制（semi-sync）</h4><p>主库在<strong>提交前等待至少一个从库 ACK</strong>（收到并写入 relay log），才向客户端返回成功。5.7 后有两个等待点：</p>
+<ul>
+<li><code>rpl_semi_sync_master_wait_point=AFTER_SYNC</code>（默认，推荐）：binlog 刷盘后、引擎提交前等待 ACK。从库 ACK 后主库才提交，主从零丢失（主库宕机时至少一个从库有全部数据）。</li>
+<li><code>AFTER_COMMIT</code>：引擎提交后等待 ACK。主库已提交才等，宕机瞬间有丢数据窗口，且从库重复执行（幂等性）问题更复杂。</li>
+</ul>
+<p>半同步是”退让式”的：<strong>ACK 超时（<code>rpl_semi_sync_master_timeout</code>，默认 10s）自动降级为异步</strong>，保证主库可用性，同时产生数据丢失风险——这正是 MHA 等切换工具要处理的问题。</p>
+<figure class="highlight ini"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">plugin-load-add</span>=semisync_master.so<span class="comment">;semisync_slave.so</span></span><br><span class="line"><span class="attr">rpl_semi_sync_master_enabled</span>=<span class="number">1</span></span><br><span class="line"><span class="attr">rpl_semi_sync_slave_enabled</span>=<span class="number">1</span></span><br><span class="line"><span class="attr">rpl_semi_sync_master_wait_for_slave_count</span>=<span class="number">1</span>  -- 至少等几个从库 ACK</span><br></pre></td></tr></table></figure>
+
+<h4 id="组复制（Group-Replication，MGR）"><a href="#组复制（Group-Replication，MGR）" class="headerlink" title="组复制（Group Replication，MGR）"></a>组复制（Group Replication，MGR）</h4><p>把写事务广播给组内所有成员，通过 <strong>Paxos 一致性协议</strong>对”事务提交顺序”达成共识，再执行 <strong>certification（认证）</strong> 冲突检测：新事务与组内未提交事务读写冲突（<code>AUTO_INCREMENT</code>、外键、未提交读、写冲突）则回滚重试。MGR 保证：组内任一成员提交成功，数据在组内一致——这是 C 与 A 之间最靠 C 的一档。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">Client ──► Primary(读写) ──────┐</span><br><span class="line">                 │ 广播事务 + Paxos 共识</span><br><span class="line">                 ▼             ▼</span><br><span class="line">            Secondary A     Secondary B</span><br><span class="line">            （只读）          （只读）</span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th>对比项</th>
+<th>异步</th>
+<th>半同步</th>
+<th>组复制</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>数据一致性</td>
+<td>可能丢数据</td>
+<td>至少一从库不丢</td>
+<td>组内强一致</td>
+</tr>
+<tr>
+<td>写延迟影响</td>
+<td>无</td>
+<td>+1 次 RTT（等 ACK）</td>
+<td>+2~3 次 RTT（Paxos 协商）</td>
+</tr>
+<tr>
+<td>故障切换</td>
+<td>手动&#x2F;工具</td>
+<td>手动&#x2F;工具</td>
+<td>组内自动选举</td>
+</tr>
+<tr>
+<td>可用性</td>
+<td>最高</td>
+<td>高（超时降级）</td>
+<td>依赖多数派（n&#x2F;2+1 存活）</td>
+</tr>
+<tr>
+<td>复杂度</td>
+<td>最低</td>
+<td>低</td>
+<td>高（插件、网络、主键要求）</td>
+</tr>
+<tr>
+<td>适用场景</td>
+<td>兜底备份、可容忍丢失</td>
+<td>生产主从标配</td>
+<td>要求自动容灾 + 一致性</td>
+</tr>
+</tbody></table>
+<h3 id="2-3-主从延迟的原因"><a href="#2-3-主从延迟的原因" class="headerlink" title="2.3 主从延迟的原因"></a>2.3 主从延迟的原因</h3><p>延迟 &#x3D; SQL Thread 回放速度跟不上主库生成 binlog 的速度。常见根因：</p>
+<ol>
+<li><strong>大事务</strong>：一条 <code>DELETE FROM t WHERE create_time &lt; &#39;2020-01-01&#39;</code> 删千万行，binlog 事件量大，从库要连续回放很久，期间只差会指数增长。</li>
+<li><strong>从库单线程回放</strong>：主库并发写入（10 个线程各写各的），从库 SQL Thread 只能一条条顺序执行——天然吞吐减半以上。</li>
+<li><strong>主库并发写入量高</strong>：主库 10 万 TPS，从库回放能力（与执行能力相当）只有几万，永远追不平。</li>
+<li><strong>从库配置弱</strong>：CPU&#x2F;磁盘（机械盘 vs SSD）&#x2F;刷盘参数（<code>sync_binlog</code>、<code>innodb_flush_log_at_trx_commit</code>）与主库不对等。</li>
+<li><strong>无主键的表</strong>：ROW 格式回放时要全表扫描定位行，回放速度断崖下跌。</li>
+<li><strong>行锁&#x2F;外键</strong>：回放事务之间互相阻塞。</li>
+<li><strong>误判断延迟</strong>：<code>Seconds_Behind_Master</code> 本身有缺陷——当 I&#x2F;O 线程落后（网络慢）时它显示 0，实际已经落后很多。</li>
+</ol>
+<h3 id="2-4-并行复制（MTS，Multi-Threaded-Slave）"><a href="#2-4-并行复制（MTS，Multi-Threaded-Slave）" class="headerlink" title="2.4 并行复制（MTS，Multi-Threaded Slave）"></a>2.4 并行复制（MTS，Multi-Threaded Slave）</h3><p>从 5.6 到 8.0，并行复制的演进史就是”允许哪些事务并行回放”的放宽史：</p>
+<table>
+<thead>
+<tr>
+<th>版本</th>
+<th>并行策略</th>
+<th>原理</th>
+<th>缺点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>5.6</td>
+<td>按库并行（<code>slave_parallel_type=DATABASE</code>）</td>
+<td>不同库的事务并行回放</td>
+<td>单库写多无效果；库之间锁依赖仍串行</td>
+</tr>
+<tr>
+<td>5.7</td>
+<td>按组提交并行（<code>LOGICAL_CLOCK</code>）</td>
+<td>主库同一组 commit 的事务（组提交窗口内），从库并行回放</td>
+<td>依赖主库 <code>binlog_group_commit_sync_delay</code> 加大组；窗口小并行度低</td>
+</tr>
+<tr>
+<td>8.0</td>
+<td>writeset 并行（<code>WRITESET</code>）</td>
+<td>用行哈希（writeset）判断事务写集是否相交，<strong>不相交即可并行</strong>，不依赖提交窗口</td>
+<td>内存开销；自增&#x2F;外键&#x2F;唯一索引仍强制串行</td>
+</tr>
+</tbody></table>
+<figure class="highlight ini"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 8.0 配置</span></span><br><span class="line"><span class="attr">slave_parallel_type</span>=LOGICAL_CLOCK</span><br><span class="line"><span class="attr">slave_parallel_workers</span>=<span class="number">16</span></span><br><span class="line"><span class="attr">binlog_transaction_dependency_tracking</span>=WRITESET</span><br><span class="line"><span class="attr">transaction_write_set_extraction</span>=XXHASH64</span><br></pre></td></tr></table></figure>
+
+<p><strong>要点</strong>：writeset 是最接近理论最优的方案——主库两个事务只要更新的是不相交的行，从库就能并行重放，把”主从吞吐差异”这一延迟主因几乎抹平。生产 8.0 直接开 writeset。</p>
+<h3 id="2-5-主从切换与故障恢复"><a href="#2-5-主从切换与故障恢复" class="headerlink" title="2.5 主从切换与故障恢复"></a>2.5 主从切换与故障恢复</h3><p>切换目标：主库故障时，把从库提升为新主、其余从库指向新主、业务流量切过去，且<strong>不丢数据、不双主脑裂</strong>。</p>
+<p>手工切换的四个动作（理解了这个，才能理解 MHA&#x2F;Orchestrator 在自动化什么）：</p>
+<ol>
+<li><strong>定位差距</strong>：选一个 binlog 位置最靠前的从库（<code>show slave status</code> 的 <code>Read_Master_Log_Pos</code>），它是新主候选。</li>
+<li><strong>补齐中继日志</strong>：候选从库先用其他从库的 relay log（<code>apply_diff_relay_logs</code>）或主库 binlog 把自己补到”全组最新”。</li>
+<li><strong>提升</strong>：<code>STOP SLAVE; RESET SLAVE ALL;</code> 让候选库变成可写主库。</li>
+<li><strong>重定向</strong>：其余从库 <code>CHANGE MASTER TO</code> 指向新主，业务数据源指向新主。</li>
+</ol>
+<p>手工切换的致命风险：<strong>脑裂</strong>。主库其实没死（网络分区），切换后旧主恢复写入，两个主同时接收写请求，数据分裂。所以切换工具必须配合”旧主下线&#x2F;只读”（<code>read_only=ON</code>）或 VIP 摘除来防脑裂。</p>
+<h2 id="3-读写分离"><a href="#3-读写分离" class="headerlink" title="3. 读写分离"></a>3. 读写分离</h2><h3 id="3-1-实现方案"><a href="#3-1-实现方案" class="headerlink" title="3.1 实现方案"></a>3.1 实现方案</h3><table>
+<thead>
+<tr>
+<th>方案</th>
+<th>代表</th>
+<th>实现位置</th>
+<th>优点</th>
+<th>缺点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>客户端路由</td>
+<td>AbstractRoutingDataSource、ShardingSphere-JDBC</td>
+<td>应用内</td>
+<td>无额外网络跳数、延迟最低、可编程性强</td>
+<td>侵入应用、每语言一套实现</td>
+</tr>
+<tr>
+<td>中间件代理</td>
+<td>ShardingSphere-Proxy、MyCat、ProxySQL</td>
+<td>应用与 MySQL 之间</td>
+<td>应用无感知、跨语言、便于集中管控</td>
+<td>多一跳网络、单点风险（需中间件自身高可用）</td>
+</tr>
+</tbody></table>
+<p>无论哪种方案，核心都是：<strong>读 SQL 路由到从库，写 SQL（含事务）路由到主库</strong>。判断”读还是写”的规则：<code>SELECT</code> 走从库；<code>INSERT/UPDATE/DELETE/DDL</code> 以及<strong>任何事务内的 SQL</strong> 走主库（事务内读从库可能读到事务本身未提交的数据）。</p>
+<h3 id="3-2-主从延迟下的数据一致性处理"><a href="#3-2-主从延迟下的数据一致性处理" class="headerlink" title="3.2 主从延迟下的数据一致性处理"></a>3.2 主从延迟下的数据一致性处理</h3><p>读写分离引入的经典问题：<strong>写完主库立刻读从库，读到旧值</strong>。处理手段按可靠性排序：</p>
+<table>
+<thead>
+<tr>
+<th>方案</th>
+<th>原理</th>
+<th>可靠性</th>
+<th>代价</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>强制走主库</td>
+<td>写操作后紧接着的读（或整个请求&#x2F;用户会话）路由到主库</td>
+<td>高（无脑正确）</td>
+<td>主库读压力上升，读分离收益打折</td>
+</tr>
+<tr>
+<td>等待位点&#x2F;GTID</td>
+<td>读前执行 <code>SELECT MASTER_POS_WAIT(...)</code> 或 <code>WAIT_FOR_EXECUTED_GTID_SET(...)</code>，等从库追到指定位置</td>
+<td>高（有明确语义）</td>
+<td>等待耗时 &#x3D; 剩余延迟，最坏到超时</td>
+</tr>
+<tr>
+<td>半同步复制</td>
+<td>从库 ACK 后再返回写成功</td>
+<td>较高</td>
+<td>写延迟 +1 RTT，且超时降级</td>
+</tr>
+<tr>
+<td>sleep 固定时间</td>
+<td><code>Thread.sleep(100)</code> 再读从库</td>
+<td>低（靠猜，延迟超界就出错）</td>
+<td>白等 100ms，不推荐</td>
+</tr>
+</tbody></table>
+<p><strong>工程落地组合拳</strong>（业界通用做法）：</p>
+<ol>
+<li><strong>刚写完立即读 → 走主库</strong>。Spring 中实现：路由键记录”本线程&#x2F;本请求最近是否有写”，有写则该请求内后续读强制走主库数据源。</li>
+<li><strong>事务内一律走主库</strong>（事务隔离性要求）。</li>
+<li><strong>对账类、统计类弱一致读 → 走从库 + 可容忍延迟</strong>。</li>
+<li>底层把半同步 + MTS 开起来，把延迟基数压到毫秒级，前面 1 的窗口就很小。</li>
+</ol>
+<h3 id="3-3-Spring-中实现动态数据源"><a href="#3-3-Spring-中实现动态数据源" class="headerlink" title="3.3 Spring 中实现动态数据源"></a>3.3 Spring 中实现动态数据源</h3><p>基于 Spring 的 <code>AbstractRoutingDataSource</code>：它本身是个”路由器”，每次 <code>getConnection()</code> 都会调用子类实现的 <code>determineCurrentLookupKey()</code> 返回一个 key，据此从内部 <code>targetDataSources</code> Map 中选择真实数据源。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">RoutingDataSource</span> <span class="keyword">extends</span> <span class="title class_">AbstractRoutingDataSource</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">final</span> <span class="type">String</span> <span class="variable">MASTER</span> <span class="operator">=</span> <span class="string">&quot;master&quot;</span>;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">final</span> <span class="type">String</span> <span class="variable">SLAVE</span> <span class="operator">=</span> <span class="string">&quot;slave&quot;</span>;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">protected</span> Object <span class="title function_">determineCurrentLookupKey</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> DynamicDataSourceContextHolder.get();  <span class="comment">// ThreadLocal 中的路由键</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// ThreadLocal 路由键：读写标记</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">DynamicDataSourceContextHolder</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> ThreadLocal&lt;String&gt; CONTEXT = <span class="keyword">new</span> <span class="title class_">ThreadLocal</span>&lt;&gt;();</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">set</span><span class="params">(String key)</span> &#123; CONTEXT.set(key); &#125;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> String <span class="title function_">get</span><span class="params">()</span> &#123; <span class="keyword">return</span> CONTEXT.get(); &#125;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">clear</span><span class="params">()</span> &#123; CONTEXT.remove(); &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>配合 AOP 用注解切”读方法走从库、写方法走主库”：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Target(&#123;ElementType.METHOD, ElementType.TYPE&#125;)</span></span><br><span class="line"><span class="meta">@Retention(RetentionPolicy.RUNTIME)</span></span><br><span class="line"><span class="keyword">public</span> <span class="meta">@interface</span> DS &#123;</span><br><span class="line">    String <span class="title function_">value</span><span class="params">()</span> <span class="keyword">default</span> <span class="string">&quot;master&quot;</span>;   <span class="comment">// master / slave</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="meta">@Aspect</span></span><br><span class="line"><span class="meta">@Component</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">DataSourceAspect</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Around(&quot;@annotation(ds)&quot;)</span></span><br><span class="line">    <span class="keyword">public</span> Object <span class="title function_">around</span><span class="params">(ProceedingJoinPoint pjp, DS ds)</span> <span class="keyword">throws</span> Throwable &#123;</span><br><span class="line">        DynamicDataSourceContextHolder.set(ds.value());  <span class="comment">// 方法执行前设置路由键</span></span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            <span class="keyword">return</span> pjp.proceed();</span><br><span class="line">        &#125; <span class="keyword">finally</span> &#123;</span><br><span class="line">            DynamicDataSourceContextHolder.clear();      <span class="comment">// 必须清理，否则 ThreadLocal 泄漏</span></span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 配置：三个数据源 bean，RoutingDataSource 作为主 DataSource</span></span><br><span class="line"><span class="meta">@Bean</span></span><br><span class="line"><span class="keyword">public</span> DataSource <span class="title function_">routingDataSource</span><span class="params">(<span class="meta">@Qualifier(&quot;master&quot;)</span> DataSource master,</span></span><br><span class="line"><span class="params">                                    <span class="meta">@Qualifier(&quot;slave&quot;)</span> DataSource slave)</span> &#123;</span><br><span class="line">    <span class="type">RoutingDataSource</span> <span class="variable">ds</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">RoutingDataSource</span>();</span><br><span class="line">    Map&lt;Object, Object&gt; map = <span class="keyword">new</span> <span class="title class_">HashMap</span>&lt;&gt;();</span><br><span class="line">    map.put(DS_MASTER, master);</span><br><span class="line">    map.put(DS_SLAVE, slave);</span><br><span class="line">    ds.setTargetDataSources(map);</span><br><span class="line">    ds.setDefaultTargetDataSource(master);</span><br><span class="line">    <span class="keyword">return</span> ds;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>坑位提醒</strong>：线程池复用线程，<code>finally</code> 里必须 <code>clear()</code>；<code>@Transactional</code> 先于 <code>@DS</code> 生效时事务会提前绑定数据源，要让 <code>@DS</code> 切面优先级更高（<code>@Order(0)</code>）；更完整的读写分离（多从库负载均衡、延迟处理）直接用 ShardingSphere-JDBC，见第 6 章。</p>
+<h2 id="4-高可用架构"><a href="#4-高可用架构" class="headerlink" title="4. 高可用架构"></a>4. 高可用架构</h2><p>高可用 &#x3D; 主从复制 + 故障自动检测 + 自动切换 + 防脑裂。下面四种方案在”自动化程度”和”一致性”两个维度上递进。</p>
+<h3 id="4-1-MHA（Master-High-Availability）"><a href="#4-1-MHA（Master-High-Availability）" class="headerlink" title="4.1 MHA（Master High Availability）"></a>4.1 MHA（Master High Availability）</h3><p><strong>架构</strong>：Manager 节点（可做主备）+ 每台 MySQL 节点上的 Node 组件。</p>
+<p><strong>故障切换流程</strong>：</p>
+<ol>
+<li>Manager 通过心跳检测主库（SSH + 3306 端口探活），判定主库不可用（连续失败 N 次）。</li>
+<li>从候选从库中选<strong>中继日志最新</strong>的（再考虑配置、优先规则）。</li>
+<li>候选从库执行 <code>apply_diff_relay_logs</code>：<strong>从其他从库补齐缺失的中继日志</strong>，把自己追到全组最新（如果半同步没兜住主库已丢的 binlog，这里补不回来——这就是 MHA 的”丢数据窗口”）。</li>
+<li>候选从库 <code>STOP SLAVE</code> 并提升为可写主库。</li>
+<li>其余从库自动 <code>CHANGE MASTER TO</code> 指向新主。</li>
+<li>通过回调脚本把 VIP（虚拟 IP）或代理配置切到新主，业务恢复。</li>
+</ol>
+<p><strong>优点</strong>：成熟（10+ 年生产验证）、切换速度快（通常 30s 内）、不依赖复制协议（位点&#x2F;GTID 都行）。<br><strong>缺点</strong>：官方已停止更新（社区维护）、切换依赖 SSH、一致性靠”半同步 + 补齐 relay log”尽力而为，极端场景仍可能丢数据。</p>
+<h3 id="4-2-MGR（MySQL-Group-Replication，组复制）"><a href="#4-2-MGR（MySQL-Group-Replication，组复制）" class="headerlink" title="4.2 MGR（MySQL Group Replication，组复制）"></a>4.2 MGR（MySQL Group Replication，组复制）</h3><p>第 2.2 节的组复制协议，配成高可用架构时选<strong>单主模式</strong>：</p>
+<ul>
+<li>组内只有 Primary 可写，其余 Secondary 只读（<code>super_read_only</code>）。</li>
+<li>Primary 故障后，组内通过一致性协议<strong>自动选举</strong>新 Primary（优先级最高、数据最新的节点），其他成员自动把 GTID 对齐到新 Primary。</li>
+<li>业务侧需要感知”谁是 Primary”——要么通过 MySQL Router（见 4.3），要么应用层 <code>SELECT * FROM performance_schema.replication_group_members</code> 探测。</li>
+</ul>
+<p><strong>限制（必须背）</strong>：只支持 InnoDB；<strong>所有表必须有主键</strong>（否则认证冲突检测失效）；外键&#x2F;<code>SAVEPOINT</code>&#x2F;<code>LOAD DATA</code> 受限；成员间网络抖动会反复触发 re-election，延迟敏感业务要关注。</p>
+<h3 id="4-3-InnoDB-Cluster（MySQL-Shell-MySQL-Router）"><a href="#4-3-InnoDB-Cluster（MySQL-Shell-MySQL-Router）" class="headerlink" title="4.3 InnoDB Cluster（MySQL Shell + MySQL Router）"></a>4.3 InnoDB Cluster（MySQL Shell + MySQL Router）</h3><p>把 MGR 工程化的全家桶方案：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">Client ─► MySQL Router(6446 读写/6447 只读)</span><br><span class="line">                 │  感知 primary 变化，自动重路由</span><br><span class="line">                 ▼</span><br><span class="line">         MGR 组（InnoDB Cluster）</span><br><span class="line">         Primary + 2 × Secondary</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li><strong>MySQL Shell</strong>：一行命令建集群 <code>dba.createCluster(&#39;mycluster&#39;)</code>、加实例、在线变更配置。</li>
+<li><strong>MySQL Router</strong>：应用连 Router 的固定端口，Router 探测组内 primary&#x2F;secondary 变化，故障切换后<strong>自动把读写流量引到新主</strong>，应用零感知。</li>
+<li>8.0.20+ 还支持 InnoDB ClusterSet（跨机房主备）和 Read Replicas（只读扩展）。</li>
+</ul>
+<p><strong>优点</strong>：官方全家桶、运维命令友好、Router 免应用改造。<br><strong>缺点</strong>：必须 MGR（继承其限制）；Router 本身是单点（需多 Router + VIP 或负载均衡）；切换时间受 MGR 选举影响，比 MHA 慢（秒级~十秒级）。</p>
+<h3 id="4-4-Orchestrator-VIP-自动故障转移"><a href="#4-4-Orchestrator-VIP-自动故障转移" class="headerlink" title="4.4 Orchestrator + VIP 自动故障转移"></a>4.4 Orchestrator + VIP 自动故障转移</h3><p><strong>Orchestrator</strong> 是独立于 MySQL 的拓扑管理&#x2F;故障切换工具：</p>
+<ul>
+<li>多个 Orchestrator 节点用 <strong>Raft 选主</strong>，保证切换决策本身不脑裂。</li>
+<li>持续采集 MySQL 复制拓扑（<code>show slave status</code>、<code>binlog</code> 位点），可视化任意拓扑结构（级联、双主、任意树）。</li>
+<li>故障时按策略自动选择新主（<code>is_master</code>、<code>replication_depth</code>、<code>preferred</code> 列表），执行切换并<strong>通过 Hook 脚本</strong>把 VIP 飘移&#x2F;通知 DNS 或代理（如 LVS、Keepalived）。</li>
+</ul>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">两个 Orchestrator（Raft 元数据）</span><br><span class="line">       │ 采集/决策</span><br><span class="line">MySQL:  M(master) ──► S1 ──► S2</span><br><span class="line">主库故障 ──► Orchestrator 提升 S1 ──► Hook 把 VIP 从 M 飘到 S1 ──► 应用无需改动</span><br></pre></td></tr></table></figure>
+
+<p><strong>优点</strong>：拓扑管理能力最强（任意结构、在线演练 <code>orchestrator-client recover</code> 模拟切换）、支持多机房、社区活跃（GitHub Vitess 生态）。<br><strong>缺点</strong>：部署运维复杂度高（Orchestrator 自身 + VIP&#x2F;脚本都要管）、默认不做数据补齐（需半同步兜底）、切换动作依赖 Hook 脚本质量。</p>
+<h3 id="4-5-各方案对比与选型建议"><a href="#4-5-各方案对比与选型建议" class="headerlink" title="4.5 各方案对比与选型建议"></a>4.5 各方案对比与选型建议</h3><table>
+<thead>
+<tr>
+<th>对比项</th>
+<th>MHA</th>
+<th>MGR（单主）</th>
+<th>InnoDB Cluster</th>
+<th>Orchestrator + VIP</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>一致性保障</td>
+<td>半同步兜底，尽力而为</td>
+<td>组内强一致</td>
+<td>同 MGR</td>
+<td>半同步兜底 + 策略选主</td>
+</tr>
+<tr>
+<td>切换速度</td>
+<td>快（秒级~30s）</td>
+<td>中等（秒级~10s+）</td>
+<td>中等（同 MGR）</td>
+<td>快（秒级）</td>
+</tr>
+<tr>
+<td>应用感知</td>
+<td>需 VIP&#x2F;代理</td>
+<td>需感知 primary</td>
+<td>Router 自动路由</td>
+<td>VIP 无感知</td>
+</tr>
+<tr>
+<td>限制</td>
+<td>无</td>
+<td>全表主键、仅 InnoDB</td>
+<td>同 MGR</td>
+<td>无</td>
+</tr>
+<tr>
+<td>运维复杂度</td>
+<td>低</td>
+<td>中</td>
+<td>中（官方工具多）</td>
+<td>高</td>
+</tr>
+<tr>
+<td>社区状态</td>
+<td>停止更新</td>
+<td>官方</td>
+<td>官方主推</td>
+<td>活跃</td>
+</tr>
+<tr>
+<td>适合场景</td>
+<td>存量 5.7 系统改造</td>
+<td>新系统、同机房</td>
+<td>官方全家桶新项目</td>
+<td>复杂拓扑&#x2F;多机房&#x2F;在线演练</td>
+</tr>
+</tbody></table>
+<p><strong>选型建议</strong>：</p>
+<ul>
+<li>5.7 存量系统、追求”今天就能用”：<strong>MHA + 半同步</strong>，老牌稳妥。</li>
+<li>新项目、同机房、接受 MGR 限制：<strong>MGR 单主 + MySQL Router</strong>（InnoDB Cluster 全家桶），一致性最好。</li>
+<li>复杂拓扑、多机房、要可视化与演练：<strong>Orchestrator + VIP</strong>。</li>
+<li>记住一条铁律：<strong>任何切换方案都防不了”主库已提交但 binlog 未送达”的数据丢失</strong>，想彻底不丢，要么半同步 + 及时降级，要么用 MGR 的多数派提交。</li>
+</ul>
+<h2 id="5-分库分表理论"><a href="#5-分库分表理论" class="headerlink" title="5. 分库分表理论"></a>5. 分库分表理论</h2><h3 id="5-1-垂直拆分-vs-水平拆分"><a href="#5-1-垂直拆分-vs-水平拆分" class="headerlink" title="5.1 垂直拆分 vs 水平拆分"></a>5.1 垂直拆分 vs 水平拆分</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>垂直拆分</th>
+<th>水平拆分</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>拆分对象</td>
+<td>按列（字段）拆</td>
+<td>按行（数据）拆</td>
+</tr>
+<tr>
+<td>拆分粒度</td>
+<td>表拆列：大文本&#x2F;热列分离；库拆业务：订单库&#x2F;用户库&#x2F;库存库</td>
+<td>同结构多表：<code>t_order_0..N</code>，每个只存部分行</td>
+</tr>
+<tr>
+<td>解决</td>
+<td>单表字段过多、IO 放大、业务耦合</td>
+<td>单表数据量过大、写入吞吐不够</td>
+</tr>
+<tr>
+<td>副作用</td>
+<td>表要 join 回来；跨库 join</td>
+<td>全局查询、聚合、事务都要跨分片</td>
+</tr>
+<tr>
+<td>难度</td>
+<td>较低</td>
+<td>较高（所有复杂度都在这里）</td>
+</tr>
+</tbody></table>
+<p><strong>工程事实</strong>：垂直拆库是最先做、收益最大的——把订单、用户、库存拆到独立实例，各自扩容互不干扰；水平分表是最后的手段，只在垂直拆分 + 读写分离之后仍撑不住时上。</p>
+<h3 id="5-2-分片键选择"><a href="#5-2-分片键选择" class="headerlink" title="5.2 分片键选择"></a>5.2 分片键选择</h3><p>分片键（Sharding Key）决定一行数据落在哪个分片。<strong>选错分片键，分库分表就废了</strong>。原则：</p>
+<ol>
+<li><strong>等值查询频率最高的列</strong>。订单表按 <code>user_id</code> 分片，则”查某用户的订单”完美命中单个分片；如果用户端访问是主流，<code>order_id</code> 就不如 <code>user_id</code>。</li>
+<li><strong>写入均匀性</strong>：分片键取值分布要均匀（用户 ID 天然均匀；按商家分片则大商家容易打爆单库）。</li>
+<li><strong>无法命中分片键的查询</strong>要提前想好兜底：<ul>
+<li><strong>映射表&#x2F;索引表</strong>：<code>user_id ↔ order_id</code> 双向映射表，先查映射再路由（MySQL 还是 ES 自选）。</li>
+<li><strong>数据冗余&#x2F;宽表</strong>：把查询热点维度冗余到独立分片表（业界最常用：ES 存检索数据，MySQL 只做 ID 回源）。</li>
+<li><strong>广播查询</strong>：小表场景直接全分片广播 + 合并（ShardingSphere 的”全库路由”）。</li>
+</ul>
+</li>
+</ol>
+<h3 id="5-3-分片算法"><a href="#5-3-分片算法" class="headerlink" title="5.3 分片算法"></a>5.3 分片算法</h3><table>
+<thead>
+<tr>
+<th>算法</th>
+<th>原理</th>
+<th>优点</th>
+<th>缺点</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>取模 <code>mod</code></td>
+<td><code>shard = key % N</code></td>
+<td>实现简单、分布均匀</td>
+<td>扩容 N 变化后<strong>几乎所有数据都要迁移</strong>；范围查询无法裁剪</td>
+<td>数据量长期稳定、不常扩容</td>
+</tr>
+<tr>
+<td>范围 <code>range</code></td>
+<td><code>shard = key / 单表容量</code> 或按日期&#x2F;ID 段</td>
+<td>扩容友好（加表不迁移旧数据）、天然支持范围裁剪</td>
+<td>热点集中（新数据都写最后一片）；分布不均</td>
+<td>日志、时序数据（按天&#x2F;月分表）</td>
+</tr>
+<tr>
+<td>哈希 <code>hash</code></td>
+<td><code>shard = hash(key) % N</code></td>
+<td>分布均匀、无顺序关联</td>
+<td>同取模，扩容迁移大</td>
+<td>同取模，可加盐避免规律冲突</td>
+</tr>
+<tr>
+<td>一致性哈希</td>
+<td>key 哈希到环上，顺时针找最近节点</td>
+<td>加节点只迁移相邻 1&#x2F;N 数据</td>
+<td>路由计算复杂、数据分布天然不均（靠虚拟节点缓解）、范围查询难</td>
+<td>需要频繁扩缩容的 KV 类场景</td>
+</tr>
+</tbody></table>
+<p><strong>口诀</strong>：均匀性要取模（或 hash 取模），扩展性要 range，两者都想要 → 一致性哈希或”range + 末尾预留”（如 0<del>9 表，扩到 20 表时只迁移 10</del>19 的部分数据）。绝大多数业务最终选择 <strong>取模 + 规划好 2 的幂次倍扩容</strong>（8 表→16 表→32 表，每次全量迁移一次，代价可预估）。</p>
+<h3 id="5-4-分库分表带来的问题"><a href="#5-4-分库分表带来的问题" class="headerlink" title="5.4 分库分表带来的问题"></a>5.4 分库分表带来的问题</h3><table>
+<thead>
+<tr>
+<th>问题</th>
+<th>具体表现</th>
+<th>解法</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>跨库 JOIN</td>
+<td>订单与订单明细拆到不同分片，<code>JOIN</code> 失效</td>
+<td>①绑定表（同分片规则的表可 JOIN，见 6.2）②应用层组装（两次查询在内存 JOIN）③宽表冗余④禁止 JOIN 用 ES 兜底</td>
+</tr>
+<tr>
+<td>分布式事务</td>
+<td>一笔订单扣库存（库存库）+ 记订单（订单库），不能同时成功</td>
+<td>①事务内禁止跨库（把需要强一致的拆到同库）②Seata AT&#x2F;TCC&#x2F;2PC（见 6.5）③消息最终一致（对账兜底）</td>
+</tr>
+<tr>
+<td>分布式 ID</td>
+<td>多分片自增主键会重复</td>
+<td>雪花算法（见 6.4）、号段模式（Leaf）、UUID（仅非索引场景）</td>
+</tr>
+<tr>
+<td>扩容</td>
+<td>取模分片加节点要迁移数据</td>
+<td>停机迁移、双写迁移、一致性哈希（见第 8 章）</td>
+</tr>
+<tr>
+<td>全局查询</td>
+<td><code>COUNT(*)</code>、不分片键的 <code>WHERE</code> 只能全分片聚合</td>
+<td>汇总表&#x2F;ES 预聚合、禁止此类查询、控制范围（时间兜底）</td>
+</tr>
+</tbody></table>
+<h2 id="6-ShardingSphere-实战（核心）"><a href="#6-ShardingSphere-实战（核心）" class="headerlink" title="6. ShardingSphere 实战（核心）"></a>6. ShardingSphere 实战（核心）</h2><p>ShardingSphere 有两个形态：<strong>JDBC</strong>（客户端模式，轻量，融入应用）与 <strong>Proxy</strong>（中间件模式，独立进程）。本章以 <strong>ShardingSphere-JDBC 5.4.x</strong> 为例，先啃内核，再上配置。</p>
+<h3 id="6-1-ShardingSphere-JDBC-架构：五阶段内核源码级分析"><a href="#6-1-ShardingSphere-JDBC-架构：五阶段内核源码级分析" class="headerlink" title="6.1 ShardingSphere-JDBC 架构：五阶段内核源码级分析"></a>6.1 ShardingSphere-JDBC 架构：五阶段内核源码级分析</h3><p>一句话总览：<strong>一条 SQL 进来，经过”解析 → 路由 → 改写 → 执行 → 归并”五个阶段，变成 N 条物理 SQL 发到 N 个数据源，再把 N 个结果集归并成一个返回</strong>。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">     逻辑 SQL                     物理 SQL × N</span><br><span class="line">┌────────────────┐    ┌──────────────────────────────┐</span><br><span class="line">│ SELECT * FROM   │    │ SELECT * FROM t_order_0 ...  │</span><br><span class="line">│ t_order WHERE   │    │ (ds_0.t_order_0, ds_0.t_order_1,</span><br><span class="line">│ order_id = 100  │    │  ds_1.t_order_0, ds_1.t_order_1)</span><br><span class="line">└────────────────┘    └──────────────────────────────┘</span><br><span class="line">Parse ──► Route ──► Rewrite ──► Execute ──► Merge</span><br><span class="line">(AST)   (RouteUnit) (物理 SQL) (并发分发) (结果归并)</span><br></pre></td></tr></table></figure>
+
+<h4 id="阶段一：Parse（SQL-解析）"><a href="#阶段一：Parse（SQL-解析）" class="headerlink" title="阶段一：Parse（SQL 解析）"></a>阶段一：Parse（SQL 解析）</h4><p>入口 <code>SQLParserEngine</code>（<code>org.apache.shardingsphere.sql.parser.api</code>）。用 <strong>ANTLR4</strong> 生成的语法解析器（每种方言一个 grammar，如 <code>MySQLStatementLexer/Parser</code>）把 SQL 变成 <strong>ParseTree（解析树）</strong>，再经 <code>SQLStatementVisitor</code>（如 <code>MySQLDMLStatementVisitor</code>）遍历转换为<strong>抽象语法树 AST——<code>SQLStatement</code> 对象</strong>（<code>SelectStatement</code>、<code>InsertStatement</code>、<code>UpdateStatement</code>、<code>DeleteStatement</code>）。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// SQLParserEngine.parse 核心流程（简化）</span></span><br><span class="line"><span class="keyword">public</span> SQLStatement <span class="title function_">parse</span><span class="params">(String sql, <span class="type">boolean</span> useCache)</span> &#123;</span><br><span class="line">    <span class="type">ParseASTNode</span> <span class="variable">parseASTNode</span> <span class="operator">=</span> parse0(sql, useCache);      <span class="comment">// ① ANTLR 词法+语法分析 -&gt; ParseTree</span></span><br><span class="line">    <span class="type">ParseContext</span> <span class="variable">parseContext</span> <span class="operator">=</span> sqlStatementVisitorFactory... <span class="comment">// ② Visitor 模式</span></span><br><span class="line">    <span class="keyword">return</span> parseContext.getSqlStatement();                   <span class="comment">// ③ 返回结构化的 SQLStatement AST</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>SQLStatement 里装了什么？<strong>表（TableSegment）</strong>、<strong>条件（WhereSegment &#x2F; PredicateSegment）</strong>、<strong>列（ColumnSegment）</strong>、<strong>聚合（AggregationSegment）</strong>、<strong>分页（LimitSegment）</strong>、<strong>分组排序（GroupBySegment&#x2F;OrderBySegment）</strong> 等元数据。后续四个阶段全部基于这份 AST 工作，不再碰原始 SQL 字符串。解析结果按 SQL 文本缓存（<code>ParseTreeCache</code>），命中缓存省掉词法语法分析。</p>
+<h4 id="阶段二：Route（路由）"><a href="#阶段二：Route（路由）" class="headerlink" title="阶段二：Route（路由）"></a>阶段二：Route（路由）</h4><p>入口 <code>SQLRouteExecutor</code> → 根据 SQLStatement 类型交给对应 <code>RouteEngine</code>。<strong>路由的产物是 <code>RouteContext</code>，核心是 <code>RouteUnit</code> 列表</strong>——每个 RouteUnit &#x3D; <code>(dataSourceName, SQLUnit(逻辑 SQL + 参数))</code>，即”这条逻辑 SQL 要拆成哪些物理片”。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">RouteEngineFactory 按语句/规则选择引擎</span><br><span class="line">├─ StandardRoutingEngine    单表路由（WHERE 命中分片键，可裁剪）</span><br><span class="line">├─ ComplexRoutingEngine     多表路由（多表 join，可能笛卡尔积——绑定表可避免）</span><br><span class="line">├─ HintRoutingEngine        Hint 强制路由（分片键在代码里不写在 SQL）</span><br><span class="line">├─ BroadcastRoutingEngine   广播路由（无分片键条件 / 广播表 / DDL / SET 等）</span><br></pre></td></tr></table></figure>
+
+<p>路由的根本依据是<strong>分片键的值</strong>（来自 WHERE 条件、或参数绑定、或 Hint）。关键代码走向：<code>StandardRoutingEngine.route()</code> 内 <code>calculateRouteContext()</code> → <code>getShardingConditions()</code> 从 AST 提取 <code>ShardingCondition</code>（含 <code>ShardingValue</code>）→ 调用 <code>ShardingRule.route()</code> 交给 <code>ShardingAlgorithm.sharding()</code> 算出目标库&#x2F;表。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 逻辑：WHERE order_id = 100, order_id % 2 == 0</span></span><br><span class="line"><span class="comment">//  =&gt; dataNode = ds_0, tableNode = t_order_0</span></span><br><span class="line"><span class="comment">//  =&gt; RouteUnit&#123; dataSourceName: ds_0,</span></span><br><span class="line"><span class="comment">//                sqlUnit: SELECT * FROM t_order WHERE order_id = ?  &#125;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>三种典型路由行为</strong>：</p>
+<ul>
+<li>分片键等值条件 → <strong>精确路由</strong>到 1 个数据源 1 张表（最好的情况）。</li>
+<li>分片键范围条件（<code>BETWEEN</code>&#x2F;<code>IN</code>&#x2F;<code>&gt;</code>）→ 有 range 算法则<strong>范围裁剪</strong>，只路由命中的分片；没有则退化为全路由。</li>
+<li><strong>WHERE 里没有分片键</strong> → 广播路由，<strong>全库全表都执行</strong>，结果在归并层合并——这是性能杀手，也是 5.2 强调分片键的原因。</li>
+</ul>
+<h4 id="阶段三：Rewrite（SQL-改写）"><a href="#阶段三：Rewrite（SQL-改写）" class="headerlink" title="阶段三：Rewrite（SQL 改写）"></a>阶段三：Rewrite（SQL 改写）</h4><p>入口 <code>SQLRewriteEngine</code>。把逻辑 SQL 里的<strong>逻辑表名、逻辑列名</strong>替换为物理表名&#x2F;列名，并处理分页、聚合、生成键等，产出<strong>可执行的物理 SQL</strong>。</p>
+<p>改写的核心机制是 <strong>Token 流</strong>：<code>SQLRewriteEngine</code> 遍历 AST，把每个需要改写的位置（<code>SQLToken</code>）与原文片段交错拼接成新的 SQL 字符串。常见 Token：</p>
+<table>
+<thead>
+<tr>
+<th>Token</th>
+<th>改写的例子</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>TableToken</code></td>
+<td><code>t_order</code> → <code>t_order_0</code>（表名加分片后缀）</td>
+</tr>
+<tr>
+<td><code>ColumnsToken</code></td>
+<td>分片键&#x2F;生成键列不在 INSERT 列中时补列名</td>
+</tr>
+<tr>
+<td><code>InsertValuesToken</code></td>
+<td>INSERT 值改写（补分片键值、生成键值）</td>
+</tr>
+<tr>
+<td><code>LimitToken</code>（<code>PaginationToken</code>）</td>
+<td><code>LIMIT 10</code> → <code>LIMIT 10</code> 原样下发，归并层再整体截断（见归并阶段）</td>
+</tr>
+<tr>
+<td><code>AggregationDistinctToken</code></td>
+<td><code>COUNT(DISTINCT id)</code> 改写为子查询，归并层恢复</td>
+</tr>
+<tr>
+<td><code>OrderByToken</code> &#x2F; <code>GroupByToken</code></td>
+<td>保序下发（有时改写排序字段）</td>
+</tr>
+</tbody></table>
+<p>参数也在这里改写（<code>ParameterRewriteEngine</code>）：分片键来自 <code>?</code> 占位符时，把参数值路由层解析后用<strong>新的参数序号</strong>重建 <code>ParameterList</code>，保证改写后的物理 SQL 与参数一一对应。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 逻辑：INSERT INTO t_order (order_id, user_id, amount) VALUES (?, ?, ?)</span></span><br><span class="line"><span class="comment">// 路由：order_id=100 -&gt; ds_0.t_order_0</span></span><br><span class="line"><span class="comment">// 改写：INSERT INTO t_order_0 (order_id, user_id, amount) VALUES (?, ?, ?)</span></span><br><span class="line"><span class="comment">// 若分片键未显式指定：INSERT INTO t_order_0 (order_id, user_id, amount, order_id) ...</span></span><br><span class="line"><span class="comment">// 由 GeneratedKeyInsertColumnToken 补充分片键列，参数列表追加雪花生成的 order_id</span></span><br></pre></td></tr></table></figure>
+
+<h4 id="阶段四：Execute（执行）"><a href="#阶段四：Execute（执行）" class="headerlink" title="阶段四：Execute（执行）"></a>阶段四：Execute（执行）</h4><p>入口 <code>JDBCExecutor</code> + <code>ExecutorEngine</code>（内核线程池）。<strong>多个 RouteUnit 对应的物理 SQL 被分组并发执行</strong>：相同数据源的 SQL 聚成 <code>ExecutionGroup</code>，一个物理连接按顺序执行组内 SQL（减少连接数）；不同组在不同连接上并发跑。最终每个数据源返回各自的 <code>ResultSet</code>，放进一个 <code>List&lt;ResultSet&gt;</code> 交给归并阶段。</p>
+<p>这里有两个决定性能的关键概念：</p>
+<ul>
+<li><strong>连接模式</strong>（<code>ConnectionMode</code>）：<ul>
+<li><code>MEMORY_STRICTLY</code>：结果<strong>一次性全量拉进内存</strong>（适合后续要全量归并的场景，如 GROUP BY&#x2F;内存归并），占内存但连接占用少。</li>
+<li><code>CONNECTION_STRICTLY</code>：<strong>流式逐条读取</strong>（一个连接只服务一个结果集，适合 ORDER BY 流式归并），省内存但吃连接。</li>
+</ul>
+</li>
+<li><strong>执行引擎</strong>（<code>ExecutorEngine.execute()</code>）内部做负载均衡与并发控制，可按数据源&#x2F;实例配置 <code>max-connections-size-per-query</code> 限制单查询连接数。</li>
+</ul>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 简化：ExecutorEngine 按数据源分组执行</span></span><br><span class="line"><span class="keyword">for</span> (ExecutionGroup&lt;?&gt; each : inputGroups) &#123;</span><br><span class="line">    groupExecuteCallback.execute(each, ...);   <span class="comment">// 每组一个任务，并发提交到线程池</span></span><br><span class="line">&#125;</span><br><span class="line"><span class="comment">// JDBCExecutor -&gt; StatementExecutor.execute() -&gt; Connection.createStatement()</span></span><br><span class="line"><span class="comment">//               -&gt; statement.executeQuery(rewrittenSQL)  每个物理 SQL 一把</span></span><br></pre></td></tr></table></figure>
+
+<h4 id="阶段五：Merge（结果归并）"><a href="#阶段五：Merge（结果归并）" class="headerlink" title="阶段五：Merge（结果归并）"></a>阶段五：Merge（结果归并）</h4><p>入口 <code>MergeEngine</code>。把 N 个分片返回的 <code>ResultSet</code> 合并成<strong>逻辑上完整的一份结果</strong>。核心是 <code>ResultSetMerger</code> 接口与<strong>装饰器（Decorator）模式</strong>：根据 SQLStatement 类型把”核心 merger”层层包装。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">MergeEngine 按语句选择 merger 链（ShardingDQLResultMerger.merge()）</span><br><span class="line">SELECT 无分组排序：  LimitDecoratorMerger</span><br><span class="line">                    └─ DistinctDecoratorMerger(有 DISTINCT)</span><br><span class="line">                       └─ 原始结果集</span><br><span class="line">SELECT ORDER BY：   LimitDecoratorMerger ── OrderByStreamMerger（多路归并，堆排序）</span><br><span class="line">SELECT GROUP BY：   优先 GroupByStreamMerger（分组与排序顺序一致时，流式）</span><br><span class="line">                    否则 GroupByMemoryMerger（全量载入内存分组）</span><br><span class="line">                    └─ 内部用 AggregationUnit 计算聚合函数</span><br><span class="line">INSERT/UPDATE/DELETE：GeneratedKeyMerger / 行数合并（MAX/SUM）</span><br></pre></td></tr></table></figure>
+
+<p>归并的两大流派：</p>
+<ul>
+<li><strong>流式归并</strong>（StreamMerger）：各分片结果<strong>本身有序</strong>（物理 SQL 已带 ORDER BY），用 <strong>PriorityQueue（堆）做多路归并</strong>，边读边出，内存 O(N)（N&#x3D;分片数）。<code>OrderByStreamMerger</code> 是典型。</li>
+<li><strong>内存归并</strong>（MemoryMerger）：分片结果无序或需要全量去重&#x2F;分组时，<strong>全部载入内存</strong>再处理。<code>GroupByMemoryMerger</code>、<code>DistinctDecoratorMerger</code> 属于此类。</li>
+</ul>
+<p>聚合函数在归并层<strong>重算</strong>而非简单相加：<code>AVG = 各分片 SUM 之和 / 各分片 COUNT 之和</code>（<code>AvgAggregationUnit</code>）；<code>SUM/COUNT/MAX/MIN</code> 对应各自 <code>AggregationUnit</code>；<code>COUNT(DISTINCT)</code> 需要在每个分片取 distinct 集合再合并。</p>
+<p><strong>归并层的精髓</strong>：<code>LIMIT</code> 不是简单把各分片拼起来，而是<strong>各分片取够 offset+limit 行，归并层用 <code>LimitDecoratorMerger</code> 边归并边丢弃</strong>，最终只返回 limit 行——内存与传输都最小化。</p>
+<h3 id="6-2-分片配置：标准分片-复合分片-Hint-强制路由"><a href="#6-2-分片配置：标准分片-复合分片-Hint-强制路由" class="headerlink" title="6.2 分片配置：标准分片 &#x2F; 复合分片 &#x2F; Hint 强制路由"></a>6.2 分片配置：标准分片 &#x2F; 复合分片 &#x2F; Hint 强制路由</h3><p>以下配置均基于 Spring Boot 3 + ShardingSphere-JDBC 5.4.x（<code>shardingsphere-jdbc-spring-boot-starter</code>）。先给骨架配置（数据源、逻辑表、分片算法、分片策略、生成键），后面各节逐块展开。</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">spring:</span></span><br><span class="line">  <span class="attr">shardingsphere:</span></span><br><span class="line">    <span class="attr">datasource:</span></span><br><span class="line">      <span class="attr">names:</span> <span class="string">ds0,</span> <span class="string">ds1</span>                 <span class="comment"># 两个物理库 ds0 / ds1</span></span><br><span class="line">      <span class="attr">ds0:</span></span><br><span class="line">        <span class="attr">type:</span> <span class="string">com.zaxxer.hikari.HikariDataSource</span></span><br><span class="line">        <span class="attr">driver-class-name:</span> <span class="string">com.mysql.cj.jdbc.Driver</span></span><br><span class="line">        <span class="attr">jdbc-url:</span> <span class="string">jdbc:mysql://192.168.1.10:3306/ds0?useSSL=false&amp;serverTimezone=Asia/Shanghai</span></span><br><span class="line">        <span class="attr">username:</span> <span class="string">root</span></span><br><span class="line">        <span class="attr">password:</span> <span class="string">root</span></span><br><span class="line">      <span class="attr">ds1:</span></span><br><span class="line">        <span class="attr">type:</span> <span class="string">com.zaxxer.hikari.HikariDataSource</span></span><br><span class="line">        <span class="attr">driver-class-name:</span> <span class="string">com.mysql.cj.jdbc.Driver</span></span><br><span class="line">        <span class="attr">jdbc-url:</span> <span class="string">jdbc:mysql://192.168.1.11:3306/ds1?useSSL=false&amp;serverTimezone=Asia/Shanghai</span></span><br><span class="line">        <span class="attr">username:</span> <span class="string">root</span></span><br><span class="line">        <span class="attr">password:</span> <span class="string">root</span></span><br><span class="line">    <span class="attr">rules:</span></span><br><span class="line">      <span class="attr">sharding:</span></span><br><span class="line">        <span class="attr">tables:</span></span><br><span class="line">          <span class="attr">t_order:</span>                                  <span class="comment"># 逻辑表</span></span><br><span class="line">            <span class="attr">actual-data-nodes:</span> <span class="string">ds$&#123;0..1&#125;.t_order_$&#123;0..1&#125;</span>   <span class="comment"># 物理节点：2 库 × 2 表</span></span><br><span class="line">            <span class="attr">database-strategy:</span>                      <span class="comment"># 库分片策略</span></span><br><span class="line">              <span class="attr">standard:</span></span><br><span class="line">                <span class="attr">sharding-column:</span> <span class="string">user_id</span>            <span class="comment"># 库分片键</span></span><br><span class="line">                <span class="attr">sharding-algorithm-name:</span> <span class="string">db-hash-mod</span></span><br><span class="line">            <span class="attr">table-strategy:</span>                         <span class="comment"># 表分片策略</span></span><br><span class="line">              <span class="attr">standard:</span></span><br><span class="line">                <span class="attr">sharding-column:</span> <span class="string">user_id</span>            <span class="comment"># 表分片键（同一列）</span></span><br><span class="line">                <span class="attr">sharding-algorithm-name:</span> <span class="string">table-hash-mod</span></span><br><span class="line">            <span class="attr">key-generate-strategy:</span>                  <span class="comment"># 分布式主键</span></span><br><span class="line">              <span class="attr">column:</span> <span class="string">order_id</span></span><br><span class="line">              <span class="attr">key-generator-name:</span> <span class="string">snowflake</span></span><br><span class="line">        <span class="attr">binding-tables:</span>                             <span class="comment"># 绑定表（避免 join 笛卡尔积）</span></span><br><span class="line">          <span class="bullet">-</span> <span class="string">t_order,</span> <span class="string">t_order_item</span></span><br><span class="line">        <span class="attr">broadcast-tables:</span>                           <span class="comment"># 广播表（每个分片全量冗余）</span></span><br><span class="line">          <span class="bullet">-</span> <span class="string">t_dict</span></span><br><span class="line">        <span class="attr">sharding-algorithms:</span></span><br><span class="line">          <span class="attr">db-hash-mod:</span></span><br><span class="line">            <span class="attr">type:</span> <span class="string">HASH_MOD</span></span><br><span class="line">            <span class="attr">props:</span></span><br><span class="line">              <span class="attr">sharding-count:</span> <span class="number">2</span></span><br><span class="line">          <span class="attr">table-hash-mod:</span></span><br><span class="line">            <span class="attr">type:</span> <span class="string">HASH_MOD</span></span><br><span class="line">            <span class="attr">props:</span></span><br><span class="line">              <span class="attr">sharding-count:</span> <span class="number">2</span></span><br><span class="line">        <span class="attr">key-generators:</span></span><br><span class="line">          <span class="attr">snowflake:</span></span><br><span class="line">            <span class="attr">type:</span> <span class="string">SNOWFLAKE</span></span><br><span class="line">            <span class="attr">props:</span></span><br><span class="line">              <span class="attr">worker-id:</span> <span class="number">1</span>                          <span class="comment"># 每实例唯一，防止并发环境撞号</span></span><br><span class="line">    <span class="attr">props:</span></span><br><span class="line">      <span class="attr">sql-show:</span> <span class="literal">true</span>                                <span class="comment"># 打印真实执行的物理 SQL（排障神器）</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>标准分片（standard）</strong>：一个分片键 + 精确算法 + 可选范围算法。</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">db-standard:</span></span><br><span class="line">  <span class="attr">type:</span> <span class="string">STANDARD</span>   <span class="comment"># 算法类型：自定义算法 class</span></span><br></pre></td></tr></table></figure>
+
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">sharding-algorithms:</span></span><br><span class="line">  <span class="attr">standard-mod:</span></span><br><span class="line">    <span class="attr">type:</span> <span class="string">STANDARD</span></span><br><span class="line">    <span class="attr">props:</span></span><br><span class="line">      <span class="attr">sharding-count:</span> <span class="number">2</span></span><br><span class="line">      <span class="comment"># 精确：value % sharding-count；范围：自定义</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>复合分片（complex）</strong>：多个分片键联合决策，实现 <code>ComplexKeysShardingAlgorithm</code>。</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">table-strategy:</span></span><br><span class="line">  <span class="attr">complex:</span></span><br><span class="line">    <span class="attr">sharding-columns:</span> <span class="string">user_id,</span> <span class="string">order_id</span>   <span class="comment"># 多个分片键</span></span><br><span class="line">    <span class="attr">sharding-algorithm-name:</span> <span class="string">complex-alg</span></span><br><span class="line"><span class="attr">sharding-algorithms:</span></span><br><span class="line">  <span class="attr">complex-alg:</span></span><br><span class="line">    <span class="attr">type:</span> <span class="string">COMPLEX_INLINE</span></span><br><span class="line">    <span class="attr">props:</span></span><br><span class="line">      <span class="attr">sharding-expressions:</span> <span class="string">user_id</span> <span class="string">%</span> <span class="number">2</span>   <span class="comment"># 表达式基于分片键计算</span></span><br></pre></td></tr></table></figure>
+
+<p>自定义复杂算法：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">MyComplexAlgorithm</span> <span class="keyword">implements</span> <span class="title class_">ComplexKeysShardingAlgorithm</span>&lt;Integer&gt; &#123;</span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> Collection&lt;String&gt; <span class="title function_">doSharding</span><span class="params">(Collection&lt;String&gt; availableTargetNames,</span></span><br><span class="line"><span class="params">                                         ComplexKeysShardingValue&lt;Integer&gt; shardingValue)</span> &#123;</span><br><span class="line">        <span class="type">Integer</span> <span class="variable">userId</span> <span class="operator">=</span> shardingValue.getColumnNameAndShardingValuesMap()</span><br><span class="line">                .get(<span class="string">&quot;user_id&quot;</span>).iterator().next();</span><br><span class="line">        <span class="comment">// 按 userId 二次哈希决定分片</span></span><br><span class="line">        <span class="keyword">return</span> availableTargetNames.stream()</span><br><span class="line">                .filter(t -&gt; t.endsWith(String.valueOf(userId % <span class="number">2</span>))).collect(Collectors.toList());</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>Hint 强制路由</strong>：SQL 里没有分片键（比如 <code>SELECT * FROM t_order WHERE status=1</code> 且你知道该查哪个分片），用 <code>HintManager</code> 在代码里指路——<strong>这是唯一不需要改 SQL 的路由方式</strong>，适合管理员后台、报表场景。</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">sharding-algorithms:</span></span><br><span class="line">  <span class="attr">hint-alg:</span></span><br><span class="line">    <span class="attr">type:</span> <span class="string">HINT_INLINE</span></span><br><span class="line">    <span class="attr">props:</span></span><br><span class="line">      <span class="attr">sharding-expression:</span> <span class="string">$&#123;value&#125;</span> <span class="string">%</span> <span class="number">2</span>      <span class="comment"># Hint 里传入的 value</span></span><br><span class="line"><span class="attr">table-strategy:</span></span><br><span class="line">  <span class="attr">hint:</span></span><br><span class="line">    <span class="attr">sharding-algorithm-name:</span> <span class="string">hint-alg</span></span><br></pre></td></tr></table></figure>
+
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">try</span> (<span class="type">HintManager</span> <span class="variable">hintManager</span> <span class="operator">=</span> HintManager.getInstance()) &#123;</span><br><span class="line">    hintManager.addTableShardingValue(<span class="string">&quot;t_order&quot;</span>, <span class="number">100L</span>);   <span class="comment">// 强制 t_order 走 100 % 2 = 0 分片</span></span><br><span class="line">    List&lt;Order&gt; list = orderMapper.selectByStatus(<span class="number">1</span>);      <span class="comment">// 无分片键也能精确路由</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>绑定表与广播表</strong>（配置见上面骨架）：</p>
+<ul>
+<li><strong>绑定表</strong>：<code>t_order</code> 与 <code>t_order_item</code> 按相同规则分片，join 时只会 join 相同分片（<code>t_order_0 JOIN t_order_item_0</code>），<strong>避免笛卡尔积路由</strong>，是跨表 JOIN 在分片环境的唯一正道。</li>
+<li><strong>广播表</strong>：<code>t_dict</code> 等字典小表在每个分片各放一份全量数据，写操作广播到所有分片，读操作本地命中。查询不分片键的大表千万别配广播表（数据爆炸）。</li>
+</ul>
+<h3 id="6-3-读写分离配置（一主多从-负载均衡）"><a href="#6-3-读写分离配置（一主多从-负载均衡）" class="headerlink" title="6.3 读写分离配置（一主多从 + 负载均衡）"></a>6.3 读写分离配置（一主多从 + 负载均衡）</h3><p>ShardingSphere-JDBC 的读写分离是<strong>独立规则</strong>（<code>readwrite-splitting</code>），且可以和分片规则叠加（分片后再路由读写）。5.x 有两种数据源类型：</p>
+<ul>
+<li><code>static</code>：主从地址写死。</li>
+<li><code>dynamic</code>（5.4+）：接入注册中心（ZooKeeper&#x2F;Etcd&#x2F;Consul），动态感知从库变化——推荐用于从库经常扩缩的架构。</li>
+</ul>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">spring:</span></span><br><span class="line">  <span class="attr">shardingsphere:</span></span><br><span class="line">    <span class="attr">datasource:</span></span><br><span class="line">      <span class="attr">names:</span> <span class="string">write_ds,</span> <span class="string">read_ds_0,</span> <span class="string">read_ds_1</span></span><br><span class="line">      <span class="attr">write_ds:</span>  <span class="comment"># 主库</span></span><br><span class="line">        <span class="string">...</span></span><br><span class="line">      <span class="attr">read_ds_0:</span> <span class="comment"># 从库 1</span></span><br><span class="line">        <span class="string">...</span></span><br><span class="line">      <span class="attr">read_ds_1:</span> <span class="comment"># 从库 2</span></span><br><span class="line">        <span class="string">...</span></span><br><span class="line">    <span class="attr">rules:</span></span><br><span class="line">      <span class="attr">readwrite-splitting:</span></span><br><span class="line">        <span class="attr">data-sources:</span></span><br><span class="line">          <span class="attr">order_rw:</span>                                   <span class="comment"># 逻辑数据源（业务用它）</span></span><br><span class="line">            <span class="attr">type:</span> <span class="string">STATIC</span></span><br><span class="line">            <span class="attr">props:</span></span><br><span class="line">              <span class="attr">write-data-source-name:</span> <span class="string">write_ds</span>        <span class="comment"># 主</span></span><br><span class="line">              <span class="attr">read-data-source-names:</span> <span class="string">read_ds_0,</span> <span class="string">read_ds_1</span>   <span class="comment"># 从</span></span><br><span class="line">            <span class="attr">load-balancer-name:</span> <span class="string">rw-round-robin</span>        <span class="comment"># 从库负载均衡</span></span><br><span class="line">        <span class="attr">load-balancers:</span></span><br><span class="line">          <span class="attr">rw-round-robin:</span></span><br><span class="line">            <span class="attr">type:</span> <span class="string">ROUND_ROBIN</span>                          <span class="comment"># 也可 RANDOM / WEIGHT(需配 weights)</span></span><br><span class="line">    <span class="attr">rules:</span></span><br><span class="line">      <span class="attr">sharding:</span></span><br><span class="line">        <span class="comment"># 分片表 actual-data-nodes 可以指向读写分离的逻辑数据源：ds$&#123;0..1&#125; -&gt; order_rw</span></span><br><span class="line">        <span class="comment"># 这样&quot;先分片、后读写分离&quot;，分片库本身又是一主多从</span></span><br></pre></td></tr></table></figure>
+
+<p>负载均衡策略：</p>
+<table>
+<thead>
+<tr>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>ROUND_ROBIN</code></td>
+<td>轮询，各从库均摊读流量</td>
+</tr>
+<tr>
+<td><code>RANDOM</code></td>
+<td>随机，简单</td>
+</tr>
+<tr>
+<td><code>WEIGHT</code></td>
+<td>按权重（从库配置差异大时用），<code>props: read_ds_0: 80, read_ds_1: 20</code></td>
+</tr>
+</tbody></table>
+<p><strong>事务内强制走主库</strong>是内置行为：<code>@Transactional</code> 方法内所有读写都绑定写库（避免读到事务未提交数据），这是 ShardingSphere 比自研动态数据源严谨的地方。延迟敏感请求还可以用 <code>HintManager</code> 强制走主库：<code>hintManager.setWriteRouteOnly()</code>。</p>
+<h3 id="6-4-分布式主键：雪花算法集成"><a href="#6-4-分布式主键：雪花算法集成" class="headerlink" title="6.4 分布式主键：雪花算法集成"></a>6.4 分布式主键：雪花算法集成</h3><p>分库分表后自增主键必然重复，分布式 ID 三选一：</p>
+<table>
+<thead>
+<tr>
+<th>方案</th>
+<th>生成方式</th>
+<th>优点</th>
+<th>缺点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>UUID</td>
+<td><code>UUID.randomUUID()</code></td>
+<td>简单</td>
+<td>36 字符、完全无序，B+ 树索引疯狂分裂，禁用做索引列</td>
+</tr>
+<tr>
+<td>号段模式（Leaf）</td>
+<td>数据库批量取号段，内存发号</td>
+<td>有序、短、TPS 高</td>
+<td>多一套中间件、号段耗尽时毛刺</td>
+</tr>
+<tr>
+<td>雪花算法</td>
+<td><code>时间戳41bit + 机器id10bit + 序列号12bit</code></td>
+<td>趋势递增、本地生成零 IO、64 位</td>
+<td>依赖时钟（回拨会重复，需处理）；机器位需分配</td>
+</tr>
+</tbody></table>
+<p>雪花 ID 结构（64 位 long）：<code>0 | 41bit 毫秒时间戳 | 10bit workerId | 12bit 序列号</code>，单机每毫秒最多 4096 个 ID。</p>
+<p>ShardingSphere 内置 <code>SnowflakeKeyGenerateAlgorithm</code>，配置一行：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">rules:</span></span><br><span class="line">  <span class="attr">sharding:</span></span><br><span class="line">    <span class="attr">key-generators:</span></span><br><span class="line">      <span class="attr">snowflake:</span></span><br><span class="line">        <span class="attr">type:</span> <span class="string">SNOWFLAKE</span></span><br><span class="line">        <span class="attr">props:</span></span><br><span class="line">          <span class="attr">worker-id:</span> <span class="number">1</span>                 <span class="comment"># 每个应用实例唯一（0~1023）</span></span><br><span class="line">          <span class="attr">max-vibration-offset:</span> <span class="number">1</span>      <span class="comment"># 可选，轻微时间戳抖动换取序列号空间</span></span><br></pre></td></tr></table></figure>
+
+<p>使用：INSERT 时不填 <code>order_id</code>，ShardingSphere 在改写阶段自动生成并注入（见 6.1 阶段三的 <code>GeneratedKeyInsertColumnToken</code>），且<strong>生成的键会作为分片键参与路由</strong>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 只要 key-generate-strategy.column 与分片键同列，下面 SQL 就会自动路由+补主键</span></span><br><span class="line">orderMapper.insert(<span class="keyword">new</span> <span class="title class_">Order</span>(<span class="literal">null</span>, <span class="number">10086L</span>, <span class="keyword">new</span> <span class="title class_">BigDecimal</span>(<span class="string">&quot;99.00&quot;</span>)));</span><br></pre></td></tr></table></figure>
+
+<p><strong>时钟回拨处理</strong>：ShardingSphere 的雪花实现检测到时钟回拨时（回拨小于 5ms）<strong>自旋等待时间追平</strong>，回拨过大抛异常——生产上 NTP 不要大幅跳时，或关闭自动校时。</p>
+<h3 id="6-5-分布式事务集成（Seata-AT-模式-ShardingSphere）"><a href="#6-5-分布式事务集成（Seata-AT-模式-ShardingSphere）" class="headerlink" title="6.5 分布式事务集成（Seata AT 模式 + ShardingSphere）"></a>6.5 分布式事务集成（Seata AT 模式 + ShardingSphere）</h3><p>分库分表后一笔业务跨多个分片，本地事务失效。推荐 <strong>Seata AT 模式</strong>：</p>
+<p><strong>AT 模式原理</strong>：一阶段各分片<strong>本地提交</strong>业务 SQL + 同时写 <code>undo_log</code>（回滚日志）；二阶段若全局成功则异步删除 undo_log，若失败则用 undo_log <strong>反向补偿</strong>回滚。相比 TCC（需要写 Try&#x2F;Confirm&#x2F;Cancel 三套代码），AT 对业务<strong>零侵入</strong>，代价是数据库表必须能写入 undo_log 表、且回滚依赖日志（大事务回滚慢）。</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">GlobalTransactional ──► TC（Seata Server，全局事务协调者）</span><br><span class="line">                          │ 一阶段：各分片本地提交 + 写 undo_log</span><br><span class="line">                          │ 二阶段：全部成功 → 异步清理 undo_log</span><br><span class="line">                          │         任一失败 → 用 undo_log 反向补偿回滚</span><br><span class="line">                          ▼</span><br><span class="line">                 分片 ds0（订单表 + undo_log）</span><br><span class="line">                 分片 ds1（订单明细表 + undo_log）</span><br></pre></td></tr></table></figure>
+
+<p><strong>依赖</strong>：</p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">&lt;!-- Seata 客户端（TC 用独立部署的 seata-server） --&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">dependency</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">groupId</span>&gt;</span>io.seata<span class="tag">&lt;/<span class="name">groupId</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">artifactId</span>&gt;</span>seata-spring-boot-starter<span class="tag">&lt;/<span class="name">artifactId</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">version</span>&gt;</span>1.8.0<span class="tag">&lt;/<span class="name">version</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">dependency</span>&gt;</span></span><br><span class="line"><span class="comment">&lt;!-- ShardingSphere 与 Seata AT 的桥接 --&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">dependency</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">groupId</span>&gt;</span>org.apache.shardingsphere<span class="tag">&lt;/<span class="name">groupId</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">artifactId</span>&gt;</span>shardingsphere-transaction-base-seata-at<span class="tag">&lt;/<span class="name">artifactId</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">version</span>&gt;</span>5.4.1<span class="tag">&lt;/<span class="name">version</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">dependency</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>配置</strong>：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">spring:</span></span><br><span class="line">  <span class="attr">shardingsphere:</span></span><br><span class="line">    <span class="attr">transaction:</span></span><br><span class="line">      <span class="attr">default-type:</span> <span class="string">BASE</span>          <span class="comment"># 事务类型：LOCAL（默认）/ XA / BASE</span></span><br><span class="line"><span class="comment"># Seata 客户端配置（application.yml 或 registry.conf）</span></span><br><span class="line"><span class="attr">seata:</span></span><br><span class="line">  <span class="attr">registry:</span></span><br><span class="line">    <span class="attr">type:</span> <span class="string">file</span>                    <span class="comment"># 生产用 nacos/zk</span></span><br><span class="line">  <span class="attr">tx-service-group:</span> <span class="string">my_test_tx_group</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>业务代码</strong>：在需要全局事务的方法上标注 <code>@GlobalTransactional</code>，内部跨分片（甚至跨库）的写操作由 Seata 保证原子性：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Service</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">OrderService</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@GlobalTransactional(name = &quot;create-order&quot;, rollbackFor = Exception.class)</span></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">createOrder</span><span class="params">(Order order)</span> &#123;</span><br><span class="line">        <span class="comment">// 1. 插入订单（ShardingSphere 路由到 ds0.t_order_x）</span></span><br><span class="line">        orderMapper.insert(order);</span><br><span class="line">        <span class="comment">// 2. 插入订单明细（路由到另一分片/另一表）——两处在同一个全局事务里</span></span><br><span class="line">        orderItemMapper.insert(<span class="keyword">new</span> <span class="title class_">OrderItem</span>(order.getOrderId(), order.getUserId(), <span class="string">&quot;SKU-001&quot;</span>, <span class="number">2</span>));</span><br><span class="line">        <span class="comment">// 3. 任意一步抛异常，Seata 会反向补偿回滚两处</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>避坑</strong>：AT 模式要求业务表有主键；undo_log 表要提前在各分片建好；大事务回滚耗时指数上升，事务里别放远程调用（长事务改 MQ 最终一致 + 对账）；Seata 一阶段”本地提交”导致<strong>中间状态对别的事务可见</strong>，读隔离要求高时换 TCC 或 XA。</p>
+<h3 id="6-6-数据脱敏（encrypt）"><a href="#6-6-数据脱敏（encrypt）" class="headerlink" title="6.6 数据脱敏（encrypt）"></a>6.6 数据脱敏（encrypt）</h3><p>ShardingSphere 提供 <strong>encrypt 规则</strong>：应用写明文、库里存密文（cipher 列），查询自动解密。配置：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">rules:</span></span><br><span class="line">  <span class="attr">encrypt:</span></span><br><span class="line">    <span class="attr">encryptors:</span></span><br><span class="line">      <span class="attr">aes-encryptor:</span></span><br><span class="line">        <span class="attr">type:</span> <span class="string">AES</span></span><br><span class="line">        <span class="attr">props:</span></span><br><span class="line">          <span class="attr">aes-key-value:</span> <span class="string">1234567890abcdef1234567890abcdef</span>   <span class="comment"># 32 位密钥</span></span><br><span class="line">    <span class="attr">tables:</span></span><br><span class="line">      <span class="attr">t_user:</span></span><br><span class="line">        <span class="attr">columns:</span></span><br><span class="line">          <span class="attr">phone:</span>                         <span class="comment"># 逻辑列（应用里写 phone）</span></span><br><span class="line">            <span class="attr">cipher-column:</span> <span class="string">phone_cipher</span>  <span class="comment"># 物理列（库里存密文）</span></span><br><span class="line">            <span class="attr">encryptor-name:</span> <span class="string">aes-encryptor</span></span><br></pre></td></tr></table></figure>
+
+<p>应用层 SQL 完全无感知：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">userMapper.insert(<span class="keyword">new</span> <span class="title class_">User</span>(<span class="number">1L</span>, <span class="string">&quot;13800138000&quot;</span>));  <span class="comment">// 落库到 phone_cipher = 密文</span></span><br><span class="line"><span class="type">String</span> <span class="variable">phone</span> <span class="operator">=</span> userMapper.selectById(<span class="number">1L</span>).getPhone();  <span class="comment">// 读出来自动解成明文</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>注意</strong>：脱敏规则可与其他规则叠加（分片 + 加密的列在改写阶段先补密再落库）；5.x 的脱敏查询若按明文条件 <code>WHERE phone = ?</code> 会把条件值也加密后匹配（默认精确匹配），模糊查询&#x2F;范围查询脱敏列<strong>不支持</strong>，设计时留 query 列（如 md5 定长列）做等值匹配。</p>
+<h3 id="6-7-Spring-Boot-3-x-完整集成示例（可运行验证）"><a href="#6-7-Spring-Boot-3-x-完整集成示例（可运行验证）" class="headerlink" title="6.7 Spring Boot 3.x 完整集成示例（可运行验证）"></a>6.7 Spring Boot 3.x 完整集成示例（可运行验证）</h3><h4 id="环境与版本"><a href="#环境与版本" class="headerlink" title="环境与版本"></a>环境与版本</h4><table>
+<thead>
+<tr>
+<th>组件</th>
+<th>版本</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>JDK</td>
+<td>17+</td>
+</tr>
+<tr>
+<td>Spring Boot</td>
+<td>3.2.x</td>
+</tr>
+<tr>
+<td>ShardingSphere-JDBC</td>
+<td>5.4.1（支持 Spring Boot 3）</td>
+</tr>
+<tr>
+<td>MyBatis-Plus</td>
+<td>3.5.5+（<code>mybatis-plus-spring-boot3-starter</code>）</td>
+</tr>
+<tr>
+<td>MySQL</td>
+<td>5.7 &#x2F; 8.0（两个实例 ds0 &#x2F; ds1）</td>
+</tr>
+</tbody></table>
+<h4 id="pom-xml（关键依赖）"><a href="#pom-xml（关键依赖）" class="headerlink" title="pom.xml（关键依赖）"></a>pom.xml（关键依赖）</h4><figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br></pre></td><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">parent</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">groupId</span>&gt;</span>org.springframework.boot<span class="tag">&lt;/<span class="name">groupId</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">artifactId</span>&gt;</span>spring-boot-starter-parent<span class="tag">&lt;/<span class="name">artifactId</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">version</span>&gt;</span>3.2.5<span class="tag">&lt;/<span class="name">version</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">parent</span>&gt;</span></span><br><span class="line"></span><br><span class="line"><span class="tag">&lt;<span class="name">dependencies</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">dependency</span>&gt;</span></span><br><span class="line">        <span class="tag">&lt;<span class="name">groupId</span>&gt;</span>org.springframework.boot<span class="tag">&lt;/<span class="name">groupId</span>&gt;</span></span><br><span class="line">        <span class="tag">&lt;<span class="name">artifactId</span>&gt;</span>spring-boot-starter-web<span class="tag">&lt;/<span class="name">artifactId</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;/<span class="name">dependency</span>&gt;</span></span><br><span class="line">    <span class="comment">&lt;!-- ShardingSphere-JDBC 核心：Spring Boot 3 直接用该 starter --&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">dependency</span>&gt;</span></span><br><span class="line">        <span class="tag">&lt;<span class="name">groupId</span>&gt;</span>org.apache.shardingsphere<span class="tag">&lt;/<span class="name">groupId</span>&gt;</span></span><br><span class="line">        <span class="tag">&lt;<span class="name">artifactId</span>&gt;</span>shardingsphere-jdbc-spring-boot-starter<span class="tag">&lt;/<span class="name">artifactId</span>&gt;</span></span><br><span class="line">        <span class="tag">&lt;<span class="name">version</span>&gt;</span>5.4.1<span class="tag">&lt;/<span class="name">version</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;/<span class="name">dependency</span>&gt;</span></span><br><span class="line">    <span class="comment">&lt;!-- MyBatis-Plus（Boot3 专用 starter） --&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">dependency</span>&gt;</span></span><br><span class="line">        <span class="tag">&lt;<span class="name">groupId</span>&gt;</span>com.baomidou<span class="tag">&lt;/<span class="name">groupId</span>&gt;</span></span><br><span class="line">        <span class="tag">&lt;<span class="name">artifactId</span>&gt;</span>mybatis-plus-spring-boot3-starter<span class="tag">&lt;/<span class="name">artifactId</span>&gt;</span></span><br><span class="line">        <span class="tag">&lt;<span class="name">version</span>&gt;</span>3.5.7<span class="tag">&lt;/<span class="name">version</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;/<span class="name">dependency</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">dependency</span>&gt;</span></span><br><span class="line">        <span class="tag">&lt;<span class="name">groupId</span>&gt;</span>com.mysql<span class="tag">&lt;/<span class="name">groupId</span>&gt;</span></span><br><span class="line">        <span class="tag">&lt;<span class="name">artifactId</span>&gt;</span>mysql-connector-j<span class="tag">&lt;/<span class="name">artifactId</span>&gt;</span></span><br><span class="line">        <span class="tag">&lt;<span class="name">scope</span>&gt;</span>runtime<span class="tag">&lt;/<span class="name">scope</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;/<span class="name">dependency</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">dependency</span>&gt;</span></span><br><span class="line">        <span class="tag">&lt;<span class="name">groupId</span>&gt;</span>org.projectlombok<span class="tag">&lt;/<span class="name">groupId</span>&gt;</span></span><br><span class="line">        <span class="tag">&lt;<span class="name">artifactId</span>&gt;</span>lombok<span class="tag">&lt;/<span class="name">artifactId</span>&gt;</span></span><br><span class="line">        <span class="tag">&lt;<span class="name">optional</span>&gt;</span>true<span class="tag">&lt;/<span class="name">optional</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;/<span class="name">dependency</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">dependencies</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<h4 id="application-yml（分片-生成键-读写分离合并版）"><a href="#application-yml（分片-生成键-读写分离合并版）" class="headerlink" title="application.yml（分片 + 生成键 + 读写分离合并版）"></a>application.yml（分片 + 生成键 + 读写分离合并版）</h4><figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">server:</span></span><br><span class="line">  <span class="attr">port:</span> <span class="number">8080</span></span><br><span class="line"></span><br><span class="line"><span class="attr">spring:</span></span><br><span class="line">  <span class="attr">shardingsphere:</span></span><br><span class="line">    <span class="attr">datasource:</span></span><br><span class="line">      <span class="attr">names:</span> <span class="string">ds0,</span> <span class="string">ds1</span></span><br><span class="line">      <span class="attr">ds0:</span></span><br><span class="line">        <span class="attr">type:</span> <span class="string">com.zaxxer.hikari.HikariDataSource</span></span><br><span class="line">        <span class="attr">driver-class-name:</span> <span class="string">com.mysql.cj.jdbc.Driver</span></span><br><span class="line">        <span class="attr">jdbc-url:</span> <span class="string">jdbc:mysql://127.0.0.1:3306/ds0?useSSL=false&amp;serverTimezone=Asia/Shanghai&amp;rewriteBatchedStatements=true</span></span><br><span class="line">        <span class="attr">username:</span> <span class="string">root</span></span><br><span class="line">        <span class="attr">password:</span> <span class="string">root</span></span><br><span class="line">      <span class="attr">ds1:</span></span><br><span class="line">        <span class="attr">type:</span> <span class="string">com.zaxxer.hikari.HikariDataSource</span></span><br><span class="line">        <span class="attr">driver-class-name:</span> <span class="string">com.mysql.cj.jdbc.Driver</span></span><br><span class="line">        <span class="attr">jdbc-url:</span> <span class="string">jdbc:mysql://127.0.0.1:3306/ds1?useSSL=false&amp;serverTimezone=Asia/Shanghai&amp;rewriteBatchedStatements=true</span></span><br><span class="line">        <span class="attr">username:</span> <span class="string">root</span></span><br><span class="line">        <span class="attr">password:</span> <span class="string">root</span></span><br><span class="line">    <span class="attr">rules:</span></span><br><span class="line">      <span class="attr">sharding:</span></span><br><span class="line">        <span class="attr">tables:</span></span><br><span class="line">          <span class="attr">t_order:</span></span><br><span class="line">            <span class="attr">actual-data-nodes:</span> <span class="string">ds$&#123;0..1&#125;.t_order_$&#123;0..1&#125;</span></span><br><span class="line">            <span class="attr">database-strategy:</span></span><br><span class="line">              <span class="attr">standard:</span></span><br><span class="line">                <span class="attr">sharding-column:</span> <span class="string">user_id</span></span><br><span class="line">                <span class="attr">sharding-algorithm-name:</span> <span class="string">db-inline</span></span><br><span class="line">            <span class="attr">table-strategy:</span></span><br><span class="line">              <span class="attr">standard:</span></span><br><span class="line">                <span class="attr">sharding-column:</span> <span class="string">user_id</span></span><br><span class="line">                <span class="attr">sharding-algorithm-name:</span> <span class="string">table-inline</span></span><br><span class="line">            <span class="attr">key-generate-strategy:</span></span><br><span class="line">              <span class="attr">column:</span> <span class="string">order_id</span></span><br><span class="line">              <span class="attr">key-generator-name:</span> <span class="string">snowflake</span></span><br><span class="line">        <span class="attr">binding-tables:</span></span><br><span class="line">          <span class="bullet">-</span> <span class="string">t_order,</span> <span class="string">t_order_item</span></span><br><span class="line">        <span class="attr">sharding-algorithms:</span></span><br><span class="line">          <span class="attr">db-inline:</span></span><br><span class="line">            <span class="attr">type:</span> <span class="string">INLINE</span></span><br><span class="line">            <span class="attr">props:</span></span><br><span class="line">              <span class="attr">algorithm-expression:</span> <span class="string">ds$&#123;user_id</span> <span class="string">%</span> <span class="number">2</span><span class="string">&#125;</span></span><br><span class="line">          <span class="attr">table-inline:</span></span><br><span class="line">            <span class="attr">type:</span> <span class="string">INLINE</span></span><br><span class="line">            <span class="attr">props:</span></span><br><span class="line">              <span class="attr">algorithm-expression:</span> <span class="string">t_order_$&#123;user_id</span> <span class="string">%</span> <span class="number">2</span><span class="string">&#125;</span></span><br><span class="line">        <span class="attr">key-generators:</span></span><br><span class="line">          <span class="attr">snowflake:</span></span><br><span class="line">            <span class="attr">type:</span> <span class="string">SNOWFLAKE</span></span><br><span class="line">            <span class="attr">props:</span></span><br><span class="line">              <span class="attr">worker-id:</span> <span class="number">1</span></span><br><span class="line">    <span class="attr">props:</span></span><br><span class="line">      <span class="attr">sql-show:</span> <span class="literal">true</span>          <span class="comment"># 打印物理 SQL，验证路由是否正确</span></span><br></pre></td></tr></table></figure>
+
+<h4 id="建表（两个库各建同样的分片表-绑定表）"><a href="#建表（两个库各建同样的分片表-绑定表）" class="headerlink" title="建表（两个库各建同样的分片表 + 绑定表）"></a>建表（两个库各建同样的分片表 + 绑定表）</h4><figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 在 ds0 与 ds1 各执行一次</span></span><br><span class="line"><span class="keyword">CREATE TABLE</span> IF <span class="keyword">NOT</span> <span class="keyword">EXISTS</span> t_order_0 (</span><br><span class="line">    order_id  <span class="type">BIGINT</span>       <span class="keyword">NOT NULL</span> COMMENT <span class="string">&#x27;雪花主键&#x27;</span>,</span><br><span class="line">    user_id   <span class="type">BIGINT</span>       <span class="keyword">NOT NULL</span> COMMENT <span class="string">&#x27;用户ID(分片键)&#x27;</span>,</span><br><span class="line">    amount    <span class="type">DECIMAL</span>(<span class="number">10</span>,<span class="number">2</span>) <span class="keyword">NOT NULL</span>,</span><br><span class="line">    status    TINYINT      <span class="keyword">NOT NULL</span> <span class="keyword">DEFAULT</span> <span class="number">0</span>,</span><br><span class="line">    create_time DATETIME   <span class="keyword">NOT NULL</span> <span class="keyword">DEFAULT</span> <span class="built_in">CURRENT_TIMESTAMP</span>,</span><br><span class="line">    <span class="keyword">PRIMARY KEY</span> (order_id),</span><br><span class="line">    KEY idx_user (user_id)</span><br><span class="line">) ENGINE<span class="operator">=</span>InnoDB <span class="keyword">DEFAULT</span> CHARSET<span class="operator">=</span>utf8mb4;</span><br><span class="line"></span><br><span class="line"><span class="keyword">CREATE TABLE</span> IF <span class="keyword">NOT</span> <span class="keyword">EXISTS</span> t_order_1 <span class="keyword">LIKE</span> t_order_0;</span><br><span class="line"><span class="keyword">CREATE TABLE</span> IF <span class="keyword">NOT</span> <span class="keyword">EXISTS</span> t_order_item_0 (</span><br><span class="line">    item_id    <span class="type">BIGINT</span> <span class="keyword">NOT NULL</span>,</span><br><span class="line">    order_id   <span class="type">BIGINT</span> <span class="keyword">NOT NULL</span>,</span><br><span class="line">    sku_code   <span class="type">VARCHAR</span>(<span class="number">32</span>) <span class="keyword">NOT NULL</span>,</span><br><span class="line">    quantity   <span class="type">INT</span> <span class="keyword">NOT NULL</span>,</span><br><span class="line">    <span class="keyword">PRIMARY KEY</span> (item_id)</span><br><span class="line">) ENGINE<span class="operator">=</span>InnoDB <span class="keyword">DEFAULT</span> CHARSET<span class="operator">=</span>utf8mb4;</span><br><span class="line"><span class="keyword">CREATE TABLE</span> IF <span class="keyword">NOT</span> <span class="keyword">EXISTS</span> t_order_item_1 <span class="keyword">LIKE</span> t_order_item_0;</span><br></pre></td></tr></table></figure>
+
+<h4 id="实体与-Mapper"><a href="#实体与-Mapper" class="headerlink" title="实体与 Mapper"></a>实体与 Mapper</h4><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Data</span></span><br><span class="line"><span class="meta">@TableName(&quot;t_order&quot;)</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">Order</span> &#123;</span><br><span class="line">    <span class="meta">@TableId(type = IdType.ASSIGN_ID)</span>   <span class="comment">// 本地生成则用 MyBatis-Plus 雪花；这里由 ShardingSphere 生成</span></span><br><span class="line">    <span class="keyword">private</span> Long orderId;</span><br><span class="line">    <span class="keyword">private</span> Long userId;</span><br><span class="line">    <span class="keyword">private</span> BigDecimal amount;</span><br><span class="line">    <span class="keyword">private</span> Integer status;</span><br><span class="line">    <span class="keyword">private</span> LocalDateTime createTime;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">interface</span> <span class="title class_">OrderMapper</span> <span class="keyword">extends</span> <span class="title class_">BaseMapper</span>&lt;Order&gt; &#123;</span><br><span class="line">    <span class="meta">@Select(&quot;SELECT * FROM t_order WHERE user_id = #&#123;userId&#125;&quot;)</span></span><br><span class="line">    List&lt;Order&gt; <span class="title function_">selectByUserId</span><span class="params">(<span class="meta">@Param(&quot;userId&quot;)</span> Long userId)</span>;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Select(&quot;SELECT COUNT(*) FROM t_order&quot;)</span>   <span class="comment">// 全库聚合：触发广播路由 + 归并</span></span><br><span class="line">    Long <span class="title function_">countAll</span><span class="params">()</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h4 id="验证（写一个-Controller-启动测试）"><a href="#验证（写一个-Controller-启动测试）" class="headerlink" title="验证（写一个 Controller + 启动测试）"></a>验证（写一个 Controller + 启动测试）</h4><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@RestController</span></span><br><span class="line"><span class="meta">@RequiredArgsConstructor</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">OrderController</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> OrderMapper orderMapper;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@PostMapping(&quot;/order&quot;)</span></span><br><span class="line">    <span class="keyword">public</span> Order <span class="title function_">create</span><span class="params">(<span class="meta">@RequestBody</span> Order order)</span> &#123;</span><br><span class="line">        orderMapper.insert(order);   <span class="comment">// order_id 由雪花生成，user_id 决定落库位置</span></span><br><span class="line">        <span class="keyword">return</span> order;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@GetMapping(&quot;/order/user/&#123;userId&#125;&quot;)</span></span><br><span class="line">    <span class="keyword">public</span> List&lt;Order&gt; <span class="title function_">listByUser</span><span class="params">(<span class="meta">@PathVariable</span> Long userId)</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> orderMapper.selectByUserId(userId);   <span class="comment">// 精确路由，1 库 1 表</span></span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@GetMapping(&quot;/order/count&quot;)</span></span><br><span class="line">    <span class="keyword">public</span> Long <span class="title function_">count</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> orderMapper.countAll();               <span class="comment">// 广播 4 张物理表，归并求和</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>验证步骤与预期</strong>：</p>
+<ol>
+<li>启动后插入 8 条数据（<code>user_id</code> 分别为 1~8），控制台 <code>sql-show</code> 打印类似：</li>
+</ol>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">Logic SQL: INSERT INTO t_order ( user_id, amount, status ) VALUES (?, ?, ?)</span><br><span class="line">Actual SQL: ds0 ::: INSERT INTO t_order_1 (order_id, user_id, amount, status) VALUES (?, ?, ?, ?)</span><br></pre></td></tr></table></figure>
+
+<ol start="2">
+<li>查库验证分布：<code>user_id % 2 == 0</code> 的数据落在 <code>ds0.t_order_0</code> 还是 <code>ds1.t_order_1</code>，与 <code>algorithm-expression: ds$&#123;user_id % 2&#125;</code> 一一对应（8 条记录应在 2 库 4 表中均匀分布）。</li>
+<li><code>GET /order/user/1</code>：日志只出现一条物理 SQL（精确路由），命中 1 张表。</li>
+<li><code>GET /order/count</code>：出现 4 条物理 SQL（全库广播），最终结果 &#x3D; 4 张表 COUNT 之和，且 <code>LIMIT</code> 场景下归并层截断正确。</li>
+<li>关闭 <code>sql-show</code>（生产必关，只留日志关键字），用 <code>EXPLAIN</code> 验证物理表名与索引使用。</li>
+</ol>
+<p><strong>排障速查</strong>：<code>Logic SQL</code> 与 <code>Actual SQL</code> 对不上 → 看路由阶段的分片键是否生效；数据分布不均匀 → 检查分片键取值分布；<code>t_order_item</code> join 出现笛卡尔积（4 条以上物理 SQL）→ 确认 binding-tables 配置拼写。</p>
+<h2 id="7-MyCat-简介"><a href="#7-MyCat-简介" class="headerlink" title="7. MyCat 简介"></a>7. MyCat 简介</h2><h3 id="7-1-MyCat-架构与核心概念"><a href="#7-1-MyCat-架构与核心概念" class="headerlink" title="7.1 MyCat 架构与核心概念"></a>7.1 MyCat 架构与核心概念</h3><p>MyCat 是<strong>代理型中间件</strong>（类似 ShardingSphere-Proxy）：独立进程，应用连 MyCat 就像连 MySQL，SQL 由 MyCat 解析、路由到后端真实 MySQL 节点。三个核心配置文件：</p>
+<table>
+<thead>
+<tr>
+<th>文件</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>schema.xml</code></td>
+<td>逻辑库（schema）→ 数据节点（dataNode）→ 数据主机（dataHost：writeHost&#x2F;readHost）的映射</td>
+</tr>
+<tr>
+<td><code>rule.xml</code></td>
+<td>分片规则：tableRule（列 + 分片函数）与 function（取模&#x2F;哈希&#x2F;范围等实现）</td>
+</tr>
+<tr>
+<td><code>server.xml</code></td>
+<td>逻辑用户、权限、系统参数</td>
+</tr>
+</tbody></table>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">App ──► MyCat(8066) ──► writeHost(主库) / readHost(从库)</span><br><span class="line">              │ 逻辑库 TESTDB</span><br><span class="line">              │   ├─ dn1: host1.t_order_0</span><br><span class="line">              │   └─ dn2: host2.t_order_1</span><br></pre></td></tr></table></figure>
+
+<h3 id="7-2-分片规则配置"><a href="#7-2-分片规则配置" class="headerlink" title="7.2 分片规则配置"></a>7.2 分片规则配置</h3><p><code>schema.xml</code> 定义逻辑表与数据节点：</p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">schema</span> <span class="attr">name</span>=<span class="string">&quot;TESTDB&quot;</span> <span class="attr">checkSQLschema</span>=<span class="string">&quot;true&quot;</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">table</span> <span class="attr">name</span>=<span class="string">&quot;t_order&quot;</span> <span class="attr">dataNode</span>=<span class="string">&quot;dn1,dn2&quot;</span> <span class="attr">rule</span>=<span class="string">&quot;order-rule&quot;</span> /&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">schema</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">dataNode</span> <span class="attr">name</span>=<span class="string">&quot;dn1&quot;</span> <span class="attr">dataHost</span>=<span class="string">&quot;host1&quot;</span> <span class="attr">database</span>=<span class="string">&quot;db_order&quot;</span> /&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">dataNode</span> <span class="attr">name</span>=<span class="string">&quot;dn2&quot;</span> <span class="attr">dataHost</span>=<span class="string">&quot;host2&quot;</span> <span class="attr">database</span>=<span class="string">&quot;db_order&quot;</span> /&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">dataHost</span> <span class="attr">name</span>=<span class="string">&quot;host1&quot;</span> <span class="attr">maxCon</span>=<span class="string">&quot;100&quot;</span> <span class="attr">minCon</span>=<span class="string">&quot;10&quot;</span> <span class="attr">balance</span>=<span class="string">&quot;0&quot;</span> <span class="attr">writeType</span>=<span class="string">&quot;0&quot;</span> <span class="attr">dbType</span>=<span class="string">&quot;mysql&quot;</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">writeHost</span> <span class="attr">host</span>=<span class="string">&quot;m1&quot;</span> <span class="attr">url</span>=<span class="string">&quot;192.168.1.10:3306&quot;</span> <span class="attr">user</span>=<span class="string">&quot;root&quot;</span> <span class="attr">password</span>=<span class="string">&quot;root&quot;</span>&gt;</span></span><br><span class="line">        <span class="tag">&lt;<span class="name">readHost</span> <span class="attr">host</span>=<span class="string">&quot;s1&quot;</span> <span class="attr">url</span>=<span class="string">&quot;192.168.1.11:3306&quot;</span> <span class="attr">user</span>=<span class="string">&quot;root&quot;</span> <span class="attr">password</span>=<span class="string">&quot;root&quot;</span> /&gt;</span></span><br><span class="line">    <span class="tag">&lt;/<span class="name">writeHost</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">dataHost</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<p><code>rule.xml</code> 定义规则（<code>order-rule</code> 用取模）：</p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">tableRule</span> <span class="attr">name</span>=<span class="string">&quot;order-rule&quot;</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">rule</span>&gt;</span></span><br><span class="line">        <span class="tag">&lt;<span class="name">columns</span>&gt;</span>user_id<span class="tag">&lt;/<span class="name">columns</span>&gt;</span>          <span class="comment">&lt;!-- 分片键 --&gt;</span></span><br><span class="line">        <span class="tag">&lt;<span class="name">algorithm</span>&gt;</span>mod-long<span class="tag">&lt;/<span class="name">algorithm</span>&gt;</span>     <span class="comment">&lt;!-- 取模算法 --&gt;</span></span><br><span class="line">    <span class="tag">&lt;/<span class="name">rule</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">tableRule</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">function</span> <span class="attr">name</span>=<span class="string">&quot;mod-long&quot;</span> <span class="attr">class</span>=<span class="string">&quot;io.mycat.route.function.PartitionByMod&quot;</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">property</span> <span class="attr">name</span>=<span class="string">&quot;count&quot;</span>&gt;</span>2<span class="tag">&lt;/<span class="name">property</span>&gt;</span>     <span class="comment">&lt;!-- 模数 = 数据节点数 --&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">function</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<p>MyCat 1.6 常用分片函数：<code>PartitionByMod</code>（取模）、<code>PartitionByHashMod</code>（哈希取模）、<code>PartitionByLong</code>（范围）、<code>PartitionByMurmurHash</code>（一致性哈希，含虚拟节点参数）、<code>PartitionByDate</code>（日期）。</p>
+<h3 id="7-3-读写分离配置"><a href="#7-3-读写分离配置" class="headerlink" title="7.3 读写分离配置"></a>7.3 读写分离配置</h3><p>上例 <code>dataHost</code> 的 <code>balance</code> 参数控制读写分离策略：</p>
+<table>
+<thead>
+<tr>
+<th>balance</th>
+<th>行为</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>0</td>
+<td>不分离，全部走 writeHost</td>
+</tr>
+<tr>
+<td>1</td>
+<td>读写都走 writeHost，readHost 不参与读</td>
+</tr>
+<tr>
+<td>2</td>
+<td>读请求在 writeHost + readHost 之间随机</td>
+</tr>
+<tr>
+<td>3</td>
+<td>读请求只在 readHost 内随机（最常用，主库专责写）</td>
+</tr>
+</tbody></table>
+<p>MyCat 按 SQL 首词判断读写：<code>SELECT/SHOW</code> 走读，其余走写，事务内的 SQL 全部走写。<code>writeType=0</code> 表示写只落在第一个 writeHost（MyCat 1.6 本身不做主库自动切换，需配合 MHA 等外部工具或 MyCat 2 的心跳切换）。</p>
+<h3 id="7-4-ShardingSphere-Proxy-vs-MyCat-对比"><a href="#7-4-ShardingSphere-Proxy-vs-MyCat-对比" class="headerlink" title="7.4 ShardingSphere-Proxy vs MyCat 对比"></a>7.4 ShardingSphere-Proxy vs MyCat 对比</h3><table>
+<thead>
+<tr>
+<th>对比项</th>
+<th>ShardingSphere-Proxy</th>
+<th>MyCat</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>内核能力</td>
+<td>完整五阶段内核（解析&#x2F;路由&#x2F;改写&#x2F;执行&#x2F;归并），SQL 支持率高（含子查询、复杂聚合、分页归并）</td>
+<td>解析能力弱：<strong>JOIN&#x2F;子查询&#x2F;分布式聚合支持差</strong>，需要全局表&#x2F;ER 表规避</td>
+</tr>
+<tr>
+<td>SQL 方言</td>
+<td>解析器按方言隔离，MySQL&#x2F;PG&#x2F;Oracle&#x2F;SQLServer 均支持</td>
+<td>基本只适用 MySQL</td>
+</tr>
+<tr>
+<td>分布式事务</td>
+<td>内置 XA &#x2F; Seata AT 集成</td>
+<td>弱 XA（MyCat 2 才支持 Seata）</td>
+</tr>
+<tr>
+<td>读写分离</td>
+<td>规则化配置 + 多负载均衡策略 + 动态注册中心</td>
+<td>dataHost balance 参数，简单但僵硬</td>
+</tr>
+<tr>
+<td>运维</td>
+<td>单进程，无管理界面</td>
+<td>提供管理端口（9066）与管理命令</td>
+</tr>
+<tr>
+<td>活跃度</td>
+<td>社区活跃，5.x 持续迭代</td>
+<td>1.6 已基本停更，2.x 重写未成气候</td>
+</tr>
+<tr>
+<td>生态</td>
+<td>JDBC&#x2F;Proxy 双形态、加密、影子库、编排治理</td>
+<td>生态停滞</td>
+</tr>
+<tr>
+<td>学习成本</td>
+<td>中（配置规则较多）</td>
+<td>低（XML 直观）</td>
+</tr>
+</tbody></table>
+<p><strong>结论</strong>：新项目一律选 ShardingSphere；MyCat 的价值在于了解”代理模式中间件”这个思路，存量老系统仍在使用时能维护即可。</p>
+<h2 id="8-扩容方案"><a href="#8-扩容方案" class="headerlink" title="8. 扩容方案"></a>8. 扩容方案</h2><p>分库分表最痛的时刻就是”表不够用了”——取模 8 表变 16 表，意味着数据要搬家。三种方案按”停机时长”递增排列。</p>
+<h3 id="8-1-停机扩容-vs-平滑扩容"><a href="#8-1-停机扩容-vs-平滑扩容" class="headerlink" title="8.1 停机扩容 vs 平滑扩容"></a>8.1 停机扩容 vs 平滑扩容</h3><table>
+<thead>
+<tr>
+<th>方案</th>
+<th>流程</th>
+<th>停机时间</th>
+<th>数据一致性</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>停机扩容</td>
+<td>停服 → 备份 → 按新规则全量迁移（<code>INSERT ... SELECT</code> 或工具）→ 校验 → 切新数据源 → 重启</td>
+<td>数小时~数天</td>
+<td>完全一致（无并发写入）</td>
+<td>可接受停服的内部系统、凌晨窗口</td>
+</tr>
+<tr>
+<td>双写迁移</td>
+<td>双写 → 对账 → 灰度切读 → 停老库</td>
+<td>接近 0</td>
+<td>靠对账兜底</td>
+<td>核心在线业务</td>
+</tr>
+<tr>
+<td>一致性哈希</td>
+<td>环上扩节点，仅相邻 1&#x2F;N 数据搬家</td>
+<td>可在线迁移</td>
+<td>迁移期间新旧并存需标记位</td>
+<td>KV 场景、持续扩容型业务</td>
+</tr>
+</tbody></table>
+<h3 id="8-2-双写迁移方案（经典在线迁移）"><a href="#8-2-双写迁移方案（经典在线迁移）" class="headerlink" title="8.2 双写迁移方案（经典在线迁移）"></a>8.2 双写迁移方案（经典在线迁移）</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">阶段1 双写：写入 A(新) + B(老)，读取走 B</span><br><span class="line">阶段2 存量同步：全量历史数据从 B 迁到 A</span><br><span class="line">阶段3 对账：定时任务比对 A/B 差异并补齐（双写 + 对账双保险）</span><br><span class="line">阶段4 灰度切读：按用户 ID 灰度把读流量切到 A，观察错误率/延迟</span><br><span class="line">阶段5 停写切主：数据源彻底切换为 A，B 只读保留 N 天兜底后下线</span><br></pre></td></tr></table></figure>
+
+<p>工程要点：</p>
+<ul>
+<li><strong>双写原子性</strong>：A、B 双写不要放在业务事务里（拖慢主链路），用 <strong>MQ 异步双写 + 消息可重试</strong>，A 失败重试补写。</li>
+<li><strong>对账是灵魂</strong>：比对范围字段（如 <code>updated_at</code> + 行哈希），发现差异用 B 为准回补 A；对账发现率极低但必须有，这是双写敢上线的底气。</li>
+<li><strong>切读灰度</strong>：按 user_id 分段放量（1% → 10% → 50% → 100%），每段监控读延迟与错误率。</li>
+<li><strong>binlog 兜底</strong>：用 Canal 订阅 B 的 binlog 回放进 A，双写 + binlog 回放可以互为兜底（双写为主，binlog 保证最终一致）。</li>
+</ul>
+<h3 id="8-3-一致性哈希-虚拟节点的最小数据迁移"><a href="#8-3-一致性哈希-虚拟节点的最小数据迁移" class="headerlink" title="8.3 一致性哈希 + 虚拟节点的最小数据迁移"></a>8.3 一致性哈希 + 虚拟节点的最小数据迁移</h3><p>原理（见 5.3）：把节点哈希到一个 0~2^32-1 的<strong>环</strong>上，数据 key 哈希后顺时针找<strong>最近节点</strong>。<strong>加一个节点，只有该节点逆时针方向上一个节点的数据需要迁移（约 1&#x2F;N）</strong>——对比取模的”几乎全量迁移”，这是数量级的差别。</p>
+<p><strong>虚拟节点</strong>的作用是解决两个痛点：</p>
+<ol>
+<li><strong>数据倾斜</strong>：节点少时哈希分布不均（环上某段数据密集），每个物理节点复制成 K 个虚拟节点（如 160 个）均匀铺在环上，数据分布趋近均匀。</li>
+<li><strong>迁移粒度</strong>：虚拟节点让”一段环”变小，迁移单位从”整节点”变成”虚拟节点片段”，迁移更精细。</li>
+</ol>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">环：0 ──────────────────────────────────── 2^32-1</span><br><span class="line">物理节点：A、B、C（各 160 个虚拟节点均匀分布）</span><br><span class="line">新增 D：D 的每个虚拟节点逆时针找相邻点，只有落在 A~B、B~C、C~A 间隙的数据</span><br><span class="line">       需要从原节点迁到 D，总量 ≈ 1/4（1/N）</span><br></pre></td></tr></table></figure>
+
+<p><strong>迁移执行</strong>：新增节点后，把需要迁移的 key 范围标记为”迁移中”（读写双查、双写新节点），迁移完成后摘除标记——这个过程可在线、可灰度，比双写全量迁移方案轻得多。</p>
+<p><strong>代价</strong>：路由要维护哈希环（环结构 + 虚拟节点映射），范围查询基本不可用，适合 KV 型数据（缓存、Session、短 ID 查询）。MySQL 业务数据用一致性哈希的少，更多是作为”分片键再哈希”的辅助手段。</p>
+<h2 id="9-最佳实践与避坑指南"><a href="#9-最佳实践与避坑指南" class="headerlink" title="9. 最佳实践与避坑指南"></a>9. 最佳实践与避坑指南</h2><h3 id="9-1-分库分表不是银弹"><a href="#9-1-分库分表不是银弹" class="headerlink" title="9.1 分库分表不是银弹"></a>9.1 分库分表不是银弹</h3><p><strong>什么时候该用</strong>：</p>
+<ul>
+<li>单表数据量 &gt; 千万级且仍在增长，<strong>按分片键的查询仍是访问主流</strong>（说明值得拆）。</li>
+<li>写入吞吐超过单机上限（分库后写并发乘 N）。</li>
+<li>单库连接数、备份恢复时间、DDL 时间不可接受。</li>
+</ul>
+<p><strong>什么时候不该用</strong>（绕开）:</p>
+<ul>
+<li>数据量可控（百万级内）、未来 3 年可预估——<strong>单机 + 索引优化 + 读写分离足够</strong>，别为了架构而架构。</li>
+<li>查询面太广：大量查询不带分片键、需要频繁 JOIN&#x2F;跨维度聚合——拆了之后这些查询全部退化，成本远超收益。</li>
+<li>团队无中间件运维能力——中间件本身要监控、升级、排障，比多买一台 MySQL 贵得多。</li>
+</ul>
+<p><strong>渐进路线（强烈建议按序走）</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">① 单机优化（索引/SQL/参数）——先榨干单机</span><br><span class="line">② 主从复制 + 半同步 + 读写分离——解决读瓶颈与单点</span><br><span class="line">③ 垂直拆库——按业务域隔离，各自扩容</span><br><span class="line">④ 水平分表——数据量/写入真的不够了再上</span><br><span class="line">每一步都是上一步的&quot;不够了再说&quot;，不要一步到位</span><br></pre></td></tr></table></figure>
+
+<h3 id="9-2-分片键设计原则"><a href="#9-2-分片键设计原则" class="headerlink" title="9.2 分片键设计原则"></a>9.2 分片键设计原则</h3><ol>
+<li><strong>选”主查询路径”的等值列</strong>：订单库用户端高频查询是 <code>WHERE user_id=?</code>，分片键选 user_id；后台管理端高频按 order_id 查，那就做 <code>order_id → user_id</code> 映射表。</li>
+<li><strong>避免选”值可被更新”的列</strong>：分片键一旦修改 &#x3D; 数据跨片搬家，业务上禁止 UPDATE 分片键（数据库层都不允许）。</li>
+<li><strong>分布要均匀</strong>：先 <code>SELECT user_id % 8, COUNT(*) FROM t GROUP BY 1</code> 验证历史数据分布再定。</li>
+<li><strong>范围算法考虑尾部热点</strong>：按时间分表时”今天”永远是最后一张表，写入热点单表——要么提前预建表，要么接受。</li>
+<li><strong>多维度访问提前设计</strong>：主键分片 + 索引表 + ES 检索的三层结构是订单类系统的标准答案。</li>
+</ol>
+<h3 id="9-3-监控与告警"><a href="#9-3-监控与告警" class="headerlink" title="9.3 监控与告警"></a>9.3 监控与告警</h3><table>
+<thead>
+<tr>
+<th>监控项</th>
+<th>手段</th>
+<th>告警阈值（参考）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>主从延迟</td>
+<td><code>SHOW SLAVE STATUS</code> 的 <code>Seconds_Behind_Master</code>（I&#x2F;O 落后时不准确）；**<code>pt-heartbeat</code>**（Percona Toolkit，周期心跳表时间戳对比，准确到秒）</td>
+<td>延迟 &gt; 5s 告警，&gt; 60s 紧急</td>
+</tr>
+<tr>
+<td>复制中断</td>
+<td><code>Slave_IO_Running</code> &#x2F; <code>Slave_SQL_Running</code> 非 YES（<code>SHOW SLAVE STATUS</code> 解析）</td>
+<td>立即告警（业务读从库会报错）</td>
+</tr>
+<tr>
+<td>从库积压</td>
+<td>relay log 磁盘占用、<code>Relay_Log_Space</code> 增长趋势</td>
+<td>持续增长即告警</td>
+</tr>
+<tr>
+<td>连接池</td>
+<td>HikariCP 指标（active&#x2F;idle&#x2F;wait 时长）；MySQL 侧 <code>threads_connected</code> vs <code>max_connections</code></td>
+<td>使用率 &gt; 70% 告警</td>
+</tr>
+<tr>
+<td>慢查询</td>
+<td><code>long_query_time=1</code> + 慢日志入库 + <code>pt-query-digest</code> 分析 TOP SQL</td>
+<td>TOP 慢 SQL 评审闭环</td>
+</tr>
+<tr>
+<td>分片集群</td>
+<td>每个分片实例的 QPS&#x2F;连接&#x2F;磁盘&#x2F;复制延迟独立监控；路由层统计每分片流量占比（发现倾斜）</td>
+<td>单分片流量占比偏离 1&#x2F;N 过大告警</td>
+</tr>
+<tr>
+<td>中间件</td>
+<td>ShardingSphere 执行链路指标（路由 SQL 数量、归并耗时）；MyCat 管理端口 9066</td>
+<td>平均归并耗时 P99 &gt; 50ms 关注</td>
+</tr>
+</tbody></table>
+<p><strong>三个最常见的生产事故与教训</strong>：</p>
+<ol>
+<li>**只监控 <code>Seconds_Behind_Master</code>**：I&#x2F;O 线程与 SQL 线程差距大时该值失真，漏报延迟——必须上 <code>pt-heartbeat</code>。</li>
+<li><strong>大事务上线不评估</strong>：一次千万行 UPDATE 造成小时级延迟，从库读不到最新数据引发线上事故——上线前先看 <code>binlog</code> 大小（<code>max_binlog_size</code> 与 <code>binlog</code> 增长速率），大事务拆批。</li>
+<li><strong>分片键不带条件就全库扫</strong>：新同事 SQL 忘带分片键，广播路由打满所有分片——开启 <code>sql-show</code> 审计 + 网关层强制 WHERE 校验 + 只读账号禁止无分片键查询。</li>
+</ol>
+<hr>
+<p><strong>本章小结</strong>：高可用与扩展是两件事——复制与切换解决”挂了怎么办”，分库分表解决”撑不住怎么办”。理解了三线程复制、半同步与 MGR 的一致性边界，才能在故障时不慌；理解了 ShardingSphere 的解析&#x2F;路由&#x2F;改写&#x2F;执行&#x2F;归并五阶段，任何诡异的物理 SQL 都能从日志反推出来。最后记住两句话：<strong>能垂直拆就别水平拆，能读写分离就别分库分表</strong>。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/MySQL/" rel="tag"># MySQL</a>
+              <a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/" rel="tag"># 高可用</a>
+              <a href="/tags/%E5%88%86%E5%BA%93%E5%88%86%E8%A1%A8/" rel="tag"># 分库分表</a>
+              <a href="/tags/ShardingSphere/" rel="tag"># ShardingSphere</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/f6253398.html" rel="prev" title="Dubbo 原理与实践">
+                  <i class="fa fa-angle-left"></i> Dubbo 原理与实践
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/post/zookeeper-2025.html" rel="next" title="ZooKeeper 原理与实践">
+                  ZooKeeper 原理与实践 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">495k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">30:01</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>

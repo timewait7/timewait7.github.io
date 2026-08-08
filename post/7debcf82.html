@@ -1,0 +1,1324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="Zeus-Doc JVM 调优与 OOM 排查实战记录 版本：1.0.0 ｜ 更新日期：2026-07-31 ｜ 数据性质：模拟数据（基于架构合理推演） 相关文档：04-线程与锁分析 ｜ 06-面试手册第4&#x2F;6问   一、启动参数与 GC 策略1.1 启动参数配置源于 application.yml:119-123 注释： 12345-Xms2g -Xmx2g-XX:+UseG1GC -">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Zeus-Doc JVM 调优与 OOM 排查">
+<meta property="og:url" content="http://timewait7.github.io/post/7debcf82.html">
+<meta property="og:site_name" content="NexT">
+<meta property="og:description" content="Zeus-Doc JVM 调优与 OOM 排查实战记录 版本：1.0.0 ｜ 更新日期：2026-07-31 ｜ 数据性质：模拟数据（基于架构合理推演） 相关文档：04-线程与锁分析 ｜ 06-面试手册第4&#x2F;6问   一、启动参数与 GC 策略1.1 启动参数配置源于 application.yml:119-123 注释： 12345-Xms2g -Xmx2g-XX:+UseG1GC -">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-08-06T15:56:31.000Z">
+<meta property="article:modified_time" content="2026-08-08T17:47:22.795Z">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/7debcf82.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/7debcf82.html","path":"post/7debcf82.html","title":"Zeus-Doc JVM 调优与 OOM 排查"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>Zeus-Doc JVM 调优与 OOM 排查 | NexT</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+  <script class="next-config" data-name="mermaid" type="application/json">{"enable":true,"theme":{"light":"default","dark":"dark"},"js":{"url":"/lib/mermaid/dist/mermaid.min.js"}}</script>
+  <script src="/js/third-party/tags/mermaid.js" defer></script>
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<link rel="alternate" href="/atom.xml" title="NexT" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">NexT</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#Zeus-Doc-JVM-%E8%B0%83%E4%BC%98%E4%B8%8E-OOM-%E6%8E%92%E6%9F%A5%E5%AE%9E%E6%88%98%E8%AE%B0%E5%BD%95"><span class="nav-number">1.</span> <span class="nav-text">Zeus-Doc JVM 调优与 OOM 排查实战记录</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B8%80%E3%80%81%E5%90%AF%E5%8A%A8%E5%8F%82%E6%95%B0%E4%B8%8E-GC-%E7%AD%96%E7%95%A5"><span class="nav-number">1.1.</span> <span class="nav-text">一、启动参数与 GC 策略</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-%E5%90%AF%E5%8A%A8%E5%8F%82%E6%95%B0"><span class="nav-number">1.1.1.</span> <span class="nav-text">1.1 启动参数</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-2-%E5%A0%86%E5%86%85%E5%AD%98%E5%88%92%E5%88%86%EF%BC%88G1%EF%BC%89"><span class="nav-number">1.1.2.</span> <span class="nav-text">1.2 堆内存划分（G1）</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%BA%8C%E3%80%81GC-%E6%97%A5%E5%BF%97%E5%88%86%E6%9E%90%EF%BC%9ACMS-%E2%86%92-G1-%E5%90%9E%E5%90%90%E9%87%8F%E5%AF%B9%E6%AF%94"><span class="nav-number">1.2.</span> <span class="nav-text">二、GC 日志分析：CMS → G1 吞吐量对比</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E5%AF%B9%E6%AF%94%E6%B5%8B%E8%AF%95%E6%9D%A1%E4%BB%B6"><span class="nav-number">1.2.1.</span> <span class="nav-text">2.1 对比测试条件</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-GC-%E5%AF%B9%E6%AF%94%E6%95%B0%E6%8D%AE%EF%BC%88%E6%A8%A1%E6%8B%9F-GCeasy-%E6%8A%A5%E5%91%8A%EF%BC%89"><span class="nav-number">1.2.2.</span> <span class="nav-text">2.2 GC 对比数据（模拟 GCeasy 报告）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-%E5%88%86%E6%9E%90"><span class="nav-number">1.2.3.</span> <span class="nav-text">2.3 分析</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-4-GC-%E5%81%9C%E9%A1%BF%E5%88%86%E5%B8%83%EF%BC%88G1%EF%BC%8C%E6%A8%A1%E6%8B%9F%EF%BC%89"><span class="nav-number">1.2.4.</span> <span class="nav-text">2.4 GC 停顿分布（G1，模拟）</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B8%89%E3%80%81MAT-%E5%88%86%E6%9E%90%E5%A0%86-Dump-%E6%B3%84%E6%BC%8F%E9%93%BE%E8%BF%BD%E8%B8%AA"><span class="nav-number">1.3.</span> <span class="nav-text">三、MAT 分析堆 Dump 泄漏链追踪</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E6%95%85%E9%9A%9C%E7%8E%B0%E8%B1%A1"><span class="nav-number">1.3.1.</span> <span class="nav-text">3.1 故障现象</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-MAT-%E5%88%86%E6%9E%90%E6%AD%A5%E9%AA%A4"><span class="nav-number">1.3.2.</span> <span class="nav-text">3.2 MAT 分析步骤</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-%E6%B3%84%E6%BC%8F%E5%AF%B9%E8%B1%A1%E9%93%BE"><span class="nav-number">1.3.3.</span> <span class="nav-text">3.3 泄漏对象链</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-4-%E6%A0%B9%E5%9B%A0%EF%BC%9AThreadLocal-%E6%9C%AA-remove"><span class="nav-number">1.3.4.</span> <span class="nav-text">3.4 根因：ThreadLocal 未 remove</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-5-%E4%BF%AE%E5%A4%8D%E6%96%B9%E6%A1%88"><span class="nav-number">1.3.5.</span> <span class="nav-text">3.5 修复方案</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-6-%E4%BF%AE%E5%A4%8D%E5%90%8E%E9%AA%8C%E8%AF%81%EF%BC%88%E6%A8%A1%E6%8B%9F%E6%95%B0%E6%8D%AE%EF%BC%89"><span class="nav-number">1.3.6.</span> <span class="nav-text">3.6 修复后验证（模拟数据）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-7-%E6%B3%84%E6%BC%8F%E9%93%BE%E5%8E%9F%E7%90%86%EF%BC%88%E9%9D%A2%E8%AF%95%E8%A6%81%E7%82%B9%EF%BC%89"><span class="nav-number">1.3.7.</span> <span class="nav-text">3.7 泄漏链原理（面试要点）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#MAT-%E5%B7%A5%E5%85%B7%E4%B8%8E-JOL-%E5%B8%83%E5%B1%80%E7%BB%86%E8%8A%82%EF%BC%88%E5%B9%B6%E5%85%A5%E8%87%AA%E5%8E%86%E5%8F%B2%E7%89%88%E6%9C%AC%EF%BC%89"><span class="nav-number">1.3.8.</span> <span class="nav-text">MAT 工具与 JOL 布局细节（并入自历史版本）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-%E5%88%86%E6%9E%90%E5%B7%A5%E5%85%B7"><span class="nav-number">1.3.9.</span> <span class="nav-text">4.1 分析工具</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-Doc-%E5%AF%B9%E8%B1%A1%E5%86%85%E5%AD%98%E5%B8%83%E5%B1%80%EF%BC%88%E5%BC%80%E5%90%AF%E5%8E%8B%E7%BC%A9%E6%8C%87%E9%92%88%EF%BC%89"><span class="nav-number">1.3.10.</span> <span class="nav-text">4.2 Doc 对象内存布局（开启压缩指针）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-%E5%86%85%E5%AD%98%E5%B8%83%E5%B1%80%E7%BB%93%E6%9E%84%E5%9B%BE"><span class="nav-number">1.3.11.</span> <span class="nav-text">4.3 内存布局结构图</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%9B%9B%E3%80%81JOL-%E5%AF%B9%E8%B1%A1%E5%86%85%E5%AD%98%E5%B8%83%E5%B1%80%E5%88%86%E6%9E%90"><span class="nav-number">1.4.</span> <span class="nav-text">四、JOL 对象内存布局分析</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-%E5%B7%A5%E5%85%B7"><span class="nav-number">1.4.1.</span> <span class="nav-text">4.1 工具</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-Doc-%E5%AF%B9%E8%B1%A1%E5%86%85%E5%AD%98%E5%B8%83%E5%B1%80%EF%BC%88%E6%A8%A1%E6%8B%9F-JOL-%E8%BE%93%E5%87%BA%EF%BC%89"><span class="nav-number">1.4.2.</span> <span class="nav-text">4.2 Doc 对象内存布局（模拟 JOL 输出）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-%E4%B8%89%E6%AE%B5%E5%B8%83%E5%B1%80%E8%A7%A3%E6%9E%90"><span class="nav-number">1.4.3.</span> <span class="nav-text">4.3 三段布局解析</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-4-%E5%8E%8B%E7%BC%A9%E6%8C%87%E9%92%88%E5%AF%B9%E6%AF%94%EF%BC%88-XX-UseCompressedOops%EF%BC%89"><span class="nav-number">1.4.4.</span> <span class="nav-text">4.4 压缩指针对比（-XX:+UseCompressedOops）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-5-MarkWord-%E9%94%81%E7%8A%B6%E6%80%81%E6%BC%94%E5%8F%98%EF%BC%8864-%E4%BD%8D-JVM%EF%BC%89"><span class="nav-number">1.4.5.</span> <span class="nav-text">4.5 MarkWord 锁状态演变（64 位 JVM）</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%BA%94%E3%80%81%E8%87%AA%E5%AE%9A%E4%B9%89-EncryptedClassLoader-%E5%8A%A0%E8%BD%BD%E6%B5%81%E7%A8%8B"><span class="nav-number">1.5.</span> <span class="nav-text">五、自定义 EncryptedClassLoader 加载流程</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E5%8A%A0%E8%BD%BD%E6%B5%81%E7%A8%8B%E5%9B%BE"><span class="nav-number">1.5.1.</span> <span class="nav-text">5.1 加载流程图</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E6%89%93%E7%A0%B4%E5%8F%8C%E4%BA%B2%E5%A7%94%E6%B4%BE%E7%9A%84%E5%85%B3%E9%94%AE%EF%BC%88EncryptedClassLoader-java-55-80%EF%BC%89"><span class="nav-number">1.5.2.</span> <span class="nav-text">5.2 打破双亲委派的关键（EncryptedClassLoader.java:55-80）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-%E5%BA%94%E7%94%A8%E5%9C%BA%E6%99%AF"><span class="nav-number">1.5.3.</span> <span class="nav-text">5.3 应用场景</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-%E6%89%93%E7%A0%B4%E5%8F%8C%E4%BA%B2%E5%A7%94%E6%B4%BE%E7%9A%84%E5%8D%95%E5%85%83%E6%B5%8B%E8%AF%95%E6%8A%A5%E5%91%8A%EF%BC%88%E6%A8%A1%E6%8B%9F%EF%BC%89"><span class="nav-number">1.5.4.</span> <span class="nav-text">5.4 打破双亲委派的单元测试报告（模拟）</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%85%AD%E3%80%81OOM-%E7%BB%BC%E5%90%88%E6%8E%92%E6%9F%A5%E6%96%B9%E6%B3%95%E8%AE%BA"><span class="nav-number">1.6.</span> <span class="nav-text">六、OOM 综合排查方法论</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#6-1-%E6%8E%92%E6%9F%A5%E4%B8%89%E4%BB%B6%E5%A5%97"><span class="nav-number">1.6.1.</span> <span class="nav-text">6.1 排查三件套</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-2-%E5%9C%A8%E7%BA%BF%E8%AF%8A%E6%96%AD"><span class="nav-number">1.6.2.</span> <span class="nav-text">6.2 在线诊断</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-3-%E5%B8%B8%E8%A7%81-OOM-%E7%B1%BB%E5%9E%8B%E4%B8%8E%E5%AF%B9%E7%AD%96"><span class="nav-number">1.6.3.</span> <span class="nav-text">6.3 常见 OOM 类型与对策</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B8%83%E3%80%81%E8%B0%83%E4%BC%98%E7%BB%93%E8%AE%BA%E4%B8%8E-JVM-%E5%8F%82%E6%95%B0%E6%8E%A8%E8%8D%90"><span class="nav-number">1.7.</span> <span class="nav-text">七、调优结论与 JVM 参数推荐</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#7-1-%E7%94%9F%E4%BA%A7%E6%8E%A8%E8%8D%90%E5%8F%82%E6%95%B0%EF%BC%88doc-service%EF%BC%8C8C-16G-%E5%AE%B9%E5%99%A8%EF%BC%89"><span class="nav-number">1.7.1.</span> <span class="nav-text">7.1 生产推荐参数（doc-service，8C 16G 容器）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-2-%E5%85%B3%E9%94%AE%E8%B0%83%E4%BC%98%E7%BB%93%E8%AE%BA"><span class="nav-number">1.7.2.</span> <span class="nav-text">7.2 关键调优结论</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%99%841%E3%80%81JVM-%E5%90%AF%E5%8A%A8%E5%8F%82%E6%95%B0%EF%BC%88%E8%A1%A5%E5%85%85%E7%AB%A0%E8%8A%82%EF%BC%89"><span class="nav-number">1.8.</span> <span class="nav-text">附1、JVM 启动参数（补充章节）</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%99%842%E3%80%81GC-%E6%97%A5%E5%BF%97%E5%88%86%E6%9E%90%EF%BC%88CMS-%E2%86%92-G1-%E5%AF%B9%E6%AF%94%EF%BC%89%EF%BC%88%E8%A1%A5%E5%85%85%E7%AB%A0%E8%8A%82%EF%BC%89"><span class="nav-number">1.9.</span> <span class="nav-text">附2、GC 日志分析（CMS → G1 对比）（补充章节）</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E8%B0%83%E4%BC%98%E5%89%8D%EF%BC%9ACMS%EF%BC%88JDK-8-%E5%8E%86%E5%8F%B2%E5%8C%85%E8%A2%B1%EF%BC%8C%E6%A8%A1%E6%8B%9F%E6%95%B0%E6%8D%AE%EF%BC%89"><span class="nav-number">1.9.1.</span> <span class="nav-text">2.1 调优前：CMS（JDK 8 历史包袱，模拟数据）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E8%B0%83%E4%BC%98%E5%90%8E%EF%BC%9AG1%EF%BC%88JDK-17%EF%BC%8C%E6%A8%A1%E6%8B%9F%E6%95%B0%E6%8D%AE%EF%BC%89"><span class="nav-number">1.9.2.</span> <span class="nav-text">2.2 调优后：G1（JDK 17，模拟数据）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-CMS-vs-G1-%E5%90%9E%E5%90%90%E9%87%8F%E5%AF%B9%E6%AF%94"><span class="nav-number">1.9.3.</span> <span class="nav-text">2.3 CMS vs G1 吞吐量对比</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-4-G1-GC-%E6%97%A5%E5%BF%97%E5%85%B3%E9%94%AE%E7%89%87%E6%AE%B5%EF%BC%88%E6%A8%A1%E6%8B%9F%EF%BC%89"><span class="nav-number">1.9.4.</span> <span class="nav-text">2.4 G1 GC 日志关键片段（模拟）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-5-GC-%E8%B0%83%E4%BC%98%E7%BB%8F%E9%AA%8C"><span class="nav-number">1.9.5.</span> <span class="nav-text">2.5 GC 调优经验</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%99%843%E3%80%81MAT-%E5%88%86%E6%9E%90%E5%A0%86-Dump%EF%BC%9ANettyHandler-ThreadLocal-%E6%B3%84%E6%BC%8F%E9%93%BE%EF%BC%88%E8%A1%A5%E5%85%85%E7%AB%A0%E8%8A%82%EF%BC%89"><span class="nav-number">1.10.</span> <span class="nav-text">附3、MAT 分析堆 Dump：NettyHandler + ThreadLocal 泄漏链（补充章节）</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-OOM-%E7%8E%B0%E8%B1%A1"><span class="nav-number">1.10.1.</span> <span class="nav-text">3.1 OOM 现象</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E6%8E%92%E6%9F%A5%E8%BF%87%E7%A8%8B"><span class="nav-number">1.10.2.</span> <span class="nav-text">3.2 排查过程</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-%E4%BF%AE%E5%A4%8D%E6%96%B9%E6%A1%88"><span class="nav-number">1.10.3.</span> <span class="nav-text">3.3 修复方案</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-4-%E4%BF%AE%E5%A4%8D%E5%90%8E%E9%AA%8C%E8%AF%81%EF%BC%88%E6%A8%A1%E6%8B%9F%E6%95%B0%E6%8D%AE%EF%BC%89"><span class="nav-number">1.10.4.</span> <span class="nav-text">3.4 修复后验证（模拟数据）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-5-ThreadLocal-%E6%B3%84%E6%BC%8F%E9%98%B2%E6%8A%A4%E6%B8%85%E5%8D%95"><span class="nav-number">1.10.5.</span> <span class="nav-text">3.5 ThreadLocal 泄漏防护清单</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%99%844%E3%80%81EncryptedClassLoader-%E5%8A%A0%E8%BD%BD%E6%B5%81%E7%A8%8B%EF%BC%88%E8%A1%A5%E5%85%85%E7%AB%A0%E8%8A%82%EF%BC%89"><span class="nav-number">1.11.</span> <span class="nav-text">附4、EncryptedClassLoader 加载流程（补充章节）</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E5%BA%94%E7%94%A8%E5%9C%BA%E6%99%AF"><span class="nav-number">1.11.1.</span> <span class="nav-text">5.1 应用场景</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-findClass-%E8%A7%A3%E5%AF%86%E5%8A%A0%E8%BD%BD%E6%B5%81%E7%A8%8B%E5%9B%BE"><span class="nav-number">1.11.2.</span> <span class="nav-text">5.2 findClass() 解密加载流程图</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-%E6%89%93%E7%A0%B4%E5%8F%8C%E4%BA%B2%E5%A7%94%E6%B4%BE%E7%9A%84%E5%85%B3%E9%94%AE"><span class="nav-number">1.11.3.</span> <span class="nav-text">5.3 打破双亲委派的关键</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-%E5%8A%A0%E5%AF%86%E8%A7%A3%E5%AF%86%E7%BB%86%E8%8A%82"><span class="nav-number">1.11.4.</span> <span class="nav-text">5.4 加密解密细节</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%99%845%E3%80%81%E6%89%93%E7%A0%B4%E5%8F%8C%E4%BA%B2%E5%A7%94%E6%B4%BE%E5%8D%95%E5%85%83%E6%B5%8B%E8%AF%95%E6%8A%A5%E5%91%8A%EF%BC%88%E8%A1%A5%E5%85%85%E7%AB%A0%E8%8A%82%EF%BC%89"><span class="nav-number">1.12.</span> <span class="nav-text">附5、打破双亲委派单元测试报告（补充章节）</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#6-1-%E6%B5%8B%E8%AF%95%E4%BB%A3%E7%A0%81"><span class="nav-number">1.12.1.</span> <span class="nav-text">6.1 测试代码</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-2-%E6%B5%8B%E8%AF%95%E6%B5%81%E7%A8%8B"><span class="nav-number">1.12.2.</span> <span class="nav-text">6.2 测试流程</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-3-%E6%B5%8B%E8%AF%95%E6%96%AD%E8%A8%80%E4%B8%8E%E7%BB%93%E6%9E%9C"><span class="nav-number">1.12.3.</span> <span class="nav-text">6.3 测试断言与结果</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-4-%E7%B1%BB%E9%9A%94%E7%A6%BB%E5%8E%9F%E7%90%86"><span class="nav-number">1.12.4.</span> <span class="nav-text">6.4 类隔离原理</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-5-%E6%89%93%E7%A0%B4%E5%8F%8C%E4%BA%B2%E5%A7%94%E6%B4%BE%E7%9A%84%E4%B8%89%E5%A4%A7%E5%9C%BA%E6%99%AF"><span class="nav-number">1.12.5.</span> <span class="nav-text">6.5 打破双亲委派的三大场景</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%99%846%E3%80%81JVM-%E8%B0%83%E4%BC%98%E6%80%BB%E7%BB%93%EF%BC%88%E8%A1%A5%E5%85%85%E7%AB%A0%E8%8A%82%EF%BC%89"><span class="nav-number">1.13.</span> <span class="nav-text">附6、JVM 调优总结（补充章节）</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#7-1-%E5%85%B3%E9%94%AE%E7%BB%93%E8%AE%BA"><span class="nav-number">1.13.1.</span> <span class="nav-text">7.1 关键结论</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-2-%E8%B0%83%E4%BC%98%E6%A3%80%E6%9F%A5%E6%B8%85%E5%8D%95"><span class="nav-number">1.13.2.</span> <span class="nav-text">7.2 调优检查清单</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%B3%BB%E5%88%97%E5%AF%BC%E8%88%AA"><span class="nav-number">1.14.</span> <span class="nav-text">系列导航</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">64</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">14</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">57</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+        <div class="pjax">
+        
+        <div class="sidebar-inner sidebar-post-related">
+          <div class="animated">
+              <div class="links-of-blogroll-title"><i class="fa fa-signs-post fa-fw"></i>
+    Related Posts
+  </div>
+  <ul class="popular-posts">
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/9e296fcf.html" rel="bookmark">
+        <time class="popular-posts-time">2026-08-06</time>
+        <br>
+      Zeus-Doc 高并发线程与锁设计
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/5e9c8515.html" rel="bookmark">
+        <time class="popular-posts-time">2026-08-06</time>
+        <br>
+      Zeus-Doc 性能压测实战
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/e3c529af.html" rel="bookmark">
+        <time class="popular-posts-time">2026-08-06</time>
+        <br>
+      Zeus-Doc 数据库设计
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/924495ff.html" rel="bookmark">
+        <time class="popular-posts-time">2025-02-26</time>
+        <br>
+      Maven 依赖管理精要
+      </a>
+    </li>
+  </ul>
+
+          </div>
+        </div>
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java-面试"><a href="/post/720ca998.html" rel="section"><i class="fa fa-code fa-fw"></i>Java 面试</a></li>
+
+
+      
+  <li class="menu-item menu-item-ai-学习"><a href="/post/ai-learning-nav.html" rel="section"><i class="fa fa-robot fa-fw"></i>AI 学习</a></li>
+
+
+      
+  <li class="menu-item menu-item-项目实战"><a href="/post/5964f4da.html" rel="section"><i class="fa fa-flask fa-fw"></i>项目实战</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-zeus-doc-架构设计与技术选型"><a href="/post/fb98af45.html" rel="section"><i class="fa fa-file-code fa-fw"></i>Zeus-Doc 架构设计与技术选型</a></li>
+
+
+      
+  <li class="menu-item menu-item-zeus-doc-数据库设计"><a href="/post/e3c529af.html" rel="section"><i class="fa fa-file-code fa-fw"></i>Zeus-Doc 数据库设计</a></li>
+
+
+      
+  <li class="menu-item menu-item-zeus-doc-高并发线程与锁设计"><a href="/post/9e296fcf.html" rel="section"><i class="fa fa-file-code fa-fw"></i>Zeus-Doc 高并发线程与锁设计</a></li>
+
+
+      
+  <li class="menu-item menu-item-zeus-doc-jvm-调优与-oom-排查"><a href="/post/7debcf82.html" rel="section"><i class="fa fa-file-code fa-fw"></i>Zeus-Doc JVM 调优与 OOM 排查</a></li>
+
+
+      
+  <li class="menu-item menu-item-zeus-doc-性能压测实战"><a href="/post/5e9c8515.html" rel="section"><i class="fa fa-file-code fa-fw"></i>Zeus-Doc 性能压测实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-zeus-doc-启动与部署运维实战"><a href="/post/ef0e86a4.html" rel="section"><i class="fa fa-file-code fa-fw"></i>Zeus-Doc 启动与部署运维实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-zeus-doc-排障实战复盘"><a href="/post/ecdaa133.html" rel="section"><i class="fa fa-file-code fa-fw"></i>Zeus-Doc 排障实战复盘</a></li>
+
+
+      
+  <li class="menu-item menu-item-zeus-doc-项目面试实战手册"><a href="/post/769da7e2.html" rel="section"><i class="fa fa-file-code fa-fw"></i>Zeus-Doc 项目面试实战手册</a></li>
+
+
+      
+  <li class="menu-item menu-item-zeus-doc-从零构建指南"><a href="/post/e3d7ee4c.html" rel="section"><i class="fa fa-file-code fa-fw"></i>Zeus-Doc 从零构建指南</a></li>
+
+
+    </ul>
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/7debcf82.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="NexT">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="Zeus-Doc JVM 调优与 OOM 排查 | NexT">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          Zeus-Doc JVM 调优与 OOM 排查
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-08-06 23:56:31" itemprop="dateCreated datePublished" datetime="2026-08-06T23:56:31+08:00">2026-08-06</time>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>5.3k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>19 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h1 id="Zeus-Doc-JVM-调优与-OOM-排查实战记录"><a href="#Zeus-Doc-JVM-调优与-OOM-排查实战记录" class="headerlink" title="Zeus-Doc JVM 调优与 OOM 排查实战记录"></a>Zeus-Doc JVM 调优与 OOM 排查实战记录</h1><blockquote>
+<p>版本：1.0.0 ｜ 更新日期：2026-07-31 ｜ 数据性质：模拟数据（基于架构合理推演）</p>
+<p>相关文档：04-线程与锁分析 ｜ 06-面试手册第4&#x2F;6问</p>
+</blockquote>
+<hr>
+<h2 id="一、启动参数与-GC-策略"><a href="#一、启动参数与-GC-策略" class="headerlink" title="一、启动参数与 GC 策略"></a>一、启动参数与 GC 策略</h2><h3 id="1-1-启动参数"><a href="#1-1-启动参数" class="headerlink" title="1.1 启动参数"></a>1.1 启动参数</h3><p>配置源于 <code>application.yml:119-123</code> 注释：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">-Xms2g -Xmx2g</span><br><span class="line">-XX:+UseG1GC -XX:MaxGCPauseMillis=200</span><br><span class="line">-XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/data/logs/zeus-doc-oom.hprof</span><br><span class="line">-Xlog:gc*:file=/data/logs/zeus-doc-gc.log:time,uptime:filecount=10,filesize=50M</span><br><span class="line">-XX:+UseCompressedOops   (默认开启，JOL 对比时关闭验证)</span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>-Xms2g -Xmx2g</td>
+<td>堆初始&#x3D;最大，避免动态扩容引发 Full GC 抖动</td>
+</tr>
+<tr>
+<td>-XX:+UseG1GC</td>
+<td>G1 收集器，面向大堆低延迟</td>
+</tr>
+<tr>
+<td>-XX:MaxGCPauseMillis&#x3D;200</td>
+<td>期望最大停顿 200ms</td>
+</tr>
+<tr>
+<td>-XX:+HeapDumpOnOutOfMemoryError</td>
+<td>OOM 自动 dump 堆</td>
+</tr>
+<tr>
+<td>-Xlog:gc*</td>
+<td>JDK 9+ 统一日志格式（JUL），替代 -XX:+PrintGCDetails</td>
+</tr>
+</tbody></table>
+<h3 id="1-2-堆内存划分（G1）"><a href="#1-2-堆内存划分（G1）" class="headerlink" title="1.2 堆内存划分（G1）"></a>1.2 堆内存划分（G1）</h3><p>G1 将堆划分为 2048 个 Region（默认），每个 Region 1MB（2g&#x2F;2048）。Eden &#x2F; Survivor &#x2F; Old &#x2F; Humongous 动态分配，不再固定比例。</p>
+<hr>
+<h2 id="二、GC-日志分析：CMS-→-G1-吞吐量对比"><a href="#二、GC-日志分析：CMS-→-G1-吞吐量对比" class="headerlink" title="二、GC 日志分析：CMS → G1 吞吐量对比"></a>二、GC 日志分析：CMS → G1 吞吐量对比</h2><h3 id="2-1-对比测试条件"><a href="#2-1-对比测试条件" class="headerlink" title="2.1 对比测试条件"></a>2.1 对比测试条件</h3><p>同等工作负载（2000 并发文档读写），分别用 CMS（-XX:+UseConcMarkSweepGC）与 G1（-XX:+UseG1GC）压测 1 小时，用 GCeasy 分析 GC 日志（模拟报告数据）。</p>
+<h3 id="2-2-GC-对比数据（模拟-GCeasy-报告）"><a href="#2-2-GC-对比数据（模拟-GCeasy-报告）" class="headerlink" title="2.2 GC 对比数据（模拟 GCeasy 报告）"></a>2.2 GC 对比数据（模拟 GCeasy 报告）</h3><table>
+<thead>
+<tr>
+<th>指标</th>
+<th>CMS</th>
+<th>G1</th>
+<th>提升</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>吞吐量</td>
+<td>94.2%</td>
+<td>97.8%</td>
+<td>+3.6%</td>
+</tr>
+<tr>
+<td>平均 GC 停顿</td>
+<td>85ms</td>
+<td>42ms</td>
+<td>-50%</td>
+</tr>
+<tr>
+<td>最大 GC 停顿</td>
+<td>620ms</td>
+<td>180ms</td>
+<td>-71%</td>
+</tr>
+<tr>
+<td>Young GC 次数</td>
+<td>420</td>
+<td>580</td>
+<td>+38%（更频繁但更短）</td>
+</tr>
+<tr>
+<td>Full GC 次数</td>
+<td>4</td>
+<td>0</td>
+<td>-100%</td>
+</tr>
+<tr>
+<td>总 GC 时间</td>
+<td>35.7s</td>
+<td>24.4s</td>
+<td>-32%</td>
+</tr>
+<tr>
+<td>堆内存利用率</td>
+<td>82%</td>
+<td>88%</td>
+<td>+6%</td>
+</tr>
+</tbody></table>
+<h3 id="2-3-分析"><a href="#2-3-分析" class="headerlink" title="2.3 分析"></a>2.3 分析</h3><ul>
+<li><strong>CMS Full GC 4 次</strong>：并发模式失败（Concurrent Mode Failure）退化为 Serial Old，停顿 620ms，是 P99 长尾主因；</li>
+<li><strong>G1 无 Full GC</strong>：Mixed GC 持续回收 Old Region，避免 Full GC；</li>
+<li><strong>G1 停顿可控</strong>：MaxGCPauseMillis&#x3D;200 生效，最大停顿 180ms &lt; 200ms 目标；</li>
+<li><strong>G1 吞吐更高</strong>：97.8% vs 94.2%，停顿短且少，业务线程占用更多 CPU。</li>
+</ul>
+<h3 id="2-4-GC-停顿分布（G1，模拟）"><a href="#2-4-GC-停顿分布（G1，模拟）" class="headerlink" title="2.4 GC 停顿分布（G1，模拟）"></a>2.4 GC 停顿分布（G1，模拟）</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">停顿次数</span><br><span class="line"> 800 |  ████ (0-50ms)</span><br><span class="line"> 400 |  ████████ (50-100ms)</span><br><span class="line"> 200 |  ████ (100-150ms)</span><br><span class="line">  50 |  ██ (150-180ms)</span><br><span class="line">   0 |  █ (&gt;200ms 无)</span><br><span class="line">     +----------------→ 停顿时长区间</span><br><span class="line">       0-50  50-100 100-150 150-200</span><br></pre></td></tr></table></figure>
+
+<p>80% 的 GC 停顿在 100ms 内，符合低延迟目标。</p>
+<hr>
+<h2 id="三、MAT-分析堆-Dump-泄漏链追踪"><a href="#三、MAT-分析堆-Dump-泄漏链追踪" class="headerlink" title="三、MAT 分析堆 Dump 泄漏链追踪"></a>三、MAT 分析堆 Dump 泄漏链追踪</h2><h3 id="3-1-故障现象"><a href="#3-1-故障现象" class="headerlink" title="3.1 故障现象"></a>3.1 故障现象</h3><p>collab-service 运行 3 天后频繁 Full GC，堆使用率 92%，最终 OOM。<code>-XX:+HeapDumpOnOutOfMemoryError</code> 自动生成 <code>zeus-doc-oom.hprof</code>。</p>
+<h3 id="3-2-MAT-分析步骤"><a href="#3-2-MAT-分析步骤" class="headerlink" title="3.2 MAT 分析步骤"></a>3.2 MAT 分析步骤</h3><ol>
+<li>MAT 打开 hprof，执行 <code>Leak Suspects Report</code>；</li>
+<li>发现 <code>Thread</code> 对象占用堆 1.4GB（占 70%），其中 <code>ThreadLocalMap</code> 占 1.1GB；</li>
+<li>点开 <code>ThreadLocalMap</code> → <code>Entry[]</code> → value 指向 <code>NettyHandler</code> 实例（每个 2MB）。</li>
+</ol>
+<h3 id="3-3-泄漏对象链"><a href="#3-3-泄漏对象链" class="headerlink" title="3.3 泄漏对象链"></a>3.3 泄漏对象链</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">GC Root</span><br><span class="line">  └─ Thread (http-nio-9002-exec-* 共 200 个，线程池复用)</span><br><span class="line">       └─ ThreadLocalMap (每个 Thread 持有一个)</span><br><span class="line">            └─ Entry[] (弱引用 key + 强引用 value)</span><br><span class="line">                 └─ Entry.value = NettyHandler (未 remove，强引用驻留)</span><br><span class="line">                      └─ ByteBuf (2MB 直接内存 + 堆内镜像)</span><br></pre></td></tr></table></figure>
+
+<h3 id="3-4-根因：ThreadLocal-未-remove"><a href="#3-4-根因：ThreadLocal-未-remove" class="headerlink" title="3.4 根因：ThreadLocal 未 remove"></a>3.4 根因：ThreadLocal 未 remove</h3><p><code>RateLimitInterceptor</code> 的 <code>START_TS</code>（<code>RateLimitInterceptor.java:50</code>）在 <code>afterCompletion</code> 中 remove（第 97 行），但协同服务的 <code>CollabContext</code> ThreadLocal 在异常路径未清理：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 泄漏代码（异常路径未 remove）</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">handleFrame</span><span class="params">(ChannelContext ctx, Frame frame)</span> &#123;</span><br><span class="line">    CollabContext.set(<span class="keyword">new</span> <span class="title class_">CollabContext</span>(ctx, frame));  <span class="comment">// ThreadLocal.set</span></span><br><span class="line">    <span class="keyword">try</span> &#123;</span><br><span class="line">        <span class="comment">// 业务处理抛异常</span></span><br><span class="line">    &#125; <span class="keyword">finally</span> &#123;</span><br><span class="line">        <span class="comment">// 漏写 CollabContext.remove()</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>Tomcat 线程池线程复用，ThreadLocal 的 value（NettyHandler + ByteBuf）随线程长期驻留，累积 200 线程 × 2MB × N 次累积 &#x3D; 1.1GB 泄漏。</p>
+<h3 id="3-5-修复方案"><a href="#3-5-修复方案" class="headerlink" title="3.5 修复方案"></a>3.5 修复方案</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 正确写法：finally 必 remove</span></span><br><span class="line"><span class="keyword">try</span> &#123;</span><br><span class="line">    CollabContext.set(<span class="keyword">new</span> <span class="title class_">CollabContext</span>(ctx, frame));</span><br><span class="line">    <span class="comment">// 业务</span></span><br><span class="line">&#125; <span class="keyword">finally</span> &#123;</span><br><span class="line">    CollabContext.remove();  <span class="comment">// 关键</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>或用 <code>try-with-resources</code> 包装 ThreadLocal（实现 AutoCloseable）。</p>
+<h3 id="3-6-修复后验证（模拟数据）"><a href="#3-6-修复后验证（模拟数据）" class="headerlink" title="3.6 修复后验证（模拟数据）"></a>3.6 修复后验证（模拟数据）</h3><table>
+<thead>
+<tr>
+<th>指标</th>
+<th>修复前</th>
+<th>修复后</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>3 天后堆使用率</td>
+<td>92%</td>
+<td>45%</td>
+</tr>
+<tr>
+<td>Full GC 次数&#x2F;天</td>
+<td>4</td>
+<td>0</td>
+</tr>
+<tr>
+<td>ThreadLocalMap 占堆</td>
+<td>1.1GB</td>
+<td>8MB</td>
+</tr>
+<tr>
+<td>NettyHandler 实例数</td>
+<td>580（泄漏）</td>
+<td>12（正常活跃）</td>
+</tr>
+</tbody></table>
+<h3 id="3-7-泄漏链原理（面试要点）"><a href="#3-7-泄漏链原理（面试要点）" class="headerlink" title="3.7 泄漏链原理（面试要点）"></a>3.7 泄漏链原理（面试要点）</h3><ul>
+<li>ThreadLocalMap 的 Entry 继承 WeakReference，key 是弱引用（ThreadLocal 实例），但 <strong>value 是强引用</strong>；</li>
+<li>ThreadLocal 实例若被回收（key&#x3D;null），value 仍被 Entry 强引用，无法回收 → 泄漏；</li>
+<li>ThreadLocalMap 在 set&#x2F;get 时会清理 key&#x3D;null 的 Entry（expungeStaleEntry），但若该 key 不再被访问，value 永不清理；</li>
+<li>线程池线程长期存活，泄漏累积，最终 OOM。</li>
+</ul>
+<hr>
+<h3 id="MAT-工具与-JOL-布局细节（并入自历史版本）"><a href="#MAT-工具与-JOL-布局细节（并入自历史版本）" class="headerlink" title="MAT 工具与 JOL 布局细节（并入自历史版本）"></a>MAT 工具与 JOL 布局细节（并入自历史版本）</h3><h3 id="4-1-分析工具"><a href="#4-1-分析工具" class="headerlink" title="4.1 分析工具"></a>4.1 分析工具</h3><p><code>ObjectLayoutDemo</code>（<code>zeus-doc-service-doc/.../classloader/ObjectLayoutDemo.java:38-63</code>）启动时打印 <code>Doc</code> 对象内存布局，使用 JOL（Java Object Layout）库：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Component</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">ObjectLayoutDemo</span> <span class="keyword">implements</span> <span class="title class_">CommandLineRunner</span> &#123;</span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">run</span><span class="params">(String... args)</span> &#123;</span><br><span class="line">        <span class="type">Doc</span> <span class="variable">doc</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">Doc</span>();</span><br><span class="line">        log.info(<span class="string">&quot;Doc 对象布局:\n&#123;&#125;&quot;</span>, ClassLayout.parseInstance(doc).toPrintable());</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+
+<h3 id="4-2-Doc-对象内存布局（开启压缩指针）"><a href="#4-2-Doc-对象内存布局（开启压缩指针）" class="headerlink" title="4.2 Doc 对象内存布局（开启压缩指针）"></a>4.2 Doc 对象内存布局（开启压缩指针）</h3><p><code>Doc</code> 实体（<code>Doc.java:14-33</code>）字段：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">private</span> Long id;              <span class="comment">// 8B（引用，压缩后 4B）</span></span><br><span class="line"><span class="keyword">private</span> Long tenantId;        <span class="comment">// 4B</span></span><br><span class="line"><span class="keyword">private</span> String title;         <span class="comment">// 4B</span></span><br><span class="line"><span class="keyword">private</span> String content;       <span class="comment">// 4B</span></span><br><span class="line"><span class="keyword">private</span> Long authorId;        <span class="comment">// 4B</span></span><br><span class="line"><span class="keyword">private</span> Integer status;       <span class="comment">// 4B</span></span><br><span class="line"><span class="keyword">private</span> Integer currentVersion; <span class="comment">// 4B</span></span><br><span class="line"><span class="keyword">private</span> LocalDateTime createdAt; <span class="comment">// 4B</span></span><br><span class="line"><span class="keyword">private</span> LocalDateTime updatedAt; <span class="comment">// 4B</span></span><br><span class="line"><span class="keyword">private</span> Integer deleted;      <span class="comment">// 4B</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>JOL 输出（模拟，开启 <code>-XX:+UseCompressedOops</code>）：</strong></p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">com.zeus.doc.entity.Doc object internals:</span><br><span class="line"> OFFSET  SIZE     TYPE DESCRIPTION               VALUE</span><br><span class="line">      0     4          (object header: mark)     0x00000001   ← MarkWord 第 1 部分</span><br><span class="line">      4     4          (object header: mark)     0x00000000   ← MarkWord 第 2 部分</span><br><span class="line">      8     4          (object header: class)    0x00123456   ← KlassPointer（压缩 4B）</span><br><span class="line">     12     4      int Doc.status               0            ← 实例数据（int 先排）</span><br><span class="line">     16     8     long Doc.id                   0            ← long 8B 对齐到 8 偏移</span><br><span class="line">     24     4   Long   Doc.tenantId             null         ← 引用 4B（压缩）</span><br><span class="line">     28     4   Long   Doc.authorId             null</span><br><span class="line">     32     4  String Doc.title                 null</span><br><span class="line">     36     4  String Doc.content               null</span><br><span class="line">     40     4 Integer Doc.currentVersion        null</span><br><span class="line">     44     4 Integer Doc.deleted               null</span><br><span class="line">     48     4  Object Doc.createdAt             null         ← LocalDateTime 引用</span><br><span class="line">     52     4  Object Doc.updatedAt             null</span><br><span class="line">Instance size: 56 bytes</span><br><span class="line">Space losses: 0 bytes internal + 0 bytes external = 0 bytes total</span><br></pre></td></tr></table></figure>
+
+
+<h3 id="4-3-内存布局结构图"><a href="#4-3-内存布局结构图" class="headerlink" title="4.3 内存布局结构图"></a>4.3 内存布局结构图</h3><pre>
+<code class="mermaid">
+
+graph LR
+    subgraph Doc对象 56字节
+        direction TB
+        H[&quot;对象头 12 字节&lt;br&#x2F;&gt;MarkWord(8B) + KlassPointer(4B 压缩)&quot;]
+        I[&quot;实例数据 44 字节&lt;br&#x2F;&gt;按字段类型宽度对齐排列&quot;]
+        P[&quot;对齐填充 0 字节&lt;br&#x2F;&gt;已是 8 倍数无需填充&quot;]
+    end
+    H --&gt; I --&gt; P
+
+    subgraph MarkWord 8字节
+        M1[&quot;hashCode(31) &#x2F; 锁状态(2) &#x2F; 分代年龄(4) &#x2F; 偏向位(1)&quot;]
+    end
+
+    style H fill:#ffe4b5
+    style I fill:#e0ffff
+    style P fill:#f0fff0
+</code>
+</pre>
+<h2 id="四、JOL-对象内存布局分析"><a href="#四、JOL-对象内存布局分析" class="headerlink" title="四、JOL 对象内存布局分析"></a>四、JOL 对象内存布局分析</h2><h3 id="4-1-工具"><a href="#4-1-工具" class="headerlink" title="4.1 工具"></a>4.1 工具</h3><p><code>pom.xml:201-206</code> 引入 <code>jol-core 0.17</code>。用法：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">System.out.println(ClassLayout.parseClass(Doc.class).toPrintable());</span><br><span class="line">System.out.println(GraphLayout.parseInstance(doc).toPrintable());</span><br></pre></td></tr></table></figure>
+
+<h3 id="4-2-Doc-对象内存布局（模拟-JOL-输出）"><a href="#4-2-Doc-对象内存布局（模拟-JOL-输出）" class="headerlink" title="4.2 Doc 对象内存布局（模拟 JOL 输出）"></a>4.2 Doc 对象内存布局（模拟 JOL 输出）</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">com.zeus.doc.entity.Doc object internals:</span><br><span class="line">OFF  SZ   TYPE DESCRIPTION               VALUE</span><br><span class="line">  0   8        (object header: MarkWord)  0x0000000000000001 (非锁)</span><br><span class="line">  8   4        (object header: KlassPoint) 0x00123456 (压缩类指针)</span><br><span class="line"> 12   4    int Doc.version                0</span><br><span class="line"> 16   8   long Doc.id                     0</span><br><span class="line"> 24   1 boolean Doc.status                false</span><br><span class="line"> 25   3        (alignment/padding)</span><br><span class="line"> 28   4  String Doc.title                  null</span><br><span class="line"> 32   4  String Doc.content                null</span><br><span class="line"> 36   4        (alignment/padding)</span><br><span class="line">Instance size: 40 bytes</span><br><span class="line">Space losses: 3 bytes internal + 4 bytes external = 7 bytes</span><br></pre></td></tr></table></figure>
+
+<h3 id="4-3-三段布局解析"><a href="#4-3-三段布局解析" class="headerlink" title="4.3 三段布局解析"></a>4.3 三段布局解析</h3><table>
+<thead>
+<tr>
+<th>区域</th>
+<th>大小</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>对象头 MarkWord</td>
+<td>8 字节</td>
+<td>哈希、锁状态、GC 分代年龄、偏向线程 ID</td>
+</tr>
+<tr>
+<td>对象头 KlassPoint</td>
+<td>4 字节（压缩）</td>
+<td>指向类元数据 Class 元信息</td>
+</tr>
+<tr>
+<td>实例数据</td>
+<td>变长</td>
+<td>字段按类型大小排列，long&#x2F;double 优先</td>
+</tr>
+<tr>
+<td>对齐填充</td>
+<td>1-7 字节</td>
+<td>凑 8 字节整数倍</td>
+</tr>
+</tbody></table>
+<h3 id="4-4-压缩指针对比（-XX-UseCompressedOops）"><a href="#4-4-压缩指针对比（-XX-UseCompressedOops）" class="headerlink" title="4.4 压缩指针对比（-XX:+UseCompressedOops）"></a>4.4 压缩指针对比（-XX:+UseCompressedOops）</h3><table>
+<thead>
+<tr>
+<th>配置</th>
+<th>KlassPoint</th>
+<th>对象头合计</th>
+<th>Doc 实例大小</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>开启压缩（默认，堆&lt;32g）</td>
+<td>4 字节</td>
+<td>12 字节</td>
+<td>40 字节</td>
+<td>64 位 JVM 用 32 位寻址 + 偏移</td>
+</tr>
+<tr>
+<td>关闭压缩 (-XX:-UseCompressedOops)</td>
+<td>8 字节</td>
+<td>16 字节</td>
+<td>48 字节</td>
+<td>真实 64 位指针</td>
+</tr>
+</tbody></table>
+<p>压缩指针开启时，10 亿个 Doc 对象节省 <code>10亿 × 8 字节 = 8GB</code> 堆内存。本项目 2g 堆默认开启压缩。</p>
+<h3 id="4-5-MarkWord-锁状态演变（64-位-JVM）"><a href="#4-5-MarkWord-锁状态演变（64-位-JVM）" class="headerlink" title="4.5 MarkWord 锁状态演变（64 位 JVM）"></a>4.5 MarkWord 锁状态演变（64 位 JVM）</h3><table>
+<thead>
+<tr>
+<th>锁状态</th>
+<th>MarkWord 内容（25-64bit）</th>
+<th>标志位</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>无锁</td>
+<td>hashCode + 分代年龄</td>
+<td>001</td>
+</tr>
+<tr>
+<td>偏向锁</td>
+<td>线程 ID + epoch + 年龄</td>
+<td>101</td>
+</tr>
+<tr>
+<td>轻量级锁</td>
+<td>指向栈中锁记录指针</td>
+<td>00</td>
+</tr>
+<tr>
+<td>重量级锁</td>
+<td>指向 Monitor 对象指针</td>
+<td>10</td>
+</tr>
+<tr>
+<td>GC 标记</td>
+<td>-</td>
+<td>11</td>
+</tr>
+</tbody></table>
+<p>对应 <code>DocCacheManager</code> 的写锁竞争：低竞争时偏向锁 → 轻量级锁（CAS 自旋）→ 高竞争重量级锁（AQS 队列阻塞），与 04-线程报告 的 jstack 阻塞分析吻合。</p>
+<hr>
+<h2 id="五、自定义-EncryptedClassLoader-加载流程"><a href="#五、自定义-EncryptedClassLoader-加载流程" class="headerlink" title="五、自定义 EncryptedClassLoader 加载流程"></a>五、自定义 EncryptedClassLoader 加载流程</h2><h3 id="5-1-加载流程图"><a href="#5-1-加载流程图" class="headerlink" title="5.1 加载流程图"></a>5.1 加载流程图</h3><p>类加载器实现于 <code>zeus-doc-service-doc/src/main/java/com/zeus/doc/classloader/EncryptedClassLoader.java</code>。</p>
+<pre>
+<code class="mermaid">
+
+flowchart TD
+    Load[loadClass name, resolve] --&gt; Sync[synchronized getClassLoadingLock]
+    Sync --&gt; Chk[① findLoadedClass 已加载?]
+    Chk -- 是 --&gt; Ret1[返回已加载 Class]
+    Chk -- 否 --&gt; Prefix{② 属于 selfLoadPrefix?&lt;br&#x2F;&gt;com.zeus.template.*}
+    Prefix -- 是 --&gt; Find[③ findClass 自加载]
+    Find --&gt; Read[readAndDecrypt 读取加密 .class]
+    Read --&gt; Xor[XOR 解密 字节流]
+    Xor --&gt; Define[defineClass 字节码→Class]
+    Define --&gt; Resolve{需要链接?}
+    Resolve -- 是 --&gt; Res[resolveClass]
+    Res --&gt; Ret2[返回 Class]
+    Prefix -- 否 --&gt; Parent[④ super.loadClass 标准双亲委派]
+    Find -- ClassNotFoundException --&gt; Parent
+    Parent --&gt; Ret3[返回 Class]
+</code>
+</pre>
+<h3 id="5-2-打破双亲委派的关键（EncryptedClassLoader-java-55-80）"><a href="#5-2-打破双亲委派的关键（EncryptedClassLoader-java-55-80）" class="headerlink" title="5.2 打破双亲委派的关键（EncryptedClassLoader.java:55-80）"></a>5.2 打破双亲委派的关键（EncryptedClassLoader.java:55-80）</h3><p>重写 <code>loadClass</code>（而非 <code>findClass</code>）改变了默认委托顺序：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 标准双亲委派：先 parent.loadClass，再 findClass</span></span><br><span class="line"><span class="comment">// 本类改为：先 findLoadedClass，再（若命中 selfLoadPrefix）findClass，最后 super.loadClass</span></span><br><span class="line"><span class="keyword">if</span> (name.startsWith(selfLoadPrefix)) &#123;</span><br><span class="line">    c = findClass(name);   <span class="comment">// 优先自己加载（第 66 行）</span></span><br><span class="line">    ...</span><br><span class="line">    <span class="keyword">return</span> c;</span><br><span class="line">&#125;</span><br><span class="line"><span class="keyword">return</span> <span class="built_in">super</span>.loadClass(name, resolve);  <span class="comment">// 第 78 行，回退双亲委派</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="5-3-应用场景"><a href="#5-3-应用场景" class="headerlink" title="5.3 应用场景"></a>5.3 应用场景</h3><p>文档模板引擎的沙箱隔离：不同租户的模板代码（<code>com.zeus.template.*</code>）用不同 ClassLoader 实例加载，同名类多版本共存，更新模板无需重启应用。加密 .class 文件防篡改（XOR 演示，生产用 AES）。</p>
+<h3 id="5-4-打破双亲委派的单元测试报告（模拟）"><a href="#5-4-打破双亲委派的单元测试报告（模拟）" class="headerlink" title="5.4 打破双亲委派的单元测试报告（模拟）"></a>5.4 打破双亲委派的单元测试报告（模拟）</h3><table>
+<thead>
+<tr>
+<th>测试用例</th>
+<th>验证点</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>testLoadTemplateClass</td>
+<td>template 类由 EncryptedClassLoader 加载</td>
+<td>通过，日志「自加载类 com.zeus.template.X」</td>
+</tr>
+<tr>
+<td>testParentDelegationForJdk</td>
+<td>java.lang.String 仍由 Bootstrap 加载</td>
+<td>通过，未走自加载</td>
+</tr>
+<tr>
+<td>testSameNameDifferentVersion</td>
+<td>同名类两实例 classLoader 不同</td>
+<td>通过，<code>c1 != c2</code></td>
+</tr>
+<tr>
+<td>testEncryptedClassDecrypt</td>
+<td>XOR 解密后字节码合法</td>
+<td>通过，defineClass 成功</td>
+</tr>
+<tr>
+<td>testClassNotFoundFallback</td>
+<td>自加载失败回退父加载器</td>
+<td>通过，走 super.loadClass</td>
+</tr>
+</tbody></table>
+<p><strong>关键断言</strong>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 不同 ClassLoader 加载同名类，Class 对象不相等</span></span><br><span class="line">Class&lt;?&gt; c1 = cl1.loadClass(<span class="string">&quot;com.zeus.template.Hello&quot;</span>);</span><br><span class="line">Class&lt;?&gt; c2 = cl2.loadClass(<span class="string">&quot;com.zeus.template.Hello&quot;</span>);</span><br><span class="line"><span class="keyword">assert</span> c1 != c2;                    <span class="comment">// 不同命名空间</span></span><br><span class="line"><span class="keyword">assert</span> c1.getClassLoader() == cl1;  <span class="comment">// 加载器正确</span></span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="六、OOM-综合排查方法论"><a href="#六、OOM-综合排查方法论" class="headerlink" title="六、OOM 综合排查方法论"></a>六、OOM 综合排查方法论</h2><h3 id="6-1-排查三件套"><a href="#6-1-排查三件套" class="headerlink" title="6.1 排查三件套"></a>6.1 排查三件套</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>用途</th>
+<th>命令</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>jstack</td>
+<td>线程栈，定位死锁&#x2F;阻塞</td>
+<td><code>jstack &lt;pid&gt;</code></td>
+</tr>
+<tr>
+<td>jmap</td>
+<td>堆直方图，定位对象占用</td>
+<td><code>jmap -histo:live &lt;pid&gt;</code></td>
+</tr>
+<tr>
+<td>MAT</td>
+<td>堆 dump 离线分析，泄漏链</td>
+<td>MAT 打开 hprof</td>
+</tr>
+</tbody></table>
+<h3 id="6-2-在线诊断"><a href="#6-2-在线诊断" class="headerlink" title="6.2 在线诊断"></a>6.2 在线诊断</h3><ul>
+<li>Arthas：<code>dashboard</code> 看概览，<code>thread -n 5</code> 看 CPU TOP5，<code>jad</code> 反编译，<code>watch</code> 方法观测；</li>
+<li>Prometheus + Grafana：JVM Exporter 暴露 GC&#x2F;堆指标，<code>management.endpoints</code> 已开启（<code>application.yml:103-107</code>）。</li>
+</ul>
+<h3 id="6-3-常见-OOM-类型与对策"><a href="#6-3-常见-OOM-类型与对策" class="headerlink" title="6.3 常见 OOM 类型与对策"></a>6.3 常见 OOM 类型与对策</h3><table>
+<thead>
+<tr>
+<th>OOM 类型</th>
+<th>根因</th>
+<th>对策</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Java heap space</td>
+<td>堆内存不足&#x2F;泄漏</td>
+<td>MAT 分析泄漏链，本报告第三节</td>
+</tr>
+<tr>
+<td>Metaspace</td>
+<td>类加载过多（动态生成）</td>
+<td>限制 -XX:MaxMetaspaceSize，排查类加载器泄漏</td>
+</tr>
+<tr>
+<td>Direct buffer memory</td>
+<td>Netty 堆外内存泄漏</td>
+<td>-XX:MaxDirectMemorySize，ByteBuf release</td>
+</tr>
+<tr>
+<td>GC overhead limit exceeded</td>
+<td>GC 回收跟不上分配</td>
+<td>调整堆大小或 GC 策略，见第二节</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="七、调优结论与-JVM-参数推荐"><a href="#七、调优结论与-JVM-参数推荐" class="headerlink" title="七、调优结论与 JVM 参数推荐"></a>七、调优结论与 JVM 参数推荐</h2><h3 id="7-1-生产推荐参数（doc-service，8C-16G-容器）"><a href="#7-1-生产推荐参数（doc-service，8C-16G-容器）" class="headerlink" title="7.1 生产推荐参数（doc-service，8C 16G 容器）"></a>7.1 生产推荐参数（doc-service，8C 16G 容器）</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">-Xms4g -Xmx4g</span><br><span class="line">-XX:+UseG1GC</span><br><span class="line">-XX:MaxGCPauseMillis=200</span><br><span class="line">-XX:InitiatingHeapOccupancyPercent=45   (G1 触发并发标记的堆占用阈值，默认45)</span><br><span class="line">-XX:G1HeapRegionSize=4m                 (Region 大小，4g 堆建议 4m)</span><br><span class="line">-XX:+HeapDumpOnOutOfMemoryError</span><br><span class="line">-XX:HeapDumpPath=/data/logs/zeus-doc-oom.hprof</span><br><span class="line">-Xlog:gc*:file=/data/logs/zeus-doc-gc.log:time,uptime:filecount=10,filesize=50M</span><br><span class="line">-XX:+UseCompressedOops</span><br></pre></td></tr></table></figure>
+
+<h3 id="7-2-关键调优结论"><a href="#7-2-关键调优结论" class="headerlink" title="7.2 关键调优结论"></a>7.2 关键调优结论</h3><ol>
+<li><strong>G1 优于 CMS</strong>：吞吐 +3.6%，最大停顿降 71%，无 Full GC；</li>
+<li><strong>ThreadLocal 必须 remove</strong>：finally 清理是铁律，否则线程池复用导致泄漏（本报告核心案例）；</li>
+<li><strong>压缩指针默认开</strong>：堆&lt;32g 时省 8 字节&#x2F;指针，2g 堆下 Doc 对象省 17% 内存；</li>
+<li><strong>EncryptedClassLoader 隔离有效</strong>：单元测试验证同名类多版本共存，打破双亲委派仅对指定包生效；</li>
+<li><strong>OOM 三件套</strong>：jstack 定阻塞、jmap 定占用、MAT 定泄漏链，缺一不可。</li>
+</ol>
+<hr>
+<p>本报告为 JVM 调优实战基线。ThreadLocal 泄漏案例详见 06-面试手册第4问，类加载器原理见 06-面试手册第6问。</p>
+<hr>
+<h2 id="附1、JVM-启动参数（补充章节）"><a href="#附1、JVM-启动参数（补充章节）" class="headerlink" title="附1、JVM 启动参数（补充章节）"></a>附1、JVM 启动参数（补充章节）</h2><p><strong>配置位置：</strong> <code>zeus-doc-service-doc/src/main/resources/application.yml:119-123</code>（注释说明，实际由部署脚本 <code>JAVA_OPTS</code> 传入）。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 堆内存</span></span><br><span class="line">-Xms2g                          <span class="comment"># 初始堆，与 Xmx 相同避免动态扩缩引起抖动</span></span><br><span class="line">-Xmx2g                          <span class="comment"># 最大堆 2G（4C8G 节点，留 6G 给堆外/Netty/系统）</span></span><br><span class="line">-Xmn768m                        <span class="comment"># 年轻代（G1 下可不设，由 G1 自适应分区）</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># GC 收集器：G1</span></span><br><span class="line">-XX:+UseG1GC</span><br><span class="line">-XX:MaxGCPauseMillis=200        <span class="comment"># 期望最大停顿 200ms</span></span><br><span class="line">-XX:G1HeapRegionSize=4m         <span class="comment"># Region 大小（2G 堆 → 512 个 Region）</span></span><br><span class="line">-XX:InitiatingHeapOccupancyPercent=45   <span class="comment"># 堆使用率 45% 触发并发标记</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># OOM 自动 Dump</span></span><br><span class="line">-XX:+HeapDumpOnOutOfMemoryError</span><br><span class="line">-XX:HeapDumpPath=/data/logs/zeus-doc-oom.hprof</span><br><span class="line"></span><br><span class="line"><span class="comment"># GC 日志（JDK 17 统一日志）</span></span><br><span class="line">-Xlog:gc*:file=/data/logs/zeus-doc-gc.log:<span class="keyword">time</span>,<span class="built_in">uptime</span>:filecount=10,filesize=50M</span><br><span class="line"></span><br><span class="line"><span class="comment"># 压缩指针（默认开启，JOL 对比时关闭验证）</span></span><br><span class="line">-XX:+UseCompressedOops</span><br><span class="line">-XX:+UseCompressedClassPointers</span><br><span class="line"></span><br><span class="line"><span class="comment"># 容器感知（K8s 内）</span></span><br><span class="line">-XX:+UseContainerSupport</span><br><span class="line">-XX:InitialRAMPercentage=50.0</span><br><span class="line">-XX:MaxRAMPercentage=50.0</span><br></pre></td></tr></table></figure>
+
+<p><strong>参数选择理由：</strong></p>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>值</th>
+<th>理由</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>-Xms/-Xmx</code></td>
+<td>2g&#x2F;2g</td>
+<td>文档服务中等负载；相等避免动态扩缩抖动</td>
+</tr>
+<tr>
+<td><code>UseG1GC</code></td>
+<td>启用</td>
+<td>JDK 17 默认，可控停顿 + 适合多核大堆</td>
+</tr>
+<tr>
+<td><code>MaxGCPauseMillis</code></td>
+<td>200ms</td>
+<td>接口 99 线 RT 目标 100ms，GC 停顿占比 &lt; 50%</td>
+</tr>
+<tr>
+<td><code>HeapDumpOnOOM</code></td>
+<td>启用</td>
+<td>OOM 时自动 dump 便于 MAT 分析</td>
+</tr>
+<tr>
+<td><code>RegionSize</code></td>
+<td>4m</td>
+<td>2G 堆 512 Region，G1 推荐区间</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="附2、GC-日志分析（CMS-→-G1-对比）（补充章节）"><a href="#附2、GC-日志分析（CMS-→-G1-对比）（补充章节）" class="headerlink" title="附2、GC 日志分析（CMS → G1 对比）（补充章节）"></a>附2、GC 日志分析（CMS → G1 对比）（补充章节）</h2><h3 id="2-1-调优前：CMS（JDK-8-历史包袱，模拟数据）"><a href="#2-1-调优前：CMS（JDK-8-历史包袱，模拟数据）" class="headerlink" title="2.1 调优前：CMS（JDK 8 历史包袱，模拟数据）"></a>2.1 调优前：CMS（JDK 8 历史包袱，模拟数据）</h3><p>应用早期使用 CMS，4G 堆下表现：</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>CMS 调优前</th>
+<th>CMS 调优后</th>
+<th>问题</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Young GC 频率</td>
+<td>1.8s&#x2F;次</td>
+<td>3.2s&#x2F;次</td>
+<td>频繁</td>
+</tr>
+<tr>
+<td>Young GC 停顿</td>
+<td>45ms</td>
+<td>30ms</td>
+<td>-</td>
+</tr>
+<tr>
+<td>Full GC 频率</td>
+<td>12min&#x2F;次</td>
+<td>35min&#x2F;次</td>
+<td>Concurrency Mode Failure</td>
+</tr>
+<tr>
+<td>Full GC 停顿</td>
+<td>1.8s</td>
+<td>1.2s</td>
+<td>STW 过长</td>
+</tr>
+<tr>
+<td>吞吐量</td>
+<td>91.2%</td>
+<td>94.5%</td>
+<td>低</td>
+</tr>
+<tr>
+<td>99 线 RT</td>
+<td>180ms</td>
+<td>120ms</td>
+<td>Full GC 时毛刺严重</td>
+</tr>
+</tbody></table>
+<blockquote>
+<p>模拟数据。CMS 的 Full GC（STW 1.2s）导致接口 99 线 RT 毛刺，是切 G1 的主因。</p>
+</blockquote>
+<h3 id="2-2-调优后：G1（JDK-17，模拟数据）"><a href="#2-2-调优后：G1（JDK-17，模拟数据）" class="headerlink" title="2.2 调优后：G1（JDK 17，模拟数据）"></a>2.2 调优后：G1（JDK 17，模拟数据）</h3><p>切换 G1，2G 堆下 GCeasy 报告关键指标：</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>G1 值</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>吞吐量</td>
+<td>97.8%</td>
+<td>提升 3.3pp</td>
+</tr>
+<tr>
+<td>平均 GC 停顿</td>
+<td>42ms</td>
+<td>-</td>
+</tr>
+<tr>
+<td>最大 GC 停顿</td>
+<td>185ms</td>
+<td>满足 MaxGCPauseMillis&#x3D;200</td>
+</tr>
+<tr>
+<td>Young GC 频率</td>
+<td>4.5s&#x2F;次</td>
+<td>-</td>
+</tr>
+<tr>
+<td>Mixed GC 频率</td>
+<td>90s&#x2F;次</td>
+<td>回收老年代 + 年轻代</td>
+</tr>
+<tr>
+<td>Full GC</td>
+<td>0 次（24h）</td>
+<td>G1 极少 Full GC</td>
+</tr>
+</tbody></table>
+<blockquote>
+<p>模拟数据。GCeasy 在线分析工具报告。</p>
+</blockquote>
+<h3 id="2-3-CMS-vs-G1-吞吐量对比"><a href="#2-3-CMS-vs-G1-吞吐量对比" class="headerlink" title="2.3 CMS vs G1 吞吐量对比"></a>2.3 CMS vs G1 吞吐量对比</h3><pre>
+<code class="mermaid">
+
+xychart-beta
+    title &quot;CMS vs G1 吞吐量与最大停顿对比（模拟数据）&quot;
+    x-axis [&quot;CMS调优前&quot;, &quot;CMS调优后&quot;, &quot;G1&quot;]
+    y-axis &quot;吞吐量(%)&quot; 88 --&gt; 100
+    bar [91.2, 94.5, 97.8]
+    line [91.2, 94.5, 97.8]
+</code>
+</pre>
+<h3 id="2-4-G1-GC-日志关键片段（模拟）"><a href="#2-4-G1-GC-日志关键片段（模拟）" class="headerlink" title="2.4 G1 GC 日志关键片段（模拟）"></a>2.4 G1 GC 日志关键片段（模拟）</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">[2026-07-31T10:23:15.832+0800][12.345s] GC(45) Pause Young (Normal) (G1 Evacuation Pause)</span><br><span class="line">  Young regions: 86 -&gt; 0</span><br><span class="line">  Eden regions: 512 -&gt; 0(512)            // 4MB×512=2G Eden 全回收</span><br><span class="line">  Survivor regions: 0 -&gt; 18</span><br><span class="line">  Old regions: 95 -&gt; 95</span><br><span class="line">  Humongous regions: 3 -&gt; 3</span><br><span class="line">  Metaspace: 78M -&gt; 78M</span><br><span class="line">  Pause time: 38ms                       // 远低于 200ms 目标</span><br></pre></td></tr></table></figure>
+
+<h3 id="2-5-GC-调优经验"><a href="#2-5-GC-调优经验" class="headerlink" title="2.5 GC 调优经验"></a>2.5 GC 调优经验</h3><ol>
+<li><strong>G1 自适应能力强</strong>：设 <code>MaxGCPauseMillis=200</code> 后，G1 自动调整 Region&#x2F;Evacuation 比例，无需手动设 <code>-Xmn</code>。</li>
+<li><strong>避免 Humongous 对象</strong>：大对象（&gt; Region&#x2F;2 &#x3D; 2M）直接进老年代，触发频繁 Mixed GC。本项目文档正文 TEXT 字段若超 2M 应走对象存储而非堆内。</li>
+<li>**<code>IHOP=45</code>**：默认 45%，老年代占用达 45% 触发并发标记，提前回收避免 Full GC。</li>
+</ol>
+<hr>
+<h2 id="附3、MAT-分析堆-Dump：NettyHandler-ThreadLocal-泄漏链（补充章节）"><a href="#附3、MAT-分析堆-Dump：NettyHandler-ThreadLocal-泄漏链（补充章节）" class="headerlink" title="附3、MAT 分析堆 Dump：NettyHandler + ThreadLocal 泄漏链（补充章节）"></a>附3、MAT 分析堆 Dump：NettyHandler + ThreadLocal 泄漏链（补充章节）</h2><h3 id="3-1-OOM-现象"><a href="#3-1-OOM-现象" class="headerlink" title="3.1 OOM 现象"></a>3.1 OOM 现象</h3><p>协同服务（<code>zeus-doc-service-collab</code>）运行 3 天后频繁 Full GC，最终 OOM：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">java.lang.OutOfMemoryError: Java heap space</span><br><span class="line">    at io.netty.buffer.PooledByteBufAllocator$PoolThreadCache.allocate(...)</span><br></pre></td></tr></table></figure>
+
+<h3 id="3-2-排查过程"><a href="#3-2-排查过程" class="headerlink" title="3.2 排查过程"></a>3.2 排查过程</h3><p><strong>步骤 1：获取堆 Dump</strong></p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># OOM 时自动 dump（已配 HeapDumpOnOOM）</span></span><br><span class="line"><span class="built_in">ls</span> -lh /data/logs/zeus-collab-oom.hprof</span><br><span class="line"><span class="comment"># 或运行时手动 dump</span></span><br><span class="line">jmap -dump:format=b,file=/tmp/collab.hprof &lt;pid&gt;</span><br></pre></td></tr></table></figure>
+
+<p><strong>步骤 2：MAT 加载，执行 Leak Suspects 报告</strong></p>
+<p>MAT <code>Leak Suspects</code> 报告显示：</p>
+<blockquote>
+<p><strong>Problem Suspect 1:</strong> <code>io.netty.handler.codec.http.HttpObjectDecoder</code> 占用 1.2GB（55% 堆）<br>Thread <code>worker-3</code> 持有 <code>ByteBuf</code> 链 480MB 未释放</p>
+<p><strong>Problem Suspect 2:</strong> <code>java.lang.ThreadLocal$ThreadLocalMap</code> 占用 680MB（31% 堆）<br><code>ThreadLocal</code> 中存 <code>UserContext</code> + <code>ByteBuffer</code>，key 为弱引用被回收但 value 强引用残留</p>
+</blockquote>
+<p><strong>步骤 3：追踪泄漏链（Path To GC Roots）</strong></p>
+<p>MAT <code>Path To GC Roots → exclude weak/soft references</code>：</p>
+<pre>
+<code class="mermaid">
+
+graph TD
+    GC[&quot;GC Roots&lt;br&#x2F;&gt;worker-3 线程栈&quot;] --&gt;|强引用| TH[&quot;ThreadLocal.ThreadLocalMap&lt;br&#x2F;&gt;table[N]&quot;]
+    TH --&gt;|value 强引用| UC[&quot;UserContext 对象&lt;br&#x2F;&gt;(未 remove)&quot;]
+    UC --&gt;|持有| BB[&quot;ByteBuf（Netty 堆内）&lt;br&#x2F;&gt;480MB&quot;]
+    UC --&gt;|持有| CH[&quot;ChannelHandlerContext&lt;br&#x2F;&gt;已断开但未清理&quot;]
+    CH --&gt;|持有| RB[&quot;RecvByteBufAllocator$Handle&lt;br&#x2F;&gt;累积读取缓冲&quot;]
+
+    style UC fill:#ff6b6b
+    style BB fill:#ff6b6b
+</code>
+</pre>
+<p><strong>根因：</strong> WebSocket 连接断开后，<code>ThreadLocal&lt;UserContext&gt;</code> 未调用 <code>remove()</code>，导致：</p>
+<ol>
+<li><code>UserContext</code> 残留持有 <code>ChannelHandlerContext</code>（已断开但对象未 GC）；</li>
+<li><code>ChannelHandlerContext</code> 持有 <code>ByteBuf</code> 累积缓冲（480MB）；</li>
+<li>线程池线程复用，ThreadLocal 越积越多。</li>
+</ol>
+<h3 id="3-3-修复方案"><a href="#3-3-修复方案" class="headerlink" title="3.3 修复方案"></a>3.3 修复方案</h3><p><strong>修复 1：ThreadLocal 必须清理</strong></p>
+<p>参照 <code>RateLimitInterceptor.afterCompletion</code>（<code>RateLimitInterceptor.java:96-98</code>）的模式：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Override</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">afterCompletion</span><span class="params">(...)</span> &#123;</span><br><span class="line">    START_TS.remove();   <span class="comment">// 必须 remove，防止线程池线程复用导致内存泄漏</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>DocDetailService</code> 的每个 CompletableFuture 任务都在 <code>finally</code> 清理（<code>DocDetailService.java:63,72,81</code>）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">CompletableFuture&lt;Doc&gt; metaFuture = CompletableFuture.supplyAsync(() -&gt; &#123;</span><br><span class="line">    <span class="keyword">try</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> docMapper.selectById(docId);</span><br><span class="line">    &#125; <span class="keyword">finally</span> &#123;</span><br><span class="line">        UserContext.clear();   <span class="comment">// TTL 上下文清理防泄漏</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;, docExecutor);</span><br></pre></td></tr></table></figure>
+
+<p><code>DocService.auditAsync</code> 同样在 <code>finally</code> 清理（<code>DocService.java:151</code>）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Async(&quot;audit-executor&quot;)</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">auditAsync</span><span class="params">(...)</span> &#123;</span><br><span class="line">    <span class="keyword">try</span> &#123; ... &#125; <span class="keyword">catch</span> (...) &#123; ... &#125;</span><br><span class="line">    <span class="keyword">finally</span> &#123; UserContext.clear(); &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>修复 2：Netty Channel 断开时释放 ByteBuf</strong></p>
+<p>在 <code>WebSocketFrameHandler</code> 的 <code>channelInactive</code> 中释放累积 ByteBuf，并清理 <code>ChannelHandlerContext</code> 关联的 ThreadLocal。</p>
+<p><strong>修复 3：线程池用 TTL 包装</strong></p>
+<p><code>ThreadPoolConfig.java:103</code> 用 <code>TtlExecutorUtil.wrap(executor)</code> 包装，TTL 在任务执行前后自动 transmittable + clear，避免 ThreadLocal 残留。</p>
+<h3 id="3-4-修复后验证（模拟数据）"><a href="#3-4-修复后验证（模拟数据）" class="headerlink" title="3.4 修复后验证（模拟数据）"></a>3.4 修复后验证（模拟数据）</h3><table>
+<thead>
+<tr>
+<th>指标</th>
+<th>修复前</th>
+<th>修复后</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>堆内存趋势</td>
+<td>3 天涨至 OOM</td>
+<td>稳定在 1.2G</td>
+</tr>
+<tr>
+<td>ThreadLocal 残留</td>
+<td>680MB</td>
+<td>8MB</td>
+</tr>
+<tr>
+<td>Full GC 频率</td>
+<td>3 天后频繁</td>
+<td>7 天 0 次</td>
+</tr>
+<tr>
+<td>Netty ByteBuf 持有</td>
+<td>1.2GB</td>
+<td>50MB</td>
+</tr>
+</tbody></table>
+<blockquote>
+<p>模拟数据。修复后连续运行 7 天堆内存平稳。</p>
+</blockquote>
+<h3 id="3-5-ThreadLocal-泄漏防护清单"><a href="#3-5-ThreadLocal-泄漏防护清单" class="headerlink" title="3.5 ThreadLocal 泄漏防护清单"></a>3.5 ThreadLocal 泄漏防护清单</h3><table>
+<thead>
+<tr>
+<th>位置</th>
+<th>清理点</th>
+<th>代码</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>拦截器</td>
+<td>afterCompletion</td>
+<td><code>RateLimitInterceptor.java:97</code></td>
+</tr>
+<tr>
+<td>异步任务</td>
+<td>finally</td>
+<td><code>DocDetailService.java:63</code> &#x2F; <code>DocService.java:151</code></td>
+</tr>
+<tr>
+<td>线程池</td>
+<td>TTL 包装</td>
+<td><code>ThreadPoolConfig.java:103</code></td>
+</tr>
+<tr>
+<td>Netty Channel</td>
+<td>channelInactive</td>
+<td>释放 ByteBuf + clear ThreadLocal</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="附4、EncryptedClassLoader-加载流程（补充章节）"><a href="#附4、EncryptedClassLoader-加载流程（补充章节）" class="headerlink" title="附4、EncryptedClassLoader 加载流程（补充章节）"></a>附4、EncryptedClassLoader 加载流程（补充章节）</h2><h3 id="5-1-应用场景"><a href="#5-1-应用场景" class="headerlink" title="5.1 应用场景"></a>5.1 应用场景</h3><p>文档模板引擎的沙箱隔离与热加载：不同租户的模板代码互相隔离，更新模板无需重启应用。<code>EncryptedClassLoader</code>（<code>zeus-doc-service-doc/.../classloader/EncryptedClassLoader.java</code>）实现加密 class 文件的解密加载，并对指定包名打破双亲委派。</p>
+<h3 id="5-2-findClass-解密加载流程图"><a href="#5-2-findClass-解密加载流程图" class="headerlink" title="5.2 findClass() 解密加载流程图"></a>5.2 findClass() 解密加载流程图</h3><pre>
+<code class="mermaid">
+
+flowchart TD
+    Load[&quot;loadClass(name, resolve)&lt;br&#x2F;&gt;EncryptedClassLoader.java:56&quot;] --&gt; Chk[&quot;1. findLoadedClass(name)&lt;br&#x2F;&gt;检查是否已加载&lt;br&#x2F;&gt;行 59&quot;]
+    Chk --&gt;|已加载| Ret[&quot;返回已加载的 Class&quot;]
+    Chk --&gt;|未加载| Prefix{2. name.startsWith&lt;br&#x2F;&gt;selfLoadPrefix&lt;br&#x2F;&gt;com.zeus.template.*&lt;br&#x2F;&gt;行 64}
+    Prefix --&gt;|否 标准类| Parent[&quot;3. super.loadClass&lt;br&#x2F;&gt;标准双亲委派&lt;br&#x2F;&gt;行 78&quot;]
+    Parent --&gt; RetParent[&quot;父加载器加载&lt;br&#x2F;&gt;如 java.lang.String&quot;]
+    Prefix --&gt;|是 模板类| Find[&quot;findClass(name)&lt;br&#x2F;&gt;打破双亲委派&lt;br&#x2F;&gt;行 66&quot;]
+    Find --&gt; Path[&quot;拼路径&lt;br&#x2F;&gt;classDir + name.replace &#39;.&#39; -&gt; &#39;&#x2F;&#39; + .class&lt;br&#x2F;&gt;行 87&quot;]
+    Path --&gt; Exist{文件存在?}
+    Exist --&gt;|否| CNF[&quot;抛 ClassNotFoundException&lt;br&#x2F;&gt;行 90&quot;]
+    CNF --&gt; Fallback[&quot;回退父加载器&lt;br&#x2F;&gt;行 74&quot;]
+    Exist --&gt;|是| Read[&quot;readAndDecrypt&lt;br&#x2F;&gt;FileChannel + XOR 解密&lt;br&#x2F;&gt;行 92&quot;]
+    Read --&gt; Loop[&quot;循环读取 8192B 缓冲&lt;br&#x2F;&gt;逐字节 XOR xorKey 解密&lt;br&#x2F;&gt;行 100-115&quot;]
+    Loop --&gt; Define[&quot;defineClass(name, bytes, 0, len)&lt;br&#x2F;&gt;JVM 校验字节码&lt;br&#x2F;&gt;行 94&quot;]
+    Define --&gt; Resolve{resolve?}
+    Resolve --&gt;|是| Res[&quot;resolveClass(c)&lt;br&#x2F;&gt;行 68&quot;]
+    Resolve --&gt;|否| RetDef[&quot;返回 Class&quot;]
+    Res --&gt; RetDef
+
+    style Prefix fill:#ffe4b5
+    style Find fill:#ff6b6b
+    style Define fill:#e0ffff
+</code>
+</pre>
+<h3 id="5-3-打破双亲委派的关键"><a href="#5-3-打破双亲委派的关键" class="headerlink" title="5.3 打破双亲委派的关键"></a>5.3 打破双亲委派的关键</h3><p>标准 <code>ClassLoader.loadClass</code> 流程：<code>findLoadedClass → parent.loadClass → findClass</code>（先委托父加载器）。</p>
+<p><code>EncryptedClassLoader.loadClass</code>（<code>EncryptedClassLoader.java:56-80</code>）改为：<code>findLoadedClass → 若属于 selfLoadPrefix 则自己 findClass → 否则 super.loadClass</code>。</p>
+<p>即对 <code>com.zeus.template.*</code> 包名，<strong>优先自己加载，不先委托父加载器</strong>，这是打破双亲委派的核心。其它包名（如 <code>java.lang.String</code>）仍走标准双亲委派，保证核心类安全。</p>
+<h3 id="5-4-加密解密细节"><a href="#5-4-加密解密细节" class="headerlink" title="5.4 加密解密细节"></a>5.4 加密解密细节</h3><p><code>readAndDecrypt</code>（<code>EncryptedClassLoader.java:100-120</code>）使用 <code>FileChannel</code> + <code>ByteBuffer</code> 读取加密 class，逐字节 XOR 解密：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">private</span> <span class="type">byte</span>[] readAndDecrypt(File f) &#123;</span><br><span class="line">    <span class="keyword">try</span> (<span class="type">FileInputStream</span> <span class="variable">fis</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">FileInputStream</span>(f);</span><br><span class="line">         <span class="type">FileChannel</span> <span class="variable">ch</span> <span class="operator">=</span> fis.getChannel();</span><br><span class="line">         <span class="type">ByteArrayOutputStream</span> <span class="variable">out</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ByteArrayOutputStream</span>()) &#123;</span><br><span class="line">        <span class="type">ByteBuffer</span> <span class="variable">buf</span> <span class="operator">=</span> ByteBuffer.allocate(<span class="number">8192</span>);</span><br><span class="line">        <span class="keyword">while</span> (ch.read(buf) != -<span class="number">1</span>) &#123;</span><br><span class="line">            buf.flip();</span><br><span class="line">            <span class="type">byte</span>[] arr = <span class="keyword">new</span> <span class="title class_">byte</span>[buf.limit()];</span><br><span class="line">            buf.get(arr);</span><br><span class="line">            <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; arr.length; i++) &#123;</span><br><span class="line">                arr[i] ^= xorKey;    <span class="comment">// XOR 解密（演示，生产用 AES）</span></span><br><span class="line">            &#125;</span><br><span class="line">            out.write(arr);</span><br><span class="line">            buf.clear();</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> out.toByteArray();</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p>生产环境应换用 AES（XOR 易被破解），密钥由 KMS 管理。</p>
+</blockquote>
+<hr>
+<h2 id="附5、打破双亲委派单元测试报告（补充章节）"><a href="#附5、打破双亲委派单元测试报告（补充章节）" class="headerlink" title="附5、打破双亲委派单元测试报告（补充章节）"></a>附5、打破双亲委派单元测试报告（补充章节）</h2><h3 id="6-1-测试代码"><a href="#6-1-测试代码" class="headerlink" title="6.1 测试代码"></a>6.1 测试代码</h3><p><code>EncryptedClassLoaderTest.java:36-75</code>，验证两个核心命题：</p>
+<ol>
+<li>同一类名被不同 ClassLoader 加载后 <code>instanceof</code> 返回 false（类隔离）</li>
+<li><code>java.lang.String</code> 仍走双亲委派（核心类不被篡改）</li>
+</ol>
+<h3 id="6-2-测试流程"><a href="#6-2-测试流程" class="headerlink" title="6.2 测试流程"></a>6.2 测试流程</h3><pre>
+<code class="mermaid">
+
+sequenceDiagram
+    participant T as Test 测试类
+    participant L1 as EncryptedClassLoader 实例1
+    participant L2 as EncryptedClassLoader 实例2
+    participant FS as 文件系统&lt;br&#x2F;&gt;加密 .class
+
+    T-&gt;&gt;FS: 取 EncryptedClassLoaderTest.class 字节码
+    T-&gt;&gt;FS: XOR 加密写入 com&#x2F;zeus&#x2F;template&#x2F;HelloTemplate.class
+    T-&gt;&gt;L1: new EncryptedClassLoader(dir, &quot;com.zeus.template&quot;, 0x5A, parent)
+    T-&gt;&gt;L2: new EncryptedClassLoader(dir, &quot;com.zeus.template&quot;, 0x5A, parent)
+    T-&gt;&gt;L1: loadClass(&quot;com.zeus.template.HelloTemplate&quot;)
+    L1-&gt;&gt;FS: findClass 解密加载
+    L1--&gt;&gt;T: c1 (Class 对象)
+    T-&gt;&gt;L2: loadClass(&quot;com.zeus.template.HelloTemplate&quot;)
+    L2-&gt;&gt;FS: findClass 解密加载
+    L2--&gt;&gt;T: c2 (Class 对象)
+
+    Note over T: 断言1: assertNotSame(c1, c2) ✓&lt;br&#x2F;&gt;不同加载器 → 不同 Class 对象
+    T-&gt;&gt;L1: c1.newInstance() → instance1
+    Note over T: 断言2: c2.isInstance(instance1) &#x3D;&#x3D; false ✓&lt;br&#x2F;&gt;类隔离核心证明
+</code>
+</pre>
+<h3 id="6-3-测试断言与结果"><a href="#6-3-测试断言与结果" class="headerlink" title="6.3 测试断言与结果"></a>6.3 测试断言与结果</h3><table>
+<thead>
+<tr>
+<th>断言</th>
+<th>期望</th>
+<th>实际</th>
+<th>结论</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>assertNotSame(c1, c2)</code></td>
+<td>不同 Class 对象</td>
+<td>通过</td>
+<td>不同 ClassLoader 加载同一类名 → 不同 Class 实例</td>
+</tr>
+<tr>
+<td><code>assertEquals(className, c1.getName())</code></td>
+<td>类名相同</td>
+<td>通过</td>
+<td>类名一致</td>
+</tr>
+<tr>
+<td><code>c2.isInstance(instance1)</code></td>
+<td>false</td>
+<td>false</td>
+<td><strong>类隔离核心证明</strong>：c1 的实例不能被 c2 的类型识别</td>
+</tr>
+<tr>
+<td><code>strClass.getClassLoader() != loader</code></td>
+<td>父加载器加载</td>
+<td>通过</td>
+<td><code>java.lang.String</code> 仍走双亲委派</td>
+</tr>
+</tbody></table>
+<blockquote>
+<p>测试代码：<code>EncryptedClassLoaderTest.java:62-74</code>（类隔离）、<code>EncryptedClassLoaderTest.java:81-89</code>（核心类双亲委派保留）。</p>
+</blockquote>
+<h3 id="6-4-类隔离原理"><a href="#6-4-类隔离原理" class="headerlink" title="6.4 类隔离原理"></a>6.4 类隔离原理</h3><p>JVM 中一个类的唯一标识 &#x3D; <strong>全限定类名 + ClassLoader 实例</strong>。同名类被不同 ClassLoader 加载后，是两个完全独立的 Class：</p>
+<ul>
+<li><code>c1 != c2</code>（对象引用不同）</li>
+<li><code>c1.equals(c2)</code> 为 false</li>
+<li><code>c1.isInstance(c2的实例)</code> 为 false</li>
+<li><code>instanceof</code> 检查时 <code>instance1 instanceof c2</code> 编译报错（运行时 <code>c2.isInstance(instance1)</code> 为 false）</li>
+</ul>
+<p><strong>这就是 Tomcat WebappClassLoader 实现应用隔离的原理</strong>：每个 Web 应用独立 ClassLoader，同名类互不干扰。</p>
+<h3 id="6-5-打破双亲委派的三大场景"><a href="#6-5-打破双亲委派的三大场景" class="headerlink" title="6.5 打破双亲委派的三大场景"></a>6.5 打破双亲委派的三大场景</h3><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>实现</th>
+<th>本项目对标</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Tomcat 应用隔离</td>
+<td>WebappClassLoader 优先加载 <code>WEB-INF/classes</code></td>
+<td><code>EncryptedClassLoader</code> 优先加载 <code>com.zeus.template.*</code></td>
+</tr>
+<tr>
+<td>SPI（JDBC DriverManager）</td>
+<td>Thread.contextClassLoader 反向加载</td>
+<td>-</td>
+</tr>
+<tr>
+<td>热部署&#x2F;沙箱</td>
+<td>不同 ClassLoader 加载同类名多版本</td>
+<td>租户模板隔离</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="附6、JVM-调优总结（补充章节）"><a href="#附6、JVM-调优总结（补充章节）" class="headerlink" title="附6、JVM 调优总结（补充章节）"></a>附6、JVM 调优总结（补充章节）</h2><h3 id="7-1-关键结论"><a href="#7-1-关键结论" class="headerlink" title="7.1 关键结论"></a>7.1 关键结论</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>调优前</th>
+<th>调优后</th>
+<th>提升</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>GC 收集器</td>
+<td>CMS（Full GC 1.2s）</td>
+<td>G1（最大停顿 185ms）</td>
+<td>停顿降 85%</td>
+</tr>
+<tr>
+<td>吞吐量</td>
+<td>91.2%</td>
+<td>97.8%</td>
+<td>+6.6pp</td>
+</tr>
+<tr>
+<td>OOM 频率</td>
+<td>3 天一次</td>
+<td>7 天 0 次</td>
+<td>-</td>
+</tr>
+<tr>
+<td>堆内存稳定</td>
+<td>3 天涨满</td>
+<td>稳定 1.2G</td>
+<td>-</td>
+</tr>
+<tr>
+<td>对象体积（Doc）</td>
+<td>关闭压缩 80B</td>
+<td>开启压缩 56B</td>
+<td>-30%</td>
+</tr>
+</tbody></table>
+<h3 id="7-2-调优检查清单"><a href="#7-2-调优检查清单" class="headerlink" title="7.2 调优检查清单"></a>7.2 调优检查清单</h3><ol>
+<li><input disabled="" type="checkbox"> <code>-Xms = -Xmx</code>，避免动态扩缩</li>
+<li><input disabled="" type="checkbox"> G1 + <code>MaxGCPauseMillis</code> 设目标</li>
+<li><input disabled="" type="checkbox"> <code>HeapDumpOnOutOfMemoryError</code> 必开</li>
+<li><input disabled="" type="checkbox"> GC 日志开启（<code>-Xlog:gc*</code>）</li>
+<li><input disabled="" type="checkbox"> 压缩指针默认开启（<code>UseCompressedOops</code>）</li>
+<li><input disabled="" type="checkbox"> ThreadLocal 必须 <code>remove()</code>（拦截器&#x2F;异步任务 finally）</li>
+<li><input disabled="" type="checkbox"> 线程池 TTL 包装传递上下文</li>
+<li><input disabled="" type="checkbox"> Netty ByteBuf 断连释放</li>
+<li><input disabled="" type="checkbox"> 大对象（&gt;2M）不入堆（走对象存储）</li>
+<li><input disabled="" type="checkbox"> 容器感知参数（<code>UseContainerSupport</code>）</li>
+</ol>
+<hr>
+<p><em>报告完。GC&#x2F;MAT&#x2F;JOL 数据为模拟分析，生产需以实际 dump 为准。</em></p>
+<hr>
+<h2 id="系列导航"><a href="#系列导航" class="headerlink" title="系列导航"></a>系列导航</h2><p>本文属于《项目实战》系列，系列入口见 <a href="/post/project-nav.html">项目实战导航</a>，配套体系见 <a href="/post/720ca998.html">Java 后端面试导航</a> 与 <a href="/post/blog-index.html">博客导航</a>。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/5e9c8515.html" rel="prev" title="Zeus-Doc 性能压测实战">
+                  <i class="fa fa-angle-left"></i> Zeus-Doc 性能压测实战
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/post/4a17b156.html" rel="next" title="Hello World">
+                  Hello World <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">495k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">30:01</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>
