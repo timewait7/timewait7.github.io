@@ -19,16 +19,16 @@
 
 <script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
 
-    <meta name="description" content="本文是《面试-Java》的 JVM 专题独立篇。覆盖 JVM 内存模型、对象生命周期、类加载机制、性能指标与调优方法论、垃圾回收、内存溢出排查、调优实战案例七大模块。每一节都按”为什么需要了解 → 怎么工作的 → 面试怎么答“组织，力求背得下来、讲得清楚、用得上。  1. JVM 内存模型（不是背诵区域名，而是理解”数据存在哪里、为什么”）为什么需要了解：几乎所有 JVM 问题——OOM、GC">
+    <meta name="description" content="本文是《面试-Java》的 JVM 专题独立篇。覆盖 JVM 内存模型、对象生命周期、类加载机制、性能指标与调优方法论、垃圾回收、内存溢出排查、调优实战案例七大模块。每一节都按”为什么需要了解 → 怎么工作的 → 面试怎么答“组织，力求背得下来、讲得清楚、用得上。  1. JVM 内存模型为什么需要了解：几乎所有 JVM 问题——OOM、GC 停顿、调优——最后都会落到”某块内存区域的数据太多或">
 <meta property="og:type" content="article">
 <meta property="og:title" content="JVM 原理与调优">
 <meta property="og:url" content="http://timewait7.github.io/post/4e153c5e.html">
 <meta property="og:site_name" content="知行栈">
-<meta property="og:description" content="本文是《面试-Java》的 JVM 专题独立篇。覆盖 JVM 内存模型、对象生命周期、类加载机制、性能指标与调优方法论、垃圾回收、内存溢出排查、调优实战案例七大模块。每一节都按”为什么需要了解 → 怎么工作的 → 面试怎么答“组织，力求背得下来、讲得清楚、用得上。  1. JVM 内存模型（不是背诵区域名，而是理解”数据存在哪里、为什么”）为什么需要了解：几乎所有 JVM 问题——OOM、GC">
+<meta property="og:description" content="本文是《面试-Java》的 JVM 专题独立篇。覆盖 JVM 内存模型、对象生命周期、类加载机制、性能指标与调优方法论、垃圾回收、内存溢出排查、调优实战案例七大模块。每一节都按”为什么需要了解 → 怎么工作的 → 面试怎么答“组织，力求背得下来、讲得清楚、用得上。  1. JVM 内存模型为什么需要了解：几乎所有 JVM 问题——OOM、GC 停顿、调优——最后都会落到”某块内存区域的数据太多或">
 <meta property="og:locale" content="en_US">
 <meta property="og:image" content="http://timewait7.github.io/assets/java-interview/%E9%9D%A2%E8%AF%95-Java/image-20250725203542235.png">
 <meta property="article:published_time" content="2025-07-26T11:19:10.000Z">
-<meta property="article:modified_time" content="2026-08-09T05:50:33.674Z">
+<meta property="article:modified_time" content="2026-08-10T16:36:16.352Z">
 <meta name="twitter:card" content="summary">
 <meta name="twitter:image" content="http://timewait7.github.io/assets/java-interview/%E9%9D%A2%E8%AF%95-Java/image-20250725203542235.png">
 
@@ -83,7 +83,9 @@
   <noscript>
     <link rel="stylesheet" href="/css/noscript.css">
   </noscript>
-<link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
+<!-- hexo injector head_end start --><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
+</style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
 </head>
 
 <body itemscope itemtype="http://schema.org/WebPage">
@@ -170,7 +172,7 @@
       <div class="sidebar-panel-container">
         <!--noindex-->
         <div class="post-toc-wrap sidebar-panel">
-            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-JVM-%E5%86%85%E5%AD%98%E6%A8%A1%E5%9E%8B%EF%BC%88%E4%B8%8D%E6%98%AF%E8%83%8C%E8%AF%B5%E5%8C%BA%E5%9F%9F%E5%90%8D%EF%BC%8C%E8%80%8C%E6%98%AF%E7%90%86%E8%A7%A3%E2%80%9D%E6%95%B0%E6%8D%AE%E5%AD%98%E5%9C%A8%E5%93%AA%E9%87%8C%E3%80%81%E4%B8%BA%E4%BB%80%E4%B9%88%E2%80%9D%EF%BC%89"><span class="nav-text">1. JVM 内存模型（不是背诵区域名，而是理解”数据存在哪里、为什么”）</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-%E8%BF%90%E8%A1%8C%E6%97%B6%E6%95%B0%E6%8D%AE%E5%8C%BA%E5%85%A8%E6%99%AF"><span class="nav-text">1.1 运行时数据区全景</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-2-%E5%A0%86%E5%86%85%E5%AD%98%E7%BB%86%E5%88%86"><span class="nav-text">1.2 堆内存细分</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-3-%E5%85%83%E7%A9%BA%E9%97%B4-vs-%E6%B0%B8%E4%B9%85%E4%BB%A3"><span class="nav-text">1.3 元空间 vs 永久代</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E5%AF%B9%E8%B1%A1%E7%9A%84%E7%94%9F%E5%91%BD%E5%91%A8%E6%9C%9F"><span class="nav-text">2. 对象的生命周期</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E5%AF%B9%E8%B1%A1%E5%88%9B%E5%BB%BA%E8%BF%87%E7%A8%8B%EF%BC%88%E7%B1%BB%E5%8A%A0%E8%BD%BD%E6%A3%80%E6%9F%A5-%E2%86%92-%E5%88%86%E9%85%8D%E5%86%85%E5%AD%98-%E2%86%92-%E5%88%9D%E5%A7%8B%E5%8C%96%E9%9B%B6%E5%80%BC-%E2%86%92-%E8%AE%BE%E7%BD%AE%E5%AF%B9%E8%B1%A1%E5%A4%B4-%E2%86%92-init%EF%BC%89"><span class="nav-text">2.1 对象创建过程（类加载检查 → 分配内存 → 初始化零值 → 设置对象头 → init）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E5%AF%B9%E8%B1%A1%E7%9A%84%E5%86%85%E5%AD%98%E5%B8%83%E5%B1%80%EF%BC%88Mark-Word-Klass-Pointer-%E5%AE%9E%E4%BE%8B%E6%95%B0%E6%8D%AE-%E5%AF%B9%E9%BD%90%E5%A1%AB%E5%85%85%EF%BC%89"><span class="nav-text">2.2 对象的内存布局（Mark Word + Klass Pointer + 实例数据 + 对齐填充）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-%E5%AF%B9%E8%B1%A1%E7%9A%84%E8%AE%BF%E9%97%AE%E5%AE%9A%E4%BD%8D%EF%BC%88%E5%8F%A5%E6%9F%84-vs-%E7%9B%B4%E6%8E%A5%E6%8C%87%E9%92%88%EF%BC%89"><span class="nav-text">2.3 对象的访问定位（句柄 vs 直接指针）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-4-%E5%AF%B9%E8%B1%A1%E6%99%8B%E5%8D%87%E5%88%B0%E8%80%81%E5%B9%B4%E4%BB%A3%E7%9A%84%E8%B7%AF%E5%BE%84%EF%BC%88%E5%B9%B4%E9%BE%84%E9%98%88%E5%80%BC%E3%80%81%E5%8A%A8%E6%80%81%E5%B9%B4%E9%BE%84%E5%88%A4%E6%96%AD%E3%80%81%E7%A9%BA%E9%97%B4%E5%88%86%E9%85%8D%E6%8B%85%E4%BF%9D%EF%BC%89"><span class="nav-text">2.4 对象晋升到老年代的路径（年龄阈值、动态年龄判断、空间分配担保）</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E7%B1%BB%E5%8A%A0%E8%BD%BD%E6%9C%BA%E5%88%B6"><span class="nav-text">3. 类加载机制</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E7%B1%BB%E7%9A%84%E7%94%9F%E5%91%BD%E5%91%A8%E6%9C%9F%EF%BC%88%E5%8A%A0%E8%BD%BD-%E2%86%92-%E9%AA%8C%E8%AF%81-%E2%86%92-%E5%87%86%E5%A4%87-%E2%86%92-%E8%A7%A3%E6%9E%90-%E2%86%92-%E5%88%9D%E5%A7%8B%E5%8C%96-%E2%86%92-%E4%BD%BF%E7%94%A8-%E2%86%92-%E5%8D%B8%E8%BD%BD%EF%BC%89"><span class="nav-text">3.1 类的生命周期（加载 → 验证 → 准备 → 解析 → 初始化 → 使用 → 卸载）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E7%B1%BB%E5%8A%A0%E8%BD%BD%E5%99%A8%EF%BC%88Bootstrap-%E2%86%92-Platform-%E2%86%92-Application%EF%BC%8CJDK-9-%E7%9A%84%E6%A8%A1%E5%9D%97%E5%8C%96%E7%B1%BB%E5%8A%A0%E8%BD%BD%E5%99%A8%EF%BC%89"><span class="nav-text">3.2 类加载器（Bootstrap → Platform → Application，JDK 9+ 的模块化类加载器）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-%E5%8F%8C%E4%BA%B2%E5%A7%94%E6%B4%BE%E6%A8%A1%E5%9E%8B%EF%BC%88%E4%B8%BA%E4%BB%80%E4%B9%88%E8%A6%81%E5%8F%8C%E4%BA%B2%E5%A7%94%E6%B4%BE%E3%80%81%E5%A6%82%E4%BD%95%E6%89%93%E7%A0%B4%E3%80%81Tomcat-%E7%9A%84-WebAppClassLoader%EF%BC%89"><span class="nav-text">3.3 双亲委派模型（为什么要双亲委派、如何打破、Tomcat 的 WebAppClassLoader）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-4-%E7%BA%BF%E7%A8%8B%E4%B8%8A%E4%B8%8B%E6%96%87%E7%B1%BB%E5%8A%A0%E8%BD%BD%E5%99%A8%EF%BC%88SPI-%E6%9C%BA%E5%88%B6%E7%9A%84%E5%9F%BA%E7%A1%80%EF%BC%89"><span class="nav-text">3.4 线程上下文类加载器（SPI 机制的基础）</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E6%80%A7%E8%83%BD%E6%8C%87%E6%A0%87%E4%B8%8E%E8%B0%83%E4%BC%98%E6%96%B9%E6%B3%95%E8%AE%BA"><span class="nav-text">4. 性能指标与调优方法论</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-RT%E3%80%81TPS%E3%80%81QPS%E3%80%81%E5%B9%B6%E5%8F%91%E6%95%B0%E2%80%94%E2%80%94%E5%9B%9B%E4%B8%AA%E6%A0%B8%E5%BF%83%E6%8C%87%E6%A0%87"><span class="nav-text">4.1 RT、TPS、QPS、并发数——四个核心指标</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-3S-%E5%AE%9A%E7%90%86%EF%BC%88Speed%E3%80%81Scalability%E3%80%81Stability%EF%BC%89"><span class="nav-text">4.2 3S 定理（Speed、Scalability、Stability）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-%E6%A2%AF%E5%BA%A6%E5%8E%8B%E6%B5%8B%EF%BC%88200-%E2%86%92-500-%E2%86%92-1000-%E2%86%92-2000-%E2%86%92-5000%EF%BC%89"><span class="nav-text">4.3 梯度压测（200 → 500 → 1000 → 2000 → 5000）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-4-%E5%8E%8B%E6%B5%8B%E5%B7%A5%E5%85%B7%E7%AE%80%E4%BB%8B%EF%BC%88JMeter-wrk-ab%EF%BC%89"><span class="nav-text">4.4 压测工具简介（JMeter &#x2F; wrk &#x2F; ab）</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E5%9E%83%E5%9C%BE%E5%9B%9E%E6%94%B6%EF%BC%88%E8%BF%99%E6%98%AF%E9%9D%A2%E8%AF%95%E6%9C%80%E6%A0%B8%E5%BF%83%E7%9A%84-JVM-%E8%80%83%E7%82%B9%EF%BC%89"><span class="nav-text">5. 垃圾回收（这是面试最核心的 JVM 考点）</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E5%A6%82%E4%BD%95%E5%88%A4%E6%96%AD%E5%AF%B9%E8%B1%A1%E5%B7%B2%E6%AD%BB"><span class="nav-text">5.1 如何判断对象已死</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%BC%95%E7%94%A8%E8%AE%A1%E6%95%B0%E6%B3%95%EF%BC%88%E4%B8%BA%E4%BB%80%E4%B9%88%E4%B8%8D%E9%87%87%E7%94%A8%EF%BC%89"><span class="nav-text">引用计数法（为什么不采用）</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%8F%AF%E8%BE%BE%E6%80%A7%E5%88%86%E6%9E%90%EF%BC%88GC-Roots-%E6%9C%89%E5%93%AA%E4%BA%9B%EF%BC%89"><span class="nav-text">可达性分析（GC Roots 有哪些）</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E4%B8%A4%E6%AC%A1%E6%A0%87%E8%AE%B0%E4%B8%8E-finalize-%E7%9A%84%E5%BA%9F%E5%BC%83"><span class="nav-text">两次标记与 finalize() 的废弃</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%9B%9B%E7%A7%8D%E5%BC%95%E7%94%A8%E7%B1%BB%E5%9E%8B%EF%BC%88%E5%90%84%E6%9C%89%E4%BB%80%E4%B9%88%E5%AE%9E%E9%99%85%E7%94%A8%E9%80%94%EF%BC%89"><span class="nav-text">四种引用类型（各有什么实际用途）</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E5%9E%83%E5%9C%BE%E6%94%B6%E9%9B%86%E7%AE%97%E6%B3%95"><span class="nav-text">5.2 垃圾收集算法</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-%E7%BB%8F%E5%85%B8%E5%9E%83%E5%9C%BE%E6%94%B6%E9%9B%86%E5%99%A8"><span class="nav-text">5.3 经典垃圾收集器</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E6%96%B0%E7%94%9F%E4%BB%A3%E4%B8%89%E5%89%91%E5%AE%A2%EF%BC%9ASerial-ParNew-Parallel-Scavenge"><span class="nav-text">新生代三剑客：Serial &#x2F; ParNew &#x2F; Parallel Scavenge</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#CMS%EF%BC%9A%E5%9B%9B%E4%B8%AA%E9%98%B6%E6%AE%B5%E8%AF%A6%E8%A7%A3%E3%80%81%E4%BC%98%E7%BC%BA%E7%82%B9%E3%80%81%E4%B8%BA%E4%BB%80%E4%B9%88%E8%A2%AB%E5%BA%9F%E5%BC%83%EF%BC%88JDK-14-%E7%A7%BB%E9%99%A4%EF%BC%89"><span class="nav-text">CMS：四个阶段详解、优缺点、为什么被废弃（JDK 14 移除）</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#G1%EF%BC%9ARegion-%E5%B8%83%E5%B1%80%E3%80%81Young-GC-Mixed-GC-Full-GC%E3%80%81RSet-%E5%92%8C-SATB"><span class="nav-text">G1：Region 布局、Young GC &#x2F; Mixed GC &#x2F; Full GC、RSet 和 SATB</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E7%AE%80%E8%A6%81%EF%BC%9AZGC-%E5%92%8C-Shenandoah%EF%BC%88%E8%A7%A3%E5%86%B3%E4%BA%86%E4%BB%80%E4%B9%88%E9%97%AE%E9%A2%98%EF%BC%89"><span class="nav-text">简要：ZGC 和 Shenandoah（解决了什么问题）</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-GC-%E6%97%A5%E5%BF%97%E4%B8%8E%E8%B0%83%E4%BC%98"><span class="nav-text">5.4 GC 日志与调优</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#6-%E5%86%85%E5%AD%98%E6%BA%A2%E5%87%BA%E4%B8%8E%E5%86%85%E5%AD%98%E6%B3%84%E6%BC%8F%E6%8E%92%E6%9F%A5"><span class="nav-text">6. 内存溢出与内存泄漏排查</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#6-1-OOM-%E7%9A%84%E5%B8%B8%E8%A7%81%E7%B1%BB%E5%9E%8B%EF%BC%88heap%E3%80%81metaspace%E3%80%81direct-memory%E3%80%81thread%EF%BC%89"><span class="nav-text">6.1 OOM 的常见类型（heap、metaspace、direct memory、thread）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-2-%E6%8E%92%E6%9F%A5%E5%B7%A5%E5%85%B7%E5%92%8C%E6%96%B9%E6%B3%95"><span class="nav-text">6.2 排查工具和方法</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%9B%9B%E5%A4%A7%E5%91%BD%E4%BB%A4%E8%A1%8C%E5%B7%A5%E5%85%B7%EF%BC%9Ajmap-jstack-jstat-jcmd"><span class="nav-text">四大命令行工具：jmap &#x2F; jstack &#x2F; jstat &#x2F; jcmd</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#MAT-JProfiler-%E5%88%86%E6%9E%90-dump-%E6%96%87%E4%BB%B6"><span class="nav-text">MAT &#x2F; JProfiler 分析 dump 文件</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#Arthas-%E5%9C%A8%E7%BA%BF%E8%AF%8A%E6%96%AD%EF%BC%88%E6%97%A0%E9%9C%80%E9%87%8D%E5%90%AF%E3%80%81%E7%94%9F%E4%BA%A7%E5%8F%AF%E7%94%A8%EF%BC%89"><span class="nav-text">Arthas 在线诊断（无需重启、生产可用）</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-3-%E5%AE%9E%E6%88%98%EF%BC%9A%E4%B8%80%E4%B8%AA%E5%AE%8C%E6%95%B4%E7%9A%84-OOM-%E6%8E%92%E6%9F%A5%E6%B5%81%E7%A8%8B%EF%BC%88%E4%BF%9D%E7%95%99%E5%8E%9F%E6%96%87%E7%9A%84%E6%A8%A1%E6%8B%9F%E7%A8%8B%E5%BA%8F%E5%A2%9E%E5%BC%BA%E4%B8%BA%E5%AE%8C%E6%95%B4%E7%9A%84%E6%8E%92%E6%9F%A5%E6%95%85%E4%BA%8B%EF%BC%89"><span class="nav-text">6.3 实战：一个完整的 OOM 排查流程（保留原文的模拟程序增强为完整的排查故事）</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#7-%E8%B0%83%E4%BC%98%E5%AE%9E%E6%88%98%E6%A1%88%E4%BE%8B"><span class="nav-text">7. 调优实战案例</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#7-1-%E5%90%9E%E5%90%90%E9%87%8F%E4%BC%98%E5%85%88%E6%A1%88%E4%BE%8B%EF%BC%88Parallel-Scavenge-Parallel-Old%EF%BC%89"><span class="nav-text">7.1 吞吐量优先案例（Parallel Scavenge + Parallel Old）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-2-%E5%93%8D%E5%BA%94%E6%97%B6%E9%97%B4%E4%BC%98%E5%85%88%E6%A1%88%E4%BE%8B%EF%BC%88G1%EF%BC%89"><span class="nav-text">7.2 响应时间优先案例（G1）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-3-%E6%AD%BB%E9%94%81%E6%8E%92%E6%9F%A5%E5%AE%8C%E6%95%B4%E6%A1%88%E4%BE%8B%EF%BC%88jstack-Arthas%EF%BC%89"><span class="nav-text">7.3 死锁排查完整案例（jstack + Arthas）</span></a></li></ol></li></ol></div>
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-JVM-%E5%86%85%E5%AD%98%E6%A8%A1%E5%9E%8B"><span class="nav-text">1. JVM 内存模型</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-%E8%BF%90%E8%A1%8C%E6%97%B6%E6%95%B0%E6%8D%AE%E5%8C%BA%E5%85%A8%E6%99%AF"><span class="nav-text">1.1 运行时数据区全景</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-2-%E5%A0%86%E5%86%85%E5%AD%98%E7%BB%86%E5%88%86"><span class="nav-text">1.2 堆内存细分</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-3-%E5%85%83%E7%A9%BA%E9%97%B4-vs-%E6%B0%B8%E4%B9%85%E4%BB%A3"><span class="nav-text">1.3 元空间 vs 永久代</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E5%AF%B9%E8%B1%A1%E7%9A%84%E7%94%9F%E5%91%BD%E5%91%A8%E6%9C%9F"><span class="nav-text">2. 对象的生命周期</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E5%AF%B9%E8%B1%A1%E5%88%9B%E5%BB%BA%E8%BF%87%E7%A8%8B"><span class="nav-text">2.1 对象创建过程</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E5%AF%B9%E8%B1%A1%E7%9A%84%E5%86%85%E5%AD%98%E5%B8%83%E5%B1%80%EF%BC%88Mark-Word-Klass-Pointer-%E5%AE%9E%E4%BE%8B%E6%95%B0%E6%8D%AE-%E5%AF%B9%E9%BD%90%E5%A1%AB%E5%85%85%EF%BC%89"><span class="nav-text">2.2 对象的内存布局（Mark Word + Klass Pointer + 实例数据 + 对齐填充）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-%E5%AF%B9%E8%B1%A1%E7%9A%84%E8%AE%BF%E9%97%AE%E5%AE%9A%E4%BD%8D%EF%BC%88%E5%8F%A5%E6%9F%84-vs-%E7%9B%B4%E6%8E%A5%E6%8C%87%E9%92%88%EF%BC%89"><span class="nav-text">2.3 对象的访问定位（句柄 vs 直接指针）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-4-%E5%AF%B9%E8%B1%A1%E6%99%8B%E5%8D%87%E5%88%B0%E8%80%81%E5%B9%B4%E4%BB%A3%E7%9A%84%E8%B7%AF%E5%BE%84%EF%BC%88%E5%B9%B4%E9%BE%84%E9%98%88%E5%80%BC%E3%80%81%E5%8A%A8%E6%80%81%E5%B9%B4%E9%BE%84%E5%88%A4%E6%96%AD%E3%80%81%E7%A9%BA%E9%97%B4%E5%88%86%E9%85%8D%E6%8B%85%E4%BF%9D%EF%BC%89"><span class="nav-text">2.4 对象晋升到老年代的路径（年龄阈值、动态年龄判断、空间分配担保）</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E7%B1%BB%E5%8A%A0%E8%BD%BD%E6%9C%BA%E5%88%B6"><span class="nav-text">3. 类加载机制</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E7%B1%BB%E7%9A%84%E7%94%9F%E5%91%BD%E5%91%A8%E6%9C%9F"><span class="nav-text">3.1 类的生命周期</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E7%B1%BB%E5%8A%A0%E8%BD%BD%E5%99%A8%EF%BC%88Bootstrap-%E2%86%92-Platform-%E2%86%92-Application%EF%BC%8CJDK-9-%E7%9A%84%E6%A8%A1%E5%9D%97%E5%8C%96%E7%B1%BB%E5%8A%A0%E8%BD%BD%E5%99%A8%EF%BC%89"><span class="nav-text">3.2 类加载器（Bootstrap → Platform → Application，JDK 9+ 的模块化类加载器）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-%E5%8F%8C%E4%BA%B2%E5%A7%94%E6%B4%BE%E6%A8%A1%E5%9E%8B"><span class="nav-text">3.3 双亲委派模型</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-4-%E7%BA%BF%E7%A8%8B%E4%B8%8A%E4%B8%8B%E6%96%87%E7%B1%BB%E5%8A%A0%E8%BD%BD%E5%99%A8"><span class="nav-text">3.4 线程上下文类加载器</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E6%80%A7%E8%83%BD%E6%8C%87%E6%A0%87%E4%B8%8E%E8%B0%83%E4%BC%98%E6%96%B9%E6%B3%95%E8%AE%BA"><span class="nav-text">4. 性能指标与调优方法论</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-RT%E3%80%81TPS%E3%80%81QPS%E3%80%81%E5%B9%B6%E5%8F%91%E6%95%B0%E2%80%94%E2%80%94%E5%9B%9B%E4%B8%AA%E6%A0%B8%E5%BF%83%E6%8C%87%E6%A0%87"><span class="nav-text">4.1 RT、TPS、QPS、并发数——四个核心指标</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-3S-%E5%AE%9A%E7%90%86%EF%BC%88Speed%E3%80%81Scalability%E3%80%81Stability%EF%BC%89"><span class="nav-text">4.2 3S 定理（Speed、Scalability、Stability）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-%E6%A2%AF%E5%BA%A6%E5%8E%8B%E6%B5%8B%EF%BC%88200-%E2%86%92-500-%E2%86%92-1000-%E2%86%92-2000-%E2%86%92-5000%EF%BC%89"><span class="nav-text">4.3 梯度压测（200 → 500 → 1000 → 2000 → 5000）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-4-%E5%8E%8B%E6%B5%8B%E5%B7%A5%E5%85%B7%E7%AE%80%E4%BB%8B%EF%BC%88JMeter-wrk-ab%EF%BC%89"><span class="nav-text">4.4 压测工具简介（JMeter &#x2F; wrk &#x2F; ab）</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E5%9E%83%E5%9C%BE%E5%9B%9E%E6%94%B6"><span class="nav-text">5. 垃圾回收</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E5%A6%82%E4%BD%95%E5%88%A4%E6%96%AD%E5%AF%B9%E8%B1%A1%E5%B7%B2%E6%AD%BB"><span class="nav-text">5.1 如何判断对象已死</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%BC%95%E7%94%A8%E8%AE%A1%E6%95%B0%E6%B3%95"><span class="nav-text">引用计数法</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%8F%AF%E8%BE%BE%E6%80%A7%E5%88%86%E6%9E%90"><span class="nav-text">可达性分析</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E4%B8%A4%E6%AC%A1%E6%A0%87%E8%AE%B0%E4%B8%8E-finalize-%E7%9A%84%E5%BA%9F%E5%BC%83"><span class="nav-text">两次标记与 finalize() 的废弃</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%9B%9B%E7%A7%8D%E5%BC%95%E7%94%A8%E7%B1%BB%E5%9E%8B"><span class="nav-text">四种引用类型</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E5%9E%83%E5%9C%BE%E6%94%B6%E9%9B%86%E7%AE%97%E6%B3%95"><span class="nav-text">5.2 垃圾收集算法</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-%E7%BB%8F%E5%85%B8%E5%9E%83%E5%9C%BE%E6%94%B6%E9%9B%86%E5%99%A8"><span class="nav-text">5.3 经典垃圾收集器</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E6%96%B0%E7%94%9F%E4%BB%A3%E4%B8%89%E5%89%91%E5%AE%A2%EF%BC%9ASerial-ParNew-Parallel-Scavenge"><span class="nav-text">新生代三剑客：Serial &#x2F; ParNew &#x2F; Parallel Scavenge</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#CMS%EF%BC%9A%E5%9B%9B%E4%B8%AA%E9%98%B6%E6%AE%B5%E8%AF%A6%E8%A7%A3%E3%80%81%E4%BC%98%E7%BC%BA%E7%82%B9%E3%80%81%E4%B8%BA%E4%BB%80%E4%B9%88%E8%A2%AB%E5%BA%9F%E5%BC%83"><span class="nav-text">CMS：四个阶段详解、优缺点、为什么被废弃</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#G1%EF%BC%9ARegion-%E5%B8%83%E5%B1%80%E3%80%81Young-GC-Mixed-GC-Full-GC%E3%80%81RSet-%E5%92%8C-SATB"><span class="nav-text">G1：Region 布局、Young GC &#x2F; Mixed GC &#x2F; Full GC、RSet 和 SATB</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E7%AE%80%E8%A6%81%EF%BC%9AZGC-%E5%92%8C-Shenandoah"><span class="nav-text">简要：ZGC 和 Shenandoah</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-GC-%E6%97%A5%E5%BF%97%E4%B8%8E%E8%B0%83%E4%BC%98"><span class="nav-text">5.4 GC 日志与调优</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#6-%E5%86%85%E5%AD%98%E6%BA%A2%E5%87%BA%E4%B8%8E%E5%86%85%E5%AD%98%E6%B3%84%E6%BC%8F%E6%8E%92%E6%9F%A5"><span class="nav-text">6. 内存溢出与内存泄漏排查</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#6-1-OOM-%E7%9A%84%E5%B8%B8%E8%A7%81%E7%B1%BB%E5%9E%8B%EF%BC%88heap%E3%80%81metaspace%E3%80%81direct-memory%E3%80%81thread%EF%BC%89"><span class="nav-text">6.1 OOM 的常见类型（heap、metaspace、direct memory、thread）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-2-%E6%8E%92%E6%9F%A5%E5%B7%A5%E5%85%B7%E5%92%8C%E6%96%B9%E6%B3%95"><span class="nav-text">6.2 排查工具和方法</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%9B%9B%E5%A4%A7%E5%91%BD%E4%BB%A4%E8%A1%8C%E5%B7%A5%E5%85%B7%EF%BC%9Ajmap-jstack-jstat-jcmd"><span class="nav-text">四大命令行工具：jmap &#x2F; jstack &#x2F; jstat &#x2F; jcmd</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#MAT-JProfiler-%E5%88%86%E6%9E%90-dump-%E6%96%87%E4%BB%B6"><span class="nav-text">MAT &#x2F; JProfiler 分析 dump 文件</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#Arthas-%E5%9C%A8%E7%BA%BF%E8%AF%8A%E6%96%AD"><span class="nav-text">Arthas 在线诊断</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-3-%E5%AE%9E%E6%88%98%EF%BC%9A%E4%B8%80%E4%B8%AA%E5%AE%8C%E6%95%B4%E7%9A%84-OOM-%E6%8E%92%E6%9F%A5%E6%B5%81%E7%A8%8B"><span class="nav-text">6.3 实战：一个完整的 OOM 排查流程</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#7-%E8%B0%83%E4%BC%98%E5%AE%9E%E6%88%98%E6%A1%88%E4%BE%8B"><span class="nav-text">7. 调优实战案例</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#7-1-%E5%90%9E%E5%90%90%E9%87%8F%E4%BC%98%E5%85%88%E6%A1%88%E4%BE%8B%EF%BC%88Parallel-Scavenge-Parallel-Old%EF%BC%89"><span class="nav-text">7.1 吞吐量优先案例（Parallel Scavenge + Parallel Old）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-2-%E5%93%8D%E5%BA%94%E6%97%B6%E9%97%B4%E4%BC%98%E5%85%88%E6%A1%88%E4%BE%8B%EF%BC%88G1%EF%BC%89"><span class="nav-text">7.2 响应时间优先案例（G1）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-3-%E6%AD%BB%E9%94%81%E6%8E%92%E6%9F%A5%E5%AE%8C%E6%95%B4%E6%A1%88%E4%BE%8B%EF%BC%88jstack-Arthas%EF%BC%89"><span class="nav-text">7.3 死锁排查完整案例（jstack + Arthas）</span></a></li></ol></li></ol></div>
         </div>
         <!--/noindex-->
 
@@ -211,42 +213,6 @@
     
         <div class="pjax">
         
-        <div class="sidebar-inner sidebar-post-related">
-          <div class="animated">
-              <div class="links-of-blogroll-title"><i class="fa fa-signs-post fa-fw"></i>
-    Related Posts
-  </div>
-  <ul class="popular-posts">
-    <li class="popular-posts-item">
-      <a class="popular-posts-link" href="/post/720ca998.html" rel="bookmark">
-        <time class="popular-posts-time">2026-08-06</time>
-        <br>
-      Java 后端面试导航
-      </a>
-    </li>
-    <li class="popular-posts-item">
-      <a class="popular-posts-link" href="/post/9787b587.html" rel="bookmark">
-        <time class="popular-posts-time">2025-07-26</time>
-        <br>
-      分布式系统核心理论
-      </a>
-    </li>
-    <li class="popular-posts-item">
-      <a class="popular-posts-link" href="/post/mysql-ha-2025.html" rel="bookmark">
-        <time class="popular-posts-time">2025-10-10</time>
-        <br>
-      MySQL 高可用与分库分表实战
-      </a>
-    </li>
-    <li class="popular-posts-item">
-      <a class="popular-posts-link" href="/" rel="bookmark">
-      
-      </a>
-    </li>
-  </ul>
-
-          </div>
-        </div>
         </div>
   </aside>
 
@@ -273,6 +239,10 @@
 
       
   <li class="menu-item menu-item-misc"><a href="/docs/nav/misc-nav.html" rel="section"><i class="fa fa-box fa-fw"></i>Misc</a></li>
+
+
+      
+  <li class="menu-item menu-item-随笔·生活"><a href="/docs/nav/life-nav.html" rel="section"><i class="fa fa-feather fa-fw"></i>随笔·生活</a></li>
 
 
     </ul>
@@ -382,7 +352,7 @@
         <i class="far fa-file-word"></i>
       </span>
       <span class="post-meta-item-text">Word count in article: </span>
-      <span>20k</span>
+      <span>19k</span>
     </span>
     <span class="post-meta-item" title="Reading time">
       <span class="post-meta-item-icon">
@@ -402,7 +372,7 @@
     <div class="post-body" itemprop="articleBody"><blockquote>
 <p>本文是《面试-Java》的 JVM 专题独立篇。覆盖 JVM 内存模型、对象生命周期、类加载机制、性能指标与调优方法论、垃圾回收、内存溢出排查、调优实战案例七大模块。每一节都按”<strong>为什么需要了解 → 怎么工作的 → 面试怎么答</strong>“组织，力求背得下来、讲得清楚、用得上。</p>
 </blockquote>
-<h2 id="1-JVM-内存模型（不是背诵区域名，而是理解”数据存在哪里、为什么”）"><a href="#1-JVM-内存模型（不是背诵区域名，而是理解”数据存在哪里、为什么”）" class="headerlink" title="1. JVM 内存模型（不是背诵区域名，而是理解”数据存在哪里、为什么”）"></a>1. JVM 内存模型（不是背诵区域名，而是理解”数据存在哪里、为什么”）</h2><p><strong>为什么需要了解</strong>：几乎所有 JVM 问题——OOM、GC 停顿、调优——最后都会落到”<strong>某块内存区域的数据太多或回收太慢</strong>“上。背出五个区域的名字没有价值，面试官真正想听的是：<em>你写的每一个变量、每一个 new 出来的对象，在 JVM 里到底待在哪、由谁负责回收、什么时候会出问题</em>。</p>
+<h2 id="1-JVM-内存模型"><a href="#1-JVM-内存模型" class="headerlink" title="1. JVM 内存模型"></a>1. JVM 内存模型</h2><p><strong>为什么需要了解</strong>：几乎所有 JVM 问题——OOM、GC 停顿、调优——最后都会落到”<strong>某块内存区域的数据太多或回收太慢</strong>“上。背出五个区域的名字没有价值，面试官真正想听的是：<em>你写的每一个变量、每一个 new 出来的对象，在 JVM 里到底待在哪、由谁负责回收、什么时候会出问题</em>。</p>
 <h3 id="1-1-运行时数据区全景"><a href="#1-1-运行时数据区全景" class="headerlink" title="1.1 运行时数据区全景"></a>1.1 运行时数据区全景</h3><p>JVM 规范把运行时内存划分为 6 个区域（HotSpot 是其中最常见的实现）：</p>
 <table>
 <thead>
@@ -604,7 +574,7 @@
 <p><strong>元空间的 OOM 场景</strong>：动态生成类不受控——CGLIB&#x2F;ByteBuddy 代理、JSP 首次访问编译、Groovy 脚本热加载、应用热部署且不卸载旧类加载器。症状是 <code>java.lang.OutOfMemoryError: Metaspace</code>，排查重点是”谁在不停造新类”，而不是堆。</p>
 <p><strong>面试怎么答</strong>：答案四段式——① 永久代是方法区在 HotSpot 的实现，元空间是它的替代；② 迁移原因：大小难预估、字符串池拖累、回收代价高、融合 JRockit；③ 关键差异：本地内存、默认无上限；④ 参数考点：<code>MetaspaceSize</code> 是触发阈值不是上限。再主动补一句”实际中元空间 OOM 常见于动态代理和热部署”。</p>
 <h2 id="2-对象的生命周期"><a href="#2-对象的生命周期" class="headerlink" title="2. 对象的生命周期"></a>2. 对象的生命周期</h2><p><strong>为什么需要了解</strong>：<code>new</code> 一个对象背后发生的事、对象在内存里长什么样、JVM 怎么找到它、它什么时候进老年代——这四件事串起来就是”一个 Java 对象的一生”。面试官问对象相关问题时，八成在问这条流水线的某个环节。</p>
-<h3 id="2-1-对象创建过程（类加载检查-→-分配内存-→-初始化零值-→-设置对象头-→-init）"><a href="#2-1-对象创建过程（类加载检查-→-分配内存-→-初始化零值-→-设置对象头-→-init）" class="headerlink" title="2.1 对象创建过程（类加载检查 → 分配内存 → 初始化零值 → 设置对象头 → init）"></a>2.1 对象创建过程（类加载检查 → 分配内存 → 初始化零值 → 设置对象头 → init）</h3><p>以 <code>new</code> 指令为例（HotSpot 视角，五步）：</p>
+<h3 id="2-1-对象创建过程"><a href="#2-1-对象创建过程" class="headerlink" title="2.1 对象创建过程"></a>2.1 对象创建过程</h3><p>以 <code>new</code> 指令为例（HotSpot 视角，五步）：</p>
 <ol>
 <li><strong>类加载检查</strong>：<code>new</code> 指令在常量池中定位类的符号引用，检查该类是否已加载、解析、初始化。未加载则先执行类加载流程（见第 3 章），并判断类是否可被实例化（接口、抽象类会抛 <code>InstantiationError</code>）。</li>
 <li><strong>分配内存</strong>：在堆上为对象划分空间。分配方式取决于堆是否规整：<ul>
@@ -708,7 +678,7 @@
 </ol>
 <p><strong>面试怎么答</strong>：顺着路径图讲：Minor GC 存活 → S 区轮转 + 年龄累加 → 两条晋升通道（年龄达标、动态年龄判定）→ 一条直达通道（大对象）→ 最后补一句担保机制——“老年代空间不够时 Minor GC 会升级为 Full GC”，这条流水线就完整了。</p>
 <h2 id="3-类加载机制"><a href="#3-类加载机制" class="headerlink" title="3. 类加载机制"></a>3. 类加载机制</h2><p><strong>为什么需要了解</strong>：类加载器决定了”你的代码如何被找到和执行”，是 JVM 与外部世界的第一道边界。框架（Spring、Tomcat、MyBatis）底层大量依赖类加载器，SPI 机制、热部署、JDBC 驱动加载都建立在这套机制上。</p>
-<h3 id="3-1-类的生命周期（加载-→-验证-→-准备-→-解析-→-初始化-→-使用-→-卸载）"><a href="#3-1-类的生命周期（加载-→-验证-→-准备-→-解析-→-初始化-→-使用-→-卸载）" class="headerlink" title="3.1 类的生命周期（加载 → 验证 → 准备 → 解析 → 初始化 → 使用 → 卸载）"></a>3.1 类的生命周期（加载 → 验证 → 准备 → 解析 → 初始化 → 使用 → 卸载）</h3><p>一个类从字节码变成可执行代码，经历 7 个阶段（前 5 个合称”类加载过程”）：</p>
+<h3 id="3-1-类的生命周期"><a href="#3-1-类的生命周期" class="headerlink" title="3.1 类的生命周期"></a>3.1 类的生命周期</h3><p>一个类从字节码变成可执行代码，经历 7 个阶段（前 5 个合称”类加载过程”）：</p>
 <p><strong>① 加载（Loading）</strong>：通过全限定名获取类的二进制字节流（<code>.class</code> 文件、JAR、网络、运行时动态生成——CGLIB 就是这样造类的）；把字节流转化为方法区（元空间）的运行时数据结构；在堆中生成 <code>java.lang.Class</code> 对象作为访问入口。</p>
 <p><strong>② 验证（Verification）</strong>：字节码安全校验：文件格式（魔数 0xCAFEBABE）、元数据（父类、接口合法性）、字节码（操作数栈类型是否匹配）、符号引用（能否找到对应类&#x2F;方法）。防止加载恶意字节码破坏 JVM。</p>
 <p><strong>③ 准备（Preparation）</strong>：为<strong>静态变量</strong>分配内存并设<strong>零值</strong>（<code>0</code>、<code>null</code>、<code>false</code>）。注意两个坑：</p>
@@ -818,7 +788,7 @@
 <p><strong>版本差异必考点</strong>：从 <strong>JDK 9（JEP 220）</strong> 起，扩展机制被模块系统（JPMS）取代：Extension ClassLoader 改名为 Platform ClassLoader，<code>rt.jar</code> 被拆分为 <code>jmods</code> 模块——**<code>rt.jar</code> 文件已不存在**。老资料里”<code>JRE/lib/rt.jar</code>“的说法在 JDK 9+ 已失效。</p>
 </blockquote>
 <p><strong>面试怎么答</strong>：JDK 8 说”Bootstrap → Extension → Application”，JDK 9+ 说”Bootstrap → Platform → Application”，并主动点出”rt.jar 没了、Extension 改名叫 Platform”，一句话体现版本意识。</p>
-<h3 id="3-3-双亲委派模型（为什么要双亲委派、如何打破、Tomcat-的-WebAppClassLoader）"><a href="#3-3-双亲委派模型（为什么要双亲委派、如何打破、Tomcat-的-WebAppClassLoader）" class="headerlink" title="3.3 双亲委派模型（为什么要双亲委派、如何打破、Tomcat 的 WebAppClassLoader）"></a>3.3 双亲委派模型（为什么要双亲委派、如何打破、Tomcat 的 WebAppClassLoader）</h3><p><strong>双亲委派</strong>：一个类加载器收到加载请求，<strong>先把请求委派给父加载器</strong>，父加载器再往上委派，直到 Bootstrap；只有父加载器返回”找不到”，才轮到子加载器自己尝试加载（<code>findClass</code>）。</p>
+<h3 id="3-3-双亲委派模型"><a href="#3-3-双亲委派模型" class="headerlink" title="3.3 双亲委派模型"></a>3.3 双亲委派模型</h3><p><strong>双亲委派</strong>：一个类加载器收到加载请求，<strong>先把请求委派给父加载器</strong>，父加载器再往上委派，直到 Bootstrap；只有父加载器返回”找不到”，才轮到子加载器自己尝试加载（<code>findClass</code>）。</p>
 <p><code>ClassLoader.loadClass()</code> 的核心逻辑（流程控制）：</p>
 <figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">loadClass(name):</span><br><span class="line">  1. findLoadedClass(name)  → 已加载过？直接返回（保证一个类在一个加载器下只加载一次）</span><br><span class="line">  2. 有父加载器 → 父.loadClass(name)（递归委派）</span><br><span class="line">     没有父加载器 → Bootstrap 尝试加载</span><br><span class="line">  3. 父加载失败 → findClass(name) 自己加载</span><br></pre></td></tr></table></figure>
 
@@ -870,7 +840,7 @@
 
 <p><img src="/assets/java-interview/%E9%9D%A2%E8%AF%95-Java/image-20250725203542235.png" alt="classloader-loadClass-findClass"></p>
 <p><strong>面试怎么答</strong>：先讲流程（findLoadedClass → 父加载器递归 → 自己 findClass），再答”为什么”（安全 + 不重复加载），最后主动给”打破”的两种标准答案——重写 loadClass 和线程上下文类加载器，并举 Tomcat 的例子说明”为什么需要打破”（应用隔离）。</p>
-<h3 id="3-4-线程上下文类加载器（SPI-机制的基础）"><a href="#3-4-线程上下文类加载器（SPI-机制的基础）" class="headerlink" title="3.4 线程上下文类加载器（SPI 机制的基础）"></a>3.4 线程上下文类加载器（SPI 机制的基础）</h3><p><strong>问题背景</strong>：双亲委派是”父优先”，但存在一类场景<strong>反过来</strong>——<strong>由高层（父加载器加载的）代码去加载低层（子加载器才可见）的实现类</strong>。典型是 JDBC：</p>
+<h3 id="3-4-线程上下文类加载器"><a href="#3-4-线程上下文类加载器" class="headerlink" title="3.4 线程上下文类加载器"></a>3.4 线程上下文类加载器</h3><p><strong>问题背景</strong>：双亲委派是”父优先”，但存在一类场景<strong>反过来</strong>——<strong>由高层（父加载器加载的）代码去加载低层（子加载器才可见）的实现类</strong>。典型是 JDBC：</p>
 <ul>
 <li><code>DriverManager</code> 在 <code>java.base</code> 模块里，由 <strong>Bootstrap</strong> 加载；</li>
 <li>MySQL 驱动 <code>com.mysql.cj.jdbc.Driver</code> 在应用的 classpath 里，只有 <strong>Application 类加载器</strong>（App ClassLoader）能找到；</li>
@@ -1034,12 +1004,12 @@
 <li><strong>压测要带真实依赖</strong>：单接口 → 核心链路（混合比例）→ 全链路，全链路必须带真实的 DB&#x2F;缓存&#x2F;下游，否则测出的容量和线上无关。</li>
 </ol>
 <p><strong>面试怎么答</strong>：三个工具各一句——“ab 冒烟、wrk 单接口高并发、JMeter 全链路带断言报表”，再强调”施压机和目标机分离、压测要带真实下游依赖”，工具题就过关了。</p>
-<h2 id="5-垃圾回收（这是面试最核心的-JVM-考点）"><a href="#5-垃圾回收（这是面试最核心的-JVM-考点）" class="headerlink" title="5. 垃圾回收（这是面试最核心的 JVM 考点）"></a>5. 垃圾回收（这是面试最核心的 JVM 考点）</h2><p><strong>为什么需要了解</strong>：GC 是 JVM 面试的重灾区——从”对象怎么算死”到”谁负责收”再到”怎么调”，层层递进。面试官问 GC 的潜台词是：你<strong>能不能定位线上停顿&#x2F;OOM 问题</strong>，而不只是背名词。</p>
-<h3 id="5-1-如何判断对象已死"><a href="#5-1-如何判断对象已死" class="headerlink" title="5.1 如何判断对象已死"></a>5.1 如何判断对象已死</h3><h4 id="引用计数法（为什么不采用）"><a href="#引用计数法（为什么不采用）" class="headerlink" title="引用计数法（为什么不采用）"></a>引用计数法（为什么不采用）</h4><p>每个对象维护一个计数器，被引用 +1，引用失效 -1，计数为 0 即回收。简单高效，但<strong>无法解决循环引用</strong>：</p>
+<h2 id="5-垃圾回收"><a href="#5-垃圾回收" class="headerlink" title="5. 垃圾回收"></a>5. 垃圾回收</h2><p><strong>为什么需要了解</strong>：GC 是 JVM 面试的重灾区——从”对象怎么算死”到”谁负责收”再到”怎么调”，层层递进。面试官问 GC 的潜台词是：你<strong>能不能定位线上停顿&#x2F;OOM 问题</strong>，而不只是背名词。</p>
+<h3 id="5-1-如何判断对象已死"><a href="#5-1-如何判断对象已死" class="headerlink" title="5.1 如何判断对象已死"></a>5.1 如何判断对象已死</h3><h4 id="引用计数法"><a href="#引用计数法" class="headerlink" title="引用计数法"></a>引用计数法</h4><p>每个对象维护一个计数器，被引用 +1，引用失效 -1，计数为 0 即回收。简单高效，但<strong>无法解决循环引用</strong>：</p>
 <figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">A 和 B 互相引用，且不再被任何外部引用：</span><br><span class="line">A → B（A 的计数器 +1）</span><br><span class="line">B → A（B 的计数器 +1）</span><br><span class="line">外部引用断开后：A、B 的计数器都是 1，永远不为 0 → 永远无法回收</span><br></pre></td></tr></table></figure>
 
 <p>这就像两个已经没人要的东西互相”抱着取暖”，谁都不敢收。因此主流 JVM（HotSpot）都不用它，改用可达性分析。</p>
-<h4 id="可达性分析（GC-Roots-有哪些）"><a href="#可达性分析（GC-Roots-有哪些）" class="headerlink" title="可达性分析（GC Roots 有哪些）"></a>可达性分析（GC Roots 有哪些）</h4><p>从一组称为 <strong>GC Roots</strong> 的根对象出发，沿引用链向下搜索，<strong>不可达</strong>的对象即为垃圾。GC Roots 包括：</p>
+<h4 id="可达性分析"><a href="#可达性分析" class="headerlink" title="可达性分析"></a>可达性分析</h4><p>从一组称为 <strong>GC Roots</strong> 的根对象出发，沿引用链向下搜索，<strong>不可达</strong>的对象即为垃圾。GC Roots 包括：</p>
 <table>
 <thead>
 <tr>
@@ -1088,7 +1058,7 @@
 <li><strong>“自救”反模式</strong>：能复活对象听起来酷，但会导致对象被反复回收、行为不可预测；</li>
 <li><strong>替代方案</strong>：<code>try-with-resources</code>（确定性释放）和 **<code>java.lang.ref.Cleaner</code>**（JDK 9 引入，基于虚引用实现，<code>DirectByteBuffer</code> 清理堆外内存就是用它）。</li>
 </ul>
-<h4 id="四种引用类型（各有什么实际用途）"><a href="#四种引用类型（各有什么实际用途）" class="headerlink" title="四种引用类型（各有什么实际用途）"></a>四种引用类型（各有什么实际用途）</h4><table>
+<h4 id="四种引用类型"><a href="#四种引用类型" class="headerlink" title="四种引用类型"></a>四种引用类型</h4><table>
 <thead>
 <tr>
 <th align="left">引用类型</th>
@@ -1201,7 +1171,7 @@
 </tr>
 </tbody></table>
 <p><strong>注意</strong>：Parallel Scavenge 与其他收集器不同，它关注”吞吐量”（<code>吞吐量 = 运行用户代码时间 / (运行用户代码时间 + GC 时间)</code>），而不是停顿时间——这是它和 CMS&#x2F;G1 的定位分野。</p>
-<h4 id="CMS：四个阶段详解、优缺点、为什么被废弃（JDK-14-移除）"><a href="#CMS：四个阶段详解、优缺点、为什么被废弃（JDK-14-移除）" class="headerlink" title="CMS：四个阶段详解、优缺点、为什么被废弃（JDK 14 移除）"></a>CMS：四个阶段详解、优缺点、为什么被废弃（JDK 14 移除）</h4><p>CMS（Concurrent Mark Sweep）是 <strong>JDK 5 引入的第一款真正并发的老年代收集器</strong>，目标：<strong>最短停顿时间</strong>（互联网应用优先响应速度）。基于<strong>标记-清除</strong>算法，回收分 4 个阶段：</p>
+<h4 id="CMS：四个阶段详解、优缺点、为什么被废弃"><a href="#CMS：四个阶段详解、优缺点、为什么被废弃" class="headerlink" title="CMS：四个阶段详解、优缺点、为什么被废弃"></a>CMS：四个阶段详解、优缺点、为什么被废弃</h4><p>CMS（Concurrent Mark Sweep）是 <strong>JDK 5 引入的第一款真正并发的老年代收集器</strong>，目标：<strong>最短停顿时间</strong>（互联网应用优先响应速度）。基于<strong>标记-清除</strong>算法，回收分 4 个阶段：</p>
 <ol>
 <li><strong>初始标记（Initial Mark，STW）</strong>：只标记 <strong>GC Roots 直接关联</strong>的对象。速度极快，停顿很短。</li>
 <li><strong>并发标记（Concurrent Mark）</strong>：从初始标记的对象出发，<strong>与用户线程并发</strong>做可达性分析，标记所有存活对象。不 STW，但会抢占 CPU。</li>
@@ -1233,7 +1203,7 @@
 </ul>
 <p><strong>停顿模型</strong>：<code>-XX:MaxGCPauseMillis</code>（默认 200ms）给出停顿目标，G1 后台统计每个 Region 的回收耗时与收益，每次 Mixed GC 按性价比挑选 Region 集合，使总停顿贴近目标（软实时）。</p>
 <p><strong>为什么 G1 取代 CMS</strong>：停顿可预测（Region 增量回收 vs CMS 无法控制停顿）；无碎片（复制&#x2F;整理回收）；支持超大堆（TB 级，RSet 避免全堆扫描）；SATB + RSet 的正确性机制比 CMS 增量更新更完善。</p>
-<h4 id="简要：ZGC-和-Shenandoah（解决了什么问题）"><a href="#简要：ZGC-和-Shenandoah（解决了什么问题）" class="headerlink" title="简要：ZGC 和 Shenandoah（解决了什么问题）"></a>简要：ZGC 和 Shenandoah（解决了什么问题）</h4><table>
+<h4 id="简要：ZGC-和-Shenandoah"><a href="#简要：ZGC-和-Shenandoah" class="headerlink" title="简要：ZGC 和 Shenandoah"></a>简要：ZGC 和 Shenandoah</h4><table>
 <thead>
 <tr>
 <th align="left">收集器</th>
@@ -1548,7 +1518,7 @@
 <li><strong>VisualVM &#x2F; jconsole</strong>：JDK 自带图形工具，可在线看堆&#x2F;线程、触发 dump。</li>
 <li><strong>jhat</strong>：JDK 11 已移除，别再用。</li>
 </ul>
-<h4 id="Arthas-在线诊断（无需重启、生产可用）"><a href="#Arthas-在线诊断（无需重启、生产可用）" class="headerlink" title="Arthas 在线诊断（无需重启、生产可用）"></a>Arthas 在线诊断（无需重启、生产可用）</h4><table>
+<h4 id="Arthas-在线诊断"><a href="#Arthas-在线诊断" class="headerlink" title="Arthas 在线诊断"></a>Arthas 在线诊断</h4><table>
 <thead>
 <tr>
 <th align="left">命令</th>
@@ -1585,7 +1555,7 @@
 </tr>
 </tbody></table>
 <p><strong>面试怎么答</strong>：说清”三件套”分工——<strong>jstat 看趋势、jmap 看对象、jstack 看线程</strong>，外加 jcmd 兜底；分析 dump 按 MAT 三步（Leak Suspects → Dominator Tree → Path to GC Roots）；再补一句”生产环境用 Arthas 在线看，不用重启”，工具题就稳了。</p>
-<h3 id="6-3-实战：一个完整的-OOM-排查流程（保留原文的模拟程序增强为完整的排查故事）"><a href="#6-3-实战：一个完整的-OOM-排查流程（保留原文的模拟程序增强为完整的排查故事）" class="headerlink" title="6.3 实战：一个完整的 OOM 排查流程（保留原文的模拟程序增强为完整的排查故事）"></a>6.3 实战：一个完整的 OOM 排查流程（保留原文的模拟程序增强为完整的排查故事）</h3><p><strong>故事背景</strong>：某电商订单服务的 JVM 内存告警 “Heap usage &gt; 90%”，每 3 天左右 OOM 重启一次，重启后能撑几天再复发。这是典型的<strong>内存泄漏</strong>（而不是一次性分配过大）——真 OOM 往往几小时内就挂，能”撑几天”说明垃圾回收节节败退。</p>
+<h3 id="6-3-实战：一个完整的-OOM-排查流程"><a href="#6-3-实战：一个完整的-OOM-排查流程" class="headerlink" title="6.3 实战：一个完整的 OOM 排查流程"></a>6.3 实战：一个完整的 OOM 排查流程</h3><p><strong>故事背景</strong>：某电商订单服务的 JVM 内存告警 “Heap usage &gt; 90%”，每 3 天左右 OOM 重启一次，重启后能撑几天再复发。这是典型的<strong>内存泄漏</strong>（而不是一次性分配过大）——真 OOM 往往几小时内就挂，能”撑几天”说明垃圾回收节节败退。</p>
 <p><strong>第一步：识别症状，确认是泄漏而非压力过大</strong></p>
 <figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">jstat -gcutil &lt;pid&gt; 5000</span><br><span class="line"><span class="comment"># S0 S1 E O M CCS YGC YGCT FGC FGCT GCT</span></span><br><span class="line"><span class="comment"># 0.00 0.00 85.23 88.31 ... 1200 45.2 3 120.5 165.7</span></span><br></pre></td></tr></table></figure>
 
@@ -1868,14 +1838,14 @@
       <i class="fa fa-chart-line"></i>
     </span>
       <span>Word count total: </span>
-    <span title="Word count total">487k</span>
+    <span title="Word count total">485k</span>
   </span>
   <span class="post-meta-item">
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
       <span>Reading time total &asymp;</span>
-    <span title="Reading time total">29:32</span>
+    <span title="Reading time total">29:25</span>
   </span>
 </div>
   <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
