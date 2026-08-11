@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="内存淘汰（memory eviction） 是 Redis 在内存写满时，按配置的策略删除一部分 key 来腾出空间的机制。它是缓存场景的最后一层保险：不配置，Redis 会被系统 OOM Killer 直接杀进程。本文讲透三件事：maxmemory 怎么配、8 种策略怎么选、近似 LRU 和 LFU 的实现差异在哪。 1. 为什么内存必须设上限1.1 maxmemory：Redis 的内存天花板">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Redis 缓存淘汰策略解析">
+<meta property="og:url" content="http://timewait7.github.io/post/2059e11.html">
+<meta property="og:site_name" content="知行栈">
+<meta property="og:description" content="内存淘汰（memory eviction） 是 Redis 在内存写满时，按配置的策略删除一部分 key 来腾出空间的机制。它是缓存场景的最后一层保险：不配置，Redis 会被系统 OOM Killer 直接杀进程。本文讲透三件事：maxmemory 怎么配、8 种策略怎么选、近似 LRU 和 LFU 的实现差异在哪。 1. 为什么内存必须设上限1.1 maxmemory：Redis 的内存天花板">
+<meta property="og:locale" content="en_US">
+<meta property="og:image" content="http://timewait7.github.io/assets/database/Redis%20%E7%BC%93%E5%AD%98%E6%B7%98%E6%B1%B0%E7%AD%96%E7%95%A5%E8%A7%A3%E6%9E%90/redis-memory-architecture.png">
+<meta property="og:image" content="http://timewait7.github.io/assets/database/Redis%20%E7%BC%93%E5%AD%98%E6%B7%98%E6%B1%B0%E7%AD%96%E7%95%A5%E8%A7%A3%E6%9E%90/lru-vs-lfu-compare.png">
+<meta property="article:published_time" content="2026-08-11T16:26:03.000Z">
+<meta property="article:modified_time" content="2026-08-11T16:31:51.484Z">
+<meta property="article:tag" content="Redis">
+<meta property="article:tag" content="缓存">
+<meta property="article:tag" content="内存管理">
+<meta property="article:tag" content="面试">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="http://timewait7.github.io/assets/database/Redis%20%E7%BC%93%E5%AD%98%E6%B7%98%E6%B1%B0%E7%AD%96%E7%95%A5%E8%A7%A3%E6%9E%90/redis-memory-architecture.png">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/2059e11.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/2059e11.html","path":"post/2059e11.html","title":"Redis 缓存淘汰策略解析"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>Redis 缓存淘汰策略解析 | 知行栈</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+  <script class="next-config" data-name="mermaid" type="application/json">{"enable":true,"theme":{"light":"default","dark":"dark"},"js":{"url":"/lib/mermaid/dist/mermaid.min.js"}}</script>
+  <script src="/js/third-party/tags/mermaid.js" defer></script>
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<!-- hexo injector head_end start --><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
+</style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">知行栈</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>Categories</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-%E4%B8%BA%E4%BB%80%E4%B9%88%E5%86%85%E5%AD%98%E5%BF%85%E9%A1%BB%E8%AE%BE%E4%B8%8A%E9%99%90"><span class="nav-text">1. 为什么内存必须设上限</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-maxmemory%EF%BC%9ARedis-%E7%9A%84%E5%86%85%E5%AD%98%E5%A4%A9%E8%8A%B1%E6%9D%BF"><span class="nav-text">1.1 maxmemory：Redis 的内存天花板</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-2-%E9%85%8D%E7%BD%AE%E6%96%B9%E5%BC%8F%E4%B8%8E%E7%94%9F%E6%95%88%E6%A3%80%E6%9F%A5"><span class="nav-text">1.2 配置方式与生效检查</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-3-%E5%86%85%E5%AD%98%E5%8E%BB%E5%93%AA%E4%BA%86%EF%BC%9Aused-memory-%E5%8F%A3%E5%BE%84"><span class="nav-text">1.3 内存去哪了：used_memory 口径</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E8%AF%BB%E5%86%99%E8%B7%AF%E5%BE%84%E4%B8%8A%EF%BC%8C%E6%B7%98%E6%B1%B0%E5%8F%91%E7%94%9F%E5%9C%A8%E5%93%AA%E4%B8%80%E6%AD%A5"><span class="nav-text">2. 读写路径上，淘汰发生在哪一步</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E5%AE%8C%E6%95%B4%E9%93%BE%E8%B7%AF"><span class="nav-text">2.1 完整链路</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E6%B7%98%E6%B1%B0-vs-%E8%BF%87%E6%9C%9F%E5%88%A0%E9%99%A4%EF%BC%9A%E4%B8%A4%E6%9D%A1%E8%85%BF%E8%B5%B0%E8%B7%AF"><span class="nav-text">2.2 淘汰 vs 过期删除：两条腿走路</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-noeviction-%E7%9A%84%E6%8A%A5%E9%94%99%E5%BD%A2%E6%80%81"><span class="nav-text">2.3 noeviction 的报错形态</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E5%85%AB%E7%A7%8D%E6%B7%98%E6%B1%B0%E7%AD%96%E7%95%A5%E5%85%A8%E6%99%AF"><span class="nav-text">3. 八种淘汰策略全景</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E9%80%9F%E6%9F%A5%E8%A1%A8%EF%BC%88%E9%9D%A2%E8%AF%95%E6%A0%B8%E5%BF%83%E8%80%83%E7%82%B9%EF%BC%89"><span class="nav-text">3.1 速查表（面试核心考点）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-volatile-%E7%9A%84%E9%9A%90%E8%97%8F%E9%99%8D%E7%BA%A7"><span class="nav-text">3.2 volatile-* 的隐藏降级</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-allkeys-%E4%B8%8E-volatile-%E6%80%8E%E4%B9%88%E9%80%89"><span class="nav-text">3.3 allkeys 与 volatile 怎么选</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E8%BF%91%E4%BC%BC-LRU%EF%BC%9A%E7%94%A8%E9%87%87%E6%A0%B7%E6%8D%A2%E7%B2%BE%E5%BA%A6"><span class="nav-text">4. 近似 LRU：用采样换精度</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-%E4%B8%BA%E4%BB%80%E4%B9%88%E4%B8%8D%E5%81%9A%E4%B8%A5%E6%A0%BC-LRU"><span class="nav-text">4.1 为什么不做严格 LRU</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84%EF%BC%9ARedisObject-%E7%9A%84-24bit-%E6%97%B6%E9%92%9F"><span class="nav-text">4.2 数据结构：RedisObject 的 24bit 时钟</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-%E6%B7%98%E6%B1%B0%E7%AE%97%E6%B3%95%EF%BC%9A%E9%87%87%E6%A0%B7%E5%8F%96%E6%9C%80%E8%80%81"><span class="nav-text">4.3 淘汰算法：采样取最老</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-4-%E5%8F%82%E6%95%B0%E4%B8%8E%E6%95%88%E6%9E%9C"><span class="nav-text">4.4 参数与效果</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-LFU%EF%BC%9A%E9%A2%91%E6%AC%A1%E6%89%8D%E6%98%AF%E7%9C%9F%E7%9B%B8"><span class="nav-text">5. LFU：频次才是真相</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-LRU-%E7%9A%84%E8%87%B4%E5%91%BD%E5%9C%BA%E6%99%AF"><span class="nav-text">5.1 LRU 的致命场景</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E5%90%8C%E4%B8%80%E4%B8%AA%E5%AD%97%E6%AE%B5%EF%BC%8C%E4%B8%A4%E7%A7%8D%E8%AF%BB%E6%B3%95"><span class="nav-text">5.2 同一个字段，两种读法</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-%E6%A6%82%E7%8E%87%E9%80%92%E5%A2%9E%EF%BC%9A%E6%80%8E%E4%B9%88%E5%9C%A8-8bit-%E9%87%8C%E8%A1%A8%E8%BE%BE%E7%99%BE%E4%B8%87%E6%AC%A1%E8%AE%BF%E9%97%AE"><span class="nav-text">5.3 概率递增：怎么在 8bit 里表达百万次访问</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-%E8%A1%B0%E5%87%8F%EF%BC%9A%E9%81%BF%E5%85%8D%E2%80%9D%E6%9B%BE%E7%BB%8F%E7%83%AD%E8%BF%87%E2%80%9D%E7%9A%84-key-%E9%9C%B8%E5%8D%A0%E7%BC%93%E5%AD%98"><span class="nav-text">5.4 衰减：避免”曾经热过”的 key 霸占缓存</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-5-%E8%A7%82%E6%B5%8B%E4%B8%8E%E6%8E%92%E6%9F%A5"><span class="nav-text">5.5 观测与排查</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#6-%E5%AE%9E%E6%88%98%E9%80%89%E5%9E%8B%EF%BC%9A%E9%A1%B9%E7%9B%AE%E9%87%8C%E5%88%B0%E5%BA%95%E9%85%8D%E4%BB%80%E4%B9%88"><span class="nav-text">6. 实战选型：项目里到底配什么</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#6-1-%E5%86%B3%E7%AD%96%E8%A1%A8"><span class="nav-text">6.1 决策表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-2-%E4%B8%89%E4%B8%AA%E7%9C%9F%E5%AE%9E%E5%9C%BA%E6%99%AF"><span class="nav-text">6.2 三个真实场景</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-3-%E9%AA%8C%E8%AF%81%EF%BC%9A%E7%94%A8%E6%95%B0%E6%8D%AE%E8%AF%B4%E8%AF%9D"><span class="nav-text">6.3 验证：用数据说话</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-4-%E9%81%BF%E5%9D%91%E6%B8%85%E5%8D%95%EF%BC%88%E9%9D%A2%E8%AF%95%E4%B9%9F%E5%B8%B8%E9%97%AE%EF%BC%89"><span class="nav-text">6.4 避坑清单（面试也常问）</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#7-%E6%80%BB%E7%BB%93%E4%B8%8E%E5%AE%9E%E6%93%8D%E5%BB%BA%E8%AE%AE"><span class="nav-text">7. 总结与实操建议</span></a></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">63</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">14</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">66</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+    <div class="sidebar-inner sidebar-blogroll">
+      <div class="links-of-blogroll animated">
+        <div class="links-of-blogroll-title"><i class="fa fa-globe fa-fw"></i>
+          Links
+        </div>
+        <ul class="links-of-blogroll-list">
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhZ3VpZGUuY24v" title="https:&#x2F;&#x2F;javaguide.cn&#x2F;">JavaGuide</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly96aGFuZ3RpZWxlaS5jb20v" title="https:&#x2F;&#x2F;zhangtielei.com&#x2F;">张铁蕾</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9wYXVsZ3JhaGFtLmNvbS9hcnRpY2xlcy5odG1s" title="https:&#x2F;&#x2F;paulgraham.com&#x2F;articles.html">paulgraham</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly93d3cuam9lbG9uc29mdHdhcmUuY29tLw==" title="https:&#x2F;&#x2F;www.joelonsoftware.com&#x2F;">Joel on Software</span>
+            </li>
+        </ul>
+      </div>
+    </div>
+        <div class="pjax">
+        
+        <div class="sidebar-inner sidebar-post-related">
+          <div class="animated">
+              <div class="links-of-blogroll-title"><i class="fa fa-signs-post fa-fw"></i>
+    Related Posts
+  </div>
+  <ul class="popular-posts">
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/4e153c5e.html" rel="bookmark">
+        <time class="popular-posts-time">2025-07-26</time>
+        <br>
+      JVM 原理与调优
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/769da7e2.html" rel="bookmark">
+        <time class="popular-posts-time">2026-08-06</time>
+        <br>
+      Zeus-Doc 项目面试实战手册
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/720ca998.html" rel="bookmark">
+        <time class="popular-posts-time">2026-08-06</time>
+        <br>
+      Java 后端面试导航
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/f87050af-rev1.html" rel="bookmark">
+        <time class="popular-posts-time">2026-06-21</time>
+        <br>
+      Agent Skill开发指南（修订版）
+      </a>
+    </li>
+  </ul>
+
+          </div>
+        </div>
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-后端开发"><a href="/docs/nav/backend-dev-nav.html" rel="section"><i class="fa fa-code fa-fw"></i>后端开发</a></li>
+
+
+      
+  <li class="menu-item menu-item-计算机基础"><a href="/docs/nav/cs-foundation-nav.html" rel="section"><i class="fa fa-desktop fa-fw"></i>计算机基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-ai-学习"><a href="/docs/nav/ai-learning-nav.html" rel="section"><i class="fa fa-robot fa-fw"></i>AI 学习</a></li>
+
+
+      
+  <li class="menu-item menu-item-项目实战"><a href="/docs/nav/5964f4da.html" rel="section"><i class="fa fa-flask fa-fw"></i>项目实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-misc"><a href="/docs/nav/misc-nav.html" rel="section"><i class="fa fa-box fa-fw"></i>Misc</a></li>
+
+
+      
+  <li class="menu-item menu-item-随笔·生活"><a href="/docs/nav/life-nav.html" rel="section"><i class="fa fa-feather fa-fw"></i>随笔·生活</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java"><a href="/docs/nav/java-nav.html" rel="section"><i class="fa fa-coffee fa-fw"></i>Java</a></li>
+
+
+      
+  <li class="menu-item menu-item-框架"><a href="/docs/nav/framework-nav.html" rel="section"><i class="fa fa-th-large fa-fw"></i>框架</a></li>
+
+
+      
+  <li class="menu-item menu-item-数据存储"><a href="/docs/nav/data-storage-nav.html" rel="section"><i class="fa fa-hdd fa-fw"></i>数据存储</a></li>
+
+
+      
+  <li class="menu-item menu-item-中间件"><a href="/docs/nav/middleware-nav.html" rel="section"><i class="fa fa-cubes fa-fw"></i>中间件</a></li>
+
+
+      
+  <li class="menu-item menu-item-分布式与微服务"><a href="/docs/nav/distributed-nav.html" rel="section"><i class="fa fa-sitemap fa-fw"></i>分布式与微服务</a></li>
+
+
+      
+  <li class="menu-item menu-item-系统设计"><a href="/docs/nav/system-design-nav.html" rel="section"><i class="fa fa-pencil-ruler fa-fw"></i>系统设计</a></li>
+
+
+      
+  <li class="menu-item menu-item-部署运维"><a href="/docs/nav/devops-nav.html" rel="section"><i class="fa fa-terminal fa-fw"></i>部署运维</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-mysql"><a href="/docs/nav/mysql-nav.html" rel="section"><i class="fa fa-database fa-fw"></i>MySQL</a></li>
+
+
+      
+  <li class="menu-item menu-item-redis"><a href="/docs/nav/redis-nav.html" rel="section"><i class="fa fa-bolt fa-fw"></i>Redis</a></li>
+
+
+      
+  <li class="menu-item menu-item-elasticsearch"><a href="/docs/nav/es-nav.html" rel="section"><i class="fa fa-search fa-fw"></i>ElasticSearch</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-redis-深度解析"><a href="/post/bae4ff13.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Redis 深度解析</a></li>
+
+
+      
+  <li class="menu-item menu-item-redis-缓存淘汰策略解析"><a href="/post/2059e11.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Redis 缓存淘汰策略解析</a></li>
+
+
+    </ul>
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/2059e11.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="Redis 缓存淘汰策略解析 | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          Redis 缓存淘汰策略解析
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-08-12 00:26:03" itemprop="dateCreated datePublished" datetime="2026-08-12T00:26:03+08:00">2026-08-12</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/" itemprop="url" rel="index"><span itemprop="name">数据存储</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>3.5k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>13 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><p><strong>内存淘汰（memory eviction）</strong> 是 Redis 在内存写满时，按配置的策略删除一部分 key 来腾出空间的机制。它是缓存场景的最后一层保险：不配置，Redis 会被系统 OOM Killer 直接杀进程。本文讲透三件事：maxmemory 怎么配、8 种策略怎么选、近似 LRU 和 LFU 的实现差异在哪。</p>
+<h2 id="1-为什么内存必须设上限"><a href="#1-为什么内存必须设上限" class="headerlink" title="1. 为什么内存必须设上限"></a>1. 为什么内存必须设上限</h2><h3 id="1-1-maxmemory：Redis-的内存天花板"><a href="#1-1-maxmemory：Redis-的内存天花板" class="headerlink" title="1.1 maxmemory：Redis 的内存天花板"></a>1.1 maxmemory：Redis 的内存天花板</h3><p>Redis 是一个<strong>基于内存的键值数据库</strong>，数据主要放在内存里，读写是微秒到亚毫秒级。内存是稀缺资源，所以必须给 Redis 划一条内存上限（<code>maxmemory</code>），超过上限后的写入会触发<strong>内存淘汰（memory eviction）</strong>——按策略删除一部分 key，腾出空间继续写入。</p>
+<p>不设 maxmemory 的后果：Redis 吃满机器内存后，OS 的 OOM Killer 会直接 kill 掉 redis-server 进程（类比 Java 应用 <code>-Xmx</code> 设太大、堆外内存失控被容器 OOM kill），主从全部挂掉，未落盘数据全部丢失。生产环境这是第一优先级配置。</p>
+<table>
+<thead>
+<tr>
+<th>类比</th>
+<th>Java 应用</th>
+<th>Redis</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>内存上限</td>
+<td><code>-Xmx</code> &#x2F; 容器 limit</td>
+<td><code>maxmemory</code></td>
+</tr>
+<tr>
+<td>超限行为</td>
+<td>抛 OOM 异常（可捕获）</td>
+<td>按策略淘汰 key，或拒绝写入</td>
+</tr>
+<tr>
+<td>失控后果</td>
+<td>被容器 OOM kill</td>
+<td>被系统 OOM Killer 杀进程</td>
+</tr>
+</tbody></table>
+<h3 id="1-2-配置方式与生效检查"><a href="#1-2-配置方式与生效检查" class="headerlink" title="1.2 配置方式与生效检查"></a>1.2 配置方式与生效检查</h3><p>redis.conf 配置：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"># 内存上限，单位支持 kb / mb / gb，如 100mb / 1gb</span><br><span class="line">maxmemory 512mb</span><br><span class="line"></span><br><span class="line"># 淘汰策略，默认 noeviction（写满拒绝写入）</span><br><span class="line">maxmemory-policy allkeys-lru</span><br><span class="line"></span><br><span class="line"># 采样数：LRU/LFU 淘汰时的候选 key 数量，默认 5</span><br><span class="line">maxmemory-samples 5</span><br></pre></td></tr></table></figure>
+
+<p>运行时修改不需要重启：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">redis-cli config get maxmemory</span><br><span class="line">redis-cli config <span class="built_in">set</span> maxmemory-policy allkeys-lfu</span><br><span class="line">redis-cli config rewrite   <span class="comment"># 持久化回配置文件</span></span><br></pre></td></tr></table></figure>
+
+<p>用 Java（Jedis）检查同样方便：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">try</span> (<span class="type">Jedis</span> <span class="variable">jedis</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">Jedis</span>(<span class="string">&quot;127.0.0.1&quot;</span>, <span class="number">6379</span>)) &#123;</span><br><span class="line">    System.out.println(<span class="string">&quot;maxmemory = &quot;</span> + jedis.configGet(<span class="string">&quot;maxmemory&quot;</span>));</span><br><span class="line">    System.out.println(<span class="string">&quot;policy    = &quot;</span> + jedis.configGet(<span class="string">&quot;maxmemory-policy&quot;</span>));</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h3 id="1-3-内存去哪了：used-memory-口径"><a href="#1-3-内存去哪了：used-memory-口径" class="headerlink" title="1.3 内存去哪了：used_memory 口径"></a>1.3 内存去哪了：used_memory 口径</h3><p><code>INFO memory</code> 里需要关注几个指标：</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>含义</th>
+<th>关注点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>used_memory</code></td>
+<td>实际占用内存（含碎片）</td>
+<td>与 maxmemory 对比，接近即触发淘汰</td>
+</tr>
+<tr>
+<td><code>used_memory_human</code></td>
+<td>人类可读版本</td>
+<td>快速目检</td>
+</tr>
+<tr>
+<td><code>maxmemory_policy</code></td>
+<td>当前淘汰策略</td>
+<td>确认配置生效</td>
+</tr>
+<tr>
+<td><code>mem_fragmentation_ratio</code></td>
+<td>内存碎片率</td>
+<td>长期 &gt;1.5 且伴随频繁淘汰，说明碎片严重</td>
+</tr>
+</tbody></table>
+<p>注意：<strong>已过期但还没被删掉的 key 依然占用内存并计入 used_memory</strong>。惰性删除与主动清理都有延迟，所以内存紧张时可能”提前”触发淘汰——这也是后面 volatile 策略坑的根源之一。</p>
+<h2 id="2-读写路径上，淘汰发生在哪一步"><a href="#2-读写路径上，淘汰发生在哪一步" class="headerlink" title="2. 读写路径上，淘汰发生在哪一步"></a>2. 读写路径上，淘汰发生在哪一步</h2><p>整体架构看这张图：写入命令进入后先过 <code>maxmemory</code> 检查，命中的策略决定是淘汰、写入还是报错；过期 key 由惰性删除和主动清理两条线回收。</p>
+<p><img src="/../../assets/database/Redis%20%E7%BC%93%E5%AD%98%E6%B7%98%E6%B1%B0%E7%AD%96%E7%95%A5%E8%A7%A3%E6%9E%90/redis-memory-architecture.png" alt="Redis 内存管理层架构：maxmemory 边界、键空间、过期字典与淘汰池">（图片待补）</p>
+<h3 id="2-1-完整链路"><a href="#2-1-完整链路" class="headerlink" title="2.1 完整链路"></a>2.1 完整链路</h3><pre>
+<code class="mermaid">
+
+flowchart TD
+    subgraph READ[Read Path]
+        A[Client GET key] --&gt; B{Key exists?}
+        B -- Yes --&gt; C[Return value, cache hit]
+        B -- No --&gt; D[Query MySQL, write back]
+    end
+    subgraph WRITE[Write Path]
+        E[Client SET &#x2F; LPUSH &#x2F; HSET ...] --&gt; F{used_memory &gt; maxmemory?}
+        F -- No --&gt; G[Execute write directly]
+        F -- Yes --&gt; H{Policy &#x3D; noeviction?}
+        H -- Yes --&gt; I[Return error&lt;br&#x2F;&gt;OOM command not allowed]
+        H -- No --&gt; J[Sample N keys, pick victim by policy]
+        J --&gt; K[Evict victim, free memory]
+        K --&gt; G
+    end
+</code>
+</pre>
+
+<p>两个要点：</p>
+<ul>
+<li><strong>读请求（GET）永不触发淘汰</strong>。淘汰只发生在写路径，且在命令执行之前检查。</li>
+<li>检查带冗余缓冲（slop），避免 used_memory 在边界抖动时反复触发淘汰。</li>
+</ul>
+<h3 id="2-2-淘汰-vs-过期删除：两条腿走路"><a href="#2-2-淘汰-vs-过期删除：两条腿走路" class="headerlink" title="2.2 淘汰 vs 过期删除：两条腿走路"></a>2.2 淘汰 vs 过期删除：两条腿走路</h3><ul>
+<li><strong>过期删除</strong>：针对设置了 TTL 的 key，到点删除。惰性删除（访问时发现过期顺手删）+ 主动清理（每 100ms 随机抽 20 个带 TTL 的 key，过期占比超 25% 就继续抽）。</li>
+<li><strong>内存淘汰</strong>：针对内存写满，与 TTL 无关，纯粹按策略选 key 逐出。</li>
+</ul>
+<pre>
+<code class="mermaid">
+
+flowchart LR
+    subgraph Lazy[Lazy Deletion]
+        L1[Access expired key] --&gt; L2[Delete and return nil]
+    end
+    subgraph Active[Active Expire Cycle]
+        A1[Every 100ms] --&gt; A2[Sample 20 keys with TTL]
+        A2 --&gt; A3{Expired ratio &gt; 25%?}
+        A3 -- Yes --&gt; A2
+        A3 -- No --&gt; A4[Sleep]
+    end
+    subgraph Eviction[Memory Eviction]
+        E1[used_memory &gt; maxmemory] --&gt; E2[Evict by maxmemory-policy]
+    end
+</code>
+</pre>
+
+<h3 id="2-3-noeviction-的报错形态"><a href="#2-3-noeviction-的报错形态" class="headerlink" title="2.3 noeviction 的报错形态"></a>2.3 noeviction 的报错形态</h3><p><code>maxmemory-policy noeviction</code> 时写满，Redis 直接拒绝写入：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">(error) OOM command not allowed when used memory &gt; &#x27;maxmemory&#x27;.</span><br></pre></td></tr></table></figure>
+
+<p>这个错误在 Java 侧会抛 <code>JedisDataException</code>，代码不处理就是一批 500。所以<strong>缓存场景默认不要用 noeviction</strong>，它只适合消息队列、计数器这类”写失败可以重试”的场景。</p>
+<h2 id="3-八种淘汰策略全景"><a href="#3-八种淘汰策略全景" class="headerlink" title="3. 八种淘汰策略全景"></a>3. 八种淘汰策略全景</h2><h3 id="3-1-速查表（面试核心考点）"><a href="#3-1-速查表（面试核心考点）" class="headerlink" title="3.1 速查表（面试核心考点）"></a>3.1 速查表（面试核心考点）</h3><table>
+<thead>
+<tr>
+<th>策略</th>
+<th>作用范围</th>
+<th>淘汰依据</th>
+<th>引入版本</th>
+<th>典型场景</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>noeviction</code></td>
+<td>全部 key</td>
+<td>不淘汰，写满报错</td>
+<td>一直</td>
+<td>队列、计数器等写失败可重试</td>
+</tr>
+<tr>
+<td><code>allkeys-lru</code></td>
+<td>全部 key</td>
+<td>最近最少使用</td>
+<td>一直</td>
+<td>通用缓存，最常用</td>
+</tr>
+<tr>
+<td><code>volatile-lru</code></td>
+<td>带 TTL 的 key</td>
+<td>最近最少使用</td>
+<td>一直</td>
+<td>缓存带过期 + 少量长驻 key</td>
+</tr>
+<tr>
+<td><code>allkeys-random</code></td>
+<td>全部 key</td>
+<td>随机</td>
+<td>一直</td>
+<td>key 可重建、淘汰成本均等</td>
+</tr>
+<tr>
+<td><code>volatile-random</code></td>
+<td>带 TTL 的 key</td>
+<td>随机</td>
+<td>一直</td>
+<td>会话 token 类</td>
+</tr>
+<tr>
+<td><code>volatile-ttl</code></td>
+<td>带 TTL 的 key</td>
+<td>剩余 TTL 最短</td>
+<td>一直</td>
+<td>数据有明确时效</td>
+</tr>
+<tr>
+<td><code>allkeys-lfu</code></td>
+<td>全部 key</td>
+<td>访问频次最低</td>
+<td>4.0</td>
+<td>长尾热点</td>
+</tr>
+<tr>
+<td><code>volatile-lfu</code></td>
+<td>带 TTL 的 key</td>
+<td>访问频次最低</td>
+<td>4.0</td>
+<td>带 TTL 的长尾热点</td>
+</tr>
+</tbody></table>
+<p>命名规律：前缀 <code>allkeys-</code> 管全部 key，<code>volatile-</code> 只管带过期时间的 key；后缀 <code>-lru</code> 看最近访问、<code>-lfu</code> 看访问频次、<code>-random</code> 随机、<code>-ttl</code> 看剩余寿命。</p>
+<h3 id="3-2-volatile-的隐藏降级"><a href="#3-2-volatile-的隐藏降级" class="headerlink" title="3.2 volatile-* 的隐藏降级"></a>3.2 volatile-* 的隐藏降级</h3><p><code>volatile-*</code> 系列有个大坑：<strong>如果带 TTL 的 key 一个都没有（或没有可淘汰的），行为退化成 noeviction——写满直接报错</strong>。</p>
+<p>真实场景：某天排查发现缓存全部写不进去，配置明明是 <code>volatile-lru</code>，查下来是业务方刚把 key 的 TTL 全去掉了。结果整个 Redis 变只读，线上炸了才反应过来。</p>
+<p><strong>口诀：volatile 系列依赖 TTL，TTL 没设，策略就失效。</strong></p>
+<h3 id="3-3-allkeys-与-volatile-怎么选"><a href="#3-3-allkeys-与-volatile-怎么选" class="headerlink" title="3.3 allkeys 与 volatile 怎么选"></a>3.3 allkeys 与 volatile 怎么选</h3><p>核心区别一句话：<em><em>allkeys-</em> 保护的是”内存不超限”，volatile-</em> 保护的是”带 TTL 的 key 优先存活”**。如果缓存数据和不过期数据混用同一个实例（比如有人把配置、统计也塞 Redis），必须用 volatile-*，否则淘汰可能把不该删的业务数据删掉。</p>
+<h2 id="4-近似-LRU：用采样换精度"><a href="#4-近似-LRU：用采样换精度" class="headerlink" title="4. 近似 LRU：用采样换精度"></a>4. 近似 LRU：用采样换精度</h2><h3 id="4-1-为什么不做严格-LRU"><a href="#4-1-为什么不做严格-LRU" class="headerlink" title="4.1 为什么不做严格 LRU"></a>4.1 为什么不做严格 LRU</h3><p>严格 LRU 需要维护双向链表，每次访问把节点移到队首，每个 key 额外占两个指针的开销。Redis 的 key 数量以百万计，这个成本不可接受；链表在 RDB 持久化、主从复制时也会引入额外复杂度。所以 Redis 选择<strong>近似 LRU（approximate LRU）</strong>：只记录”上次访问时间”，淘汰时抽样比较。</p>
+<h3 id="4-2-数据结构：RedisObject-的-24bit-时钟"><a href="#4-2-数据结构：RedisObject-的-24bit-时钟" class="headerlink" title="4.2 数据结构：RedisObject 的 24bit 时钟"></a>4.2 数据结构：RedisObject 的 24bit 时钟</h3><p>每个 value 对象（RedisObject）里有一个 24bit 的 <code>lru</code> 字段：</p>
+<ul>
+<li><strong>LRU 模式</strong>：存上次访问时间（秒级时钟 <code>LRU_CLOCK</code>，约 194 天轮回一次）。</li>
+<li><strong>LFU 模式</strong>：拆成 16bit 时间 + 8bit 频次计数器（第 5 节讲）。</li>
+</ul>
+<p>每次 key 被访问（GET&#x2F;SET 等），<code>lru</code> 字段刷新为当前时钟。</p>
+<h3 id="4-3-淘汰算法：采样取最老"><a href="#4-3-淘汰算法：采样取最老" class="headerlink" title="4.3 淘汰算法：采样取最老"></a>4.3 淘汰算法：采样取最老</h3><pre>
+<code class="mermaid">
+
+flowchart LR
+    subgraph Space[Key space]
+        K1[key1 lru&#x3D;100]
+        K2[key2 lru&#x3D;50]
+        K3[key3 lru&#x3D;200]
+        K4[key4 lru&#x3D;180]
+        K5[key5 lru&#x3D;90]
+    end
+    S[Random sample N&#x3D;5] --&gt; V[Pick key with oldest lru&lt;br&#x2F;&gt;--&gt; key2]
+    V --&gt; E[Evict key2]
+    style K2 fill:#f9d0c4
+</code>
+</pre>
+
+<ol>
+<li>从键空间随机取 N 个 key（N &#x3D; <code>maxmemory-samples</code>，默认 5）。</li>
+<li>在 N 个里挑 <code>lru</code> 最小（最久没访问）的淘汰。</li>
+<li>淘汰后内存还不够，重复该过程。</li>
+</ol>
+<p>采样数越大越接近严格 LRU，但每次淘汰的 CPU 成本越高。Redis 5.0 起引入<strong>淘汰池（eviction pool）</strong>：上一轮采样过的候选 key 保留在池中，下一轮优先从池里挑，跨轮次累积样本，近似精度进一步提升（6.0 对池大小做了动态调整）。</p>
+<h3 id="4-4-参数与效果"><a href="#4-4-参数与效果" class="headerlink" title="4.4 参数与效果"></a>4.4 参数与效果</h3><table>
+<thead>
+<tr>
+<th>maxmemory-samples</th>
+<th>与严格 LRU 的差距</th>
+<th>淘汰耗时</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>3</td>
+<td>明显有差距</td>
+<td>最低</td>
+</tr>
+<tr>
+<td>5（默认）</td>
+<td>约 90% 以上的效果</td>
+<td>低</td>
+</tr>
+<tr>
+<td>10</td>
+<td>几乎无差别</td>
+<td>中</td>
+</tr>
+</tbody></table>
+<p>注意 <code>maxmemory-samples</code> <strong>不支持 CONFIG SET 在线修改</strong>，属于重启生效的配置项，改之前先看运维窗口。</p>
+<h2 id="5-LFU：频次才是真相"><a href="#5-LFU：频次才是真相" class="headerlink" title="5. LFU：频次才是真相"></a>5. LFU：频次才是真相</h2><h3 id="5-1-LRU-的致命场景"><a href="#5-1-LRU-的致命场景" class="headerlink" title="5.1 LRU 的致命场景"></a>5.1 LRU 的致命场景</h3><p>LRU 只看”最近访问”，不看”访问了多少次”。一次突发热点（秒杀、新闻爆点）就能让一批 key 变成”最近访问”，随后把真正长期高热的 key 挤掉——等热点过去，缓存里全是没人再看的 key。</p>
+<p>这个痛点 Java 开发者也不陌生：Caffeine 的 W-TinyLFU 淘汰算法就是针对 LRU 对”长尾热点”命中率差才诞生的，思路同源。</p>
+<p><img src="/../../assets/database/Redis%20%E7%BC%93%E5%AD%98%E6%B7%98%E6%B1%B0%E7%AD%96%E7%95%A5%E8%A7%A3%E6%9E%90/lru-vs-lfu-compare.png" alt="近似 LRU 与 LFU 的淘汰效果对比：突发流量下 LFU 能保住长期热点">（图片待补）</p>
+<h3 id="5-2-同一个字段，两种读法"><a href="#5-2-同一个字段，两种读法" class="headerlink" title="5.2 同一个字段，两种读法"></a>5.2 同一个字段，两种读法</h3><p>Redis 4.0 起，LFU 模式下 24bit 的 <code>lru</code> 字段被拆成两部分：</p>
+<table>
+<thead>
+<tr>
+<th>位段</th>
+<th>名称</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>高 16bit</td>
+<td><code>ldt</code>（last decrement time）</td>
+<td>上次衰减时间的分钟级时钟</td>
+</tr>
+<tr>
+<td>低 8bit</td>
+<td><code>logc</code>（logistic counter）</td>
+<td>对数计数器，0~255</td>
+</tr>
+</tbody></table>
+<p>8bit 只能记 255 次访问，不够用，所以用<strong>对数计数器（logistic counter）</strong>：访问次数越多，计数器增长越慢——用概率递增代替每次访问 +1。</p>
+<h3 id="5-3-概率递增：怎么在-8bit-里表达百万次访问"><a href="#5-3-概率递增：怎么在-8bit-里表达百万次访问" class="headerlink" title="5.3 概率递增：怎么在 8bit 里表达百万次访问"></a>5.3 概率递增：怎么在 8bit 里表达百万次访问</h3><p>Redis 源码 <code>LFULogIncr</code> 的核心逻辑，翻译成 Java 就是：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/**</span></span><br><span class="line"><span class="comment"> * 模拟 Redis LFU 的 8bit 对数计数器。</span></span><br><span class="line"><span class="comment"> * counter 越大，递增概率 p 越小，增长越慢（对数增长）。</span></span><br><span class="line"><span class="comment"> */</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">LfuCounter</span> &#123;</span><br><span class="line">    <span class="keyword">private</span> <span class="type">int</span> counter;            <span class="comment">// logc，0 ~ 255</span></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> <span class="type">int</span> logFactor;    <span class="comment">// 对应 lfu-log-factor，默认 10</span></span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">hit</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">if</span> (counter == <span class="number">255</span>) <span class="keyword">return</span>;              <span class="comment">// 封顶</span></span><br><span class="line">        <span class="type">double</span> <span class="variable">base</span> <span class="operator">=</span> Math.max(<span class="number">0</span>, counter - <span class="number">5</span>);  <span class="comment">// LFU_INIT_VAL = 5</span></span><br><span class="line">        <span class="type">double</span> <span class="variable">p</span> <span class="operator">=</span> <span class="number">1.0</span> / (base * logFactor + <span class="number">1</span>);</span><br><span class="line">        <span class="keyword">if</span> (Math.random() &lt; p) counter++;        <span class="comment">// 概率递增</span></span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="type">int</span> <span class="title function_">value</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> counter;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>前 5 次访问（<code>base=0</code>，p&#x3D;1）必增；越往后 p 越小。最终 255 的计数器可以代表几十万到百万级的真实访问量。</p>
+<h3 id="5-4-衰减：避免”曾经热过”的-key-霸占缓存"><a href="#5-4-衰减：避免”曾经热过”的-key-霸占缓存" class="headerlink" title="5.4 衰减：避免”曾经热过”的 key 霸占缓存"></a>5.4 衰减：避免”曾经热过”的 key 霸占缓存</h3><p>LFU 只有递增没有衰减，一个 key 早年火过一次就会一直霸占缓存（访问量早已回落也不淘汰）。所以 <code>ldt</code> 出场：每隔 <code>lfu-decay-time</code> 分钟（默认 1），<code>logc</code> 减半，让热度随时间冷却，冷门但持续访问的 key 才有机会浮现。</p>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>默认值</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>lfu-log-factor</code></td>
+<td>10</td>
+<td>计数器增长速度。越大增长越慢、能表达更大的访问量；越小越容易被高访问 key 快速顶到 255</td>
+</tr>
+<tr>
+<td><code>lfu-decay-time</code></td>
+<td>1</td>
+<td>计数器减半的间隔（分钟），0 表示不衰减</td>
+</tr>
+</tbody></table>
+<p><code>lfu-log-factor</code> 不同取值下，计数器到达某值需要的真实访问次数（Redis 官方文档数据）：</p>
+<table>
+<thead>
+<tr>
+<th>factor</th>
+<th>100 次</th>
+<th>1000 次</th>
+<th>10 万次</th>
+<th>100 万次</th>
+<th>1000 万次</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>0</td>
+<td>104</td>
+<td>255</td>
+<td>255</td>
+<td>255</td>
+<td>255</td>
+</tr>
+<tr>
+<td>1</td>
+<td>18</td>
+<td>49</td>
+<td>255</td>
+<td>255</td>
+<td>255</td>
+</tr>
+<tr>
+<td>10（默认）</td>
+<td>10</td>
+<td>18</td>
+<td>142</td>
+<td>255</td>
+<td>255</td>
+</tr>
+<tr>
+<td>100</td>
+<td>8</td>
+<td>11</td>
+<td>49</td>
+<td>143</td>
+<td>255</td>
+</tr>
+</tbody></table>
+<p>高频热点 key 容易顶到 255——所有 key 都是 255 就分不出高下，这时调大 factor 拉开差距。</p>
+<h3 id="5-5-观测与排查"><a href="#5-5-观测与排查" class="headerlink" title="5.5 观测与排查"></a>5.5 观测与排查</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 查看某个 key 的访问频次（必须先启用 LFU 策略）</span></span><br><span class="line">redis-cli config <span class="built_in">set</span> maxmemory-policy allkeys-lfu</span><br><span class="line">redis-cli object freq hot:user:1001</span><br><span class="line"></span><br><span class="line"><span class="comment"># 扫描全库输出热点 key 清单（同样是 LFU 前置）</span></span><br><span class="line">redis-cli --hotkeys</span><br></pre></td></tr></table></figure>
+
+<h2 id="6-实战选型：项目里到底配什么"><a href="#6-实战选型：项目里到底配什么" class="headerlink" title="6. 实战选型：项目里到底配什么"></a>6. 实战选型：项目里到底配什么</h2><h3 id="6-1-决策表"><a href="#6-1-决策表" class="headerlink" title="6.1 决策表"></a>6.1 决策表</h3><table>
+<thead>
+<tr>
+<th>业务形态</th>
+<th>推荐策略</th>
+<th>理由</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>通用缓存（读多写少、key 同质化）</td>
+<td><code>allkeys-lru</code></td>
+<td>简单可靠，80% 的场景首选</td>
+</tr>
+<tr>
+<td>部分 key 长期高频（榜单、用户画像）</td>
+<td><code>allkeys-lfu</code></td>
+<td>长尾热点命中率更高</td>
+</tr>
+<tr>
+<td>全部 key 带 TTL、生命周期短（验证码、会话）</td>
+<td><code>volatile-lru</code> &#x2F; <code>volatile-ttl</code></td>
+<td>只淘汰缓存，不碰长驻数据</td>
+</tr>
+<tr>
+<td>缓存与持久数据混用同一实例</td>
+<td><code>volatile-lru</code></td>
+<td>保护不过期数据不被淘汰</td>
+</tr>
+<tr>
+<td>key 均可重建、淘汰成本均等</td>
+<td><code>allkeys-random</code></td>
+<td>淘汰开销最小</td>
+</tr>
+<tr>
+<td>数据不能丢，写失败要立刻感知</td>
+<td><code>noeviction</code></td>
+<td>用异常暴露容量问题</td>
+</tr>
+</tbody></table>
+<p><strong>选型口诀：没把握就 allkeys-lru；有长尾热点换 allkeys-lfu；混用持久数据必须 volatile。</strong></p>
+<h3 id="6-2-三个真实场景"><a href="#6-2-三个真实场景" class="headerlink" title="6.2 三个真实场景"></a>6.2 三个真实场景</h3><ul>
+<li><strong>登录 token（TTL 短、无差别）</strong>：<code>volatile-random</code> 即可，谁被淘汰无所谓，反正过期快。</li>
+<li><strong>电商秒杀（短时突发热点）</strong>：用 <code>allkeys-lru</code>。LFU 会把秒杀 key 的计数器顶到高位，热点过后长期霸占缓存，反而有害。</li>
+<li><strong>用户画像&#x2F;推荐位（长期频次差异大）</strong>：<code>allkeys-lfu</code>，避免一波流量把常驻热 key 挤掉。</li>
+</ul>
+<h3 id="6-3-验证：用数据说话"><a href="#6-3-验证：用数据说话" class="headerlink" title="6.3 验证：用数据说话"></a>6.3 验证：用数据说话</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 观察淘汰量：持续增长说明容量吃紧或策略不匹配</span></span><br><span class="line">redis-cli info stats | grep evicted_keys</span><br><span class="line"></span><br><span class="line"><span class="comment"># 内存全景</span></span><br><span class="line">redis-cli info memory | grep -E <span class="string">&quot;used_memory|maxmemory|fragmentation&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p>上线后观察两天：<code>evicted_keys</code> 平稳且被淘汰的都是冷 key，说明策略选对了；如果出现热 key 被淘汰（业务告警）或 <code>evicted_keys</code> 陡增，先扩 <code>maxmemory</code>，再考虑换策略。</p>
+<h3 id="6-4-避坑清单（面试也常问）"><a href="#6-4-避坑清单（面试也常问）" class="headerlink" title="6.4 避坑清单（面试也常问）"></a>6.4 避坑清单（面试也常问）</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>缓存写满后大量写入报 OOM</td>
+<td>策略是 <code>noeviction</code>，或 <code>volatile-*</code> 但 key 没带 TTL</td>
+<td>换成 <code>allkeys-lru</code>，或给 key 补 TTL</td>
+</tr>
+<tr>
+<td>突发流量后热 key 命中率骤降</td>
+<td>LRU 被”一波流”污染</td>
+<td>评估换 <code>allkeys-lfu</code></td>
+</tr>
+<tr>
+<td>写入延迟毛刺明显</td>
+<td>每次写前都要先淘汰，可能多轮采样删除</td>
+<td>提高 maxmemory 余量，或写操作错峰</td>
+</tr>
+<tr>
+<td>主从行为不一致</td>
+<td>淘汰只在主节点触发</td>
+<td>正常现象，从库同步主库数据；不要只在从库配不同策略</td>
+</tr>
+<tr>
+<td>内存碎片率长期偏高</td>
+<td>频繁淘汰 + 大 key 释放</td>
+<td>开启 <code>activedefrag</code>，或检查内存分配策略</td>
+</tr>
+</tbody></table>
+<h2 id="7-总结与实操建议"><a href="#7-总结与实操建议" class="headerlink" title="7. 总结与实操建议"></a>7. 总结与实操建议</h2><p>三个收获：淘汰只发生在写路径、<code>volatile-*</code> 依赖 TTL 且可能静默降级、LRU 看”最近” LFU 看”频次”，两者的实现都是近似方案（采样 + 概率计数）。</p>
+<p>实操建议按优先级：</p>
+<ol>
+<li>**先设 <code>maxmemory</code>**，这是 Redis 生产环境的第一道保险，没有上限，策略都是空谈。</li>
+<li><strong>默认 <code>allkeys-lru</code> 起步</strong>，出问题再换，不要一上来就 LFU——LFU 有 <code>lfu-log-factor</code> 和 <code>lfu-decay-time</code> 两个参数要调。</li>
+<li>**缓存与存储数据混用的实例必须用 <code>volatile-*</code>**。</li>
+<li><strong>上线后盯 <code>evicted_keys</code> 和命中率</strong>，策略选对的标准是”被淘汰的都是冷 key”。</li>
+</ol>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/Redis/" rel="tag"># Redis</a>
+              <a href="/tags/%E7%BC%93%E5%AD%98/" rel="tag"># 缓存</a>
+              <a href="/tags/%E5%86%85%E5%AD%98%E7%AE%A1%E7%90%86/" rel="tag"># 内存管理</a>
+              <a href="/tags/%E9%9D%A2%E8%AF%95/" rel="tag"># 面试</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/629ad3df.html" rel="prev" title="MySQL 索引原理与实践">
+                  <i class="fa fa-angle-left"></i> MySQL 索引原理与实践
+                </a>
+            </div>
+            <div class="post-nav-item">
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">495k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">30:01</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+</body>
+</html>
