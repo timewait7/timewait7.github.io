@@ -1975,7 +1975,7 @@
 </ul>
 <p><strong>本节小结</strong>：Redis 是”内存优先、类型丰富、可持久化、可分布式”的高性能键值存储，定位是数据库的加速器与分布式协调器；它不替代数据库，而是与数据库配合。</p>
 <h2 id="2-核心数据结构"><a href="#2-核心数据结构" class="headerlink" title="2. 核心数据结构"></a>2. 核心数据结构</h2><p>本节回答两个问题：5 种基础类型分别能做什么；每种类型底层用什么结构实现、为什么这么设计。理解底层实现，才能解释清楚”为什么有的操作是 O(1)、有的操作很慢、内存为什么忽大忽小”。</p>
-<h3 id="2-1-五种基础类型"><a href="#2-1-五种基础类型" class="headerlink" title="2.1 五种基础类型"></a>2.1 五种基础类型</h3><p>![Redis 数据类型概览](&#x2F;assets&#x2F;database&#x2F;Redis 深度解析&#x2F;image-20251103210359642.png)</p>
+<h3 id="2-1-五种基础类型"><a href="#2-1-五种基础类型" class="headerlink" title="2.1 五种基础类型"></a>2.1 五种基础类型</h3><p><img src="/../../assets/database/Redis%20%E6%B7%B1%E5%BA%A6%E8%A7%A3%E6%9E%90/image-20251103210359642.png" alt="Redis 数据类型概览"></p>
 <table>
 <thead>
 <tr>
@@ -2275,7 +2275,7 @@
 <li><strong>命令原子</strong>：<code>INCR</code>、Lua 脚本不需要额外加锁就是原子的，这是分布式锁能建立在 Redis 上的前提。</li>
 </ul>
 <p><strong>第四，I&#x2F;O 多路复用。</strong> Redis 用单个线程同时监听成千上万个 socket 连接，由操作系统内核在事件发生时通知（而非逐个轮询询问）。实现层面，Redis 在 Linux 上使用 <code>epoll</code>，macOS&#x2F;BSD 上使用 <code>kqueue</code>，无法使用二者时退化为 <code>select</code>，通过 <code>ae_epoll.c / ae_kqueue.c / ae_select.c</code> 隔离平台差异。</p>
-<p>![Redis 事件循环与 IO 模型](&#x2F;assets&#x2F;java-interview&#x2F;面试-MySQL&#x2F;Redis IO模型流程图.png)</p>
+<p><img src="/../../assets/java-interview/%E9%9D%A2%E8%AF%95-MySQL/Redis%20IO%E6%A8%A1%E5%9E%8B%E6%B5%81%E7%A8%8B%E5%9B%BE.png" alt="Redis 事件循环与 IO 模型"></p>
 <p>三种多路复用机制的对比：</p>
 <table>
 <thead>
@@ -2324,7 +2324,7 @@
 </tr>
 </tbody></table>
 <p><strong>第五（常被忽略），RESP 协议轻量。</strong> Redis 的通信协议 RESP 是带长度前缀的文本协议：命令逐行以 <code>\r\n</code> 分隔，参数带长度声明，服务端解析不需要复杂的字符串扫描，<code>\0</code> 等字符也不会打断语义（二进制安全）。6.0 起支持 RESP3（通过 <code>HELLO</code> 命令协商，新增 Map&#x2F;Set&#x2F;Stream&#x2F;布尔&#x2F;null 等类型），7.x 默认仍兼容 RESP2。配合 <strong>pipeline</strong>（一次 RTT 发多条命令，机制详见第 3.3 节）和批量命令（<code>MGET</code>&#x2F;<code>MSET</code>），网络往返次数被进一步压缩。相比 HTTP 的文本帧、gRPC 的编解码开销，RESP 的解析成本几乎可以忽略。</p>
-<p>![Redis 为什么快（数据流视角）](&#x2F;assets&#x2F;database&#x2F;Redis 深度解析&#x2F;why-redis-so-fast-TbWX24ja.png)</p>
+<p><img src="/../../assets/database/Redis%20%E6%B7%B1%E5%BA%A6%E8%A7%A3%E6%9E%90/why-redis-so-fast-TbWX24ja.png" alt="Redis 为什么快（数据流视角）"></p>
 <h3 id="4-2-单线程的代价：慢操作清单"><a href="#4-2-单线程的代价：慢操作清单" class="headerlink" title="4.2 单线程的代价：慢操作清单"></a>4.2 单线程的代价：慢操作清单</h3><p>单线程的代价是<strong>一个慢命令会阻塞所有后续命令</strong>。以下操作必须警惕：</p>
 <ol>
 <li><strong>bigkey 的读写与删除</strong>：写入大 key 要分配大块内存，删除大 key 要释放大块内存（4.0 起删除已异步化，见下；BigKey 的发现与治理见第 8 章）；</li>
@@ -2815,12 +2815,12 @@
 <li><strong>读</strong>：先读缓存，命中直接返回；未命中查数据库，写回缓存并设置 TTL；</li>
 <li><strong>写</strong>：先更新数据库，再删除缓存（下次读时重建），而不是主动写缓存——这样避免了”写缓存成功、删缓存失败”的长期脏数据，也避免了更新旧值的竞争。</li>
 </ul>
-<p><img src="/assets/java-interview/%E9%9D%A2%E8%AF%95-MySQL/image-20250807221917345.png" alt="Cache-Aside 读写流程图"></p>
+<p><img src="/../../assets/java-interview/%E9%9D%A2%E8%AF%95-MySQL/image-20250807221917345.png" alt="Cache-Aside 读写流程图"></p>
 <p>为什么不”更新数据库的同时把新值写进缓存”？因为并发下无法保证”更新 DB”与”写缓存”的顺序，而写缓存的失败率远高于删缓存，且删缓存让每次写只产生一次缓存操作，代价更小。</p>
 <h3 id="9-3-删除失败的兜底：延迟双删与可靠补偿"><a href="#9-3-删除失败的兜底：延迟双删与可靠补偿" class="headerlink" title="9.3 删除失败的兜底：延迟双删与可靠补偿"></a>9.3 删除失败的兜底：延迟双删与可靠补偿</h3><p><strong>延迟双删（Double Delete）</strong>：更新数据库后立即删一次缓存，<strong>延迟一段时间（经验值 500ms）再删一次</strong>。第二次删除是为了清掉”在第一次删除与数据库更新之间，被并发读重建的旧值”：</p>
 <figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">update</span><span class="params">(String key, String newValue)</span> &#123;</span><br><span class="line">    db.update(key, newValue);                 <span class="comment">// 1. 先更新数据库</span></span><br><span class="line">    redis.del(key);                           <span class="comment">// 2. 立即删除缓存</span></span><br><span class="line">    <span class="comment">// 3. 延迟 500ms 再删一次: 清掉空窗期内并发读重建的旧值</span></span><br><span class="line">    delayedExecutor.schedule(() -&gt; redis.del(key), <span class="number">500</span>, TimeUnit.MILLISECONDS);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 
-<p><img src="/assets/java-interview/%E9%9D%A2%E8%AF%95-MySQL/%E5%BB%B6%E8%BF%9F%E5%8F%8C%E5%88%A0.png" alt="延迟双删时序图"></p>
+<p><img src="/../../assets/java-interview/%E9%9D%A2%E8%AF%95-MySQL/%E5%BB%B6%E8%BF%9F%E5%8F%8C%E5%88%A0.png" alt="延迟双删时序图"></p>
 <p>注意两点：500ms 是经验值，应大于”从库读数据 + 重建缓存”的最坏耗时（数据库主从有延迟时还要覆盖从库延迟）；双删只能降低概率，<strong>不能保证</strong>——第二次删除本身也可能失败。</p>
 <p><strong>更可靠的补偿方案</strong>（删除失败可重试，甚至不用依赖”删除”这个动作）：</p>
 <ol>
@@ -3312,7 +3312,7 @@
 <hr>
 <h2 id="附录：Redis-集群搭建实操"><a href="#附录：Redis-集群搭建实操" class="headerlink" title="附录：Redis 集群搭建实操"></a>附录：Redis 集群搭建实操</h2><p>本附录对应正文第 6 节的动手部分：在虚拟机中用 docker 搭出一套可复现、可验证的主从、哨兵与分片集群。以下命令均以本机 IP <code>192.168.33.11</code> 为例，实际使用时替换为你的 IP。</p>
 <h3 id="A-1-主从集群搭建"><a href="#A-1-主从集群搭建" class="headerlink" title="A.1 主从集群搭建"></a>A.1 主从集群搭建</h3><p>主从同步流程与优化：</p>
-<p>![主从同步原理](&#x2F;assets&#x2F;database&#x2F;Redis 深度解析&#x2F;image-20250219200529477.png)</p>
+<p><img src="/../../assets/database/Redis%20%E6%B7%B1%E5%BA%A6%E8%A7%A3%E6%9E%90/image-20250219200529477.png" alt="主从同步原理"></p>
 <p>主从同步优化：</p>
 <ul>
 <li>在 master 中配置 <code>repl-diskless-sync yes</code> 启用无磁盘复制，避免全量复制时的磁盘 IO</li>
@@ -3320,12 +3320,12 @@
 <li>适当提高 <code>repl_backlog</code> 的大小，发现 slave 宕机时尽快实现增量恢复，避免退化为全量复制</li>
 </ul>
 <p>下图是一个简单的主从集群：一个主节点（负责写），两个从节点（负责读）：</p>
-<p>![主从集群架构](&#x2F;assets&#x2F;database&#x2F;Redis 深度解析&#x2F;image-20250217231959576.png)</p>
+<p><img src="/../../assets/database/Redis%20%E6%B7%B1%E5%BA%A6%E8%A7%A3%E6%9E%90/image-20250217231959576.png" alt="主从集群架构"></p>
 <p>在虚拟机中利用 docker 容器搭建。首先确保本机有 redis 镜像（没有则 <code>docker pull redis</code>），然后编写 <code>docker-compose.yaml</code>：</p>
 <figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">version:</span> <span class="string">&quot;3.2&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="attr">services:</span></span><br><span class="line">  <span class="attr">r1:</span></span><br><span class="line">    <span class="attr">image:</span> <span class="string">redis</span></span><br><span class="line">    <span class="attr">container_name:</span> <span class="string">r1</span></span><br><span class="line">    <span class="attr">network_mode:</span> <span class="string">&quot;host&quot;</span></span><br><span class="line">    <span class="attr">entrypoint:</span> [<span class="string">&quot;redis-server&quot;</span>, <span class="string">&quot;--port&quot;</span>, <span class="string">&quot;7001&quot;</span>]</span><br><span class="line">  <span class="attr">r2:</span></span><br><span class="line">    <span class="attr">image:</span> <span class="string">redis</span></span><br><span class="line">    <span class="attr">container_name:</span> <span class="string">r2</span></span><br><span class="line">    <span class="attr">network_mode:</span> <span class="string">&quot;host&quot;</span></span><br><span class="line">    <span class="attr">entrypoint:</span> [<span class="string">&quot;redis-server&quot;</span>, <span class="string">&quot;--port&quot;</span>, <span class="string">&quot;7002&quot;</span>]</span><br><span class="line">  <span class="attr">r3:</span></span><br><span class="line">    <span class="attr">image:</span> <span class="string">redis</span></span><br><span class="line">    <span class="attr">container_name:</span> <span class="string">r3</span></span><br><span class="line">    <span class="attr">network_mode:</span> <span class="string">&quot;host&quot;</span></span><br><span class="line">    <span class="attr">entrypoint:</span> [<span class="string">&quot;redis-server&quot;</span>, <span class="string">&quot;--port&quot;</span>, <span class="string">&quot;7003&quot;</span>]</span><br></pre></td></tr></table></figure>
 
 <p>在 <code>docker-compose.yaml</code> 所在目录执行 <code>docker compose up -d</code> 启动容器：</p>
-<p>![docker compose 启动 3 个节点](&#x2F;assets&#x2F;database&#x2F;Redis 深度解析&#x2F;image-20250217233502378.png)</p>
+<p><img src="/../../assets/database/Redis%20%E6%B7%B1%E5%BA%A6%E8%A7%A3%E6%9E%90/image-20250217233502378.png" alt="docker compose 启动 3 个节点"></p>
 <p>此时 3 个实例之间还没有主从关系，通过 <code>replicaof</code> 命令配置（redis5.0 以前是 <code>slaveof</code>，之后统一为 <code>replicaof</code>）：</p>
 <ul>
 <li>永久生效：在 <code>redis.conf</code> 中用 <code>replicaof &lt;masterip&gt; &lt;masterport&gt;</code> 指定 master</li>
@@ -3334,13 +3334,13 @@
 <figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 连接 r2，将其设为 r1(7001) 的从节点</span></span><br><span class="line">$ docker <span class="built_in">exec</span> -it r2 redis-cli -p 7002</span><br><span class="line">127.0.0.1:7002&gt; replicaof 192.168.33.11 7001</span><br><span class="line">OK</span><br><span class="line">127.0.0.1:7002&gt; info replication</span><br><span class="line"><span class="comment"># Replication</span></span><br><span class="line">role:slave              <span class="comment"># 角色已变为从节点</span></span><br><span class="line">master_host:192.168.33.11</span><br><span class="line">master_port:7001</span><br><span class="line">master_link_status:up   <span class="comment"># 与主节点的链路已建立</span></span><br><span class="line">slave_read_only:1       <span class="comment"># 从节点只读</span></span><br></pre></td></tr></table></figure>
 
 <p>对 r3 执行相同操作。然后连接 r1 验证：<code>info replication</code> 中应显示 <code>connected_slaves:2</code>，即两个从节点都已挂上：</p>
-<p>![主节点视角的从节点信息](&#x2F;assets&#x2F;database&#x2F;Redis 深度解析&#x2F;image-20250217235009950.png)</p>
+<p><img src="/../../assets/database/Redis%20%E6%B7%B1%E5%BA%A6%E8%A7%A3%E6%9E%90/image-20250217235009950.png" alt="主节点视角的从节点信息"></p>
 <p>测试读写分离：</p>
 <figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># r1（主）：可写可读</span></span><br><span class="line">127.0.0.1:7001&gt; <span class="built_in">set</span> num 123</span><br><span class="line">OK</span><br><span class="line">127.0.0.1:7001&gt; get num</span><br><span class="line"><span class="string">&quot;123&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># r3（从）：只读，写被拒绝，但能读到主节点同步过来的数据</span></span><br><span class="line">127.0.0.1:7003&gt; <span class="built_in">set</span> num 456</span><br><span class="line">(error) READONLY You can<span class="string">&#x27;t write against a read only replica.</span></span><br><span class="line"><span class="string">127.0.0.1:7003&gt; get num</span></span><br><span class="line"><span class="string">&quot;123&quot;</span></span><br></pre></td></tr></table></figure>
 
 <h3 id="A-2-哨兵集群"><a href="#A-2-哨兵集群" class="headerlink" title="A.2 哨兵集群"></a>A.2 哨兵集群</h3><p>主从集群存在单点故障：master 宕机则整个集群不可写。哨兵的监控、主观&#x2F;客观下线、Leader 选举、故障转移等机制已在正文 6.2 详述，这里给出配置与验证命令。</p>
 <p>哨兵集群示意图：</p>
-<p>![哨兵集群架构](&#x2F;assets&#x2F;database&#x2F;Redis 深度解析&#x2F;image-20250219214812553.png)</p>
+<p><img src="/../../assets/database/Redis%20%E6%B7%B1%E5%BA%A6%E8%A7%A3%E6%9E%90/image-20250219214812553.png" alt="哨兵集群架构"></p>
 <p>哨兵节点配置（<code>sentinel.conf</code>）：</p>
 <figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">sentinel monitor mymaster 192.168.33.11 7001 2   # 监控名为 mymaster 的 master，quorum=2</span><br><span class="line">sentinel down-after-milliseconds mymaster 30000   # 30s 无响应判定为主观下线</span><br><span class="line">sentinel failover-timeout mymaster 180000         # 故障转移超时</span><br><span class="line">sentinel parallel-syncs mymaster 1                # 故障转移时同时同步新 master 的 slave 数量</span><br></pre></td></tr></table></figure>
 
