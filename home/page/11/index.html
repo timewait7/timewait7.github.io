@@ -52,8 +52,6 @@
 <script src="/js/third-party/search/local-search.js" defer></script>
 
 
-  <script class="next-config" data-name="mermaid" type="application/json">{"enable":true,"theme":{"light":"default","dark":"dark"},"js":{"url":"/lib/mermaid/dist/mermaid.min.js"}}</script>
-  <script src="/js/third-party/tags/mermaid.js" defer></script>
 
   <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
   <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
@@ -178,7 +176,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">63</span>
+          <span class="site-state-item-count">64</span>
           <span class="site-state-item-name">posts</span>
         </a>
       </div>
@@ -189,7 +187,7 @@
       </div>
       <div class="site-state-item site-state-tags">
           <a href="/tags/">
-        <span class="site-state-item-count">66</span>
+        <span class="site-state-item-count">70</span>
         <span class="site-state-item-name">tags</span></a>
       </div>
   </nav>
@@ -233,6 +231,696 @@
     </div>
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/d48132d3.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/d48132d3.html" class="post-title-link" itemprop="url">Elasticsearch 原理与实践</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2025-09-21 16:00:35" itemprop="dateCreated datePublished" datetime="2025-09-21T16:00:35+08:00">2025-09-21</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/" itemprop="url" rel="index"><span itemprop="name">数据存储</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>8.3k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>30 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="Elasticsearch"><a href="#Elasticsearch" class="headerlink" title="Elasticsearch"></a>Elasticsearch</h1><blockquote>
+<p>面试考点范围：ES 的定位与 Lucene 基础、核心概念（Index&#x2F;Type&#x2F;Shard&#x2F;Replica&#x2F;倒排索引）、写入链路与可靠性（Translog&#x2F;Refresh&#x2F;Flush）、查询原理（Query&#x2F;Filter 上下文、TF-IDF vs BM25、核心查询 DSL）、聚合（Bucket&#x2F;Metric&#x2F;Pipeline）、分片与集群（Yellow&#x2F;Red 排查、脑裂）、索引与性能优化（映射爆炸、keyword vs text、Bulk、doc_values、堆内存、慢查询日志）、MySQL 与 ES 数据同步，以及常见速答题。</p>
+</blockquote>
+<h2 id="1-Elasticsearch-是什么"><a href="#1-Elasticsearch-是什么" class="headerlink" title="1. Elasticsearch 是什么"></a>1. Elasticsearch 是什么</h2><h3 id="1-1-定位：Lucene-之上的分布式搜索引擎"><a href="#1-1-定位：Lucene-之上的分布式搜索引擎" class="headerlink" title="1.1 定位：Lucene 之上的分布式搜索引擎"></a>1.1 定位：Lucene 之上的分布式搜索引擎</h3><p>Elasticsearch（下文简称 ES）是 2010 年由 Shay Banon 开源的<strong>分布式、近实时（NRT）的全文搜索引擎</strong>，基于 Java 实现。它的底层是 <strong>Apache Lucene</strong>——Doug Cutting 开发的高性能全文检索<strong>库</strong>。Lucene 本身只是一个嵌入式的 JAR 包，只解决”单机上的索引与搜索”问题；ES 在 Lucene 之上封装了<strong>分布式能力</strong>（分片、副本、集群）和 <strong>RESTful API</strong>，让全文搜索变成可以直接部署、调用的服务。</p>
+<p>一句话：<strong>Lucene 是引擎，ES 是装了引擎的分布式整车。</strong></p>
+<h3 id="1-2-全文搜索-vs-数据库搜索"><a href="#1-2-全文搜索-vs-数据库搜索" class="headerlink" title="1.2 全文搜索 vs 数据库搜索"></a>1.2 全文搜索 vs 数据库搜索</h3><p>面试常问”为什么不用 MySQL 的 LIKE 做搜索”，核心差异如下：</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>MySQL（LIKE）</th>
+<th>Elasticsearch</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>查询方式</td>
+<td><code>%关键词%</code> 无法利用 B+ 树索引，退化为<strong>全表扫描</strong></td>
+<td>倒排索引直接定位词项，不扫描全表</td>
+</tr>
+<tr>
+<td>相关性排序</td>
+<td>不支持打分，只能按自定义字段排序</td>
+<td>BM25 相关性打分，可控制权重</td>
+</tr>
+<tr>
+<td>数据量级</td>
+<td>千万级开始吃力</td>
+<td>亿级以上，分片横向扩展</td>
+</tr>
+<tr>
+<td>模糊能力</td>
+<td>通配符（前导通配符同样全表扫描）</td>
+<td>分词 + 短语&#x2F;模糊&#x2F;同义词，天然适合中文分词</td>
+</tr>
+<tr>
+<td>写入一致性</td>
+<td>强一致，写入即查得到</td>
+<td>近实时，默认 1 秒后才可搜到（见第 3 节）</td>
+</tr>
+</tbody></table>
+<p>注意一个前提：ES 是<strong>搜索和聚合引擎，不是数据源</strong>。它没有跨文档事务、没有强一致保证，业务数据的主存仍然是 MySQL，ES 只是副本&#x2F;索引（见第 9 节数据同步）。</p>
+<h3 id="1-3-适用场景"><a href="#1-3-适用场景" class="headerlink" title="1.3 适用场景"></a>1.3 适用场景</h3><ul>
+<li><strong>站内搜索</strong>：电商商品、文档、知识库的全文检索，是 ES 的第一场景。</li>
+<li><strong>日志与指标分析</strong>：ELK 技术栈（Elasticsearch + Logstash + Kibana），日志检索、监控大盘。</li>
+<li><strong>聚合分析</strong>：基于海量数据的统计报表（点击、订单、访问量）。</li>
+<li><strong>地理检索</strong>：<code>geo_point</code> 附近的人、门店搜索。</li>
+<li><strong>向量检索</strong>：8.x 起支持 <code>dense_vector</code> 字段和 kNN 搜索，可做语义搜索、RAG 召回。</li>
+<li><strong>不适合</strong>：强事务&#x2F;多文档原子操作（无 ACID）、复杂多表关联查询（ES 的 join 能力很弱且不推荐）、低频小数据量的简单查询（杀鸡用牛刀）。</li>
+</ul>
+<h2 id="2-核心概念"><a href="#2-核心概念" class="headerlink" title="2. 核心概念"></a>2. 核心概念</h2><ul>
+<li><strong>文档（Document）：</strong> 数据的基本单位，通常是 JSON 格式，对应数据库中的一行记录。</li>
+<li><strong>索引（Index）：</strong> 具有相似特征的文档集合，对应数据库中的一张表。一个索引由一个或多个分片组成。</li>
+<li><strong>类型（Type）：</strong> 索引内部的逻辑分区，曾允许在同一索引中存储不同类型的文档（如 <code>user</code>、<code>product</code>）。<strong>版本演变：6.x 起被标记废弃（deprecated，一个索引只允许一个 type）；7.x 中正式废弃，API 默认使用 <code>_doc</code> 类型；8.x 中类型概念被完全移除</strong>，现在一个索引只包含一种文档类型。</li>
+<li><strong>映射（Mapping）：</strong> 定义索引中每个字段的类型、分词器、是否索引等元数据，相当于数据库的表结构（DDL），详见第 7 节。</li>
+<li><strong>分片（Shard）：</strong> 索引被水平分割成的子集，每个分片本身就是一个功能完整且独立的”索引”（一个 Lucene 索引）。<ul>
+<li><strong>主分片（Primary Shard）：</strong> 存储文档数据并处理索引&#x2F;更新操作。索引创建时指定数量，后续不可更改（除非 Reindex）。</li>
+<li><strong>副本分片（Replica Shard）：</strong> 主分片的拷贝，提供高可用性（主分片故障时副本可提升为主）和读取吞吐量（查询可负载均衡到所有副本）。</li>
+</ul>
+</li>
+<li><strong>节点（Node）：</strong> 运行中的 Elasticsearch 实例。</li>
+<li><strong>集群（Cluster）：</strong> 一个或多个节点协同工作的集合，共同持有整个数据并提供联合索引和搜索能力。</li>
+<li><strong>倒排索引（Inverted Index）：</strong> ES 实现快速全文搜索的核心数据结构，存储了词项（Token）到包含该词项的文档 ID 列表的映射。相比传统数据库的正排索引（文档 ID 到字段值），倒排索引天然适配”哪些文档包含某个词？”这一类查询。</li>
+</ul>
+<h3 id="2-1-倒排索引详解"><a href="#2-1-倒排索引详解" class="headerlink" title="2.1 倒排索引详解"></a>2.1 倒排索引详解</h3><ul>
+<li><strong>定义：</strong> 倒排索引是一种将文档中的词项（Token）映射到包含该词项的文档列表的数据结构，由两个核心部分组成：<ul>
+<li><strong>词项字典（Term Dictionary）：</strong> 包含所有不重复的词项，通常按字典序排序，并配合 <strong>FST（有限状态转换器）</strong> 压缩存储、常驻内存，实现 O(1) 级别的词项查找。</li>
+<li><strong>倒排列表（Postings List）：</strong> 对于每个词项，记录包含该词项的所有文档 ID 列表，以及词项在文档中出现的位置（Position）、词频（Term Frequency）等信息，用于相关性评分和短语查询。</li>
+</ul>
+</li>
+<li><strong>重要性：</strong><ul>
+<li><strong>快速定位：</strong> 直接通过词项找到包含它的文档，避免扫描全部文档。</li>
+<li><strong>高效布尔查询：</strong> AND&#x2F;OR&#x2F;NOT 操作可以通过对倒排列表进行交、并、差集运算高效完成。</li>
+<li><strong>相关性评分基础：</strong> TF-IDF、BM25 等经典评分模型严重依赖倒排索引中存储的词频（TF）、文档频率（DF&#x2F;IDF）信息。</li>
+<li><strong>支持短语查询：</strong> 利用存储的位置信息，可以精确查找相邻出现的词组（<code>match_phrase</code>）。</li>
+</ul>
+</li>
+</ul>
+<h2 id="3-写入与刷新"><a href="#3-写入与刷新" class="headerlink" title="3. 写入与刷新"></a>3. 写入与刷新</h2><h3 id="3-1-完整写入链路"><a href="#3-1-完整写入链路" class="headerlink" title="3.1 完整写入链路"></a>3.1 完整写入链路</h3><figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">客户端 → 协调节点 → 主分片</span><br><span class="line">  ├─ ① 写入内存 Buffer，同时追加写 Translog（先持久化）</span><br><span class="line">  ├─ ② Refresh（默认 1s）：Buffer → 新 Segment（写 Page Cache，可搜索）</span><br><span class="line">  ├─ ③ 后台段合并（Merge）：小段合并成大段</span><br><span class="line">  └─ ④ Flush（30min / 512MB / 手动）：fsync 落盘 + 截断 Translog</span><br></pre></td></tr></table></figure>
+
+<ol>
+<li><strong>路由：</strong> 请求到达任意节点（该节点即协调节点），根据 <code>routing = hash(文档ID) % 主分片数</code> 定位到主分片。</li>
+<li><strong>写内存 + Translog：</strong> 主分片将文档写入内存缓冲区（Indexing Buffer），同时<strong>立即追加写入事务日志（Translog）</strong>。Translog 是持久化的。</li>
+<li><strong>Refresh：</strong> 定期（默认 1 秒）将内存缓冲区中的内容生成一个新的、可搜索的 Lucene 段（Segment），并清空缓冲区。<strong>这个过程使新写入的数据对搜索可见。</strong> 注意：此时数据还在操作系统的文件系统缓存（Page Cache）中，并未物理刷盘（<code>fsync</code>）。</li>
+<li><strong>段合并：</strong> 小段在后台按 Tiered Merge Policy 合并成大段，控制段数量（见 8.2）。</li>
+<li><strong>Flush：</strong> 定期（默认 30 分钟，或 Translog 大小达到阈值）将段数据 <code>fsync</code> 落盘并截断 Translog。</li>
+</ol>
+<p>这就是 ES”近实时”的原因：<strong>数据可搜索需要等一次 Refresh（1 秒级），而 Translog 只保证数据不丢，不保证立刻可见</strong>。如果需要写入后立刻可搜，可在写请求带 <code>?refresh=true</code>（或 <code>refresh=wait_for</code>），代价是性能下降。</p>
+<h3 id="3-2-写入可靠性"><a href="#3-2-写入可靠性" class="headerlink" title="3.2 写入可靠性"></a>3.2 写入可靠性</h3><ul>
+<li><strong>事务日志（Translog）：</strong> 所有写入操作在写入内存缓冲区的同时，会立即追加写入到事务日志中。Translog 的刷盘时机由 <code>index.translog.durability</code> 控制：默认 <code>request</code>（每个写请求都 <code>fsync</code>，性能换可靠性），可改为 <code>async</code>（默认每 5 秒批量刷盘，性能更好但断电最多丢几秒数据）。</li>
+<li><strong>副本确认：</strong> 写入操作在主分片执行成功后，必须等待所有配置的副本分片也写入成功才返回客户端确认（除非使用 <code>wait_for_active_shards</code> 降低要求），确保数据冗余。</li>
+<li><strong>故障恢复：</strong> 节点重启时，会重放 Translog 中尚未刷盘的操作来恢复数据；副本分片的存在保证了主分片丢失时数据不丢（副本提升为主分片）。</li>
+<li><strong>兜底：</strong> 跨机房的灾难恢复靠定期快照（<code>_snapshot</code> API，备份到 HDFS&#x2F;S3 等）。ES 不是数据库，关键数据的主存必须在 MySQL，极端情况可从源库重建索引（见第 9 节）。</li>
+</ul>
+<h3 id="3-3-refresh-vs-flush-区别"><a href="#3-3-refresh-vs-flush-区别" class="headerlink" title="3.3 refresh vs flush 区别"></a>3.3 refresh vs flush 区别</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>refresh</th>
+<th>flush</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>目的</td>
+<td>使新写入的数据对搜索可见</td>
+<td>将数据安全持久化到磁盘，并清理 Translog</td>
+</tr>
+<tr>
+<td>操作</td>
+<td>Buffer 中的文档生成新 Segment，写入文件系统缓存（Page Cache），<strong>不</strong>立即 <code>fsync</code></td>
+<td>① 先执行一次 Refresh；② <code>fsync</code> 将段数据强制写入磁盘；③ 清空（截断）当前 Translog</td>
+</tr>
+<tr>
+<td>频率</td>
+<td>默认每秒一次（<code>index.refresh_interval</code>，设为 <code>-1</code> 可关闭）</td>
+<td>每 30 分钟（<code>index.translog.flush_threshold_period</code>）、Translog 超 512MB（<code>index.translog.flush_threshold_size</code>）、或显式调用 <code>_flush</code> API</td>
+</tr>
+<tr>
+<td>开销</td>
+<td>较低，只写入 Page Cache；但频繁 Refresh 会产生大量小段，增加合并压力</td>
+<td>较高，涉及磁盘 I&#x2F;O（<code>fsync</code>）</td>
+</tr>
+</tbody></table>
+<h2 id="4-查询原理"><a href="#4-查询原理" class="headerlink" title="4. 查询原理"></a>4. 查询原理</h2><h3 id="4-1-一次搜索的流程"><a href="#4-1-一次搜索的流程" class="headerlink" title="4.1 一次搜索的流程"></a>4.1 一次搜索的流程</h3><ol>
+<li>协调节点接收请求，解析 DSL，按 routing 找到目标分片，将查询<strong>广播到所有主&#x2F;副本分片</strong>（默认 <code>query_then_fetch</code> 模式）。</li>
+<li>各分片在自己的 Lucene 索引上<strong>本地执行查询并打分</strong>，返回 Top N 的文档 ID 和分数（默认每个分片取 <code>from + size</code> 条）。</li>
+<li>协调节点<strong>合并排序</strong>所有分片的结果，取全局 Top N，进入 Fetch 阶段。</li>
+<li>协调节点向各分片取回完整的 <code>_source</code>，组装后返回。</li>
+</ol>
+<p>加分项：<code>query_then_fetch</code> 是”本地 IDF 打分”，每个分片只能基于自己的词频统计，结果与全局 IDF 有轻微偏差；<code>dfs_query_then_fetch</code> 会先收集全局词频再打分，更精确但多一轮通信，生产环境很少使用。</p>
+<h3 id="4-2-Query-上下文-vs-Filter-上下文"><a href="#4-2-Query-上下文-vs-Filter-上下文" class="headerlink" title="4.2 Query 上下文 vs Filter 上下文"></a>4.2 Query 上下文 vs Filter 上下文</h3><p><code>bool</code> 查询中的 <code>filter</code> 子句、<code>constant_score</code>、<code>term</code>&#x2F;<code>range</code> 直接放在 query 里都是 Query 上下文；放在 <code>bool.filter</code> &#x2F; <code>bool.must_not</code> &#x2F; <code>constant_score.filter</code> 里则是 Filter 上下文。</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>Query 上下文</th>
+<th>Filter 上下文</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>相关性</td>
+<td>参与 <code>_score</code> 计算，影响排序</td>
+<td>不参与算分（<code>_score</code> 恒为 0）</td>
+</tr>
+<tr>
+<td>缓存</td>
+<td>不缓存</td>
+<td><strong>结果可缓存</strong>（节点级 Query Cache 中的位图 Bitset），同条件复用</td>
+</tr>
+<tr>
+<td>性能</td>
+<td>有算分开销，相对慢</td>
+<td>更快，适合高频过滤条件</td>
+</tr>
+<tr>
+<td>场景</td>
+<td>全文检索、相关性排序</td>
+<td>状态、范围、布尔标记等刚性过滤条件</td>
+</tr>
+</tbody></table>
+<p><strong>最佳实践：需要算分的放 Query（如 <code>match</code>），不需要算分的过滤条件尽量放 Filter</strong>（如 <code>status</code>、<code>price</code> 范围、<code>is_deleted</code>），既省算分开销又能命中缓存。</p>
+<h3 id="4-3-相关性评分：TF-IDF-vs-BM25"><a href="#4-3-相关性评分：TF-IDF-vs-BM25" class="headerlink" title="4.3 相关性评分：TF-IDF vs BM25"></a>4.3 相关性评分：TF-IDF vs BM25</h3><ul>
+<li><strong>TF-IDF</strong>：词频 × 逆文档频率 × 长度归一化。问题是词频是<strong>线性增长</strong>的，高频词（”的””手机”）在长文档中会过度主导得分。</li>
+<li><strong>BM25</strong>：在 TF-IDF 基础上引入 <strong>TF 饱和函数</strong>和 <strong>IDF 平滑</strong>，并增加可调参数 <code>k1</code>（默认 1.2，词频饱和速度）和 <code>b</code>（默认 0.75，文档长度归一化程度）。</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>TF-IDF</th>
+<th>BM25</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>TF 处理</td>
+<td>线性增长，高频词得分过高</td>
+<td>饱和函数，达到阈值后增长放缓</td>
+</tr>
+<tr>
+<td>IDF 处理</td>
+<td>经典公式，罕见词得分可能过高</td>
+<td>平滑处理</td>
+</tr>
+<tr>
+<td>可调参数</td>
+<td>无</td>
+<td><code>k1</code>、<code>b</code>，可按字段配置权重</td>
+</tr>
+<tr>
+<td>默认状态</td>
+<td>ES 5.0 之前默认（Lucene 4&#x2F;5）</td>
+<td><strong>ES 5.0 起默认</strong>（Lucene 6+）</td>
+</tr>
+</tbody></table>
+<h3 id="4-4-核心查询-DSL"><a href="#4-4-核心查询-DSL" class="headerlink" title="4.4 核心查询 DSL"></a>4.4 核心查询 DSL</h3><p><strong>match（全文检索，查询串会被分词）：</strong></p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">GET /products/_search</span><br><span class="line"><span class="punctuation">&#123;</span></span><br><span class="line">  <span class="attr">&quot;query&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">    <span class="attr">&quot;match&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;title&quot;</span><span class="punctuation">:</span> <span class="string">&quot;华为 手机&quot;</span> <span class="punctuation">&#125;</span></span><br><span class="line">  <span class="punctuation">&#125;</span></span><br><span class="line"><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>term（精确匹配，不分词，需配合 keyword 字段）：</strong></p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">GET /products/_search</span><br><span class="line"><span class="punctuation">&#123;</span></span><br><span class="line">  <span class="attr">&quot;query&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">    <span class="attr">&quot;term&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;status&quot;</span><span class="punctuation">:</span> <span class="string">&quot;AVAILABLE&quot;</span> <span class="punctuation">&#125;</span></span><br><span class="line">  <span class="punctuation">&#125;</span></span><br><span class="line"><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>range（范围查询）：</strong></p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">GET /products/_search</span><br><span class="line"><span class="punctuation">&#123;</span></span><br><span class="line">  <span class="attr">&quot;query&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">    <span class="attr">&quot;range&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;price&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;gte&quot;</span><span class="punctuation">:</span> <span class="number">100</span><span class="punctuation">,</span> <span class="attr">&quot;lte&quot;</span><span class="punctuation">:</span> <span class="number">5000</span> <span class="punctuation">&#125;</span> <span class="punctuation">&#125;</span></span><br><span class="line">  <span class="punctuation">&#125;</span></span><br><span class="line"><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>bool（组合查询，<code>must</code> &#x2F; <code>must_not</code> &#x2F; <code>should</code> &#x2F; <code>filter</code> 四种子句）：</strong></p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">GET /products/_search</span><br><span class="line"><span class="punctuation">&#123;</span></span><br><span class="line">  <span class="attr">&quot;query&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">    <span class="attr">&quot;bool&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">      <span class="attr">&quot;must&quot;</span><span class="punctuation">:</span>       <span class="punctuation">[</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;match&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;title&quot;</span><span class="punctuation">:</span> <span class="string">&quot;手机&quot;</span> <span class="punctuation">&#125;</span> <span class="punctuation">&#125;</span> <span class="punctuation">]</span><span class="punctuation">,</span></span><br><span class="line">      <span class="attr">&quot;filter&quot;</span><span class="punctuation">:</span>     <span class="punctuation">[</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;term&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;status&quot;</span><span class="punctuation">:</span> <span class="string">&quot;AVAILABLE&quot;</span> <span class="punctuation">&#125;</span> <span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">                      <span class="punctuation">&#123;</span> <span class="attr">&quot;range&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;price&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;gte&quot;</span><span class="punctuation">:</span> <span class="number">100</span> <span class="punctuation">&#125;</span> <span class="punctuation">&#125;</span> <span class="punctuation">&#125;</span> <span class="punctuation">]</span><span class="punctuation">,</span></span><br><span class="line">      <span class="attr">&quot;should&quot;</span><span class="punctuation">:</span>     <span class="punctuation">[</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;match&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;brand&quot;</span><span class="punctuation">:</span> <span class="string">&quot;华为&quot;</span> <span class="punctuation">&#125;</span> <span class="punctuation">&#125;</span> <span class="punctuation">]</span><span class="punctuation">,</span></span><br><span class="line">      <span class="attr">&quot;must_not&quot;</span><span class="punctuation">:</span>   <span class="punctuation">[</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;term&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;is_deleted&quot;</span><span class="punctuation">:</span> <span class="literal"><span class="keyword">true</span></span> <span class="punctuation">&#125;</span> <span class="punctuation">&#125;</span> <span class="punctuation">]</span></span><br><span class="line">    <span class="punctuation">&#125;</span></span><br><span class="line">  <span class="punctuation">&#125;</span></span><br><span class="line"><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>match vs term 对比</strong>（面试高频）：</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>match</th>
+<th>term</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>分词</td>
+<td>查询串先分词再匹配</td>
+<td>不分词，按词项整体精确匹配</td>
+</tr>
+<tr>
+<td>适用字段</td>
+<td>text（全文检索）</td>
+<td>keyword、数值、日期等精确值</td>
+</tr>
+<tr>
+<td>典型场景</td>
+<td>搜商品名、正文</td>
+<td>状态码、枚举、ID、标签</td>
+</tr>
+<tr>
+<td>坑</td>
+<td>—</td>
+<td><strong>对 text 字段用 term 往往查不到</strong>：text 被分词成多个词项，term 拿着完整字符串去匹配词项字典必然落空。精确匹配必须用 keyword 字段</td>
+</tr>
+</tbody></table>
+<p>其他常用查询：<code>match_phrase</code>（短语匹配，利用位置信息）、<code>prefix</code>&#x2F;<code>wildcard</code>（注意前导通配符会扫全量词项字典，性能差）、<code>fuzzy</code>（纠错）、<code>multi_match</code>（多字段检索）、<code>query_string</code>（DSL 字符串语法，灵活但有注入风险）。</p>
+<h3 id="4-5-深分页"><a href="#4-5-深分页" class="headerlink" title="4.5 深分页"></a>4.5 深分页</h3><p><code>from + size</code> 是普通分页，但 <code>max_result_window</code> 默认上限 10000（超出报错）。深分页的问题在于协调节点要把每个分片的 <code>from + size</code> 条结果都收上来排序，<strong>from 越大，内存和耗时越大</strong>。</p>
+<table>
+<thead>
+<tr>
+<th>方案</th>
+<th>适用场景</th>
+<th>特点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>from + size</td>
+<td>前 10000 条内的浅分页</td>
+<td>实现最简单，深翻页内存爆炸</td>
+</tr>
+<tr>
+<td>search_after</td>
+<td>实时游标式翻页</td>
+<td>性能稳定与页码无关，需排序字段组合唯一（通常追加 <code>_id</code>）</td>
+</tr>
+<tr>
+<td>scroll</td>
+<td>数据导出、全量遍历</td>
+<td>服务端保留快照上下文，<strong>非实时</strong>（新写入不可见），耗资源需及时关闭</td>
+</tr>
+<tr>
+<td>PIT + search_after</td>
+<td>7.10+ 推荐</td>
+<td>Point In Time 固定查询视图，配合 search_after 稳定翻页</td>
+</tr>
+</tbody></table>
+<h2 id="5-聚合"><a href="#5-聚合" class="headerlink" title="5. 聚合"></a>5. 聚合</h2><h3 id="5-1-三类聚合"><a href="#5-1-三类聚合" class="headerlink" title="5.1 三类聚合"></a>5.1 三类聚合</h3><table>
+<thead>
+<tr>
+<th>类型</th>
+<th>作用</th>
+<th>常用示例</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Bucket（桶）</td>
+<td>按条件把文档分组</td>
+<td><code>terms</code>、<code>range</code>、<code>date_histogram</code>（时间分桶）</td>
+</tr>
+<tr>
+<td>Metric（指标）</td>
+<td>对文档或桶计算数值</td>
+<td><code>avg</code>、<code>sum</code>、<code>min/max</code>、<code>stats</code>、<code>cardinality</code>（近似去重）</td>
+</tr>
+<tr>
+<td>Pipeline（管道）</td>
+<td>对已有聚合结果再做计算</td>
+<td><code>derivative</code>（环比）、<code>bucket_script</code>、<code>avg_bucket</code></td>
+</tr>
+</tbody></table>
+<p>示例：按分类统计订单数和价格分布，<code>size: 0</code> 表示不返回文档只返回聚合结果：</p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">GET /orders/_search</span><br><span class="line"><span class="punctuation">&#123;</span></span><br><span class="line">  <span class="attr">&quot;size&quot;</span><span class="punctuation">:</span> <span class="number">0</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;aggs&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">    <span class="attr">&quot;by_category&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">      <span class="attr">&quot;terms&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;field&quot;</span><span class="punctuation">:</span> <span class="string">&quot;category.keyword&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;size&quot;</span><span class="punctuation">:</span> <span class="number">10</span> <span class="punctuation">&#125;</span></span><br><span class="line">    <span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">    <span class="attr">&quot;price_stats&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">      <span class="attr">&quot;stats&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;field&quot;</span><span class="punctuation">:</span> <span class="string">&quot;price&quot;</span> <span class="punctuation">&#125;</span></span><br><span class="line">    <span class="punctuation">&#125;</span></span><br><span class="line">  <span class="punctuation">&#125;</span></span><br><span class="line"><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="5-2-聚合与查询的区别"><a href="#5-2-聚合与查询的区别" class="headerlink" title="5.2 聚合与查询的区别"></a>5.2 聚合与查询的区别</h3><ul>
+<li><strong>查询（Query）</strong>：选出符合条件的文档，返回文档本身；<strong>聚合（Aggregation）</strong>：对结果集做分组和统计，返回统计结果。类比 SQL：查询是 <code>WHERE</code>，聚合是 <code>GROUP BY + 聚合函数</code>。</li>
+<li>聚合默认<strong>作用于查询筛选后的结果集</strong>（无 query 则默认 <code>match_all</code> 全部文档）；聚合可以嵌套（桶内再分桶、桶内再算指标），Pipeline 聚合还能跨桶计算。</li>
+<li>聚合结果中的桶是 <strong>Top-N 近似值</strong>（先在各分片取 top，再合并），与精确分组有偏差。</li>
+</ul>
+<h3 id="5-3-聚合优化"><a href="#5-3-聚合优化" class="headerlink" title="5.3 聚合优化"></a>5.3 聚合优化</h3><ul>
+<li><strong>text 字段不能直接聚合</strong>：聚合依赖 <code>doc_values</code>，text 默认没有（详见 8.3）。给字段配 keyword 子字段后用 <code>field.keyword</code> 聚合。</li>
+<li><strong>terms 聚合的 <code>size</code> 默认 10</strong>，要更多桶需显式设置；分片返回桶数由 <code>shard_size</code> 控制（默认约 <code>size * 1.5 + 10</code>），桶数很大时适当调大 <code>shard_size</code> 保证准确性。</li>
+<li><strong><code>cardinality</code> 是近似去重</strong>：<code>precision_threshold</code> 默认 3000，值不超过阈值时精确，超过后基于 HyperLogLog 近似，可适当调大换取精确性。</li>
+<li><strong>大桶数分页用 <code>composite</code> 聚合</strong>：<code>terms</code> 聚合超过 <code>size</code> 的桶拿不到，<code>composite</code> 支持 <code>after</code> 游标分页取全部桶。</li>
+<li><strong>不需要聚合&#x2F;排序的字段</strong>可以关闭 <code>doc_values</code> 省磁盘（默认开启）。</li>
+<li>聚合结果可用 Shard Request Cache 缓存（<code>?request_cache=true</code>，仅缓存 <code>size: 0</code> 的请求），适合报表类固定查询。</li>
+</ul>
+<h2 id="6-分片与集群"><a href="#6-分片与集群" class="headerlink" title="6. 分片与集群"></a>6. 分片与集群</h2><h3 id="6-1-分片策略"><a href="#6-1-分片策略" class="headerlink" title="6.1 分片策略"></a>6.1 分片策略</h3><ul>
+<li><strong>主分片数量</strong>：7.x 默认 <code>1</code>（6.x 及更早默认 <code>5</code>）。合理规则：<strong>单个分片数据量控制在 10~50GB</strong>，总分片数按数据总量估算（如 300GB 数据 ≈ 10 个主分片）。<ul>
+<li>分片过少：单分片查询&#x2F;恢复慢，无法利用多节点并行。</li>
+<li>分片过多：每个分片都是独立的 Lucene 索引，元数据和文件句柄开销大，GC 压力大。</li>
+</ul>
+</li>
+<li><strong>主分片数创建后不可变</strong>：路由公式 <code>hash(id) % 分片数</code> 决定了它无法动态增减。要改只能 <strong>Reindex</strong>（<code>POST /_reindex</code> 把数据搬到新索引），或者用索引别名平滑切换。</li>
+<li><strong>副本数量可以动态调整</strong>：<code>PUT /index/_settings</code> 修改 <code>number_of_replicas</code>，随时增减。</li>
+<li><strong>副本上限</strong>：副本数最多为 <code>节点数 - 1</code>（同一份数据不能在同一个节点上有主副本两份），单节点集群配 1 个副本必然 Yellow。</li>
+</ul>
+<h3 id="6-2-副本的作用"><a href="#6-2-副本的作用" class="headerlink" title="6.2 副本的作用"></a>6.2 副本的作用</h3><ul>
+<li><strong>高可用</strong>：主分片故障时，副本可被提升为主分片，数据不丢、服务不中断。</li>
+<li><strong>读扩展</strong>：查询可以负载均衡到所有主&#x2F;副本分片执行，副本越多，读取吞吐越高。</li>
+<li><strong>不承担写</strong>：索引&#x2F;更新&#x2F;删除请求只发主分片（副本写入由主分片转发），副本对写没有扩展作用——<strong>写瓶颈只能靠增加主分片数解决</strong>。</li>
+</ul>
+<h3 id="6-3-集群状态-Yellow-或-Red-意味着什么？如何排查？"><a href="#6-3-集群状态-Yellow-或-Red-意味着什么？如何排查？" class="headerlink" title="6.3 集群状态 Yellow 或 Red 意味着什么？如何排查？"></a>6.3 集群状态 Yellow 或 Red 意味着什么？如何排查？</h3><ul>
+<li><strong>Yellow：</strong><ul>
+<li><strong>含义：</strong> 所有主分片都已分配，但<strong>至少有一个副本分片没有分配</strong>。</li>
+<li><strong>常见原因：</strong><ul>
+<li>节点数量不足（例如，索引配置了 <code>number_of_replicas=1</code>，但集群只有一个节点）。</li>
+<li>新创建的索引副本分片正在初始化（短暂状态）。</li>
+<li>有节点故障，导致部分副本分片丢失（但主分片还在）。</li>
+</ul>
+</li>
+<li><strong>影响：</strong> 高可用性降低（丢失一个节点可能导致数据不可用），查询吞吐量可能下降（副本少）。</li>
+<li><strong>排查：</strong> 使用 <code>GET _cluster/allocation/explain</code> API 查看未分配分片的具体原因；检查节点数、节点状态、磁盘空间、分片分配设置。</li>
+</ul>
+</li>
+<li><strong>Red：</strong><ul>
+<li><strong>含义：</strong> <strong>至少有一个主分片没有分配</strong>（可能连带其副本也缺失）。</li>
+<li><strong>常见原因：</strong><ul>
+<li>持有主分片的节点永久丢失，且没有可用的副本分片可以提升为主分片。</li>
+<li>磁盘空间不足导致分片无法分配。</li>
+<li>配置错误（如分片分配规则 exclude 了所有节点）。</li>
+</ul>
+</li>
+<li><strong>影响：</strong> <strong>数据部分丢失或完全不可用！</strong> 涉及该主分片的索引和搜索操作都会失败。</li>
+<li><strong>排查：</strong> 紧急处理！立即检查 <code>_cluster/health</code> 和 <code>_cat/shards?v</code> 确认哪些索引&#x2F;分片是 <code>red</code>。使用 <code>GET _cluster/allocation/explain</code> 分析未分配原因。检查节点状态、磁盘空间、日志。必要时从备份恢复或手动分配分片（风险操作）。</li>
+</ul>
+</li>
+<li><strong>目标：</strong> 始终追求 <code>Green</code> 状态。</li>
+</ul>
+<h3 id="6-4-脑裂问题"><a href="#6-4-脑裂问题" class="headerlink" title="6.4 脑裂问题"></a>6.4 脑裂问题</h3><ul>
+<li><strong>定义：</strong> 在分布式系统中，当网络分区（Network Partition）发生时，集群的不同部分（节点组）可能无法互相通信。如果每个部分都认为自己是唯一可用的部分并选举出新的主节点，就会导致集群分裂成两个或多个独立运作的”脑”，各自接受写入操作，造成<strong>数据不一致</strong>和<strong>冲突</strong>。</li>
+<li><strong>ES 防止机制：</strong> 核心思想是<strong>多数派（Quorum）</strong>原则——只有包含<strong>超过半数（&gt; N&#x2F;2）主节点资格节点</strong>的节点组才能选举或维持主节点。假设有 <code>N</code> 个主节点资格节点：<ul>
+<li><strong>6.x 及以前（Zen Discovery）：</strong> 显式配置 <code>discovery.zen.minimum_master_nodes = N/2 + 1</code>（例如，3 节点集群设为 2）。</li>
+<li><strong>7.x 起：</strong> 基于 <strong>Raft 协议</strong>的投票选举机制，<code>discovery.zen.minimum_master_nodes</code> 已被废弃，集群自动要求多数投票；集群首次启动时用 <code>cluster.initial_master_nodes</code> 列出候选主节点。</li>
+<li><strong>8.x：</strong> 彻底移除 Zen Discovery 相关配置。</li>
+</ul>
+</li>
+<li><strong>效果：</strong> 网络分区时，任何节点组如果包含的主节点资格节点数不足多数（&lt;&#x3D; N&#x2F;2），就无法选举新主节点或维持现有主节点状态（无法获得多数确认），从而<strong>无法提供服务或接受写操作</strong>，避免了”双主”导致的脑裂。只有拥有多数节点的分区才能正常运作。</li>
+<li><strong>实践建议：</strong> 主节点资格节点配<strong>奇数个</strong>（生产通常 3 个专用 master 节点），并做好角色分离（7.x 起节点可配置 <code>node.roles</code>，把 master&#x2F;data&#x2F;ingest 角色分开），避免大节点既做 master 又扛数据。</li>
+</ul>
+<h2 id="7-索引优化"><a href="#7-索引优化" class="headerlink" title="7. 索引优化"></a>7. 索引优化</h2><h3 id="7-1-显式映射与动态映射"><a href="#7-1-显式映射与动态映射" class="headerlink" title="7.1 显式映射与动态映射"></a>7.1 显式映射与动态映射</h3><p>ES 支持动态映射：写入文档时自动推断字段类型（字符串推断为 <code>text</code> + <code>keyword</code> 子字段、数字推断为 <code>long</code>、日期按格式推断）。生产环境应<strong>优先使用显式映射</strong>，动态映射只保留给开发期：</p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">PUT /logs</span><br><span class="line"><span class="punctuation">&#123;</span></span><br><span class="line">  <span class="attr">&quot;mappings&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">    <span class="attr">&quot;dynamic&quot;</span><span class="punctuation">:</span> <span class="string">&quot;strict&quot;</span><span class="punctuation">,</span></span><br><span class="line">    <span class="attr">&quot;properties&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">      <span class="attr">&quot;timestamp&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;date&quot;</span> <span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">      <span class="attr">&quot;level&quot;</span><span class="punctuation">:</span>     <span class="punctuation">&#123;</span> <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;keyword&quot;</span> <span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">      <span class="attr">&quot;message&quot;</span><span class="punctuation">:</span>   <span class="punctuation">&#123;</span> <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;text&quot;</span> <span class="punctuation">&#125;</span></span><br><span class="line">    <span class="punctuation">&#125;</span></span><br><span class="line">  <span class="punctuation">&#125;</span></span><br><span class="line"><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+
+<p><code>dynamic</code> 三种模式的取舍：</p>
+<table>
+<thead>
+<tr>
+<th>值</th>
+<th>行为</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>true</code>（默认）</td>
+<td>自动创建字段映射</td>
+<td>开发期、字段完全可控</td>
+</tr>
+<tr>
+<td><code>false</code></td>
+<td>忽略未知字段（不索引、搜索不到）</td>
+<td>字段不可控但不想写失败</td>
+</tr>
+<tr>
+<td><code>strict</code></td>
+<td>未知字段直接报错拒绝写入</td>
+<td>生产环境、强 schema</td>
+</tr>
+</tbody></table>
+<h3 id="7-2-映射爆炸"><a href="#7-2-映射爆炸" class="headerlink" title="7.2 映射爆炸"></a>7.2 映射爆炸</h3><ul>
+<li><strong>定义：</strong> 当索引中包含大量<strong>唯一</strong>字段（通常是动态映射产生的）时，导致集群状态（Cluster State）变得极其庞大（可能超过数百 MB 甚至 GB），主节点在广播和维持集群状态时压力巨大，严重影响集群稳定性和性能。</li>
+<li><strong>原因：</strong> 常见于索引日志类数据，其中每个文档都有大量不同的、不可预测的字段（如包含用户 ID 或请求 ID 的字段名）。</li>
+<li><strong>避免：</strong><ul>
+<li><strong>严格控制动态映射：</strong> 设置 <code>&quot;dynamic&quot;: &quot;strict&quot;</code>（禁止未知字段）或 <code>&quot;dynamic&quot;: &quot;false&quot;</code>（忽略未知字段，但不索引）。优先使用<strong>显式映射</strong>。</li>
+<li><strong>限制字段总数：</strong> <code>index.mapping.total_fields.limit</code> 默认 1000，超限直接拒绝写入，可据此报警。</li>
+<li><strong>使用 <code>flattened</code> 类型（7.2+）：</strong> 将整个 JSON 对象映射为单个 <code>flattened</code> 字段，避免为每个内部键创建独立字段。适用于不需要独立查询&#x2F;聚合的元数据。</li>
+<li><strong>使用 <code>object</code>&#x2F;<code>nested</code> 但限制深度：</strong> 使用 <code>index.mapping.depth.limit</code> 控制嵌套深度（默认 20）。</li>
+<li><strong>字段别名：</strong> 如果不同来源的字段语义相同，用别名统一映射到一个字段。</li>
+<li><strong>合理的索引设计：</strong> 避免将差异巨大的文档类型塞进同一个索引（日志按天滚动索引也是这个道理）。</li>
+</ul>
+</li>
+</ul>
+<h3 id="7-3-keyword-vs-text"><a href="#7-3-keyword-vs-text" class="headerlink" title="7.3 keyword vs text"></a>7.3 keyword vs text</h3><ul>
+<li>使用 <code>keyword</code> 类型当：<ul>
+<li>需要<strong>精确匹配</strong>（如状态码、标签、ID、枚举值）。</li>
+<li>需要<strong>聚合</strong>（如 Terms、Significant Terms 聚合）。</li>
+<li>需要<strong>排序</strong>。</li>
+<li>不需要全文分词搜索。</li>
+</ul>
+</li>
+<li>使用 <code>text</code> 类型当：<ul>
+<li>字段内容是需要被<strong>全文搜索</strong>的自然语言文本（如邮件正文、产品描述）。</li>
+<li>需要被<strong>分词器</strong>处理（分词、归一化）。</li>
+</ul>
+</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>text</th>
+<th>keyword</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>索引方式</td>
+<td>分词器拆成多个词项后索引</td>
+<td>整体作为一个词项索引</td>
+</tr>
+<tr>
+<td>匹配方式</td>
+<td><code>match</code> 全文检索</td>
+<td><code>term</code> 精确匹配</td>
+</tr>
+<tr>
+<td>聚合&#x2F;排序</td>
+<td>默认不支持（需 fielddata，见 8.3）</td>
+<td>支持（基于 doc_values）</td>
+</tr>
+<tr>
+<td>场景</td>
+<td>自然语言内容</td>
+<td>ID、枚举、状态码、标签</td>
+</tr>
+<tr>
+<td>其他</td>
+<td>—</td>
+<td>单个词项最长 32766 字节，可用 <code>ignore_above</code> 丢弃超长值</td>
+</tr>
+</tbody></table>
+<ul>
+<li><strong>多字段（Multi-fields）：</strong> 通常对同一个字段会同时定义 <code>text</code>（用于搜索）和 <code>keyword</code>（用于聚合&#x2F;排序）：</li>
+</ul>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">&quot;title&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">  <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;text&quot;</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;fields&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">    <span class="attr">&quot;keyword&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;keyword&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;ignore_above&quot;</span><span class="punctuation">:</span> <span class="number">256</span> <span class="punctuation">&#125;</span></span><br><span class="line">  <span class="punctuation">&#125;</span></span><br><span class="line"><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+
+<p>使用时 <code>title</code> 走全文搜索，<code>title.keyword</code> 走精确匹配&#x2F;聚合。</p>
+<h3 id="7-4-force-merge、routing、index-sorting"><a href="#7-4-force-merge、routing、index-sorting" class="headerlink" title="7.4 force merge、routing、index sorting"></a>7.4 force merge、routing、index sorting</h3><ul>
+<li><strong>force merge（强制合并段）：</strong> <code>POST /index/_forcemerge?max_num_segments=1</code>。适合<strong>只读索引</strong>（历史归档）、删除大量文档后（真正释放磁盘空间）、以及批量导入完成后。合并是 I&#x2F;O 密集型操作，<strong>不要在在线高峰对热索引执行</strong>。</li>
+<li><strong>自定义 routing：</strong> 默认按 <code>_id</code> 哈希路由到分片；可通过 <code>?routing=user_88</code> 指定路由键（如按用户&#x2F;租户），让同一业务实体的文档落在同一分片，查询时指定 routing 只扫一个分片。代价是可能数据倾斜、routing 变化时需要 Reindex，适合租户隔离类场景。</li>
+<li><strong>index sorting（索引预排序，7.x+）：</strong> 创建索引时指定 <code>index.sort.field</code>（如 <code>timestamp</code>），写入时即按该字段排序，能显著加速时间范围查询和大范围排序（排序字段自动进入 doc_values），代价是写入性能略有下降。</li>
+</ul>
+<h2 id="8-性能优化"><a href="#8-性能优化" class="headerlink" title="8. 性能优化"></a>8. 性能优化</h2><h3 id="8-1-Bulk-API"><a href="#8-1-Bulk-API" class="headerlink" title="8.1 Bulk API"></a>8.1 Bulk API</h3><p>单个请求写入性能远低于批量写入，因为每条请求都有一次网络往返和一次完整处理。<strong>Bulk API 是写入优化的第一手段</strong>：</p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">POST /products/_bulk</span><br><span class="line"><span class="punctuation">&#123;</span><span class="attr">&quot;index&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span><span class="attr">&quot;_id&quot;</span><span class="punctuation">:</span> <span class="string">&quot;1&quot;</span><span class="punctuation">&#125;</span><span class="punctuation">&#125;</span></span><br><span class="line"><span class="punctuation">&#123;</span><span class="attr">&quot;title&quot;</span><span class="punctuation">:</span> <span class="string">&quot;iPhone 15&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;price&quot;</span><span class="punctuation">:</span> <span class="number">5999</span><span class="punctuation">,</span> <span class="attr">&quot;status&quot;</span><span class="punctuation">:</span> <span class="string">&quot;AVAILABLE&quot;</span><span class="punctuation">&#125;</span></span><br><span class="line"><span class="punctuation">&#123;</span><span class="attr">&quot;index&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span><span class="attr">&quot;_id&quot;</span><span class="punctuation">:</span> <span class="string">&quot;2&quot;</span><span class="punctuation">&#125;</span><span class="punctuation">&#125;</span></span><br><span class="line"><span class="punctuation">&#123;</span><span class="attr">&quot;title&quot;</span><span class="punctuation">:</span> <span class="string">&quot;华为 Mate 60&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;price&quot;</span><span class="punctuation">:</span> <span class="number">6999</span><span class="punctuation">,</span> <span class="attr">&quot;status&quot;</span><span class="punctuation">:</span> <span class="string">&quot;AVAILABLE&quot;</span><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+
+<ul>
+<li><strong>批次大小：</strong> 经验值每批 <strong>5~15MB</strong> 或 <strong>1000~5000 条</strong>（按单条大小调整），需要压测确定最优值。批次过大：占用协调节点&#x2F;分片内存，单条失败整批重试代价高；批次过小：网络往返占比高，吞吐上不去。</li>
+<li><strong>关注响应</strong>：检查响应中的 <code>errors</code> 字段，对失败项重试；客户端用<strong>多线程并发</strong>打满吞吐，重试用指数退避避免雪崩。</li>
+<li><strong>配合优化</strong>：批量导入场景可临时 <code>index.refresh_interval: -1</code>（导入完恢复并 force merge），减少频繁 refresh 产生的小段。</li>
+</ul>
+<h3 id="8-2-段合并"><a href="#8-2-段合并" class="headerlink" title="8.2 段合并"></a>8.2 段合并</h3><ul>
+<li><strong>为什么需要：</strong> 频繁的 refresh 会产生大量小的 Lucene 段。小段过多会降低查询性能（需要打开更多文件句柄）且占用更多资源（文件描述符、内存）。删除操作只是标记文档为删除，空间不会立即释放。</li>
+<li><strong>优点：</strong><ul>
+<li>减少段数量，<strong>提升查询速度</strong>（减少文件打开和搜索范围）。</li>
+<li><strong>真正删除</strong>被标记删除的文档，<strong>回收磁盘空间</strong>。</li>
+<li>合并过程中优化索引结构（如压缩）。</li>
+</ul>
+</li>
+<li><strong>缺点：</strong><ul>
+<li>是 <strong>I&#x2F;O 和 CPU 密集型操作</strong>，在合并期间可能<strong>显著影响集群性能</strong>（写入延迟、查询延迟增加）。</li>
+<li>需要额外的临时磁盘空间。</li>
+</ul>
+</li>
+<li><strong>调优：</strong> 默认 Tiered Merge Policy 会自动按层级合并；<code>index.merge.scheduler.max_thread_count</code> 默认 <code>min(4, CPU核数/2)</code>，机械盘环境建议调为 1；大写入任务前可临时关闭 refresh（见 8.1），完成后 <code>_forcemerge</code> 收尾。</li>
+</ul>
+<h3 id="8-3-doc-values-vs-fielddata"><a href="#8-3-doc-values-vs-fielddata" class="headerlink" title="8.3 doc_values vs fielddata"></a>8.3 doc_values vs fielddata</h3><p>聚合、排序需要读取整列数据，ES 提供两种机制：</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>doc_values</th>
+<th>fielddata</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>存储</td>
+<td><strong>列式存储，在磁盘</strong>（常驻 OS Page Cache）</td>
+<td><strong>内存（JVM 堆）</strong>，懒加载</td>
+</tr>
+<tr>
+<td>默认</td>
+<td>keyword&#x2F;数值&#x2F;日期默认开启</td>
+<td><strong>默认关闭</strong>（2.0 起）</td>
+</tr>
+<tr>
+<td>用途</td>
+<td>聚合、排序、脚本访问</td>
+<td>仅用于让 text 字段也能聚合（不推荐）</td>
+</tr>
+<tr>
+<td>风险</td>
+<td>占磁盘，可对不需要聚合的字段关闭</td>
+<td><strong>堆内存 OOM 的重灾区</strong>（1.x 时代默认开启，曾引发大量线上事故）</td>
+</tr>
+</tbody></table>
+<p>结论：<strong>聚合排序一律依赖 doc_values（配合 keyword），不要让 text 开 fielddata</strong>。确实需要对 text 做统计时，用 keyword 子字段代替。</p>
+<h3 id="8-4-堆内存配置"><a href="#8-4-堆内存配置" class="headerlink" title="8.4 堆内存配置"></a>8.4 堆内存配置</h3><ul>
+<li><strong><code>-Xms</code> 与 <code>-Xmx</code> 设为相同值</strong>，避免运行时动态扩容触发 Full GC。</li>
+<li>**不超过物理内存的 50%**（<code>ES_JAVA_OPTS</code> 或 <code>jvm.options</code> 配置），其余内存留给 <strong>OS Page Cache</strong>——段文件和 doc_values 都靠页缓存加速，这是 ES 的命根子。</li>
+<li><strong>不要超过 32GB</strong>：超过后 HotSpot 的压缩指针（Compressed Oops）失效，指针占用翻倍，堆内存反而”缩水”。</li>
+<li>关闭 swap：<code>bootstrap.memory_lock: true</code>（锁内存防止被换出）。</li>
+<li>7.x 起默认使用 G1GC；<code>indices.fielddata.cache.size</code> 建议设置上限（默认无上限），熔断器 <code>indices.breaker.fielddata.limit</code> 默认保护堆的 40%。</li>
+</ul>
+<h3 id="8-5-慢查询日志"><a href="#8-5-慢查询日志" class="headerlink" title="8.5 慢查询日志"></a>8.5 慢查询日志</h3><p>定位慢查询靠 Slowlog，分<strong>搜索慢日志</strong>（query&#x2F;fetch 两阶段，各三档阈值）和<strong>索引慢日志</strong>（写入耗时）：</p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">PUT /products/_settings</span><br><span class="line"><span class="punctuation">&#123;</span></span><br><span class="line">  <span class="attr">&quot;index.search.slowlog.threshold.query.info&quot;</span><span class="punctuation">:</span> <span class="string">&quot;500ms&quot;</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;index.search.slowlog.threshold.query.warn&quot;</span><span class="punctuation">:</span> <span class="string">&quot;2s&quot;</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;index.search.slowlog.threshold.fetch.info&quot;</span><span class="punctuation">:</span> <span class="string">&quot;1s&quot;</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;index.indexing.slowlog.threshold.index.info&quot;</span><span class="punctuation">:</span> <span class="string">&quot;200ms&quot;</span></span><br><span class="line"><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+
+<p>日志输出到 <code>logs/index_search_slowlog.log</code>，会记录完整查询语句和耗时。注意 8.x 中这类设置已迁移为集群级动态设置（如 <code>search.slowlog.threshold.query.warn</code>）。</p>
+<h3 id="8-6-其他常用调优"><a href="#8-6-其他常用调优" class="headerlink" title="8.6 其他常用调优"></a>8.6 其他常用调优</h3><ul>
+<li><strong>磁盘水位：</strong> 磁盘使用率触发分片迁移&#x2F;拒绝写入的三档阈值默认 **85% &#x2F; 90% &#x2F; 95%**（<code>cluster.routing.allocation.disk.watermark.low/high/flood_stage</code>），生产建议监控提前预警，避免集群进入只读。</li>
+<li><strong>查询缓存：</strong> Filter 命中的结果缓存在节点级 Query Cache（默认占堆 10%，<code>indices.queries.cache.size</code>）；<code>size: 0</code> 的聚合可配 Shard Request Cache（<code>?request_cache=true</code>）。</li>
+<li><strong>查询写法：</strong> 过滤条件优先进 Filter 上下文；避免 <code>*keyword</code> 前导通配符、宽泛正则、脚本中做重计算；深分页用 search_after（见 4.5）；<code>multi_match</code> 指定字段避免默认 <code>_all</code> 全字段检索（7.x 已移除 <code>_all</code>）。</li>
+<li><strong>索引生命周期（ILM，6.6+）：</strong> 日志类数据按时间滚动索引（daily index + <code>index.lifecycle</code> 策略），自动完成 hot → warm → cold → delete 的分层与清理，从机制上解决索引无限增长。</li>
+</ul>
+<h2 id="9-数据同步"><a href="#9-数据同步" class="headerlink" title="9. 数据同步"></a>9. 数据同步</h2><p>业务数据的主源在 MySQL，ES 需要一份副本用于搜索，这就产生了同步问题。三种主流方案对比：</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>Logstash（JDBC 插件）</th>
+<th>Canal（binlog 订阅）</th>
+<th>应用双写</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>原理</td>
+<td>定时轮询执行增量 SQL（<code>sql_last_value</code> 记录游标）</td>
+<td>伪装 MySQL 从库解析 binlog，解析成事件后重放给 ES</td>
+<td>业务代码写 MySQL 的同时写 ES（或发消息异步写）</td>
+</tr>
+<tr>
+<td>实时性</td>
+<td>秒级~分钟级（取决于轮询间隔）</td>
+<td><strong>准实时</strong>（binlog 推送，毫秒级）</td>
+<td>实时</td>
+</tr>
+<tr>
+<td>对源库侵入</td>
+<td>无侵入（只读查询）</td>
+<td>需开启 <code>binlog_format=ROW</code>，连接占用</td>
+<td><strong>侵入业务代码</strong></td>
+</tr>
+<tr>
+<td>删除同步</td>
+<td><strong>无法感知 DELETE</strong>（只能同步存在的数据）</td>
+<td>天然携带 delete 事件，可同步删除</td>
+<td>需业务显式处理删除</td>
+</tr>
+<tr>
+<td>实现成本</td>
+<td>最低（配置即用）</td>
+<td>中（Canal + 自研&#x2F;现成消费者）</td>
+<td>低（代码内实现）</td>
+</tr>
+<tr>
+<td>适用</td>
+<td>读多写少、实时性要求不高的搜索索引</td>
+<td>中大型系统、需要严格实时同步</td>
+<td>小项目、团队可控的快速方案</td>
+</tr>
+</tbody></table>
+<h3 id="9-1-推荐架构"><a href="#9-1-推荐架构" class="headerlink" title="9.1 推荐架构"></a>9.1 推荐架构</h3><ul>
+<li><strong>方案 A（首选，通用场景）：</strong> MySQL（binlog，ROW 格式）→ <strong>Canal</strong> → <strong>Kafka</strong> → 消费端（Logstash 或自研消费者）→ ES。先做一次全量初始化（快照 + Reindex），再切增量。优点是实时、不侵入业务、削峰（写入峰值被 Kafka 缓冲）、解耦。</li>
+<li><strong>方案 B（双写 + MQ）：</strong> 业务代码<strong>先写 MySQL，成功后发消息到 MQ</strong>，消费者异步写 ES。注意不能在”一个事务里同时写 MySQL 和 ES”（跨库事务不可行），ES 写入失败绝不能回滚数据库。</li>
+<li><strong>方案 C（快速起步）：</strong> 小项目直接用 Logstash JDBC 轮询，接受分钟级延迟和”不支持删除同步”的局限（删除用软删字段兜底）。</li>
+</ul>
+<h3 id="9-2-一致性兜底"><a href="#9-2-一致性兜底" class="headerlink" title="9.2 一致性兜底"></a>9.2 一致性兜底</h3><p>双写&#x2F;异步同步的本质是<strong>最终一致性</strong>，必须配套兜底：</p>
+<ul>
+<li><strong>重试</strong>：写 ES 失败的消息进重试队列（指数退避），超过次数进死信队列人工处理。</li>
+<li><strong>幂等</strong>：写 ES 用业务主键作为 <code>_id</code>，重复投递时 upsert 覆盖，天然幂等。</li>
+<li><strong>对账</strong>：定时任务按更新时间段扫描 MySQL，与 ES 对比，发现缺失&#x2F;不一致就补同步——这是最后防线，不能省。</li>
+</ul>
+<h2 id="10-常见面试题速答"><a href="#10-常见面试题速答" class="headerlink" title="10. 常见面试题速答"></a>10. 常见面试题速答</h2><p><strong>Q1：ES 为什么查询快？</strong><br>倒排索引直接定位词项（O(1) 级查找），不用全表扫描；数据分片后可跨节点并行查询，协调节点合并；段文件和 doc_values 常驻 OS Page Cache，读基本不落盘；近实时架构避免了实时索引带来的写入阻塞。</p>
+<p><strong>Q2：为什么 ES 是”近实时”而不是实时？</strong><br>写入先进内存 Buffer + Translog，要等默认 1 秒一次的 <strong>Refresh</strong> 生成新 Segment 才对搜索可见。Translog 只保证不丢数据，不保证可见性。<code>refresh=true</code> 可强刷但牺牲性能。</p>
+<p><strong>Q3：match 和 term 有什么区别？</strong><br>match 会把查询串分词后做全文检索，用于 text 字段；term 不分词，按词项整体精确匹配，用于 keyword&#x2F;数值字段。对 text 字段用 term 常常查不到（text 已按词项索引，term 拿完整字符串去匹配必然落空）。</p>
+<p><strong>Q4：深分页为什么慢？怎么解决？</strong><br><code>from+size</code> 需要协调节点收集每个分片的 <code>from+size</code> 条结果再排序，from 越大开销越大，且 <code>max_result_window</code> 默认上限 10000。实时翻页用 <strong>search_after</strong>（需唯一排序键），导出数据用 <strong>scroll</strong>（快照语义、非实时）。</p>
+<p><strong>Q5：text 字段能直接聚合&#x2F;排序吗？</strong><br>不能。聚合&#x2F;排序依赖列式存储 doc_values，text 默认没有（fielddata 默认也关闭，且堆内存开销巨大）。做法是给字段配 keyword 子字段，用 <code>field.keyword</code> 聚合。</p>
+<p><strong>Q6：索引建好后主分片数还能改吗？</strong><br>不能。分片数参与路由公式 <code>hash(id) % 分片数</code>，改了路由就失效。要调整只能 <strong>Reindex</strong> 到新索引（新索引别名平滑切换，注意建别名防止写入断流）。所以分片数要在创建前按数据量估算好（单分片 10~50GB）。</p>
+<p><strong>Q7：中文搜索怎么分词？</strong><br>ES 自带 standard 分词器对中文是按单字切分，效果差。生产中常用 <strong>IK 分词器</strong>：<code>ik_max_word</code> 做最细粒度切分（召回高，用于索引），<code>ik_smart</code> 做最粗粒度切分（精确，用于搜索），再配合扩展词典维护行业词库。</p>
+<p><strong>Q8：写入 ES 的数据丢了怎么办？</strong><br>分情况：节点重启丢数据 → 重放 Translog 恢复；节点永久宕机 → 副本提升为主分片，不丢；若主分片和副本同时丢失则数据真丢，只能从快照（<code>_snapshot</code>）或<strong>源库 MySQL 重建</strong>（所以业务主存永远在 MySQL，这也是第 9 节同步架构存在的原因）；写入端对失败的 Bulk 批量重试。ES 的可靠性设计是”防丢失 + 可重建”，不是数据库级的强一致。</p>
+<hr>
+<p><strong>复习路线</strong>：第 1<del>2 节讲清”是什么”，第 3</del>5 节讲清”怎么写入、怎么查、怎么统计”，第 6~8 节讲清”怎么扩容、怎么优化”，第 9 节解决”数据从哪来”，第 10 节是速答版。面试按这个顺序复述即可覆盖绝大多数 ES 问题。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -3884,107 +4572,6 @@
 
 
 
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/be1f55d9.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="知行栈">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | 知行栈">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/be1f55d9.html" class="post-title-link" itemprop="url">Java 开发实战速查</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-
-      <time title="Created: 2025-08-01 19:00:00" itemprop="dateCreated datePublished" datetime="2025-08-01T19:00:00+08:00">2025-08-01</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">In</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/Java/" itemprop="url" rel="index"><span itemprop="name">Java</span></a>
-        </span>
-    </span>
-
-  
-    <span class="post-meta-break"></span>
-    <span class="post-meta-item" title="Word count in article">
-      <span class="post-meta-item-icon">
-        <i class="far fa-file-word"></i>
-      </span>
-      <span class="post-meta-item-text">Word count in article: </span>
-      <span>4.8k</span>
-    </span>
-    <span class="post-meta-item" title="Reading time">
-      <span class="post-meta-item-icon">
-        <i class="far fa-clock"></i>
-      </span>
-      <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>17 mins.</span>
-    </span>
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h2 id="第一部分：代码片段"><a href="#第一部分：代码片段" class="headerlink" title="第一部分：代码片段"></a>第一部分：代码片段</h2><p>本部分汇总日常开发中可直接套用的 Java 代码片段：统一返回结构、字段校验、生产者消费者模式 5 种实现。</p>
-<h3 id="统一返回结构"><a href="#统一返回结构" class="headerlink" title="统一返回结构"></a>统一返回结构</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">interface</span> <span class="title class_">IResult</span> &#123;</span><br><span class="line"></span><br><span class="line">    Integer <span class="title function_">getCode</span><span class="params">()</span>;</span><br><span class="line"></span><br><span class="line">    String <span class="title function_">getMessage</span><span class="params">()</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-          <!--noindex-->
-            <div class="post-button">
-              <a class="btn" href="/post/be1f55d9.html#more" rel="contents">
-                Read more &raquo;
-              </a>
-            </div>
-          <!--/noindex-->
-        
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
   <nav class="pagination">
     <a class="extend prev" rel="prev" title="Previous page" aria-label="Previous page" href="/home/page/10/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/home/">1</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/10/">10</a><span class="page-number current">11</span><a class="page-number" href="/home/page/12/">12</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/16/">16</a><a class="extend next" rel="next" title="Next page" aria-label="Next page" href="/home/page/12/"><i class="fa fa-angle-right"></i></a>
   </nav>
@@ -4009,14 +4596,14 @@
       <i class="fa fa-chart-line"></i>
     </span>
       <span>Word count total: </span>
-    <span title="Word count total">495k</span>
+    <span title="Word count total">501k</span>
   </span>
   <span class="post-meta-item">
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
       <span>Reading time total &asymp;</span>
-    <span title="Reading time total">30:01</span>
+    <span title="Reading time total">30:21</span>
   </span>
 </div>
   <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
@@ -4037,5 +4624,20 @@
   <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
 </noscript>
 
-</body>
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
 </html>

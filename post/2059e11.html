@@ -29,7 +29,7 @@
 <meta property="og:image" content="http://timewait7.github.io/assets/database/Redis%20%E7%BC%93%E5%AD%98%E6%B7%98%E6%B1%B0%E7%AD%96%E7%95%A5%E8%A7%A3%E6%9E%90/redis-memory-architecture.png">
 <meta property="og:image" content="http://timewait7.github.io/assets/database/Redis%20%E7%BC%93%E5%AD%98%E6%B7%98%E6%B1%B0%E7%AD%96%E7%95%A5%E8%A7%A3%E6%9E%90/lru-vs-lfu-compare.png">
 <meta property="article:published_time" content="2026-08-11T16:26:03.000Z">
-<meta property="article:modified_time" content="2026-08-11T16:31:51.484Z">
+<meta property="article:modified_time" content="2026-08-12T04:56:51.169Z">
 <meta property="article:tag" content="Redis">
 <meta property="article:tag" content="缓存">
 <meta property="article:tag" content="内存管理">
@@ -63,8 +63,6 @@
 <script src="/js/third-party/search/local-search.js" defer></script>
 
 
-  <script class="next-config" data-name="mermaid" type="application/json">{"enable":true,"theme":{"light":"default","dark":"dark"},"js":{"url":"/lib/mermaid/dist/mermaid.min.js"}}</script>
-  <script src="/js/third-party/tags/mermaid.js" defer></script>
 
   <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
   <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
@@ -190,7 +188,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">63</span>
+          <span class="site-state-item-count">64</span>
           <span class="site-state-item-name">posts</span>
         </a>
       </div>
@@ -201,7 +199,7 @@
       </div>
       <div class="site-state-item site-state-tags">
           <a href="/tags/">
-        <span class="site-state-item-count">66</span>
+        <span class="site-state-item-count">70</span>
         <span class="site-state-item-name">tags</span></a>
       </div>
   </nav>
@@ -508,26 +506,21 @@
 <p>注意：<strong>已过期但还没被删掉的 key 依然占用内存并计入 used_memory</strong>。惰性删除与主动清理都有延迟，所以内存紧张时可能”提前”触发淘汰——这也是后面 volatile 策略坑的根源之一。</p>
 <h2 id="2-读写路径上，淘汰发生在哪一步"><a href="#2-读写路径上，淘汰发生在哪一步" class="headerlink" title="2. 读写路径上，淘汰发生在哪一步"></a>2. 读写路径上，淘汰发生在哪一步</h2><p>整体架构看这张图：写入命令进入后先过 <code>maxmemory</code> 检查，命中的策略决定是淘汰、写入还是报错；过期 key 由惰性删除和主动清理两条线回收。</p>
 <p><img src="/../../assets/database/Redis%20%E7%BC%93%E5%AD%98%E6%B7%98%E6%B1%B0%E7%AD%96%E7%95%A5%E8%A7%A3%E6%9E%90/redis-memory-architecture.png" alt="Redis 内存管理层架构：maxmemory 边界、键空间、过期字典与淘汰池">（图片待补）</p>
-<h3 id="2-1-完整链路"><a href="#2-1-完整链路" class="headerlink" title="2.1 完整链路"></a>2.1 完整链路</h3><pre>
-<code class="mermaid">
-
-flowchart TD
+<h3 id="2-1-完整链路"><a href="#2-1-完整链路" class="headerlink" title="2.1 完整链路"></a>2.1 完整链路</h3><pre class="mermaid">flowchart TD
     subgraph READ[Read Path]
-        A[Client GET key] --&gt; B{Key exists?}
-        B -- Yes --&gt; C[Return value, cache hit]
-        B -- No --&gt; D[Query MySQL, write back]
+        A[Client GET key] --> B{Key exists?}
+        B -- Yes --> C[Return value, cache hit]
+        B -- No --> D[Query MySQL, write back]
     end
     subgraph WRITE[Write Path]
-        E[Client SET &#x2F; LPUSH &#x2F; HSET ...] --&gt; F{used_memory &gt; maxmemory?}
-        F -- No --&gt; G[Execute write directly]
-        F -- Yes --&gt; H{Policy &#x3D; noeviction?}
-        H -- Yes --&gt; I[Return error&lt;br&#x2F;&gt;OOM command not allowed]
-        H -- No --&gt; J[Sample N keys, pick victim by policy]
-        J --&gt; K[Evict victim, free memory]
-        K --&gt; G
-    end
-</code>
-</pre>
+        E[Client SET / LPUSH / HSET ...] --> F{used_memory > maxmemory?}
+        F -- No --> G[Execute write directly]
+        F -- Yes --> H{Policy = noeviction?}
+        H -- Yes --> I[Return error&lt;br/>OOM command not allowed]
+        H -- No --> J[Sample N keys, pick victim by policy]
+        J --> K[Evict victim, free memory]
+        K --> G
+    end</pre>
 
 <p>两个要点：</p>
 <ul>
@@ -538,24 +531,21 @@ flowchart TD
 <li><strong>过期删除</strong>：针对设置了 TTL 的 key，到点删除。惰性删除（访问时发现过期顺手删）+ 主动清理（每 100ms 随机抽 20 个带 TTL 的 key，过期占比超 25% 就继续抽）。</li>
 <li><strong>内存淘汰</strong>：针对内存写满，与 TTL 无关，纯粹按策略选 key 逐出。</li>
 </ul>
-<pre>
-<code class="mermaid">
-
-flowchart LR
+<pre class="mermaid">flowchart LR
     subgraph Lazy[Lazy Deletion]
-        L1[Access expired key] --&gt; L2[Delete and return nil]
+        L1[Access expired key] --> L2[Delete and return nil]
     end
     subgraph Active[Active Expire Cycle]
-        A1[Every 100ms] --&gt; A2[Sample 20 keys with TTL]
-        A2 --&gt; A3{Expired ratio &gt; 25%?}
-        A3 -- Yes --&gt; A2
-        A3 -- No --&gt; A4[Sleep]
+        A1[Every 100ms] --> A2[Sample 20 keys with TTL]
+        A2 --> A3{Expired ratio > 25%?}
+        A3 -- Yes --> A2
+        A3 -- No --> A4[Sleep]
     end
     subgraph Eviction[Memory Eviction]
-        E1[used_memory &gt; maxmemory] --&gt; E2[Evict by maxmemory-policy]
-    end
-</code>
-</pre>
+        E1[used_memory > maxmemory] --> E2[Evict by maxmemory-policy]
+    end</pre>
+
+
 
 <h3 id="2-3-noeviction-的报错形态"><a href="#2-3-noeviction-的报错形态" class="headerlink" title="2.3 noeviction 的报错形态"></a>2.3 noeviction 的报错形态</h3><p><code>maxmemory-policy noeviction</code> 时写满，Redis 直接拒绝写入：</p>
 <figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">(error) OOM command not allowed when used memory &gt; &#x27;maxmemory&#x27;.</span><br></pre></td></tr></table></figure>
@@ -640,22 +630,17 @@ flowchart LR
 <li><strong>LFU 模式</strong>：拆成 16bit 时间 + 8bit 频次计数器（第 5 节讲）。</li>
 </ul>
 <p>每次 key 被访问（GET&#x2F;SET 等），<code>lru</code> 字段刷新为当前时钟。</p>
-<h3 id="4-3-淘汰算法：采样取最老"><a href="#4-3-淘汰算法：采样取最老" class="headerlink" title="4.3 淘汰算法：采样取最老"></a>4.3 淘汰算法：采样取最老</h3><pre>
-<code class="mermaid">
-
-flowchart LR
+<h3 id="4-3-淘汰算法：采样取最老"><a href="#4-3-淘汰算法：采样取最老" class="headerlink" title="4.3 淘汰算法：采样取最老"></a>4.3 淘汰算法：采样取最老</h3><pre class="mermaid">flowchart LR
     subgraph Space[Key space]
-        K1[key1 lru&#x3D;100]
-        K2[key2 lru&#x3D;50]
-        K3[key3 lru&#x3D;200]
-        K4[key4 lru&#x3D;180]
-        K5[key5 lru&#x3D;90]
+        K1[key1 lru=100]
+        K2[key2 lru=50]
+        K3[key3 lru=200]
+        K4[key4 lru=180]
+        K5[key5 lru=90]
     end
-    S[Random sample N&#x3D;5] --&gt; V[Pick key with oldest lru&lt;br&#x2F;&gt;--&gt; key2]
-    V --&gt; E[Evict key2]
-    style K2 fill:#f9d0c4
-</code>
-</pre>
+    S[Random sample N=5] --> V[Pick key with oldest lru&lt;br/>--> key2]
+    V --> E[Evict key2]
+    style K2 fill:#f9d0c4</pre>
 
 <ol>
 <li>从键空间随机取 N 个 key（N &#x3D; <code>maxmemory-samples</code>，默认 5）。</li>
@@ -898,6 +883,9 @@ flowchart LR
                 </a>
             </div>
             <div class="post-nav-item">
+                <a href="/post/4354e479.html" rel="next" title="MySQL 事务原理与实践">
+                  MySQL 事务原理与实践 <i class="fa fa-angle-right"></i>
+                </a>
             </div>
           </div>
     </footer>
@@ -929,14 +917,14 @@ flowchart LR
       <i class="fa fa-chart-line"></i>
     </span>
       <span>Word count total: </span>
-    <span title="Word count total">495k</span>
+    <span title="Word count total">501k</span>
   </span>
   <span class="post-meta-item">
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
       <span>Reading time total &asymp;</span>
-    <span title="Reading time total">30:01</span>
+    <span title="Reading time total">30:21</span>
   </span>
 </div>
   <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
@@ -957,5 +945,20 @@ flowchart LR
   <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
 </noscript>
 
-</body>
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
 </html>

@@ -27,7 +27,7 @@
 <meta property="og:description" content="Zeus-Doc 性能压测报告 版本：1.0.0 ｜ 更新日期：2026-07-31 ｜ 数据性质：除特别说明外均为合理模拟数据 相关文档：01-系统架构 ｜ 04-线程与锁分析 ｜ 07-部署运维   一、压测环境说明1.1 机器配置   角色 规格 数量 说明    压测机 8C 16G 1 JMeter Master，独立部署避免互相干扰   应用服务器 8C 16G 3 K8s Pod，d">
 <meta property="og:locale" content="en_US">
 <meta property="article:published_time" content="2026-08-06T15:56:08.000Z">
-<meta property="article:modified_time" content="2026-08-10T16:36:16.339Z">
+<meta property="article:modified_time" content="2026-08-12T05:03:31.123Z">
 <meta name="twitter:card" content="summary">
 
 
@@ -56,8 +56,6 @@
 <script src="/js/third-party/search/local-search.js" defer></script>
 
 
-  <script class="next-config" data-name="mermaid" type="application/json">{"enable":true,"theme":{"light":"default","dark":"dark"},"js":{"url":"/lib/mermaid/dist/mermaid.min.js"}}</script>
-  <script src="/js/third-party/tags/mermaid.js" defer></script>
 
   <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
   <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
@@ -183,7 +181,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">63</span>
+          <span class="site-state-item-count">64</span>
           <span class="site-state-item-name">posts</span>
         </a>
       </div>
@@ -194,7 +192,7 @@
       </div>
       <div class="site-state-item site-state-tags">
           <a href="/tags/">
-        <span class="site-state-item-count">66</span>
+        <span class="site-state-item-count">70</span>
         <span class="site-state-item-name">tags</span></a>
       </div>
   </nav>
@@ -997,28 +995,18 @@
 <blockquote>
 <p>模拟数据。配置入口：<code>zeus-doc-service-doc/src/main/resources/application.yml:6</code>（<code>server.tomcat.max-threads</code>）。</p>
 </blockquote>
-<h3 id="2-2-Tomcat-调优前后对比柱状图"><a href="#2-2-Tomcat-调优前后对比柱状图" class="headerlink" title="2.2 Tomcat 调优前后对比柱状图"></a>2.2 Tomcat 调优前后对比柱状图</h3><pre>
-<code class="mermaid">
-
-xychart-beta
-    title &quot;Tomcat max-threads 调优 TPS 对比（模拟数据）&quot;
-    x-axis [&quot;threads&#x3D;50&quot;, &quot;threads&#x3D;100&quot;, &quot;threads&#x3D;200&quot;, &quot;threads&#x3D;500&quot;, &quot;threads&#x3D;800&quot;]
-    y-axis &quot;TPS&quot; 0 --&gt; 6500
+<h3 id="2-2-Tomcat-调优前后对比柱状图"><a href="#2-2-Tomcat-调优前后对比柱状图" class="headerlink" title="2.2 Tomcat 调优前后对比柱状图"></a>2.2 Tomcat 调优前后对比柱状图</h3><pre class="mermaid">xychart-beta
+    title "Tomcat max-threads 调优 TPS 对比（模拟数据）"
+    x-axis ["threads=50", "threads=100", "threads=200", "threads=500", "threads=800"]
+    y-axis "TPS" 0 --> 6500
     bar [1820, 3450, 5680, 5320, 4980]
-    line [1820, 3450, 5680, 5320, 4980]
-</code>
-</pre>
+    line [1820, 3450, 5680, 5320, 4980]</pre>
 <p><strong>结论：</strong> <code>max-threads=200</code> 是 4C 节点的最佳工作点。继续增大线程数，CPU 上下文切换开销超过并发收益，TPS 反而下降。<code>max-threads=200</code> 也与 <code>application.yml:6</code> 当前配置一致。</p>
-<h3 id="2-3-max-threads-vs-99-线-RT-对比"><a href="#2-3-max-threads-vs-99-线-RT-对比" class="headerlink" title="2.3 max-threads vs 99 线 RT 对比"></a>2.3 max-threads vs 99 线 RT 对比</h3><pre>
-<code class="mermaid">
-
-xychart-beta
-    title &quot;max-threads 调优 99线RT 变化（模拟数据）&quot;
-    x-axis [&quot;50&quot;, &quot;100&quot;, &quot;200&quot;, &quot;500&quot;, &quot;800&quot;]
-    y-axis &quot;99线RT(ms)&quot; 0 --&gt; 250
-    line [95, 68, 52, 140, 230]
-</code>
-</pre>
+<h3 id="2-3-max-threads-vs-99-线-RT-对比"><a href="#2-3-max-threads-vs-99-线-RT-对比" class="headerlink" title="2.3 max-threads vs 99 线 RT 对比"></a>2.3 max-threads vs 99 线 RT 对比</h3><pre class="mermaid">xychart-beta
+    title "max-threads 调优 99线RT 变化（模拟数据）"
+    x-axis ["50", "100", "200", "500", "800"]
+    y-axis "99线RT(ms)" 0 --> 250
+    line [95, 68, 52, 140, 230]</pre>
 <p><strong>拐点分析：</strong> <code>threads=200</code> 处 99 线 RT 最低（52ms），<code>threads&gt;200</code> 后 RT 急剧上升，原因是：</p>
 <ol>
 <li>线程数 &gt; CPU 核数 × 50 后，上下文切换（cs）激增（vmstat 观察 <code>cs</code> 从 8000&#x2F;s 升至 35000&#x2F;s）；</li>
@@ -1027,16 +1015,11 @@ xychart-beta
 </ol>
 <hr>
 <h2 id="附3、WebSocket-连接数曲线"><a href="#附3、WebSocket-连接数曲线" class="headerlink" title="附3、WebSocket 连接数曲线"></a>附3、WebSocket 连接数曲线</h2><p>协同服务（<code>zeus-doc-service-collab</code>）Netty 长连接压测，逐步加压至 5000 连接：</p>
-<h3 id="3-1-连接数随时间变化"><a href="#3-1-连接数随时间变化" class="headerlink" title="3.1 连接数随时间变化"></a>3.1 连接数随时间变化</h3><pre>
-<code class="mermaid">
-
-xychart-beta
-    title &quot;WebSocket 连接数递增压测曲线（模拟数据）&quot;
-    x-axis [&quot;0min&quot;, &quot;2min&quot;, &quot;4min&quot;, &quot;6min&quot;, &quot;8min&quot;, &quot;10min&quot;, &quot;12min&quot;, &quot;14min&quot;, &quot;16min&quot;, &quot;18min&quot;, &quot;20min&quot;]
-    y-axis &quot;连接数&quot; 0 --&gt; 5500
-    line [0, 1000, 1000, 3000, 3000, 5000, 5000, 5000, 5000, 5000, 5000]
-</code>
-</pre>
+<h3 id="3-1-连接数随时间变化"><a href="#3-1-连接数随时间变化" class="headerlink" title="3.1 连接数随时间变化"></a>3.1 连接数随时间变化</h3><pre class="mermaid">xychart-beta
+    title "WebSocket 连接数递增压测曲线（模拟数据）"
+    x-axis ["0min", "2min", "4min", "6min", "8min", "10min", "12min", "14min", "16min", "18min", "20min"]
+    y-axis "连接数" 0 --> 5500
+    line [0, 1000, 1000, 3000, 3000, 5000, 5000, 5000, 5000, 5000, 5000]</pre>
 <h3 id="3-2-各连接数下的资源占用"><a href="#3-2-各连接数下的资源占用" class="headerlink" title="3.2 各连接数下的资源占用"></a>3.2 各连接数下的资源占用</h3><table>
 <thead>
 <tr>
@@ -1168,25 +1151,20 @@ xychart-beta
 <td>分片入库</td>
 </tr>
 </tbody></table>
-<h3 id="4-2-TPS-vs-99线RT-散点图"><a href="#4-2-TPS-vs-99线RT-散点图" class="headerlink" title="4.2 TPS vs 99线RT 散点图"></a>4.2 TPS vs 99线RT 散点图</h3><pre>
-<code class="mermaid">
-
-quadrantChart
-    title &quot;接口性能象限分布（模拟数据）&quot;
-    x-axis &quot;低 TPS&quot; --&gt; &quot;高 TPS&quot;
-    y-axis &quot;高 RT&quot; --&gt; &quot;低 RT&quot;
-    quadrant-1 [&quot;高性能低吞吐&quot;, &quot;需扩容&quot;]
-    quadrant-2 [&quot;性能差&quot;, &quot;需优化&quot;]
-    quadrant-3 [&quot;低负载&quot;, &quot;空闲&quot;]
-    quadrant-4 [&quot;高性能高吞吐&quot;, &quot;最佳&quot;]
-    &quot;文件上传&quot;: [0.18, 0.30]
-    &quot;文档保存&quot;: [0.32, 0.55]
-    &quot;全文搜索&quot;: [0.40, 0.65]
-    &quot;文档详情&quot;: [0.78, 0.88]
-    &quot;文档列表&quot;: [0.85, 0.92]
-    &quot;审计写入&quot;: [0.92, 0.95]
-</code>
-</pre>
+<h3 id="4-2-TPS-vs-99线RT-散点图"><a href="#4-2-TPS-vs-99线RT-散点图" class="headerlink" title="4.2 TPS vs 99线RT 散点图"></a>4.2 TPS vs 99线RT 散点图</h3><pre class="mermaid">quadrantChart
+    title "接口性能象限分布（模拟数据）"
+    x-axis "低 TPS" --> "高 TPS"
+    y-axis "高 RT" --> "低 RT"
+    quadrant-1 ["高性能低吞吐", "需扩容"]
+    quadrant-2 ["性能差", "需优化"]
+    quadrant-3 ["低负载", "空闲"]
+    quadrant-4 ["高性能高吞吐", "最佳"]
+    "文件上传": [0.18, 0.30]
+    "文档保存": [0.32, 0.55]
+    "全文搜索": [0.40, 0.65]
+    "文档详情": [0.78, 0.88]
+    "文档列表": [0.85, 0.92]
+    "审计写入": [0.92, 0.95]</pre>
 <p><strong>分析：</strong> 文档详情&#x2F;列表&#x2F;审计写入落在”高性能高吞吐”象限；文件上传因 MinIO IO 重，落在”性能差”象限，后续可改为异步签名直传减负。</p>
 <hr>
 <h2 id="附5、线程池隔离对比"><a href="#附5、线程池隔离对比" class="headerlink" title="附5、线程池隔离对比"></a>附5、线程池隔离对比</h2><h3 id="5-1-共用线程池-vs-4-个隔离线程池"><a href="#5-1-共用线程池-vs-4-个隔离线程池" class="headerlink" title="5.1 共用线程池 vs 4 个隔离线程池"></a>5.1 共用线程池 vs 4 个隔离线程池</h3><p><strong>配置位置：</strong> <code>ThreadPoolConfig.java:49-76</code>，4 个独立线程池：</p>
@@ -1228,17 +1206,12 @@ quadrantChart
 <blockquote>
 <p>模拟数据。共用线程池时，导出任务的 3s 阻塞导致线程被占满，<code>doc-executor</code> 的保存任务排队，触发 <code>AbortPolicy</code> 抛异常，错误率飙升。</p>
 </blockquote>
-<h3 id="5-2-故障隔离效果对比"><a href="#5-2-故障隔离效果对比" class="headerlink" title="5.2 故障隔离效果对比"></a>5.2 故障隔离效果对比</h3><pre>
-<code class="mermaid">
-
-xychart-beta
-    title &quot;线程池隔离 vs 共用 TPS 对比（模拟数据）&quot;
-    x-axis [&quot;文档保存&quot;, &quot;审计写入&quot;, &quot;搜索同步&quot;]
-    y-axis &quot;TPS&quot; 0 --&gt; 9500
+<h3 id="5-2-故障隔离效果对比"><a href="#5-2-故障隔离效果对比" class="headerlink" title="5.2 故障隔离效果对比"></a>5.2 故障隔离效果对比</h3><pre class="mermaid">xychart-beta
+    title "线程池隔离 vs 共用 TPS 对比（模拟数据）"
+    x-axis ["文档保存", "审计写入", "搜索同步"]
+    y-axis "TPS" 0 --> 9500
     bar [980, 980, 0]
-    bar [1820, 8800, 0]
-</code>
-</pre>
+    bar [1820, 8800, 0]</pre>
 <p>（蓝柱&#x3D;共用线程池，橙柱&#x3D;隔离线程池）</p>
 <p><strong>结论：</strong> 隔离后核心写 TPS 提升 86%，审计 TPS 提升 9 倍。隔离是线程池设计的核心原则（<code>ThreadPoolConfig.java:23-27</code> 注释）。</p>
 <h3 id="5-3-拒绝策略选择"><a href="#5-3-拒绝策略选择" class="headerlink" title="5.3 拒绝策略选择"></a>5.3 拒绝策略选择</h3><table>
@@ -1302,16 +1275,11 @@ xychart-beta
 <td><code>permissionService.getPermission</code></td>
 </tr>
 </tbody></table>
-<h3 id="6-2-RT-对比"><a href="#6-2-RT-对比" class="headerlink" title="6.2 RT 对比"></a>6.2 RT 对比</h3><pre>
-<code class="mermaid">
-
-xychart-beta
-    title &quot;文档详情接口 串行 vs 并行 99线RT（模拟数据）&quot;
-    x-axis [&quot;串行&quot;, &quot;CompletableFuture并行&quot;]
-    y-axis &quot;99线RT(ms)&quot; 0 --&gt; 200
-    bar [150, 50]
-</code>
-</pre>
+<h3 id="6-2-RT-对比"><a href="#6-2-RT-对比" class="headerlink" title="6.2 RT 对比"></a>6.2 RT 对比</h3><pre class="mermaid">xychart-beta
+    title "文档详情接口 串行 vs 并行 99线RT（模拟数据）"
+    x-axis ["串行", "CompletableFuture并行"]
+    y-axis "99线RT(ms)" 0 --> 200
+    bar [150, 50]</pre>
 <table>
 <thead>
 <tr>
@@ -1412,16 +1380,11 @@ xychart-beta
 <blockquote>
 <p>模拟数据。配置位置：<code>application-sharding.yml:21</code>（<code>hikari.maximum-pool-size</code>）。</p>
 </blockquote>
-<h3 id="7-2-拐点曲线图"><a href="#7-2-拐点曲线图" class="headerlink" title="7.2 拐点曲线图"></a>7.2 拐点曲线图</h3><pre>
-<code class="mermaid">
-
-xychart-beta
-    title &quot;HikariCP 连接数 TPS 拐点（模拟数据）&quot;
-    x-axis [&quot;10&quot;, &quot;20&quot;, &quot;50&quot;, &quot;100&quot;, &quot;200&quot;, &quot;500&quot;]
-    y-axis &quot;TPS&quot; 0 --&gt; 2000
-    line [820, 1450, 1850, 1880, 1820, 1620]
-</code>
-</pre>
+<h3 id="7-2-拐点曲线图"><a href="#7-2-拐点曲线图" class="headerlink" title="7.2 拐点曲线图"></a>7.2 拐点曲线图</h3><pre class="mermaid">xychart-beta
+    title "HikariCP 连接数 TPS 拐点（模拟数据）"
+    x-axis ["10", "20", "50", "100", "200", "500"]
+    y-axis "TPS" 0 --> 2000
+    line [820, 1450, 1850, 1880, 1820, 1620]</pre>
 <p><strong>拐点分析：</strong></p>
 <ul>
 <li><code>pool-size=50</code> 处 TPS 达峰（1850），RT 最低；</li>
@@ -1688,14 +1651,14 @@ xychart-beta
       <i class="fa fa-chart-line"></i>
     </span>
       <span>Word count total: </span>
-    <span title="Word count total">495k</span>
+    <span title="Word count total">501k</span>
   </span>
   <span class="post-meta-item">
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
       <span>Reading time total &asymp;</span>
-    <span title="Reading time total">30:01</span>
+    <span title="Reading time total">30:21</span>
   </span>
 </div>
   <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
@@ -1716,5 +1679,20 @@ xychart-beta
   <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
 </noscript>
 
-</body>
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
 </html>

@@ -27,7 +27,7 @@
 <meta property="og:description" content="Zeus-Doc 数据库设计文档 版本：1.0.0 ｜ 更新日期：2026-07-31 相关文档：01-系统架构 ｜ 06-面试手册第3问   一、数据库选型与分片总览Zeus-Doc 采用 MySQL 8.0 作为持久化存储，通过 ShardingSphere-JDBC 5.4.1 实现透明分库分表。核心配置位于 zeus-doc-service-doc&#x2F;src&#x2F;main&#x2F;resources&#x2F;a">
 <meta property="og:locale" content="en_US">
 <meta property="article:published_time" content="2026-08-06T15:55:38.000Z">
-<meta property="article:modified_time" content="2026-08-10T16:36:16.344Z">
+<meta property="article:modified_time" content="2026-08-12T05:03:31.124Z">
 <meta name="twitter:card" content="summary">
 
 
@@ -56,8 +56,6 @@
 <script src="/js/third-party/search/local-search.js" defer></script>
 
 
-  <script class="next-config" data-name="mermaid" type="application/json">{"enable":true,"theme":{"light":"default","dark":"dark"},"js":{"url":"/lib/mermaid/dist/mermaid.min.js"}}</script>
-  <script src="/js/third-party/tags/mermaid.js" defer></script>
 
   <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
   <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
@@ -183,7 +181,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">63</span>
+          <span class="site-state-item-count">64</span>
           <span class="site-state-item-name">posts</span>
         </a>
       </div>
@@ -194,7 +192,7 @@
       </div>
       <div class="site-state-item site-state-tags">
           <a href="/tags/">
-        <span class="site-state-item-count">66</span>
+        <span class="site-state-item-count">70</span>
         <span class="site-state-item-name">tags</span></a>
       </div>
   </nav>
@@ -465,105 +463,100 @@
 <li>主键生成：雪花算法 SNOWFLAKE</li>
 </ul>
 <hr>
-<h2 id="二、MySQL-ER-图"><a href="#二、MySQL-ER-图" class="headerlink" title="二、MySQL ER 图"></a>二、MySQL ER 图</h2><pre>
-<code class="mermaid">
-
-erDiagram
-    USER ||--o{ DOC : &quot;userId 创建&quot;
-    USER ||--o{ DOC_AUDIT : &quot;userId 操作&quot;
-    USER ||--o{ SHARE_LINK : &quot;userId 分享&quot;
-    DOC ||--o{ DOC_HISTORY : &quot;docId 版本&quot;
-    DOC ||--o{ DOC_AUDIT : &quot;docId 审计&quot;
-    DOC ||--o{ SHARE_LINK : &quot;docId 分享&quot;
-    DOC ||--o{ FILE : &quot;docId 附件&quot;
-    DOC ||--o{ RECYCLE_BIN : &quot;docId 软删&quot;
-    FILE ||--o{ FILE_CHUNK : &quot;fileId 分片&quot;
+<h2 id="二、MySQL-ER-图"><a href="#二、MySQL-ER-图" class="headerlink" title="二、MySQL ER 图"></a>二、MySQL ER 图</h2><pre class="mermaid">erDiagram
+    USER ||--o{ DOC : "userId 创建"
+    USER ||--o{ DOC_AUDIT : "userId 操作"
+    USER ||--o{ SHARE_LINK : "userId 分享"
+    DOC ||--o{ DOC_HISTORY : "docId 版本"
+    DOC ||--o{ DOC_AUDIT : "docId 审计"
+    DOC ||--o{ SHARE_LINK : "docId 分享"
+    DOC ||--o{ FILE : "docId 附件"
+    DOC ||--o{ RECYCLE_BIN : "docId 软删"
+    FILE ||--o{ FILE_CHUNK : "fileId 分片"
 
     USER {
-        bigint id PK &quot;雪花ID&quot;
-        bigint tenant_id &quot;租户ID 索引&quot;
-        varchar username &quot;用户名&quot;
-        varchar password &quot;bcrypt&quot;
-        varchar nickname &quot;昵称&quot;
-        tinyint status &quot;0禁用 1启用&quot;
+        bigint id PK "雪花ID"
+        bigint tenant_id "租户ID 索引"
+        varchar username "用户名"
+        varchar password "bcrypt"
+        varchar nickname "昵称"
+        tinyint status "0禁用 1启用"
         datetime created_at
     }
 
     DOC {
-        bigint id PK &quot;雪花ID&quot;
-        bigint tenant_id &quot;租户ID&quot;
-        bigint user_id &quot;创建人 索引&quot;
-        varchar title &quot;标题&quot;
-        mediumtext content &quot;正文摘要&quot;
-        tinyint status &quot;1正常 2已发布 IN_TRASH 9删除&quot;
-        int version &quot;版本号&quot;
+        bigint id PK "雪花ID"
+        bigint tenant_id "租户ID"
+        bigint user_id "创建人 索引"
+        varchar title "标题"
+        mediumtext content "正文摘要"
+        tinyint status "1正常 2已发布 IN_TRASH 9删除"
+        int version "版本号"
         datetime created_at
-        datetime updated_at &quot;索引&quot;
+        datetime updated_at "索引"
     }
 
     DOC_HISTORY {
-        bigint id PK &quot;雪花ID&quot;
-        bigint doc_id &quot;分库列 索引&quot;
-        int version &quot;版本号&quot;
-        mediumtext content &quot;快照正文&quot;
-        bigint operator_id &quot;操作人&quot;
-        varchar patch_text &quot;OT patch&quot;
-        datetime created_at &quot;分表列 索引&quot;
+        bigint id PK "雪花ID"
+        bigint doc_id "分库列 索引"
+        int version "版本号"
+        mediumtext content "快照正文"
+        bigint operator_id "操作人"
+        varchar patch_text "OT patch"
+        datetime created_at "分表列 索引"
     }
 
     DOC_AUDIT {
-        bigint id PK &quot;雪花ID&quot;
-        bigint tenant_id &quot;分库列 索引&quot;
-        bigint doc_id &quot;文档ID 索引&quot;
-        bigint user_id &quot;操作人 索引&quot;
-        tinyint action &quot;1创建2改3删4分享5恢复&quot;
-        varchar detail &quot;JSON 快照&quot;
-        varchar ip &quot;操作IP&quot;
-        tinyint status &quot;PENDING SUCCESS CANCEL&quot;
-        datetime created_at &quot;分表列 索引&quot;
+        bigint id PK "雪花ID"
+        bigint tenant_id "分库列 索引"
+        bigint doc_id "文档ID 索引"
+        bigint user_id "操作人 索引"
+        tinyint action "1创建2改3删4分享5恢复"
+        varchar detail "JSON 快照"
+        varchar ip "操作IP"
+        tinyint status "PENDING SUCCESS CANCEL"
+        datetime created_at "分表列 索引"
     }
 
     SHARE_LINK {
-        bigint id PK &quot;雪花ID&quot;
-        bigint doc_id &quot;文档ID 索引&quot;
-        bigint user_id &quot;分享人&quot;
-        varchar share_code &quot;提取码 UK&quot;
-        tinyint permission &quot;1查看 2编辑&quot;
-        datetime expire_at &quot;索引&quot;
-        int view_count &quot;浏览次数&quot;
+        bigint id PK "雪花ID"
+        bigint doc_id "文档ID 索引"
+        bigint user_id "分享人"
+        varchar share_code "提取码 UK"
+        tinyint permission "1查看 2编辑"
+        datetime expire_at "索引"
+        int view_count "浏览次数"
     }
 
     FILE {
-        bigint id PK &quot;雪花ID&quot;
-        bigint doc_id &quot;文档ID 索引&quot;
-        varchar file_name &quot;文件名&quot;
-        bigint size &quot;字节&quot;
-        varchar md5 &quot;秒传 UK&quot;
-        varchar minio_key &quot;对象key&quot;
-        tinyint status &quot;0上传中 1完成&quot;
+        bigint id PK "雪花ID"
+        bigint doc_id "文档ID 索引"
+        varchar file_name "文件名"
+        bigint size "字节"
+        varchar md5 "秒传 UK"
+        varchar minio_key "对象key"
+        tinyint status "0上传中 1完成"
     }
 
     FILE_CHUNK {
         bigint id PK
-        bigint file_id &quot;文件ID 索引&quot;
-        int chunk_index &quot;分片序号&quot;
-        bigint chunk_size &quot;分片大小&quot;
-        varchar md5 &quot;分片MD5&quot;
-        tinyint uploaded &quot;0否 1是&quot;
+        bigint file_id "文件ID 索引"
+        int chunk_index "分片序号"
+        bigint chunk_size "分片大小"
+        varchar md5 "分片MD5"
+        tinyint uploaded "0否 1是"
     }
 
     RECYCLE_BIN {
-        bigint id PK &quot;雪花ID&quot;
-        bigint tenant_id &quot;租户ID 索引&quot;
-        bigint doc_id &quot;文档ID 索引&quot;
-        varchar doc_title &quot;标题快照&quot;
-        bigint deleted_by &quot;删除人&quot;
-        datetime deleted_at &quot;删除时间&quot;
-        datetime expire_at &quot;过期自动清理 索引&quot;
-        tinyint status &quot;PENDING CONFIRMED&quot;
-    }
-</code>
-</pre>
+        bigint id PK "雪花ID"
+        bigint tenant_id "租户ID 索引"
+        bigint doc_id "文档ID 索引"
+        varchar doc_title "标题快照"
+        bigint deleted_by "删除人"
+        datetime deleted_at "删除时间"
+        datetime expire_at "过期自动清理 索引"
+        tinyint status "PENDING CONFIRMED"
+    }</pre>
 <hr>
 <h2 id="三、各表字段说明"><a href="#三、各表字段说明" class="headerlink" title="三、各表字段说明"></a>三、各表字段说明</h2><h3 id="3-1-doc（文档主表）"><a href="#3-1-doc（文档主表）" class="headerlink" title="3.1 doc（文档主表）"></a>3.1 doc（文档主表）</h3><table>
 <thead>
@@ -845,22 +838,17 @@ erDiagram
 <li>归并引擎按 <code>doc_id</code> 分组，对同一 <code>doc_id</code> 的 <code>MAX(version)</code> 取最大值；</li>
 <li>输出最终合并结果。</li>
 </ol>
-<h3 id="7-3-路由归并流程图"><a href="#7-3-路由归并流程图" class="headerlink" title="7.3 路由归并流程图"></a>7.3 路由归并流程图</h3><pre>
-<code class="mermaid">
-
-flowchart LR
-    SQL[业务 SQL&lt;br&#x2F;&gt;GROUP BY doc_id] --&gt; Parse[SQL 解析]
-    Parse --&gt; Route[路由引擎&lt;br&#x2F;&gt;无分片键等值条件&lt;br&#x2F;&gt;全库路由]
-    Route --&gt; Rewrite[SQL 改写&lt;br&#x2F;&gt;下发 4 库]
-    Rewrite --&gt; DS0[ds0 GROUP BY doc_id]
-    Rewrite --&gt; DS1[ds1 GROUP BY doc_id]
-    Rewrite --&gt; DS2[ds2 GROUP BY doc_id]
-    Rewrite --&gt; DS3[ds3 GROUP BY doc_id]
-    DS0 &amp; DS1 &amp; DS2 &amp; DS3 --&gt; Merge[归并引擎&lt;br&#x2F;&gt;分组归并 GroupByMerge]
-    Merge --&gt; Agg[同 doc_id 取 MAX version]
-    Agg --&gt; Result[合并结果集]
-</code>
-</pre>
+<h3 id="7-3-路由归并流程图"><a href="#7-3-路由归并流程图" class="headerlink" title="7.3 路由归并流程图"></a>7.3 路由归并流程图</h3><pre class="mermaid">flowchart LR
+    SQL[业务 SQL&lt;br/>GROUP BY doc_id] --> Parse[SQL 解析]
+    Parse --> Route[路由引擎&lt;br/>无分片键等值条件&lt;br/>全库路由]
+    Route --> Rewrite[SQL 改写&lt;br/>下发 4 库]
+    Rewrite --> DS0[ds0 GROUP BY doc_id]
+    Rewrite --> DS1[ds1 GROUP BY doc_id]
+    Rewrite --> DS2[ds2 GROUP BY doc_id]
+    Rewrite --> DS3[ds3 GROUP BY doc_id]
+    DS0 &amp; DS1 &amp; DS2 &amp; DS3 --> Merge[归并引擎&lt;br/>分组归并 GroupByMerge]
+    Merge --> Agg[同 doc_id 取 MAX version]
+    Agg --> Result[合并结果集]</pre>
 <h3 id="7-4-优化建议"><a href="#7-4-优化建议" class="headerlink" title="7.4 优化建议"></a>7.4 优化建议</h3><ul>
 <li><strong>带分片键查询</strong>：若能传入具体 <code>doc_id</code>，路由到单库，避免广播；</li>
 <li><strong>避免跨库 GROUP BY</strong>：本例全库路由 + 归并代价高，可在 doc 主表冗余 <code>latest_version</code> 字段，避免查 doc_history；</li>
@@ -1006,76 +994,73 @@ flowchart LR
 </tr>
 </tbody></table>
 <hr>
-<h2 id="附2、ER-图"><a href="#附2、ER-图" class="headerlink" title="附2、ER 图"></a>附2、ER 图</h2><pre>
-<code class="mermaid">
-
-erDiagram
-    USER ||--o{ DOC : &quot;authorId 创建&quot;
-    USER ||--o{ DOC_AUDIT : &quot;userId 操作&quot;
-    USER ||--o{ SHARE_LINK : &quot;userId 分享&quot;
-    USER ||--o{ RECYCLE_BIN : &quot;deletedBy 删除&quot;
-    DOC ||--o{ DOC_HISTORY : &quot;docId 版本&quot;
-    DOC ||--o{ DOC_AUDIT : &quot;docId 审计&quot;
-    DOC ||--o{ SHARE_LINK : &quot;docId 分享&quot;
-    DOC ||--o{ RECYCLE_BIN : &quot;docId 回收&quot;
-    FILE ||--o{ FILE_CHUNK : &quot;fileMd5 分片&quot;
+<h2 id="附2、ER-图"><a href="#附2、ER-图" class="headerlink" title="附2、ER 图"></a>附2、ER 图</h2><pre class="mermaid">erDiagram
+    USER ||--o{ DOC : "authorId 创建"
+    USER ||--o{ DOC_AUDIT : "userId 操作"
+    USER ||--o{ SHARE_LINK : "userId 分享"
+    USER ||--o{ RECYCLE_BIN : "deletedBy 删除"
+    DOC ||--o{ DOC_HISTORY : "docId 版本"
+    DOC ||--o{ DOC_AUDIT : "docId 审计"
+    DOC ||--o{ SHARE_LINK : "docId 分享"
+    DOC ||--o{ RECYCLE_BIN : "docId 回收"
+    FILE ||--o{ FILE_CHUNK : "fileMd5 分片"
 
     USER {
-        bigint id PK &quot;雪花&quot;
-        bigint tenant_id &quot;租户&quot;
-        varchar username &quot;唯一&quot;
-        varchar password &quot;BCrypt&quot;
+        bigint id PK "雪花"
+        bigint tenant_id "租户"
+        varchar username "唯一"
+        varchar password "BCrypt"
         varchar nickname
         varchar avatar
         varchar email
         varchar phone
-        tinyint status &quot;0正常 1禁用&quot;
+        tinyint status "0正常 1禁用"
         datetime created_at
         datetime updated_at
     }
 
     DOC {
-        bigint id PK &quot;雪花&quot;
-        bigint tenant_id &quot;租户&quot;
+        bigint id PK "雪花"
+        bigint tenant_id "租户"
         varchar title
-        longtext content &quot;Quill Delta JSON&quot;
-        bigint author_id &quot;作者&quot;
-        int status &quot;1正常 2回收站&quot;
-        int current_version &quot;当前版本号&quot;
+        longtext content "Quill Delta JSON"
+        bigint author_id "作者"
+        int status "1正常 2回收站"
+        int current_version "当前版本号"
         datetime created_at
         datetime updated_at
-        tinyint deleted &quot;软删除&quot;
+        tinyint deleted "软删除"
     }
 
     DOC_HISTORY {
-        bigint id PK &quot;雪花&quot;
-        bigint doc_id &quot;分库键 doc_id%4&quot;
-        int version &quot;版本号&quot;
-        varchar snapshot_type &quot;FULL全量&#x2F;PATCH增量&quot;
-        longtext content &quot;全量或补丁&quot;
+        bigint id PK "雪花"
+        bigint doc_id "分库键 doc_id%4"
+        int version "版本号"
+        varchar snapshot_type "FULL全量/PATCH增量"
+        longtext content "全量或补丁"
         bigint operator_id
-        varchar summary &quot;操作摘要&quot;
-        datetime created_at &quot;分表键 按月&quot;
+        varchar summary "操作摘要"
+        datetime created_at "分表键 按月"
     }
 
     DOC_AUDIT {
-        bigint id PK &quot;雪花&quot;
-        bigint tenant_id &quot;分库键 tenant_id%4&quot;
+        bigint id PK "雪花"
+        bigint tenant_id "分库键 tenant_id%4"
         bigint doc_id
         bigint user_id
-        varchar action &quot;CREATE&#x2F;UPDATE&#x2F;DELETE&#x2F;RESTORE&quot;
+        varchar action "CREATE/UPDATE/DELETE/RESTORE"
         json detail
         varchar ip
-        varchar status &quot;PENDING&#x2F;SUCCESS&#x2F;CANCEL&quot;
-        datetime created_at &quot;分表键 按月&quot;
+        varchar status "PENDING/SUCCESS/CANCEL"
+        datetime created_at "分表键 按月"
     }
 
     SHARE_LINK {
         bigint id PK
         bigint doc_id
         bigint user_id
-        varchar share_code &quot;唯一 短码&quot;
-        int permission &quot;1可读 2可写 3可管理&quot;
+        varchar share_code "唯一 短码"
+        int permission "1可读 2可写 3可管理"
         datetime expire_at
         datetime created_at
     }
@@ -1084,19 +1069,19 @@ erDiagram
         bigint id PK
         bigint tenant_id
         bigint doc_id
-        varchar doc_title &quot;标题快照&quot;
+        varchar doc_title "标题快照"
         bigint deleted_by
         datetime deleted_at
         datetime expire_at
-        varchar status &quot;PENDING&#x2F;ACTIVE&#x2F;CANCEL&quot;
+        varchar status "PENDING/ACTIVE/CANCEL"
     }
 
     FILE {
-        bigint file_id PK &quot;雪花&quot;
-        varchar file_md5 &quot;唯一 秒传&quot;
+        bigint file_id PK "雪花"
+        varchar file_md5 "唯一 秒传"
         varchar file_name
         bigint file_size
-        varchar storage_path &quot;MinIO对象名&quot;
+        varchar storage_path "MinIO对象名"
         varchar bucket
         varchar content_type
         bigint uploader_id
@@ -1105,14 +1090,12 @@ erDiagram
 
     FILE_CHUNK {
         bigint id PK
-        varchar file_md5 &quot;外键语义&quot;
-        int chunk_index &quot;分片序号&quot;
-        varchar chunk_path &quot;临时对象名&quot;
-        tinyint uploaded &quot;0否 1是&quot;
+        varchar file_md5 "外键语义"
+        int chunk_index "分片序号"
+        varchar chunk_path "临时对象名"
+        tinyint uploaded "0否 1是"
         datetime created_at
-    }
-</code>
-</pre>
+    }</pre>
 <h3 id="表说明"><a href="#表说明" class="headerlink" title="表说明"></a>表说明</h3><table>
 <thead>
 <tr>
@@ -1743,14 +1726,14 @@ erDiagram
       <i class="fa fa-chart-line"></i>
     </span>
       <span>Word count total: </span>
-    <span title="Word count total">495k</span>
+    <span title="Word count total">501k</span>
   </span>
   <span class="post-meta-item">
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
       <span>Reading time total &asymp;</span>
-    <span title="Reading time total">30:01</span>
+    <span title="Reading time total">30:21</span>
   </span>
 </div>
   <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
@@ -1771,5 +1754,20 @@ erDiagram
   <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
 </noscript>
 
-</body>
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
 </html>
