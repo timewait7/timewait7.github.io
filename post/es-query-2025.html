@@ -1,0 +1,928 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="搜索系统上生产的三道坎：分页超过 1 万条怎么办？聚合为什么慢？MySQL 和 ES 数据不一致怎么收场？ 原理篇讲了 ES 为什么快、数据怎么存，本文解决「怎么查得快、查得准、查得全」：深度分页的正确姿势（search_after&#x2F;scroll 的选择）、聚合的代价模型、以及双写一致性的三种架构方案。读完你能在设计评审上说清「为什么 ES 分页只支持前 1 万条」「聚合上亿数据用什么策">
+<meta property="og:type" content="article">
+<meta property="og:title" content="ES 查询优化与实战：深度分页、聚合与双写一致性">
+<meta property="og:url" content="http://timewait7.github.io/post/es-query-2025.html">
+<meta property="og:site_name" content="知行栈">
+<meta property="og:description" content="搜索系统上生产的三道坎：分页超过 1 万条怎么办？聚合为什么慢？MySQL 和 ES 数据不一致怎么收场？ 原理篇讲了 ES 为什么快、数据怎么存，本文解决「怎么查得快、查得准、查得全」：深度分页的正确姿势（search_after&#x2F;scroll 的选择）、聚合的代价模型、以及双写一致性的三种架构方案。读完你能在设计评审上说清「为什么 ES 分页只支持前 1 万条」「聚合上亿数据用什么策">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-08-13T08:00:00.000Z">
+<meta property="article:modified_time" content="2026-08-12T15:49:58.628Z">
+<meta property="article:tag" content="面试">
+<meta property="article:tag" content="Elasticsearch">
+<meta property="article:tag" content="查询优化">
+<meta property="article:tag" content="深度分页">
+<meta property="article:tag" content="双写一致性">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/es-query-2025.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/es-query-2025.html","path":"post/es-query-2025.html","title":"ES 查询优化与实战：深度分页、聚合与双写一致性"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>ES 查询优化与实战：深度分页、聚合与双写一致性 | 知行栈</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<!-- hexo injector head_end start --><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
+</style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">知行栈</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>Categories</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-%E5%AE%9A%E4%BD%8D%EF%BC%9A%E8%BF%99%E7%AF%87%E5%AE%9E%E6%88%98%E4%BB%80%E4%B9%88"><span class="nav-text">1. 定位：这篇实战什么</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E6%B7%B1%E5%BA%A6%E5%88%86%E9%A1%B5%EF%BC%9Afrom-size-%E4%B8%BA%E4%BB%80%E4%B9%88-1-%E4%B8%87%E8%A1%8C%E5%86%85"><span class="nav-text">2. 深度分页：from+size 为什么 1 万行内</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E4%BB%A3%E4%BB%B7%E6%A8%A1%E5%9E%8B%EF%BC%9A%E6%AF%8F%E4%B8%AA%E5%88%86%E7%89%87%E9%83%BD%E8%A6%81%E7%99%BD%E5%B9%B2"><span class="nav-text">2.1 代价模型：每个分片都要白干</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%A4%8D%E7%8E%B0%E6%8A%A5%E9%94%99%E4%B8%8E-search-after-%E7%BF%BB%E9%A1%B5"><span class="nav-text">2.2 动手验证：复现报错与 search_after 翻页</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-%E9%81%BF%E5%9D%91%EF%BC%9Asearch-after-%E7%9A%84%E6%8E%92%E5%BA%8F%E5%80%BC%E9%99%B7%E9%98%B1"><span class="nav-text">2.3 避坑：search_after 的排序值陷阱</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E8%81%9A%E5%90%88%EF%BC%9A%E5%85%88%E5%B1%80%E9%83%A8%E5%90%8E%E5%BD%92%E5%B9%B6"><span class="nav-text">3. 聚合：先局部后归并</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E8%81%9A%E5%90%88%E7%9A%84%E4%B8%A4%E6%AD%A5%E6%A8%A1%E5%9E%8B"><span class="nav-text">3.1 聚合的两步模型</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E4%B8%89%E6%8B%9B%E5%BA%94%E5%AF%B9%E9%AB%98%E5%9F%BA%E6%95%B0%E8%81%9A%E5%90%88"><span class="nav-text">3.2 三招应对高基数聚合</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E7%9C%8B%E8%81%9A%E5%90%88%E7%9A%84%E6%89%A7%E8%A1%8C%E4%B8%8E%E5%86%85%E5%AD%98"><span class="nav-text">3.3 动手验证：看聚合的执行与内存</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-MySQL-%E4%B8%8E-ES-%E5%8F%8C%E5%86%99%E4%B8%80%E8%87%B4%E6%80%A7%EF%BC%9A%E4%B8%89%E7%A7%8D%E6%96%B9%E6%A1%88%E4%B8%8E%E6%9C%80%E7%BB%88%E5%85%9C%E5%BA%95"><span class="nav-text">4. MySQL 与 ES 双写一致性：三种方案与最终兜底</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-%E4%B8%BA%E4%BB%80%E4%B9%88%E9%9A%BE%EF%BC%9A%E4%B8%A4%E4%B8%AA%E7%B3%BB%E7%BB%9F%E6%B2%A1%E6%9C%89%E5%90%8C%E4%B8%80%E4%BA%8B%E5%8A%A1"><span class="nav-text">4.1 为什么难：两个系统没有同一事务</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-%E4%B8%89%E7%A7%8D%E6%96%B9%E6%A1%88%E5%AF%B9%E6%AF%94"><span class="nav-text">4.2 三种方案对比</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-%E6%9C%80%E7%BB%88%E4%B8%80%E8%87%B4%E6%80%A7%E5%85%9C%E5%BA%95%EF%BC%9A%E5%AF%B9%E8%B4%A6%E4%B8%8E%E4%BF%AE%E5%A4%8D"><span class="nav-text">4.3 最终一致性兜底：对账与修复</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E4%BD%93%E9%AA%8C%E3%80%8C%E5%8F%8C%E5%86%99%E3%80%8D%E7%9A%84%E8%84%86%E5%BC%B1"><span class="nav-text">4.4 动手验证：体验「双写」的脆弱</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E9%9D%A2%E8%AF%95%E5%BA%94%E7%AD%94%EF%BC%9A%E6%9F%A5%E8%AF%A2%E4%BC%98%E5%8C%96%E5%9B%9B%E8%BF%9E%E9%97%AE"><span class="nav-text">5. 面试应答：查询优化四连问</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E5%AE%8C%E6%95%B4%E8%AF%9D%E6%9C%AF"><span class="nav-text">5.1 完整话术</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E6%B7%B1%E6%8C%96%EF%BC%9A%E4%B8%8E-MySQL-%E5%88%86%E9%A1%B5-%E4%B8%BB%E4%BB%8E%E7%9A%84%E5%AF%B9%E7%85%A7%EF%BC%88%E8%B7%A8%E7%AF%87%E8%81%94%E5%8A%A8%EF%BC%89"><span class="nav-text">5.2 深挖：与 MySQL 分页&#x2F;主从的对照（跨篇联动）</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#6-%E6%80%BB%E7%BB%93"><span class="nav-text">6. 总结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#6-1-%E9%9D%A2%E8%AF%95%E9%80%9F%E7%AD%94%E8%A1%A8"><span class="nav-text">6.1 面试速答表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-2-%E5%AE%9E%E6%88%98%E9%81%BF%E5%9D%91%E8%A1%A8"><span class="nav-text">6.2 实战避坑表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-3-%E5%B7%A5%E5%85%B7%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">6.3 工具速查表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-4-%E4%B8%8B%E4%B8%80%E7%AF%87%E9%A2%84%E5%91%8A"><span class="nav-text">6.4 下一篇预告</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">84</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">17</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">127</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+    <div class="sidebar-inner sidebar-blogroll">
+      <div class="links-of-blogroll animated">
+        <div class="links-of-blogroll-title"><i class="fa fa-globe fa-fw"></i>
+          Links
+        </div>
+        <ul class="links-of-blogroll-list">
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhZ3VpZGUuY24v" title="https:&#x2F;&#x2F;javaguide.cn&#x2F;">JavaGuide</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly96aGFuZ3RpZWxlaS5jb20v" title="https:&#x2F;&#x2F;zhangtielei.com&#x2F;">张铁蕾</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9wYXVsZ3JhaGFtLmNvbS9hcnRpY2xlcy5odG1s" title="https:&#x2F;&#x2F;paulgraham.com&#x2F;articles.html">paulgraham</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly93d3cuam9lbG9uc29mdHdhcmUuY29tLw==" title="https:&#x2F;&#x2F;www.joelonsoftware.com&#x2F;">Joel on Software</span>
+            </li>
+        </ul>
+      </div>
+    </div>
+        <div class="pjax">
+        
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-后端开发"><a href="/docs/nav/backend-dev-nav.html" rel="section"><i class="fa fa-code fa-fw"></i>后端开发</a></li>
+
+
+      
+  <li class="menu-item menu-item-计算机基础"><a href="/docs/nav/cs-foundation-nav.html" rel="section"><i class="fa fa-desktop fa-fw"></i>计算机基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-ai-学习"><a href="/docs/nav/ai-learning-nav.html" rel="section"><i class="fa fa-robot fa-fw"></i>AI 学习</a></li>
+
+
+      
+  <li class="menu-item menu-item-项目实战"><a href="/docs/nav/5964f4da.html" rel="section"><i class="fa fa-flask fa-fw"></i>项目实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-misc"><a href="/docs/nav/misc-nav.html" rel="section"><i class="fa fa-box fa-fw"></i>Misc</a></li>
+
+
+      
+  <li class="menu-item menu-item-随笔·生活"><a href="/docs/nav/life-nav.html" rel="section"><i class="fa fa-feather fa-fw"></i>随笔·生活</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java"><a href="/docs/nav/java-nav.html" rel="section"><i class="fa fa-coffee fa-fw"></i>Java</a></li>
+
+
+      
+  <li class="menu-item menu-item-框架"><a href="/docs/nav/framework-nav.html" rel="section"><i class="fa fa-th-large fa-fw"></i>框架</a></li>
+
+
+      
+  <li class="menu-item menu-item-数据存储"><a href="/docs/nav/data-storage-nav.html" rel="section"><i class="fa fa-hdd fa-fw"></i>数据存储</a></li>
+
+
+      
+  <li class="menu-item menu-item-中间件"><a href="/docs/nav/middleware-nav.html" rel="section"><i class="fa fa-cubes fa-fw"></i>中间件</a></li>
+
+
+      
+  <li class="menu-item menu-item-分布式与微服务"><a href="/docs/nav/distributed-nav.html" rel="section"><i class="fa fa-sitemap fa-fw"></i>分布式与微服务</a></li>
+
+
+      
+  <li class="menu-item menu-item-系统设计"><a href="/docs/nav/system-design-nav.html" rel="section"><i class="fa fa-pencil-ruler fa-fw"></i>系统设计</a></li>
+
+
+      
+  <li class="menu-item menu-item-部署运维"><a href="/docs/nav/devops-nav.html" rel="section"><i class="fa fa-terminal fa-fw"></i>部署运维</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-mysql"><a href="/docs/nav/mysql-nav.html" rel="section"><i class="fa fa-database fa-fw"></i>MySQL</a></li>
+
+
+      
+  <li class="menu-item menu-item-redis"><a href="/docs/nav/redis-nav.html" rel="section"><i class="fa fa-bolt fa-fw"></i>Redis</a></li>
+
+
+      
+  <li class="menu-item menu-item-elasticsearch"><a href="/docs/nav/es-nav.html" rel="section"><i class="fa fa-search fa-fw"></i>ElasticSearch</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-elasticsearch-原理与实践"><a href="/post/d48132d3.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Elasticsearch 原理与实践</a></li>
+
+
+      
+  <li class="menu-item menu-item-es-原理深挖：写入链路、分片与集群健康"><a href="/post/es-deep-2025.html" rel="section"><i class="fa fa-file-text fa-fw"></i>ES 原理深挖：写入链路、分片与集群健康</a></li>
+
+
+      
+  <li class="menu-item menu-item-es-查询优化与实战：深度分页、聚合与双写一致性"><a href="/post/es-query-2025.html" rel="section"><i class="fa fa-file-text fa-fw"></i>ES 查询优化与实战：深度分页、聚合与双写一致性</a></li>
+
+
+    </ul>
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/es-query-2025.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="ES 查询优化与实战：深度分页、聚合与双写一致性 | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          ES 查询优化与实战：深度分页、聚合与双写一致性
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-08-13 16:00:00" itemprop="dateCreated datePublished" datetime="2026-08-13T16:00:00+08:00">2026-08-13</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/" itemprop="url" rel="index"><span itemprop="name">数据存储</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>3.7k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>14 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><p><strong>搜索系统上生产的三道坎：分页超过 1 万条怎么办？聚合为什么慢？MySQL 和 ES 数据不一致怎么收场？</strong> 原理篇讲了 ES 为什么快、数据怎么存，本文解决「怎么查得快、查得准、查得全」：深度分页的正确姿势（search_after&#x2F;scroll 的选择）、聚合的代价模型、以及双写一致性的三种架构方案。读完你能在设计评审上说清「为什么 ES 分页只支持前 1 万条」「聚合上亿数据用什么策略」，并给 MySQL→ES 同步画出一张完整的架构图。</p>
+<blockquote>
+<p>联动：本文是 <a href="/post/es-deep-2025.html">ES 原理深挖</a>（写入链路&#x2F;分片&#x2F;集群健康）的实战续篇；双写一致性与 <a href="/post/9787b587.html">分布式系统核心理论</a> 的最终一致性呼应；本地消息表方案与 <a href="/post/rocketmq-2025.html">RocketMQ 原理与实践</a> 的事务消息是同一思路的两条实现路径。</p>
+</blockquote>
+<h2 id="1-定位：这篇实战什么"><a href="#1-定位：这篇实战什么" class="headerlink" title="1. 定位：这篇实战什么"></a>1. 定位：这篇实战什么</h2><p>原理篇回答「数据怎么存、怎么不丢」，本文回答三个「查询与同步」问题：</p>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>表面现象</th>
+<th>本文答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>分页翻到第 2 万条</td>
+<td>报错 <code>Result window is too large</code></td>
+<td>§2：from+size 的代价模型，search_after&#x2F;scroll 的分工</td>
+</tr>
+<tr>
+<td>聚合查询跑几秒</td>
+<td>大基数聚合内存爆炸</td>
+<td>§3：聚合原理与高基数应对</td>
+</tr>
+<tr>
+<td>MySQL 改了 ES 没变</td>
+<td>双写失败&#x2F;不一致</td>
+<td>§4：三种同步方案与最终一致性兜底</td>
+</tr>
+</tbody></table>
+<p><strong>因果链主线</strong>：ES 的查询优化不是「调参玄学」，是<strong>「一切查询都要在多个分片上并行执行」这个架构事实的推论</strong>——深度分页贵在「每个分片都要取全量再排序」，聚合贵在「每个分片先算局部再归并」，双写难在「两个系统没有同一事务」。<strong>记住「分片并行」这四个字，所有查询优化的理由都能自己推出来</strong>。</p>
+<h2 id="2-深度分页：from-size-为什么-1-万行内"><a href="#2-深度分页：from-size-为什么-1-万行内" class="headerlink" title="2. 深度分页：from+size 为什么 1 万行内"></a>2. 深度分页：from+size 为什么 1 万行内</h2><h3 id="2-1-代价模型：每个分片都要白干"><a href="#2-1-代价模型：每个分片都要白干" class="headerlink" title="2.1 代价模型：每个分片都要白干"></a>2.1 代价模型：每个分片都要白干</h3><p><code>GET /orders/_search?from=10000&amp;size=10</code> 为什么被拒绝（默认 <code>max_result_window: 10000</code>）？看它在 3 分片集群上的执行路径：</p>
+<pre class="mermaid">sequenceDiagram
+    participant C as 协调节点
+    participant S1 as 分片1
+    participant S2 as 分片2
+    participant S3 as 分片3
+    C->>S1: 取 from+size=10010 条
+    C->>S2: 取 from+size=10010 条
+    C->>S3: 取 from+size=10010 条
+    Note over S1: 各分片按 score 排序取前 10010
+    S1-->>C: 10010 条
+    S2-->>C: 10010 条
+    S3-->>C: 10010 条
+    Note over C: 归并 30030 条，排序，丢弃前 10000 条
+    C-->>C: 最终返回 10 条</pre>
+
+<p><strong>因果链</strong>：from+size 的代价是 <strong>O(from+size) × 分片数</strong>——翻到第 10 万条，每个分片都要取 10 万条到协调节点排序。这不是「ES 蠢」，是<strong>分布式查询的必然</strong>：谁也不知道全局前 10 万条分布在哪个分片，只能每片都取。<strong>这个模型下「深度分页」不是功能缺失，是代价不可接受</strong>，所以 ES 用 <code>max_result_window</code> 直接拦住。</p>
+<p><strong>三个方案的定位（面试核心）</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>方案</th>
+<th>适用场景</th>
+<th>原理</th>
+<th>缺点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>from+size</td>
+<td>前 10000 条（翻前 100 页）</td>
+<td>每片取全量排序再归并</td>
+<td>深翻页 O(from+size)×分片</td>
+</tr>
+<tr>
+<td><strong>search_after</strong></td>
+<td>实时滚动（下翻 2 万+条）</td>
+<td>记住上页最后一条的排序值，只取「比它大」的</td>
+<td>不能随机跳页、依赖排序值稳定</td>
+</tr>
+<tr>
+<td><strong>scroll</strong></td>
+<td>全量导出（导入导出&#x2F;批处理）</td>
+<td>生成快照游标，每次取一段</td>
+<td>快照期间数据不变、游标耗内存</td>
+</tr>
+</tbody></table>
+<p><strong>search_after 与 scroll 的核心区别一句话：search_after 是「活的」（每次重新查询，新数据能看到），scroll 是「死的」（固定快照，新写入不可见）</strong>。导出数据用 scroll（要一致性快照），实时翻页用 search_after（要新数据），两者用途完全不同。</p>
+<h3 id="2-2-动手验证：复现报错与-search-after-翻页"><a href="#2-2-动手验证：复现报错与-search-after-翻页" class="headerlink" title="2.2 动手验证：复现报错与 search_after 翻页"></a>2.2 动手验证：复现报错与 search_after 翻页</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 造 15000 条数据</span></span><br><span class="line"><span class="keyword">for</span> i <span class="keyword">in</span> $(<span class="built_in">seq</span> 1 15000); <span class="keyword">do</span> curl -s -X POST <span class="string">&quot;localhost:9200/big/_doc&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> \</span><br><span class="line">  -d <span class="string">&quot;&#123;\&quot;n\&quot;:<span class="variable">$i</span>&#125;&quot;</span> --user elastic:PASSWORD &gt; /dev/null; <span class="keyword">done</span></span><br><span class="line">curl -s -X POST <span class="string">&quot;localhost:9200/big/_refresh&quot;</span> --user elastic:PASSWORD</span><br><span class="line"></span><br><span class="line"><span class="comment"># 1. 深翻页直接报错（默认窗口 10000）</span></span><br><span class="line">curl <span class="string">&quot;localhost:9200/big/_search?size=10&amp;from=10001&quot;</span> --user elastic:PASSWORD</span><br><span class="line"><span class="comment"># → Result window is too large, from + size must be less than or equal to [10000]</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. search_after：取第一页，拿最后一个 sort 值，再翻下一页</span></span><br><span class="line">curl -s <span class="string">&quot;localhost:9200/big/_search&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> -d \</span><br><span class="line">  <span class="string">&#x27;&#123;&quot;size&quot;:10,&quot;sort&quot;:[&#123;&quot;n&quot;:&quot;asc&quot;&#125;]&#125;&#x27;</span> --user elastic:PASSWORD</span><br><span class="line"><span class="comment"># → 记下最后一行的 &quot;sort&quot;:[n]</span></span><br><span class="line">curl -s <span class="string">&quot;localhost:9200/big/_search&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> -d \</span><br><span class="line">  <span class="string">&#x27;&#123;&quot;size&quot;:10,&quot;sort&quot;:[&#123;&quot;n&quot;:&quot;asc&quot;&#125;],&quot;search_after&quot;:[14991]&#125;&#x27;</span> --user elastic:PASSWORD</span><br></pre></td></tr></table></figure>
+
+<p>观察点：from&#x3D;10001 被拒绝；search_after 用上页的 sort 值无缝续翻。判定标准：亲手触发 <code>Result window is too large</code> 并改用 search_after 绕过，理解「不是不能翻，是不能用 from 翻」。</p>
+<h3 id="2-3-避坑：search-after-的排序值陷阱"><a href="#2-3-避坑：search-after-的排序值陷阱" class="headerlink" title="2.3 避坑：search_after 的排序值陷阱"></a>2.3 避坑：search_after 的排序值陷阱</h3><table>
+<thead>
+<tr>
+<th>坑</th>
+<th>表现</th>
+<th>解法</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>排序值有并列</td>
+<td>重复&#x2F;漏条</td>
+<td>加唯一字段作 tie-breaker（如 <code>_id</code>）</td>
+</tr>
+<tr>
+<td>排序字段有 null</td>
+<td>排序不稳定</td>
+<td>用 <code>missing:_last</code> 固定空值位置</td>
+</tr>
+<tr>
+<td>索引时间戳排序</td>
+<td>翻页中途新数据插入</td>
+<td>search_after 能看见（这是特性）；需要冻结视图则用 scroll</td>
+</tr>
+<tr>
+<td>多字段复合排序</td>
+<td>遗漏某字段就乱序</td>
+<td>sort 数组里所有字段都要有值</td>
+</tr>
+</tbody></table>
+<p><strong>因果链</strong>：search_after 的正确性建立在「排序值能唯一定位一条记录」上——<strong>排序值并列时它只知道「比这个值大」，不知道「比这条记录靠后」</strong>，所以必须加唯一字段 tie-breaker。这个细节是面试官最爱追问的：「search_after 有重复数据怎么办？」</p>
+<h2 id="3-聚合：先局部后归并"><a href="#3-聚合：先局部后归并" class="headerlink" title="3. 聚合：先局部后归并"></a>3. 聚合：先局部后归并</h2><h3 id="3-1-聚合的两步模型"><a href="#3-1-聚合的两步模型" class="headerlink" title="3.1 聚合的两步模型"></a>3.1 聚合的两步模型</h3><p><strong>聚合 &#x3D; 每个分片先算局部结果（bucket&#x2F;metrics），协调节点再归并成全局结果</strong>——与搜索的「每片取 topN 再归并」是同一架构，但代价模型完全不同：</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>搜索</th>
+<th>聚合</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>分片结果</td>
+<td>每片 topN（量可控）</td>
+<td>每片全部 bucket（量&#x3D;基数）</td>
+</tr>
+<tr>
+<td>归并成本</td>
+<td>O(topN × 分片数)</td>
+<td>O(bucket 数 × 分片数)</td>
+</tr>
+<tr>
+<td>内存压力</td>
+<td>排序堆</td>
+<td><strong>bucket 全部驻留内存</strong></td>
+</tr>
+</tbody></table>
+<p><strong>聚合慢的真正原因：高基数聚合（如按 user_id 分桶）每个分片都要建几百万个 bucket 存内存，协调节点再合并——基数 × 分片数 &#x3D; 内存爆炸</strong>。这就是为什么「聚合上亿日志按 IP 分桶」会 OOM。</p>
+<h3 id="3-2-三招应对高基数聚合"><a href="#3-2-三招应对高基数聚合" class="headerlink" title="3.2 三招应对高基数聚合"></a>3.2 三招应对高基数聚合</h3><table>
+<thead>
+<tr>
+<th>手段</th>
+<th>机制</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>近似聚合</strong>（cardinality）</td>
+<td>HyperLogLog，固定内存算基数</td>
+<td>只数「多少个」，不要明细</td>
+</tr>
+<tr>
+<td><strong>date_histogram</strong></td>
+<td>按时间分桶（桶数可控）</td>
+<td>日志趋势分析</td>
+</tr>
+<tr>
+<td><strong>前置预聚合</strong></td>
+<td>写入时把明细聚成汇总（rollup）</td>
+<td>上亿数据的固定报表</td>
+</tr>
+</tbody></table>
+<p><strong>因果链</strong>：<code>cardinality</code> 是近似值（误差 1% 左右）但内存恒定——<strong>HLL 用「丢了明细换固定内存」</strong>。做报表&#x2F;去重计数选它；要精确值或明细，只能 rollup 或分片预计算。<strong>面试答「聚合优化」的标准句式：「高基数聚合先问三个问题——能近似吗（cardinality）、能按时间降维吗（date_histogram）、能预计算吗（rollup）」</strong>。</p>
+<h3 id="3-3-动手验证：看聚合的执行与内存"><a href="#3-3-动手验证：看聚合的执行与内存" class="headerlink" title="3.3 动手验证：看聚合的执行与内存"></a>3.3 动手验证：看聚合的执行与内存</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 按标签聚合（低基数，快）</span></span><br><span class="line">curl -s <span class="string">&quot;localhost:9200/orders/_search&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> -d \</span><br><span class="line">  <span class="string">&#x27;&#123;&quot;size&quot;:0,&quot;aggs&quot;:&#123;&quot;by_tag&quot;:&#123;&quot;terms&quot;:&#123;&quot;field&quot;:&quot;tag.keyword&quot;,&quot;size&quot;:10&#125;&#125;&#125;&#125;&#x27;</span> --user elastic:PASSWORD</span><br><span class="line"></span><br><span class="line"><span class="comment"># 精确计数 vs 近似计数（对比 hits 和 errors 字段）</span></span><br><span class="line">curl -s <span class="string">&quot;localhost:9200/big/_search&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> -d \</span><br><span class="line">  <span class="string">&#x27;&#123;&quot;size&quot;:0,&quot;aggs&quot;:&#123;&quot;exact&quot;:&#123;&quot;cardinality&quot;:&#123;&quot;field&quot;:&quot;n&quot;&#125;&#125;&#125;&#125;&#x27;</span> --user elastic:PASSWORD</span><br><span class="line"></span><br><span class="line"><span class="comment"># 聚合慢时看节点堆内存（GC 指标）</span></span><br><span class="line">curl <span class="string">&quot;localhost:9200/_cat/nodes?v&amp;h=name,heap.percent,heap.max&quot;</span> --user elastic:PASSWORD</span><br></pre></td></tr></table></figure>
+
+<p>观察点：<code>cardinality</code> 返回的 <code>value</code> 与真实值可能有 ±1% 偏差（<code>HLL</code> 精度参数 <code>precision_threshold</code> 默认 3000）。判定标准：能解释「为什么聚合比搜索更容易打爆内存」，并说出近似聚合的代价（不精确）。</p>
+<h2 id="4-MySQL-与-ES-双写一致性：三种方案与最终兜底"><a href="#4-MySQL-与-ES-双写一致性：三种方案与最终兜底" class="headerlink" title="4. MySQL 与 ES 双写一致性：三种方案与最终兜底"></a>4. MySQL 与 ES 双写一致性：三种方案与最终兜底</h2><h3 id="4-1-为什么难：两个系统没有同一事务"><a href="#4-1-为什么难：两个系统没有同一事务" class="headerlink" title="4.1 为什么难：两个系统没有同一事务"></a>4.1 为什么难：两个系统没有同一事务</h3><p>MySQL 写成功、ES 写失败，数据就不一致了——<strong>根源是「跨系统无原子性」：MySQL 事务管不了 ES，ES 没有事务</strong>。所有方案的本质都是在回答同一个问题：<strong>怎么把「一次业务写」变成「两次可靠写」</strong>。</p>
+<h3 id="4-2-三种方案对比"><a href="#4-2-三种方案对比" class="headerlink" title="4.2 三种方案对比"></a>4.2 三种方案对比</h3><pre class="mermaid">flowchart LR
+    subgraph A["方案一：应用双写"]
+        App["业务应用"] -->|1. 写 MySQL| M1[(MySQL)]
+        App -->|2. 写 ES（可能失败）| E1[(ES)]
+    end
+    subgraph B["方案二：binlog 订阅（Canal）"]
+        M2[(MySQL)] -->|binlog| C2[Canal]
+        C2 -->|解析/转换| MQ2[(MQ)]
+        MQ2 --> W2[同步服务]
+        W2 --> E2[(ES)]
+    end
+    subgraph C["方案三：本地消息表"]
+        M3[(MySQL)] -->|同事务写消息表| T3[本地消息表]
+        T3 -->|定时扫/事务消息| MQ3[(MQ)]
+        MQ3 --> W3[同步服务]
+        W3 --> E3[(ES)]
+    end</pre>
+
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>应用双写</th>
+<th>binlog 订阅（Canal）</th>
+<th>本地消息表</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>一致性时机</td>
+<td>实时（尽力而为）</td>
+<td>近实时（秒级延迟）</td>
+<td>近实时</td>
+</tr>
+<tr>
+<td>与业务解耦</td>
+<td>❌ 侵入业务代码</td>
+<td>✅ 完全解耦</td>
+<td>半解耦（要写消息表）</td>
+</tr>
+<tr>
+<td>对 MySQL 的感知</td>
+<td>无</td>
+<td>只认 binlog（支持 ROW 格式）</td>
+<td>无</td>
+</tr>
+<tr>
+<td>丢失风险</td>
+<td>应用崩溃即丢</td>
+<td>低（Canal 有 offset）</td>
+<td>低（消息表和业务同事务）</td>
+</tr>
+<tr>
+<td>改造量</td>
+<td>最小（但最脆弱）</td>
+<td>中等（Canal+MQ+同步服务）</td>
+<td>中等</td>
+</tr>
+<tr>
+<td>生产推荐</td>
+<td>小流量临时方案</td>
+<td><strong>主流方案</strong></td>
+<td>无 MQ 时的替代</td>
+</tr>
+</tbody></table>
+<p><strong>因果链</strong>：三种方案的演进逻辑是「把「双写」从业务代码里一步步挪出来」——双写侵入业务（方案一）→ 用 binlog 当「MySQL 的变化通知」（方案二，业务无感知）→ 用同事务消息表保证「消息不丢」（方案三，比 Canal 简单但要多写一张表）。<strong>方案二是生产主流：Canal 订阅 binlog → MQ 削峰 → 同步服务写 ES</strong>，延迟秒级、业务零侵入、Canal 挂了对主库无影响。</p>
+<h3 id="4-3-最终一致性兜底：对账与修复"><a href="#4-3-最终一致性兜底：对账与修复" class="headerlink" title="4.3 最终一致性兜底：对账与修复"></a>4.3 最终一致性兜底：对账与修复</h3><p>即使有 Canal，<strong>同步服务崩溃&#x2F;ES 集群故障仍会造成短暂不一致</strong>——所以生产必须加兜底层：</p>
+<table>
+<thead>
+<tr>
+<th>层</th>
+<th>手段</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>重试</td>
+<td>同步失败进重试队列，指数退避</td>
+<td>解决瞬时故障</td>
+</tr>
+<tr>
+<td>对账</td>
+<td>定时任务对比 MySQL 与 ES 数据量&#x2F;版本号</td>
+<td>发现长期不一致</td>
+</tr>
+<tr>
+<td>兜底</td>
+<td>每日全量重建索引（reindex）</td>
+<td>修复一切历史遗留</td>
+</tr>
+</tbody></table>
+<p><strong>因果链</strong>：同步方案保证「绝大多数时间一致」，对账任务保证「发现不一致」，全量重建保证「最终一定一致」——<strong>三层叠加才是完整的最终一致性</strong>。面试答双写问题，说出「Canal + 重试 + 对账 + 定期重建」四件套，比只说 Canal 高一个档次。</p>
+<h3 id="4-4-动手验证：体验「双写」的脆弱"><a href="#4-4-动手验证：体验「双写」的脆弱" class="headerlink" title="4.4 动手验证：体验「双写」的脆弱"></a>4.4 动手验证：体验「双写」的脆弱</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 模拟最朴素的双写失败（不用真实 MySQL，看思路）：</span></span><br><span class="line"><span class="comment"># 1. MySQL 事务已提交，2. ES 写入报错（先故意关掉 ES 的写入）</span></span><br><span class="line">curl -X PUT <span class="string">&quot;localhost:9200/orders/_settings&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> \</span><br><span class="line">  -d <span class="string">&#x27;&#123;&quot;index.blocks.write&quot;: true&#125;&#x27;</span> --user elastic:PASSWORD</span><br><span class="line"><span class="comment"># 业务代码里：DB 成功 → ES 报错（index.blocks.write 拒绝写入）→ 数据不一致</span></span><br><span class="line">curl -X POST <span class="string">&quot;localhost:9200/orders/_doc/1&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> \</span><br><span class="line">  -d <span class="string">&#x27;&#123;&quot;title&quot;:&quot;x&quot;&#125;&#x27;</span> --user elastic:PASSWORD   <span class="comment"># → blocked by [FORBIDDEN/12/index write]</span></span><br><span class="line"><span class="comment"># 解除写入阻塞</span></span><br><span class="line">curl -X PUT <span class="string">&quot;localhost:9200/orders/_settings&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> \</span><br><span class="line">  -d <span class="string">&#x27;&#123;&quot;index.blocks.write&quot;: false&#125;&#x27;</span> --user elastic:PASSWORD</span><br></pre></td></tr></table></figure>
+
+<p>观察点：ES 拒绝写入但业务侧 MySQL 已提交——<strong>「DB 成功、ES 失败」的现场，双写方案必须自己处理这种不一致</strong>（重试&#x2F;补偿&#x2F;消息队列）。判定标准：理解双写方案为何脆弱——<strong>两个系统任何一方抖动，都需要人工或兜底层收尾</strong>。</p>
+<h2 id="5-面试应答：查询优化四连问"><a href="#5-面试应答：查询优化四连问" class="headerlink" title="5. 面试应答：查询优化四连问"></a>5. 面试应答：查询优化四连问</h2><h3 id="5-1-完整话术"><a href="#5-1-完整话术" class="headerlink" title="5.1 完整话术"></a>5.1 完整话术</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>回答要点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>深度分页怎么做？</td>
+<td>from+size 只能前 1 万条（代价 O(from+size)×分片）；实时滚动用 search_after（记住排序值续翻）；全量导出用 scroll（快照游标）</td>
+</tr>
+<tr>
+<td>search_after 和 scroll 区别？</td>
+<td>search_after 重新查询（能看到新数据）、不能跳页；scroll 固定快照（数据冻结）、适合导出</td>
+</tr>
+<tr>
+<td>聚合慢怎么办？</td>
+<td>高基数&#x3D;内存爆炸；先问能近似吗（cardinality&#x2F;HLL）、能时间降维吗（date_histogram）、能预聚合吗（rollup）</td>
+</tr>
+<tr>
+<td>MySQL 与 ES 怎么同步？</td>
+<td>生产用 binlog 订阅（Canal→MQ→同步服务），加重试+对账+定期重建兜底；双写只适合小流量</td>
+</tr>
+</tbody></table>
+<h3 id="5-2-深挖：与-MySQL-分页-主从的对照（跨篇联动）"><a href="#5-2-深挖：与-MySQL-分页-主从的对照（跨篇联动）" class="headerlink" title="5.2 深挖：与 MySQL 分页&#x2F;主从的对照（跨篇联动）"></a>5.2 深挖：与 MySQL 分页&#x2F;主从的对照（跨篇联动）</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>MySQL</th>
+<th>ES</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>分页</td>
+<td>limit 深翻页要扫全表（<a href="/post/629ad3df.html">MySQL 索引原理与实战</a>）</td>
+<td>from+size 深翻页每片全量取（代价模型相同）</td>
+</tr>
+<tr>
+<td>大数据分页正解</td>
+<td>游标&#x2F;书签（where id &gt; last）</td>
+<td>search_after（排序值书签）</td>
+</tr>
+<tr>
+<td>异步同步</td>
+<td>主从 binlog 复制（<a href="/post/mysql-ha-2025.html">MySQL 高可用</a>）</td>
+<td>Canal 订阅 binlog 同步 ES</td>
+</tr>
+<tr>
+<td>一致性保障</td>
+<td>半同步&#x2F;GTID</td>
+<td>重试+对账+重建</td>
+</tr>
+</tbody></table>
+<p><strong>一句话：MySQL 深分页用「书签」绕开 LIMIT 扫描，ES 用 search_after 绕开 from+size——「记住上次的位置，而不是从头上重新数」是分页优化的共同思想</strong>；ES 的 Canal 同步本质上就是「把 MySQL 的 binlog 复制架构搬到了 ES 侧」。跨库答出这层对照，面试是明显的差异化加分。</p>
+<h2 id="6-总结"><a href="#6-总结" class="headerlink" title="6. 总结"></a>6. 总结</h2><h3 id="6-1-面试速答表"><a href="#6-1-面试速答表" class="headerlink" title="6.1 面试速答表"></a>6.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>为什么 ES 分页限制 1 万条？</td>
+<td>深度分页代价 O(from+size)×分片数，每片白取全量再归并，干脆限制</td>
+</tr>
+<tr>
+<td>search_after 怎么用？</td>
+<td>用上页最后一条的排序值续翻，实时数据可见；排序加唯一字段 tie-breaker</td>
+</tr>
+<tr>
+<td>scroll 适合什么？</td>
+<td>全量导出&#x2F;批处理，固定快照游标，游标期间数据不可变</td>
+</tr>
+<tr>
+<td>聚合为什么慢？</td>
+<td>高基数 bucket 全驻内存，基数×分片数爆炸</td>
+</tr>
+<tr>
+<td>高基数聚合怎么办？</td>
+<td>cardinality 近似、date_histogram 降维、rollup 预聚合</td>
+</tr>
+<tr>
+<td>MySQL→ES 怎么同步？</td>
+<td>Canal 订阅 binlog → MQ → 同步服务；重试+对账+定期重建兜底</td>
+</tr>
+<tr>
+<td>双写方案为什么不好？</td>
+<td>业务侵入 + 两个系统无同一事务，任何一方失败都要手工收尾</td>
+</tr>
+</tbody></table>
+<h3 id="6-2-实战避坑表"><a href="#6-2-实战避坑表" class="headerlink" title="6.2 实战避坑表"></a>6.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>Result window is too large</code></td>
+<td>from+size 超 1 万</td>
+<td>改 search_after&#x2F;scroll，不要只调 max_result_window（治标不治本）</td>
+</tr>
+<tr>
+<td>search_after 翻页重复&#x2F;漏条</td>
+<td>排序值并列</td>
+<td>sort 加唯一字段 tie-breaker</td>
+</tr>
+<tr>
+<td>聚合 OOM</td>
+<td>高基数 bucket</td>
+<td>换 cardinality&#x2F;date_histogram&#x2F;rollup</td>
+</tr>
+<tr>
+<td>ES 数据少一条</td>
+<td>双写&#x2F;同步失败</td>
+<td>查重试队列；对账任务对比；必要时重建索引</td>
+</tr>
+<tr>
+<td>同步延迟大</td>
+<td>MQ 积压&#x2F;同步服务瓶颈</td>
+<td>监控消费 lag，扩同步服务并发</td>
+</tr>
+<tr>
+<td>Canal 挂了对主库的影响</td>
+<td>无（旁路解析 binlog）</td>
+<td>放心重启，offset 续传</td>
+</tr>
+</tbody></table>
+<h3 id="6-3-工具速查表"><a href="#6-3-工具速查表" class="headerlink" title="6.3 工具速查表"></a>6.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具&#x2F;API</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>max_result_window</code>（settings）</td>
+<td>分页窗口上限，生产不建议调大</td>
+</tr>
+<tr>
+<td><code>search_after</code> &#x2F; <code>scroll</code></td>
+<td>深翻页两件套（活视图&#x2F;快照）</td>
+</tr>
+<tr>
+<td><code>cardinality</code> &#x2F; <code>date_histogram</code></td>
+<td>聚合降内存两招</td>
+</tr>
+<tr>
+<td><code>_cat/nodes?v&amp;h=name,heap.percent</code></td>
+<td>聚合 OOM 前观察堆内存</td>
+</tr>
+<tr>
+<td>Canal（阿帕奇&#x2F;阿里）</td>
+<td>binlog 订阅，MySQL→ES 主流同步件</td>
+</tr>
+<tr>
+<td>对账任务 + 重建索引</td>
+<td>最终一致性兜底两层</td>
+</tr>
+</tbody></table>
+<h3 id="6-4-下一篇预告"><a href="#6-4-下一篇预告" class="headerlink" title="6.4 下一篇预告"></a>6.4 下一篇预告</h3><p>查询篇解决「怎么查得对」，下一篇《分布式事务：从 2PC 到 Seata》解决「怎么写得对」——<strong>MySQL 事务管不了 ES，同样管不了多个微服务</strong>：2PC 为什么是「协调者的单点赌博」、TCC 为什么是「业务三阶段」、Saga 为什么是「一条补偿链」，以及 Seata 的 AT 模式怎么用全局锁做到「业务无侵入」——分布式一致性的最后一块拼图。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/%E9%9D%A2%E8%AF%95/" rel="tag"># 面试</a>
+              <a href="/tags/Elasticsearch/" rel="tag"># Elasticsearch</a>
+              <a href="/tags/%E6%9F%A5%E8%AF%A2%E4%BC%98%E5%8C%96/" rel="tag"># 查询优化</a>
+              <a href="/tags/%E6%B7%B1%E5%BA%A6%E5%88%86%E9%A1%B5/" rel="tag"># 深度分页</a>
+              <a href="/tags/%E5%8F%8C%E5%86%99%E4%B8%80%E8%87%B4%E6%80%A7/" rel="tag"># 双写一致性</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/es-deep-2025.html" rel="prev" title="ES 原理深挖：写入链路、分片与集群健康">
+                  <i class="fa fa-angle-left"></i> ES 原理深挖：写入链路、分片与集群健康
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/post/dist-tx-2025.html" rel="next" title="分布式事务：从 2PC 到 Seata">
+                  分布式事务：从 2PC 到 Seata <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">579k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">35:04</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
+</html>

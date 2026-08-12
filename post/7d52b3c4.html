@@ -1,0 +1,960 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="进程（process）是正在运行的程序实例：程序是磁盘上的静态代码，进程是它被加载进内存后的一套完整运行环境。同一个程序可以同时跑出多个进程——开两个 IDE 窗口就是两个进程。本文回答三个问题：进程&#x2F;线程&#x2F;协程到底是什么、CPU 怎么把时间分给它们、切换到底贵在哪——并对照你天天用的技术（线程池大小、虚拟线程、容器 PID 1、Go 的 goroutine），看这些设计怎么从">
+<meta property="og:type" content="article">
+<meta property="og:title" content="进程与线程：从模型到调度">
+<meta property="og:url" content="http://timewait7.github.io/post/7d52b3c4.html">
+<meta property="og:site_name" content="知行栈">
+<meta property="og:description" content="进程（process）是正在运行的程序实例：程序是磁盘上的静态代码，进程是它被加载进内存后的一套完整运行环境。同一个程序可以同时跑出多个进程——开两个 IDE 窗口就是两个进程。本文回答三个问题：进程&#x2F;线程&#x2F;协程到底是什么、CPU 怎么把时间分给它们、切换到底贵在哪——并对照你天天用的技术（线程池大小、虚拟线程、容器 PID 1、Go 的 goroutine），看这些设计怎么从">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-08-12T13:00:00.000Z">
+<meta property="article:modified_time" content="2026-08-12T14:46:46.937Z">
+<meta property="article:tag" content="面试">
+<meta property="article:tag" content="操作系统">
+<meta property="article:tag" content="进程">
+<meta property="article:tag" content="线程">
+<meta property="article:tag" content="调度">
+<meta property="article:tag" content="并发">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/7d52b3c4.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/7d52b3c4.html","path":"post/7d52b3c4.html","title":"进程与线程：从模型到调度"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>进程与线程：从模型到调度 | 知行栈</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<!-- hexo injector head_end start --><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
+</style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">知行栈</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>Categories</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-%E8%BF%9B%E7%A8%8B%E6%A8%A1%E5%9E%8B%EF%BC%9A%E6%AD%A3%E5%9C%A8%E8%BF%90%E8%A1%8C%E7%9A%84%E7%A8%8B%E5%BA%8F"><span class="nav-text">1. 进程模型：正在运行的程序</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-%E7%A8%8B%E5%BA%8F%E7%9A%84%E5%9B%9B%E4%B8%AA%E7%BB%84%E6%88%90%E9%83%A8%E5%88%86"><span class="nav-text">1.1 程序的四个组成部分</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-2-%E7%94%9F%E5%91%BD%E5%91%A8%E6%9C%9F%EF%BC%9A%E4%BA%94%E4%B8%AA%E7%8A%B6%E6%80%81"><span class="nav-text">1.2 生命周期：五个状态</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-3-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E7%94%A8-ps-%E8%A7%82%E5%AF%9F%E8%BF%9B%E7%A8%8B%E7%8A%B6%E6%80%81"><span class="nav-text">1.3 动手验证：用 ps 观察进程状态</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E7%BA%BF%E7%A8%8B%EF%BC%9A%E8%BF%9B%E7%A8%8B%E5%86%85%E7%9A%84%E6%89%A7%E8%A1%8C%E6%B5%81"><span class="nav-text">2. 线程：进程内的执行流</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E4%B8%89%E7%A7%8D%E7%BA%BF%E7%A8%8B%E6%A8%A1%E5%9E%8B"><span class="nav-text">2.1 三种线程模型</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E4%B8%BA%E4%BB%80%E4%B9%88%E7%BA%BF%E7%A8%8B%E6%AF%94%E8%BF%9B%E7%A8%8B%E8%BD%BB"><span class="nav-text">2.2 为什么线程比进程轻</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E7%9C%8B-JVM-%E9%87%8C%E7%9A%84%E7%BA%BF%E7%A8%8B"><span class="nav-text">2.3 动手验证：看 JVM 里的线程</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E8%B0%83%E5%BA%A6%EF%BC%9ACPU-%E6%97%B6%E9%97%B4%E6%80%8E%E4%B9%88%E5%88%86"><span class="nav-text">3. 调度：CPU 时间怎么分</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E8%B0%83%E5%BA%A6%E7%AE%97%E6%B3%95%E6%BC%94%E8%BF%9B"><span class="nav-text">3.1 调度算法演进</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-Linux-CFS%EF%BC%9A%E6%8A%8A%E5%85%AC%E5%B9%B3%E9%87%8F%E5%8C%96%E6%88%90-vruntime"><span class="nav-text">3.2 Linux CFS：把公平量化成 vruntime</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-%E4%B8%8A%E4%B8%8B%E6%96%87%E5%88%87%E6%8D%A2%EF%BC%9A%E5%88%87%E6%8D%A2%E5%88%B0%E5%BA%95%E8%B4%B5%E5%9C%A8%E5%93%AA"><span class="nav-text">3.3 上下文切换：切换到底贵在哪</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E8%B0%83%E4%BC%98%E5%85%88%E7%BA%A7%E3%80%81%E6%B5%8B%E5%88%87%E6%8D%A2%E5%BC%80%E9%94%80"><span class="nav-text">3.4 动手验证：调优先级、测切换开销</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E7%94%A8%E6%88%B7%E6%80%81%E4%B8%8E%E5%86%85%E6%A0%B8%E6%80%81%EF%BC%9A%E7%B3%BB%E7%BB%9F%E8%B0%83%E7%94%A8%E7%9A%84%E4%BB%A3%E4%BB%B7"><span class="nav-text">4. 用户态与内核态：系统调用的代价</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-%E7%B3%BB%E7%BB%9F%E8%B0%83%E7%94%A8%E9%93%BE%E8%B7%AF"><span class="nav-text">4.1 系统调用链路</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-%E4%B8%A4%E7%A7%8D%E6%A8%A1%E5%BC%8F%E7%9A%84%E5%AF%B9%E7%85%A7"><span class="nav-text">4.2 两种模式的对照</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9Astrace-%E6%95%B0%E4%B8%80%E6%95%B0%E7%B3%BB%E7%BB%9F%E8%B0%83%E7%94%A8"><span class="nav-text">4.3 动手验证：strace 数一数系统调用</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E6%80%BB%E7%BB%93%E4%B8%8E%E9%81%BF%E5%9D%91%E6%B8%85%E5%8D%95"><span class="nav-text">5. 总结与避坑清单</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E9%9D%A2%E8%AF%95%E9%80%9F%E7%AD%94%E8%A1%A8"><span class="nav-text">5.1 面试速答表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E5%AE%9E%E6%88%98%E9%81%BF%E5%9D%91%E6%B8%85%E5%8D%95"><span class="nav-text">5.2 实战避坑清单</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-%E5%B7%A5%E5%85%B7%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">5.3 工具速查表</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">84</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">17</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">127</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+    <div class="sidebar-inner sidebar-blogroll">
+      <div class="links-of-blogroll animated">
+        <div class="links-of-blogroll-title"><i class="fa fa-globe fa-fw"></i>
+          Links
+        </div>
+        <ul class="links-of-blogroll-list">
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhZ3VpZGUuY24v" title="https:&#x2F;&#x2F;javaguide.cn&#x2F;">JavaGuide</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly96aGFuZ3RpZWxlaS5jb20v" title="https:&#x2F;&#x2F;zhangtielei.com&#x2F;">张铁蕾</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9wYXVsZ3JhaGFtLmNvbS9hcnRpY2xlcy5odG1s" title="https:&#x2F;&#x2F;paulgraham.com&#x2F;articles.html">paulgraham</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly93d3cuam9lbG9uc29mdHdhcmUuY29tLw==" title="https:&#x2F;&#x2F;www.joelonsoftware.com&#x2F;">Joel on Software</span>
+            </li>
+        </ul>
+      </div>
+    </div>
+        <div class="pjax">
+        
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-后端开发"><a href="/docs/nav/backend-dev-nav.html" rel="section"><i class="fa fa-code fa-fw"></i>后端开发</a></li>
+
+
+      
+  <li class="menu-item menu-item-计算机基础"><a href="/docs/nav/cs-foundation-nav.html" rel="section"><i class="fa fa-desktop fa-fw"></i>计算机基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-ai-学习"><a href="/docs/nav/ai-learning-nav.html" rel="section"><i class="fa fa-robot fa-fw"></i>AI 学习</a></li>
+
+
+      
+  <li class="menu-item menu-item-项目实战"><a href="/docs/nav/5964f4da.html" rel="section"><i class="fa fa-flask fa-fw"></i>项目实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-misc"><a href="/docs/nav/misc-nav.html" rel="section"><i class="fa fa-box fa-fw"></i>Misc</a></li>
+
+
+      
+  <li class="menu-item menu-item-随笔·生活"><a href="/docs/nav/life-nav.html" rel="section"><i class="fa fa-feather fa-fw"></i>随笔·生活</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-操作系统"><a href="/docs/nav/os-nav.html" rel="section"><i class="fa fa-laptop fa-fw"></i>操作系统</a></li>
+
+
+      
+  <li class="menu-item menu-item-计算机网络"><a href="/docs/nav/network-nav.html" rel="section"><i class="fa fa-globe fa-fw"></i>计算机网络</a></li>
+
+
+      
+  <li class="menu-item menu-item-数据结构与算法"><a href="/docs/nav/dsa-nav.html" rel="section"><i class="fa fa-code-branch fa-fw"></i>数据结构与算法</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-进程与线程：从模型到调度"><a href="/post/7d52b3c4.html" rel="section"><i class="fa fa-file-text fa-fw"></i>进程与线程：从模型到调度</a></li>
+
+
+      
+  <li class="menu-item menu-item-内存管理：虚拟内存与分页"><a href="/post/aa1ba544.html" rel="section"><i class="fa fa-file-text fa-fw"></i>内存管理：虚拟内存与分页</a></li>
+
+
+      
+  <li class="menu-item menu-item-文件系统与磁盘-io"><a href="/post/fdff16da.html" rel="section"><i class="fa fa-file-text fa-fw"></i>文件系统与磁盘 IO</a></li>
+
+
+      
+  <li class="menu-item menu-item-io-模型：阻塞、多路复用与零拷贝"><a href="/post/1c69d2aa.html" rel="section"><i class="fa fa-file-text fa-fw"></i>IO 模型：阻塞、多路复用与零拷贝</a></li>
+
+
+      
+  <li class="menu-item menu-item-linux-资源排查实战"><a href="/post/22c01f5.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Linux 资源排查实战</a></li>
+
+
+    </ul>
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/7d52b3c4.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="进程与线程：从模型到调度 | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          进程与线程：从模型到调度
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-08-12 21:00:00" itemprop="dateCreated datePublished" datetime="2026-08-12T21:00:00+08:00">2026-08-12</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/" itemprop="url" rel="index"><span itemprop="name">操作系统</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>4.9k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>18 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><p><strong>进程（process）是正在运行的程序实例</strong>：程序是磁盘上的静态代码，进程是它被加载进内存后的一套完整运行环境。同一个程序可以同时跑出多个进程——开两个 IDE 窗口就是两个进程。本文回答三个问题：进程&#x2F;线程&#x2F;协程到底是什么、CPU 怎么把时间分给它们、切换到底贵在哪——并对照你天天用的技术（线程池大小、虚拟线程、容器 PID 1、Go 的 goroutine），看这些设计怎么从本文的机制里长出来。</p>
+<blockquote>
+<p><strong>系列地图（操作系统）</strong>：① <strong>进程与线程（本文：执行单元与调度）</strong> → ② 内存管理（地址空间与物理内存）→ ③ 文件系统与磁盘 IO（数据落盘）→ ④ IO 模型（等待数据的方式）→ ⑤ Linux 资源排查实战（工具收拢）。本文的切换成本是 ④ 里「BIO 为什么不行」的根因，本文的栈内存是 ② 里「线程多了为什么 OOM」的依据。</p>
+</blockquote>
+<h2 id="1-进程模型：正在运行的程序"><a href="#1-进程模型：正在运行的程序" class="headerlink" title="1. 进程模型：正在运行的程序"></a>1. 进程模型：正在运行的程序</h2><h3 id="1-1-程序的四个组成部分"><a href="#1-1-程序的四个组成部分" class="headerlink" title="1.1 程序的四个组成部分"></a>1.1 程序的四个组成部分</h3><p>一个进程由四部分构成：</p>
+<table>
+<thead>
+<tr>
+<th>组成</th>
+<th>内容</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>程序代码</td>
+<td>指令序列</td>
+<td>只读段，可共享（同一程序多进程共享代码段）</td>
+</tr>
+<tr>
+<td>地址空间</td>
+<td>虚拟内存布局</td>
+<td>代码段、数据段、堆、栈</td>
+</tr>
+<tr>
+<td>运行状态</td>
+<td>寄存器、程序计数器</td>
+<td>中断&#x2F;切换时用于保存现场</td>
+</tr>
+<tr>
+<td>系统资源</td>
+<td>文件描述符、信号、IPC</td>
+<td>打开的文件、管道、socket</td>
+</tr>
+</tbody></table>
+<p>内核用<strong>进程控制块（PCB，Process Control Block）</strong>统一管理进程的一切，Linux 里叫 <code>task_struct</code>：PID、状态、寄存器快照、内存映射、打开的文件表、CPU 使用统计……可以把它理解为进程在操作系统里的「档案袋」。</p>
+<pre class="mermaid">flowchart TD
+    PCB["Process Control Block&lt;br/>(task_struct)"] --> ID["PID / PPID"]
+    PCB --> STATE["Process state&lt;br/>R / S / D / Z / T"]
+    PCB --> REGS["Register file &amp; PC&lt;br/>(context save area)"]
+    PCB --> MEM["Memory mapping&lt;br/>code / data / heap / stack"]
+    PCB --> FILES["Open file descriptors"]
+    PCB --> STAT["CPU time &amp; scheduling info"]
+    PCB --> IPC["Signals / semaphores / pipes"]</pre>
+
+<p>注意 PCB 存在<strong>内核内存</strong>里，用户程序访问不到——这是第 4 节要讲「分态」的原因之一。</p>
+<h3 id="1-2-生命周期：五个状态"><a href="#1-2-生命周期：五个状态" class="headerlink" title="1.2 生命周期：五个状态"></a>1.2 生命周期：五个状态</h3><p>进程一生在几个状态间迁移，<code>ps</code> 输出的 S 列就是当前状态：</p>
+<pre class="mermaid">stateDiagram-v2
+    [*] --> New: fork()
+    New --> Ready: accepted by scheduler
+    Ready --> Running: schedule
+    Running --> Ready: time slice expired
+    Running --> Blocked: I/O wait
+    Blocked --> Ready: I/O complete
+    Running --> Zombie: exit()
+    Zombie --> [*]: reaped by parent (wait)</pre>
+
+<table>
+<thead>
+<tr>
+<th>状态</th>
+<th>含义</th>
+<th>ps 标识</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>就绪（Ready）</td>
+<td>一切就绪，只等 CPU</td>
+<td><code>R</code></td>
+</tr>
+<tr>
+<td>运行（Running）</td>
+<td>正在 CPU 上执行</td>
+<td><code>R</code></td>
+</tr>
+<tr>
+<td>阻塞（Blocked）</td>
+<td>等 I&#x2F;O 或锁</td>
+<td><code>S</code>（可中断睡眠）&#x2F; <code>D</code>（不可中断）</td>
+</tr>
+<tr>
+<td>僵尸（Zombie）</td>
+<td>已退出、等父进程回收</td>
+<td><code>Z</code></td>
+</tr>
+<tr>
+<td>孤儿（Orphan）</td>
+<td>父进程先死，被 1 号进程收养</td>
+<td>无专门标识</td>
+</tr>
+</tbody></table>
+<p><strong>僵尸进程是「已退出但还没被父进程 <code>wait()</code> 回收」的进程</strong>：不占 CPU 不占内存（PCB 还占着），但 PID 不释放，多了会耗尽 PID 上限。父进程用 <code>wait()</code>&#x2F;<code>waitpid()</code> 收尸，Java 里对应的就是 <code>Process.waitFor()</code>。父进程先死了怎么办？孤儿进程由 1 号进程（init&#x2F;systemd）自动收养回收——所以孤儿不可怕，僵尸要防。</p>
+<p>Java 里反而不容易造出僵尸——JDK 的 Process 内部有 reaper 线程自动 <code>waitpid</code> 回收子进程。真正常见的坑是「<strong>起了子进程但没人读它的输出流</strong>」：子进程写满管道缓冲区（64KB）后永久阻塞，表现为整个流程卡死（1.3 有实验）。僵尸进程更多出现在 C&#x2F;Shell 场景（1.3 给造法）。</p>
+<h3 id="1-3-动手验证：用-ps-观察进程状态"><a href="#1-3-动手验证：用-ps-观察进程状态" class="headerlink" title="1.3 动手验证：用 ps 观察进程状态"></a>1.3 动手验证：用 ps 观察进程状态</h3><p>实操命令：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">ps -eo pid,ppid,<span class="built_in">stat</span>,cmd | <span class="built_in">head</span> -20          <span class="comment"># 全量进程 + 状态列</span></span><br><span class="line">ps -eo pid,ppid,<span class="built_in">stat</span>,cmd | grep -i defunct   <span class="comment"># 找出所有僵尸进程</span></span><br><span class="line">top -p &lt;pid&gt;                                 <span class="comment"># 单进程视图，S 列即状态</span></span><br></pre></td></tr></table></figure>
+
+<p>STAT 列对照：<code>R</code>（运行&#x2F;就绪）、<code>S</code>（可中断睡眠，最常见——等 I&#x2F;O、等锁）、<code>D</code>（不可中断睡眠，多在等磁盘）、<code>Z</code>（僵尸）。多进程部署的 Java 应用（如 Elasticsearch 的 JVM + 运维子进程）用 <code>ps --ppid &lt;父pid&gt;</code> 按父子过滤，一眼看到它起了哪些子进程。</p>
+<p>想亲手造一个僵尸进程，三行 C 足够（需要 gcc）：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;unistd.h&gt;</span></span></span><br><span class="line"><span class="type">int</span> <span class="title function_">main</span><span class="params">()</span> &#123; <span class="keyword">if</span> (fork() == <span class="number">0</span>) &#123; _exit(<span class="number">0</span>); &#125; sleep(<span class="number">60</span>); <span class="keyword">return</span> <span class="number">0</span>; &#125;</span><br></pre></td></tr></table></figure>
+
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">gcc -o zombie zombie.c &amp;&amp; ./zombie &amp;   <span class="comment"># 子进程已退出，父进程睡眠不回收</span></span><br><span class="line">ps -eo pid,ppid,<span class="built_in">stat</span>,cmd | grep Z      <span class="comment"># 能看到一个 Z 状态</span></span><br></pre></td></tr></table></figure>
+
+<p>再复现 Java 侧的「卡死」版本——子进程狂输出、父进程不读流，管道缓冲区写满后子进程永久阻塞：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">Process</span> <span class="variable">p</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ProcessBuilder</span>(<span class="string">&quot;sh&quot;</span>, <span class="string">&quot;-c&quot;</span>, <span class="string">&quot;while true; do echo x; done&quot;</span>).start();</span><br><span class="line"><span class="comment">// 不调用 p.getInputStream().read()：子进程写满 64KB 管道缓冲后永久卡住</span></span><br><span class="line">p.waitFor(); <span class="comment">// 永远等不到，日志卡在这一行</span></span><br></pre></td></tr></table></figure>
+
+<p>此时 <code>ps -eo pid,stat,cmd | grep &lt;子进程名&gt;</code> 看到的是 <code>S</code>（阻塞在写管道）而不是 <code>Z</code>。修法是起一个线程消费输出流，或 <code>p.getInputStream().readAllBytes()</code>（对无限输出的进程慎用，会积压内存）。</p>
+<p><strong>容器里的僵尸问题</strong>（K8s 排查常客）：pod 的 PID 1 如果不回收子进程（不调用 <code>waitpid</code>），子进程退出就变僵尸且<strong>没有 init 来收养</strong>——因为容器里没有 systemd，PID 1 就是你的应用。K8s 官方推荐用 <code>tini</code>&#x2F;<code>init</code> 镜像做 PID 1（自带 reaping + 转发信号），Java 应用直接以 <code>java</code> 做 PID 1 反而相对安全（JVM 的 reaper 线程会回收自己启动的子进程）；真正积僵尸的是 shell 做入口镜像、或 C 程序 fork 的场景。排查命令不变：<code>ps -eo pid,ppid,stat,cmd | grep -i defunct</code>——pod 里看到 Z 残留，先查入口是不是裸 shell。</p>
+<h2 id="2-线程：进程内的执行流"><a href="#2-线程：进程内的执行流" class="headerlink" title="2. 线程：进程内的执行流"></a>2. 线程：进程内的执行流</h2><p><strong>线程（thread）是 CPU 调度的最小单位，进程是资源分配的最小单位</strong>。一个进程可以有多个线程：共享进程的地址空间和文件描述符，各自独立持有栈和寄存器。</p>
+<table>
+<thead>
+<tr>
+<th>共享（进程级）</th>
+<th>独占（线程级）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>代码段、数据段</td>
+<td>栈（调用现场）</td>
+</tr>
+<tr>
+<td>堆（new 出来的对象）</td>
+<td>寄存器</td>
+</tr>
+<tr>
+<td>文件描述符</td>
+<td>线程局部存储（TLS）</td>
+</tr>
+<tr>
+<td>信号处理、全局变量</td>
+<td>调度上下文（PC、SP）</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart LR
+    subgraph Process[Process address space]
+        CODE["Code &amp; data"] --- HEAP["Heap"]
+        FILES["File descriptors"]
+    end
+    subgraph T1["Thread 1"]
+        S1["Stack &amp; registers"]
+    end
+    subgraph T2["Thread 2"]
+        S2["Stack &amp; registers"]
+    end
+    CODE --- T1
+    CODE --- T2
+    HEAP --- T1
+    HEAP --- T2
+    FILES --- T1
+    FILES --- T2</pre>
+
+<h3 id="2-1-三种线程模型"><a href="#2-1-三种线程模型" class="headerlink" title="2.1 三种线程模型"></a>2.1 三种线程模型</h3><table>
+<thead>
+<tr>
+<th>模型</th>
+<th>调度在哪</th>
+<th>代表</th>
+<th>特点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1:1 内核线程</td>
+<td>内核</td>
+<td>Linux pthread、Java 平台线程</td>
+<td>内核原生支持，但每个线程都占内核资源</td>
+</tr>
+<tr>
+<td>M:N 用户线程</td>
+<td>用户态库</td>
+<td>Java 早期绿色线程（已废弃）</td>
+<td>灵活但调度映射复杂，难调优</td>
+</tr>
+<tr>
+<td>协程&#x2F;虚拟线程</td>
+<td>用户态 + JVM</td>
+<td>Go goroutine、Java 虚拟线程</td>
+<td>栈上调度，阻塞不占内核线程，百万级并发</td>
+</tr>
+</tbody></table>
+<p><strong>Java 平台线程是 1:1 内核线程</strong>——每 new 一个 <code>Thread</code> 就创建一个内核线程，所以线程数量上不去；<strong>Java 虚拟线程（JDK 21 正式版）是 JVM 用户态调度的协程</strong>：线程数可以到几十万，阻塞 I&#x2F;O 时让出底层载体线程（carrier thread），这就是「百万并发」的来源。</p>
+<p><strong>对照 Go 的 goroutine</strong>（面试常被连起来问）：Go 的 GMP 模型和虚拟线程同构——G（goroutine）&#x3D; 虚拟线程，M（machine）&#x3D; 载体线程，P（processor）&#x3D; 调度器配额。G 在 channel&#x2F;syscall 上阻塞时让出 M，M 挂上别的 G 继续跑；Go 不区分「平台线程&#x2F;虚拟线程」，所有 goroutine 默认都在这个模型里。区别在阻塞边界：<strong>Java 虚拟线程遇到 synchronized 会 pin 住载体线程（JDK 21 已基本修复），Go 没有这个历史包袱</strong>——所以「Go 天然高并发」的底层原因，就是它从语言诞生起就建在协程模型上。</p>
+<h3 id="2-2-为什么线程比进程轻"><a href="#2-2-为什么线程比进程轻" class="headerlink" title="2.2 为什么线程比进程轻"></a>2.2 为什么线程比进程轻</h3><p>创建进程要分配&#x2F;复制地址空间（fork 走写时拷贝），创建线程只是多一个栈和一份调度上下文；切换进程要换页表（TLB 全部失效重载），切换线程共享同一地址空间，只换栈指针和寄存器。一句话：<strong>线程省掉了「换地址空间」这个最贵的步骤</strong>。</p>
+<h3 id="2-3-动手验证：看-JVM-里的线程"><a href="#2-3-动手验证：看-JVM-里的线程" class="headerlink" title="2.3 动手验证：看 JVM 里的线程"></a>2.3 动手验证：看 JVM 里的线程</h3><p><code>top -Hp &lt;jvm_pid&gt;</code> 按线程查看（PID 列实际是 TID）；<code>jstack &lt;pid&gt;</code> 输出每个 Java 线程的栈，状态列能直接对上内核状态：</p>
+<table>
+<thead>
+<tr>
+<th>jstack 状态</th>
+<th>内核状态</th>
+<th>典型场景</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>RUNNABLE</td>
+<td>R</td>
+<td>正在计算；I&#x2F;O 轮询（epoll 等待）也算 RUNNABLE</td>
+</tr>
+<tr>
+<td>TIMED_WAITING（sleep&#x2F;park）</td>
+<td>S</td>
+<td><code>Thread.sleep</code>、<code>LockSupport.parkNanos</code></td>
+</tr>
+<tr>
+<td>WAITING（park）</td>
+<td>S</td>
+<td>等 <code>join</code>、condition 的 <code>await</code></td>
+</tr>
+<tr>
+<td>BLOCKED</td>
+<td>S</td>
+<td>等 <code>synchronized</code> 监视器锁</td>
+</tr>
+</tbody></table>
+<p><strong>一个常见误判</strong>：<code>top</code> 看 Java 进程 CPU 高，<code>top -Hp</code> 发现只有少数 TID 在忙——说明瓶颈在锁竞争或单线程阻塞，线程池开再大也没用，要先看 jstack 找锁。</p>
+<p>虚拟线程的并发上限实验（JDK 21+）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 平台线程：5 万在默认 ulimit 下大概率 OOM 或撞线程数限制（默认栈 1MB）</span></span><br><span class="line"><span class="keyword">try</span> (<span class="type">var</span> <span class="variable">ex</span> <span class="operator">=</span> Executors.newFixedThreadPool(<span class="number">50_000</span>)) &#123; &#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 虚拟线程：10 万轻松——栈按需分配、休眠时释放，不占内核线程</span></span><br><span class="line"><span class="keyword">try</span> (<span class="type">var</span> <span class="variable">ex</span> <span class="operator">=</span> Executors.newVirtualThreadPerTaskExecutor()) &#123;</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; <span class="number">100_000</span>; i++) &#123;</span><br><span class="line">        ex.submit(() -&gt; &#123; Thread.sleep(<span class="number">1000</span>); <span class="keyword">return</span> <span class="literal">null</span>; &#125;);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>同样「10 万个线程睡 1 秒」：平台线程先撞上限，虚拟线程几秒内起完、内存低一个数量级——这就是 1:1 内核线程模型和协程模型的分水岭，也是高并发网关（Netty 连接层 + 虚拟线程业务层）新架构的底气。</p>
+<h2 id="3-调度：CPU-时间怎么分"><a href="#3-调度：CPU-时间怎么分" class="headerlink" title="3. 调度：CPU 时间怎么分"></a>3. 调度：CPU 时间怎么分</h2><p><strong>调度器（scheduler）负责从就绪任务里选一个上 CPU</strong>。单核机器上「同时运行」其实是时间片轮流，调度器决定谁先、谁多、谁被饿死。</p>
+<h3 id="3-1-调度算法演进"><a href="#3-1-调度算法演进" class="headerlink" title="3.1 调度算法演进"></a>3.1 调度算法演进</h3><table>
+<thead>
+<tr>
+<th>算法</th>
+<th>思路</th>
+<th>优点</th>
+<th>缺点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>FCFS 先来先服务</td>
+<td>按到达顺序</td>
+<td>简单、公平</td>
+<td>长任务堵住短任务（护航效应）</td>
+</tr>
+<tr>
+<td>SJF 最短作业优先</td>
+<td>先跑最短的</td>
+<td>平均等待最小</td>
+<td>需预知运行时间，长任务饿死</td>
+</tr>
+<tr>
+<td>RR 时间片轮转</td>
+<td>固定时间片轮换</td>
+<td>响应快</td>
+<td>时间片大小难定：太大退化成 FCFS，太小切换开销爆炸</td>
+</tr>
+<tr>
+<td>优先级调度</td>
+<td>高优先级先跑</td>
+<td>满足交互需求</td>
+<td>低优先级饿死，需老化机制</td>
+</tr>
+<tr>
+<td>MLFQ 多级反馈队列</td>
+<td>多级队列 + 动态升降级</td>
+<td>兼顾交互与吞吐</td>
+<td>参数多，难调</td>
+</tr>
+<tr>
+<td>CFS 完全公平（Linux）</td>
+<td>按 vruntime 红黑树取最小</td>
+<td>公平、O(log n)</td>
+<td>不是硬实时</td>
+</tr>
+</tbody></table>
+<h3 id="3-2-Linux-CFS：把公平量化成-vruntime"><a href="#3-2-Linux-CFS：把公平量化成-vruntime" class="headerlink" title="3.2 Linux CFS：把公平量化成 vruntime"></a>3.2 Linux CFS：把公平量化成 vruntime</h3><p>Linux 默认调度器 CFS（Completely Fair Scheduler）把「公平」量化成 <strong>vruntime（虚拟运行时间）</strong>：每个进程按权重累积 vruntime，<strong>谁 vruntime 最小谁上 CPU</strong>。就绪队列用红黑树按 vruntime 排序，取最左节点 O(log n)。权重由 nice 值决定：nice 越大权重越小、vruntime 涨得越快——nice 0 的进程比 nice 19 的「值钱」得多。</p>
+<pre class="mermaid">flowchart TD
+    A["CPU tick / new task arrives"] --> B["Compute vruntime for each runnable task"]
+    B --> C["Pick task with min vruntime&lt;br/>(leftmost in red-black tree)"]
+    C --> D["Run for time slice"]
+    D --> E{"Preempted or&lt;br/>slice expired?"}
+    E -- No --> D
+    E -- Yes --> A</pre>
+
+<p>一个反直觉但重要的点：<strong>CFS 是「按比例分」而不是「轮流分」</strong>——睡眠（I&#x2F;O 等待）期间 vruntime 不涨，所以 IO 密集进程醒来后天然排前面，响应快；CPU 密集进程也不会被饿死，只是分到的比例低。</p>
+<h3 id="3-3-上下文切换：切换到底贵在哪"><a href="#3-3-上下文切换：切换到底贵在哪" class="headerlink" title="3.3 上下文切换：切换到底贵在哪"></a>3.3 上下文切换：切换到底贵在哪</h3><p><strong>上下文切换（context switch）是把 CPU 从当前任务切到另一个任务的完整过程</strong>，发生在时间片耗尽、任务主动让出（I&#x2F;O、锁等待）或中断时。</p>
+<table>
+<thead>
+<tr>
+<th>切换类型</th>
+<th>成本量级</th>
+<th>拆解</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>进程切换</td>
+<td>1-10 µs</td>
+<td>保存&#x2F;恢复寄存器 + 切换页表（TLB 全失效）+ 内核态进出</td>
+</tr>
+<tr>
+<td>线程切换</td>
+<td>0.5-2 µs</td>
+<td>同进程：只换寄存器快照和栈，不碰页表</td>
+</tr>
+<tr>
+<td>系统调用</td>
+<td>0.1-1 µs</td>
+<td>只进出内核态，不换任务</td>
+</tr>
+</tbody></table>
+<p>所以<strong>线程数量远超 CPU 核数时，大量时间花在切换而不是干活上</strong>——这就是「线程池核心线程数 ≈ CPU 核数（CPU 密集）或 ×(1+IO 等待&#x2F;计算比)（IO 密集）」的底层依据。</p>
+<p>真实场景：压测 TPS 上不去，<code>vmstat 1</code> 里 <code>cs</code>（context switch）列每秒几十万——线程池 300 线程跑 8 核机器，大半时间在切线程。缩到 40 线程后 TPS 反而翻倍。排查命令：<code>pidstat -w 1</code> 看自愿&#x2F;非自愿切换，<code>/proc/&lt;pid&gt;/status</code> 里的 <code>voluntary_ctxt_switches</code> 字段。</p>
+<h3 id="3-4-动手验证：调优先级、测切换开销"><a href="#3-4-动手验证：调优先级、测切换开销" class="headerlink" title="3.4 动手验证：调优先级、测切换开销"></a>3.4 动手验证：调优先级、测切换开销</h3><p>调整 nice 值改调度权重（范围 -20 ~ 19，普通用户只能调大，调小需要 root）：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">nice</span> -n -5 java -jar app.jar          <span class="comment"># 以更高优先级启动</span></span><br><span class="line">renice -n -5 -p $(pgrep java)         <span class="comment"># 运行中调整，top 的 NI 列会变</span></span><br></pre></td></tr></table></figure>
+
+<p>低延迟服务（如网关）把自身进程 nice 调高、把批处理任务（日志压缩、报表）nice 调低，让 CFS 把时间片多分给前者——「按 vruntime 分时间」在生产里的直接用法。</p>
+<p>上下文切换开销实测（Linux）：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">vmstat 1          <span class="comment"># cs 列：每秒上下文切换次数</span></span><br><span class="line">pidstat -w 1      <span class="comment"># 自愿（cswch）与非自愿（nvcswch）切换分开看</span></span><br></pre></td></tr></table></figure>
+
+<p>真实复盘案例：某服务 8 核机器，线程池 300 线程，TPS 卡在 4000 上不去；<code>vmstat 1</code> 显示 <code>cs</code> 每秒 30 万+，<code>pidstat -w</code> 显示每个 worker 每秒上万次非自愿切换（时间片被抢）。线程池缩到 64 后 <code>cs</code> 降到 5 万，TPS 升到 9000。排查链路固定为：<code>vmstat 1</code> 看 cs → <code>top -Hp</code> 确认线程数 → 调线程池 → 复测 cs 与 TPS。</p>
+<p><strong>判定标准</strong>：cs 超过「核数 × 2 万&#x2F;秒」（8 核约 16 万）就要警惕切换占比过高；<code>vmstat</code> 里 <code>%sy</code>（内核态时间）占比异常高，也常是切换或 syscall 过多的信号。</p>
+<h2 id="4-用户态与内核态：系统调用的代价"><a href="#4-用户态与内核态：系统调用的代价" class="headerlink" title="4. 用户态与内核态：系统调用的代价"></a>4. 用户态与内核态：系统调用的代价</h2><p><strong>用户态（user mode）与内核态（kernel mode）是 CPU 的两种特权级别</strong>：内核态能执行特权指令（访问硬件、改页表），用户态不行。用户程序想动硬件，必须通过<strong>系统调用（syscall）</strong>请内核代劳。分态的目的是安全和隔离：你写的代码不能直接改别人的内存、不能直接写硬盘。</p>
+<h3 id="4-1-系统调用链路"><a href="#4-1-系统调用链路" class="headerlink" title="4.1 系统调用链路"></a>4.1 系统调用链路</h3><p>Java 里一次文件读取，底层链路是这样的：</p>
+<pre class="mermaid">sequenceDiagram
+    participant Java as Java (user mode)
+    participant Libc as glibc (user mode)
+    participant Kernel as Kernel (kernel mode)
+    participant Disk as Disk / Page Cache
+    Java->>Libc: FileInputStream.read()
+    Libc->>Kernel: syscall read(fd, buf, len)
+    Kernel->>Disk: page cache lookup / device I/O
+    Disk-->>Kernel: data
+    Kernel-->>Libc: copy to user buffer, return len
+    Libc-->>Java: bytes</pre>
+
+<p>每发一次 syscall 就有一次用户态↔内核态切换。<strong>态切换本身不重（亚微秒级），重的是它打断 CPU 流水线、每次都要校验参数和权限</strong>。由此推出两个工程结论：</p>
+<ul>
+<li>读 1 字节和读 4KB 都是 1 次 <code>read</code> syscall——<strong>缓冲（<code>BufferedInputStream</code>）的意义就在这里</strong>：把 N 次小 syscall 合并成一次大的；</li>
+<li>高性能框架都在「少 syscall」上做文章：批量读写、mmap、sendfile 零拷贝（一次 syscall 在内核态内完成磁盘→socket 拷贝，详见操作系统系列的 IO 模型篇）。</li>
+</ul>
+<h3 id="4-2-两种模式的对照"><a href="#4-2-两种模式的对照" class="headerlink" title="4.2 两种模式的对照"></a>4.2 两种模式的对照</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>用户态</th>
+<th>内核态</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>权限</td>
+<td>受限指令集</td>
+<td>特权指令（I&#x2F;O、内存管理、中断）</td>
+</tr>
+<tr>
+<td>谁在跑</td>
+<td>业务代码、JVM</td>
+<td>内核代码、驱动</td>
+</tr>
+<tr>
+<td>进入方式</td>
+<td>正常执行</td>
+<td>系统调用 &#x2F; 中断 &#x2F; 异常</td>
+</tr>
+<tr>
+<td>崩溃影响</td>
+<td>只崩自己的进程</td>
+<td>可能崩整个系统</td>
+</tr>
+</tbody></table>
+<h3 id="4-3-动手验证：strace-数一数系统调用"><a href="#4-3-动手验证：strace-数一数系统调用" class="headerlink" title="4.3 动手验证：strace 数一数系统调用"></a>4.3 动手验证：strace 数一数系统调用</h3><p><code>strace</code> 是系统调用追踪器，Java 程序同样适用（macOS 用 <code>dtruss</code> 替代，生产环境以 Linux 为准）：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">strace -c java -version                       <span class="comment"># 统计 syscall 类型与次数</span></span><br><span class="line">strace -p &lt;jvm_pid&gt; -f -e trace=<span class="built_in">read</span>,write    <span class="comment"># 附加运行中的 JVM，只看读写</span></span><br></pre></td></tr></table></figure>
+
+<p>输出里 <code>openat</code>&#x2F;<code>read</code>&#x2F;<code>write</code>&#x2F;<code>futex</code> 占绝大多数——<code>futex</code> 对应锁（线程等待&#x2F;唤醒），<code>read</code>&#x2F;<code>write</code> 对应 IO。观察点：<strong>一次业务操作触发的 syscall 数量</strong>——数量级压不下来，调 JVM 参数都是隔靴搔痒。</p>
+<p>缓冲读 vs 非缓冲读，同样的「读 10MB 文件」：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 方式一：FileInputStream 逐字节读 → 1000 万次 read syscall，秒级</span></span><br><span class="line"><span class="keyword">try</span> (<span class="type">var</span> <span class="variable">in</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">FileInputStream</span>(<span class="string">&quot;data.bin&quot;</span>)) &#123;</span><br><span class="line">    <span class="keyword">while</span> (in.read() != -<span class="number">1</span>) &#123; &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 方式二：BufferedInputStream 逐字节读 → 底层每次填满 8KB 缓冲，约 1300 次 read</span></span><br><span class="line"><span class="keyword">try</span> (<span class="type">var</span> <span class="variable">in</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">BufferedInputStream</span>(<span class="keyword">new</span> <span class="title class_">FileInputStream</span>(<span class="string">&quot;data.bin&quot;</span>))) &#123;</span><br><span class="line">    <span class="keyword">while</span> (in.read() != -<span class="number">1</span>) &#123; &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>实测方式一耗时是方式二的百倍以上（每次 syscall 都要进出内核态、校验参数、拷贝一字节）；<code>strace -c</code> 下方式一的 <code>read</code> 计数约 1000 万，方式二约 1300。生产排查时 IO 路径慢，先找「小读小写」——把 N 次小 IO 合并成一次大 IO，收益立竿见影。</p>
+<h2 id="5-总结与避坑清单"><a href="#5-总结与避坑清单" class="headerlink" title="5. 总结与避坑清单"></a>5. 总结与避坑清单</h2><h3 id="5-1-面试速答表"><a href="#5-1-面试速答表" class="headerlink" title="5.1 面试速答表"></a>5.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>进程和线程的区别？</td>
+<td>进程是资源分配单位，线程是调度单位；线程共享进程的地址空间和文件描述符，各自独立栈和寄存器</td>
+</tr>
+<tr>
+<td>为什么线程比进程轻？</td>
+<td>创建省了地址空间复制（写时拷贝），切换省了页表刷新（TLB）</td>
+</tr>
+<tr>
+<td>线程切换开销多大？</td>
+<td>微秒级：寄存器 + 栈 + 内核态进出；进程切换还多一次页表切换</td>
+</tr>
+<tr>
+<td>协程和线程的区别？</td>
+<td>协程在用户态调度，不依赖内核，创建&#x2F;切换成本低一个数量级，适合 IO 密集</td>
+</tr>
+<tr>
+<td>Java 线程是哪种模型？</td>
+<td>平台线程 1:1 内核线程；虚拟线程（JDK 21）是 JVM 调度的协程</td>
+</tr>
+<tr>
+<td>什么是僵尸进程？</td>
+<td>已退出但父进程没 wait() 回收，PCB 未释放；孤儿进程由 init 收养，僵尸必须防</td>
+</tr>
+</tbody></table>
+<h3 id="5-2-实战避坑清单"><a href="#5-2-实战避坑清单" class="headerlink" title="5.2 实战避坑清单"></a>5.2 实战避坑清单</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>TPS 上不去，vmstat 的 cs 每秒几十万</td>
+<td>线程过多，大量时间花在上下文切换</td>
+<td>按核数与 IO 密集度收缩线程池；新项目优先虚拟线程</td>
+</tr>
+<tr>
+<td>起了子进程后主流程卡死</td>
+<td>没人读子进程输出流，管道缓冲写满（64KB）后子进程阻塞</td>
+<td>起线程消费输出流；用完 waitFor() 并关闭流</td>
+</tr>
+<tr>
+<td>内存充足但 new Thread 报 OOM</td>
+<td>进程线程数 &#x2F; 虚拟内存受限（<code>ulimit -u</code>）</td>
+<td>检查 ulimit；或换虚拟线程</td>
+</tr>
+<tr>
+<td>线程池开满 2000 线程响应反而更差</td>
+<td>切换开销 &gt; 并发收益</td>
+<td>线程数 ≈ CPU 核数 × (1 + IO 等待占比 &#x2F; CPU 占比)</td>
+</tr>
+</tbody></table>
+<h3 id="5-3-工具速查表"><a href="#5-3-工具速查表" class="headerlink" title="5.3 工具速查表"></a>5.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>对应本节概念</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>ps -eo pid,ppid,stat,cmd</code></td>
+<td>进程状态、父子关系、僵尸</td>
+<td>1. 进程模型</td>
+</tr>
+<tr>
+<td><code>top -Hp &lt;pid&gt;</code></td>
+<td>每个线程的 CPU 占用</td>
+<td>2. 线程、3. 调度</td>
+</tr>
+<tr>
+<td><code>jstack &lt;pid&gt;</code></td>
+<td>Java 线程栈与状态</td>
+<td>2. 线程（映射内核状态）</td>
+</tr>
+<tr>
+<td><code>vmstat 1</code> &#x2F; <code>pidstat -w 1</code></td>
+<td>每秒切换次数 &#x2F; 自愿·非自愿切换</td>
+<td>3. 上下文切换</td>
+</tr>
+<tr>
+<td><code>nice</code> &#x2F; <code>renice</code></td>
+<td>调度权重（top 的 NI 列）</td>
+<td>3. CFS 权重</td>
+</tr>
+<tr>
+<td><code>strace -c</code></td>
+<td>syscall 类型与次数</td>
+<td>4. 用户态&#x2F;内核态</td>
+</tr>
+</tbody></table>
+<p>三个收获：<strong>进程管资源、线程管执行、调度管时间</strong>；切换成本从大到小是 进程切换 &gt; 线程切换 &gt; 系统调用；Java 的并发问题最终都能映射到这几层上——线程池大小、虚拟线程选型、进程卡死排查，根因都在本节讲的内核机制里，排查工具见上表。</p>
+<p>实操建议：</p>
+<ol>
+<li>压测先看 <code>vmstat 1</code> 的 <code>cs</code> 列，切换率异常高先缩线程池，不要先加并发。</li>
+<li>用了 <code>Runtime.exec()</code> &#x2F; <code>ProcessBuilder</code> 一定 <code>waitFor()</code> + 关流，防僵尸进程。</li>
+<li>新项目 IO 密集型并发优先评估虚拟线程（JDK 21+），平台线程留给 CPU 密集和需要可控栈的场景。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告</strong>：线程的「栈内存」在进程里只是地址空间的一角——第 2 篇《内存管理：虚拟内存与分页》讲地址空间怎么组织、虚拟地址怎么翻译成物理地址、以及容器里 JVM 被 OOM 杀的完整链路。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/%E9%9D%A2%E8%AF%95/" rel="tag"># 面试</a>
+              <a href="/tags/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/" rel="tag"># 操作系统</a>
+              <a href="/tags/%E8%BF%9B%E7%A8%8B/" rel="tag"># 进程</a>
+              <a href="/tags/%E7%BA%BF%E7%A8%8B/" rel="tag"># 线程</a>
+              <a href="/tags/%E8%B0%83%E5%BA%A6/" rel="tag"># 调度</a>
+              <a href="/tags/%E5%B9%B6%E5%8F%91/" rel="tag"># 并发</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/67126.html" rel="prev" title="设计模式：15 个高频模式的实战内化">
+                  <i class="fa fa-angle-left"></i> 设计模式：15 个高频模式的实战内化
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/post/aa1ba544.html" rel="next" title="内存管理：虚拟内存与分页">
+                  内存管理：虚拟内存与分页 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">579k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">35:04</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
+</html>

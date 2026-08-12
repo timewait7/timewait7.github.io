@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="DNS（Domain Name System）是把域名翻译成 IP 的分层数据库：浏览器访问任何网站的第一件事，都是问 DNS「这个域名在哪个 IP」。 它本身是一次「应用层查询」，却发生在 TCP 连接之前——解析快慢直接进首屏时间，解析错误直接断网。本文回答四个问题：解析链路怎么走、缓存为什么关键、DNS 在生产里扮演什么角色（LB&#x2F;CDN&#x2F;HTTPDNS）、网络故障怎么按">
+<meta property="og:type" content="article">
+<meta property="og:title" content="DNS 与网络排查实战">
+<meta property="og:url" content="http://timewait7.github.io/post/9cfe4229.html">
+<meta property="og:site_name" content="知行栈">
+<meta property="og:description" content="DNS（Domain Name System）是把域名翻译成 IP 的分层数据库：浏览器访问任何网站的第一件事，都是问 DNS「这个域名在哪个 IP」。 它本身是一次「应用层查询」，却发生在 TCP 连接之前——解析快慢直接进首屏时间，解析错误直接断网。本文回答四个问题：解析链路怎么走、缓存为什么关键、DNS 在生产里扮演什么角色（LB&#x2F;CDN&#x2F;HTTPDNS）、网络故障怎么按">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-08-12T19:30:00.000Z">
+<meta property="article:modified_time" content="2026-08-12T15:15:57.252Z">
+<meta property="article:tag" content="计算机网络">
+<meta property="article:tag" content="DNS">
+<meta property="article:tag" content="网络排查">
+<meta property="article:tag" content="故障定位">
+<meta property="article:tag" content="面试">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/9cfe4229.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/9cfe4229.html","path":"post/9cfe4229.html","title":"DNS 与网络排查实战"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>DNS 与网络排查实战 | 知行栈</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<!-- hexo injector head_end start --><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
+</style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">知行栈</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>Categories</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-DNS-%E8%A7%A3%E6%9E%90%EF%BC%9A%E4%BB%8E%E5%9F%9F%E5%90%8D%E5%88%B0-IP-%E7%9A%84%E5%88%86%E5%B1%82%E6%8E%A5%E5%8A%9B"><span class="nav-text">1. DNS 解析：从域名到 IP 的分层接力</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-%E4%B8%BA%E4%BB%80%E4%B9%88%E9%9C%80%E8%A6%81-DNS%EF%BC%9A%E5%90%8D%E5%AD%97%E4%B8%8E%E5%9C%B0%E5%9D%80%E7%9A%84%E5%88%86%E7%A6%BB"><span class="nav-text">1.1 为什么需要 DNS：名字与地址的分离</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-2-%E9%80%92%E5%BD%92%E4%B8%8E%E8%BF%AD%E4%BB%A3%EF%BC%9A%E4%B8%80%E6%AC%A1%E8%A7%A3%E6%9E%90%E7%9A%84%E5%AE%8C%E6%95%B4%E6%8E%A5%E5%8A%9B"><span class="nav-text">1.2 递归与迭代：一次解析的完整接力</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-3-%E7%BC%93%E5%AD%98%E5%B1%82%E7%BA%A7%EF%BC%9ATTL-%E6%98%AF%E5%94%AF%E4%B8%80%E7%9A%84%E5%A4%B1%E6%95%88%E5%BC%80%E5%85%B3"><span class="nav-text">1.3 缓存层级：TTL 是唯一的失效开关</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9Adig-%E6%8A%8A%E8%A7%A3%E6%9E%90%E6%8B%86%E5%BC%80%E7%9C%8B"><span class="nav-text">1.4 动手验证：dig 把解析拆开看</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-DNS-%E7%9A%84%E7%94%9F%E4%BA%A7%E5%BD%A2%E6%80%81%EF%BC%9ALB%E3%80%81CDN-%E4%B8%8E-HTTPDNS"><span class="nav-text">2. DNS 的生产形态：LB、CDN 与 HTTPDNS</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E6%B7%B1%E6%8C%96%EF%BC%9ACDN-%E4%B8%8E-HTTPDNS%E2%80%94%E2%80%94DNS-%E7%9A%84%E4%B8%A4%E4%B8%AA%E7%94%9F%E4%BA%A7%E9%9A%BE%E9%A2%98"><span class="nav-text">2.1 深挖：CDN 与 HTTPDNS——DNS 的两个生产难题</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E6%B7%B1%E6%8C%96%EF%BC%9A%E5%AE%B9%E5%99%A8%E9%87%8C%E7%9A%84-DNS%E2%80%94%E2%80%94K8s-%E7%9A%84-CoreDNS"><span class="nav-text">2.2 深挖：容器里的 DNS——K8s 的 CoreDNS</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-%E5%B8%B8%E8%A7%81-DNS-%E6%95%85%E9%9A%9C%E9%80%9F%E6%9F%A5"><span class="nav-text">2.3 常见 DNS 故障速查</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%A4%8D%E7%8E%B0%E4%B8%80%E6%AC%A1%E3%80%8CTTL-%E7%BC%93%E5%AD%98%E3%80%8D%E8%A7%82%E5%AF%9F"><span class="nav-text">2.4 动手验证：复现一次「TTL 缓存」观察</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E7%BD%91%E7%BB%9C%E6%8E%92%E6%9F%A5%E5%AE%9E%E6%88%98%EF%BC%9A%E7%97%87%E7%8A%B6-%E2%86%92-%E5%B1%82-%E2%86%92-%E5%B7%A5%E5%85%B7"><span class="nav-text">3. 网络排查实战：症状 → 层 → 工具</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E5%88%86%E5%B1%82%E5%AE%9A%E4%BD%8D%E6%B3%95%EF%BC%9A%E5%9B%9B%E9%97%AE%E5%AE%9A%E5%B1%82"><span class="nav-text">3.1 分层定位法：四问定层</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E6%A1%88%E4%BE%8B%E5%A4%8D%E7%9B%98%EF%BC%9A%E4%B8%89%E4%B8%AA%E7%9C%9F%E5%AE%9E%E6%8E%92%E9%9A%9C"><span class="nav-text">3.2 案例复盘：三个真实排障</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%AE%8C%E6%95%B4%E8%B7%91%E4%B8%80%E9%81%8D%E5%88%86%E5%B1%82%E5%AE%9A%E4%BD%8D"><span class="nav-text">3.3 动手验证：完整跑一遍分层定位</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E6%80%BB%E7%BB%93"><span class="nav-text">4. 总结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-%E9%9D%A2%E8%AF%95%E9%80%9F%E7%AD%94%E8%A1%A8"><span class="nav-text">4.1 面试速答表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-%E5%AE%9E%E6%88%98%E9%81%BF%E5%9D%91%E8%A1%A8"><span class="nav-text">4.2 实战避坑表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-%E5%B7%A5%E5%85%B7%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">4.3 工具速查表</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">84</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">17</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">127</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+    <div class="sidebar-inner sidebar-blogroll">
+      <div class="links-of-blogroll animated">
+        <div class="links-of-blogroll-title"><i class="fa fa-globe fa-fw"></i>
+          Links
+        </div>
+        <ul class="links-of-blogroll-list">
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhZ3VpZGUuY24v" title="https:&#x2F;&#x2F;javaguide.cn&#x2F;">JavaGuide</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly96aGFuZ3RpZWxlaS5jb20v" title="https:&#x2F;&#x2F;zhangtielei.com&#x2F;">张铁蕾</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9wYXVsZ3JhaGFtLmNvbS9hcnRpY2xlcy5odG1s" title="https:&#x2F;&#x2F;paulgraham.com&#x2F;articles.html">paulgraham</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly93d3cuam9lbG9uc29mdHdhcmUuY29tLw==" title="https:&#x2F;&#x2F;www.joelonsoftware.com&#x2F;">Joel on Software</span>
+            </li>
+        </ul>
+      </div>
+    </div>
+        <div class="pjax">
+        
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-后端开发"><a href="/docs/nav/backend-dev-nav.html" rel="section"><i class="fa fa-code fa-fw"></i>后端开发</a></li>
+
+
+      
+  <li class="menu-item menu-item-计算机基础"><a href="/docs/nav/cs-foundation-nav.html" rel="section"><i class="fa fa-desktop fa-fw"></i>计算机基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-ai-学习"><a href="/docs/nav/ai-learning-nav.html" rel="section"><i class="fa fa-robot fa-fw"></i>AI 学习</a></li>
+
+
+      
+  <li class="menu-item menu-item-项目实战"><a href="/docs/nav/5964f4da.html" rel="section"><i class="fa fa-flask fa-fw"></i>项目实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-misc"><a href="/docs/nav/misc-nav.html" rel="section"><i class="fa fa-box fa-fw"></i>Misc</a></li>
+
+
+      
+  <li class="menu-item menu-item-随笔·生活"><a href="/docs/nav/life-nav.html" rel="section"><i class="fa fa-feather fa-fw"></i>随笔·生活</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-操作系统"><a href="/docs/nav/os-nav.html" rel="section"><i class="fa fa-laptop fa-fw"></i>操作系统</a></li>
+
+
+      
+  <li class="menu-item menu-item-计算机网络"><a href="/docs/nav/network-nav.html" rel="section"><i class="fa fa-globe fa-fw"></i>计算机网络</a></li>
+
+
+      
+  <li class="menu-item menu-item-数据结构与算法"><a href="/docs/nav/dsa-nav.html" rel="section"><i class="fa fa-code-branch fa-fw"></i>数据结构与算法</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-网络分层：七层模型与数据包旅程"><a href="/post/9e7ea59a.html" rel="section"><i class="fa fa-file-text fa-fw"></i>网络分层：七层模型与数据包旅程</a></li>
+
+
+      
+  <li class="menu-item menu-item-tcp-协议：可靠传输的代价"><a href="/post/de264802.html" rel="section"><i class="fa fa-file-text fa-fw"></i>TCP 协议：可靠传输的代价</a></li>
+
+
+      
+  <li class="menu-item menu-item-http-协议：应用层之王"><a href="/post/1f63abdd.html" rel="section"><i class="fa fa-file-text fa-fw"></i>HTTP 协议：应用层之王</a></li>
+
+
+      
+  <li class="menu-item menu-item-dns-与网络排查实战"><a href="/post/9cfe4229.html" rel="section"><i class="fa fa-file-text fa-fw"></i>DNS 与网络排查实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-从输入-url-到页面展示全链路"><a href="/post/9b8bb402.html" rel="section"><i class="fa fa-file-text fa-fw"></i>从输入 URL 到页面展示全链路</a></li>
+
+
+    </ul>
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/9cfe4229.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="DNS 与网络排查实战 | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          DNS 与网络排查实战
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-08-13 03:30:00" itemprop="dateCreated datePublished" datetime="2026-08-13T03:30:00+08:00">2026-08-13</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%BD%91%E7%BB%9C/" itemprop="url" rel="index"><span itemprop="name">计算机网络</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>3.2k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>12 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><p><strong>DNS（Domain Name System）是把域名翻译成 IP 的分层数据库：浏览器访问任何网站的第一件事，都是问 DNS「这个域名在哪个 IP」。</strong> 它本身是一次「应用层查询」，却发生在 TCP 连接之前——解析快慢直接进首屏时间，解析错误直接断网。本文回答四个问题：解析链路怎么走、缓存为什么关键、DNS 在生产里扮演什么角色（LB&#x2F;CDN&#x2F;HTTPDNS）、网络故障怎么按分层定位——并把系列工具链收拢成「症状 → 层 → 工具 → 根因」的完整排查法。</p>
+<blockquote>
+<p><strong>系列地图（计算机网络）</strong>：① 网络分层（网络长什么样）→ ② TCP 协议（可靠传输与代价）→ ③ HTTP 协议（应用层之王）→ ④ <strong>DNS 与网络排查实战（本文：工具收拢）</strong> → ⑤ 从输入 URL 到页面展示全链路（串讲收官）。</p>
+</blockquote>
+<h2 id="1-DNS-解析：从域名到-IP-的分层接力"><a href="#1-DNS-解析：从域名到-IP-的分层接力" class="headerlink" title="1. DNS 解析：从域名到 IP 的分层接力"></a>1. DNS 解析：从域名到 IP 的分层接力</h2><h3 id="1-1-为什么需要-DNS：名字与地址的分离"><a href="#1-1-为什么需要-DNS：名字与地址的分离" class="headerlink" title="1.1 为什么需要 DNS：名字与地址的分离"></a>1.1 为什么需要 DNS：名字与地址的分离</h3><p><strong>IP 是「地址」，域名是「名字」</strong>——名字的意义是：可以改地址、可以有多个地址、可以全球唯一。这带来两个直接能力：</p>
+<ol>
+<li><strong>负载均衡</strong>：一个域名配多个 A 记录（<code>www.baidu.com → 10.0.0.1/10.0.0.2/10.0.0.3</code>），解析时随机返回——<strong>DNS 是最原始的负载均衡</strong>，比四层&#x2F;七层 LB（第 1 篇 §5.1）更靠前：它直接决定「请求发给哪台机器」；</li>
+<li><strong>CDN 接入</strong>：域名用 CNAME 指向 CDN 厂商的域名，CDN 的权威服务器按用户地理位置返回<strong>就近节点 IP</strong>——第 3 篇讲的「CDN 缓存」能生效，前提是 DNS 把用户导到了离他最近的节点。</li>
+</ol>
+<h3 id="1-2-递归与迭代：一次解析的完整接力"><a href="#1-2-递归与迭代：一次解析的完整接力" class="headerlink" title="1.2 递归与迭代：一次解析的完整接力"></a>1.2 递归与迭代：一次解析的完整接力</h3><p><strong>递归查询</strong>：客户端只问「帮我查 <code>www.baidu.com</code>」，本地递归服务器负责搞定；<strong>迭代查询</strong>：递归服务器逐级问根服务器「<code>.com</code> 找谁」、问 .com 顶级服务器「<code>baidu.com</code> 找谁」、最后问 <code>baidu.com</code> 的权威服务器「<code>www</code> 的 IP 是」：</p>
+<pre class="mermaid">flowchart TD
+    C["Browser"] -->|"recursive: www.baidu.com?"| R["Local recursive resolver&lt;br/>(ISP / 8.8.8.8 / 114.114.114.114)"]
+    R -->|"iterative: who is .com?"| ROOT["Root servers (13 groups)"]
+    ROOT -->|".com TLD server ->"| R
+    R -->|"iterative: who is baidu.com?"| TLD[".com TLD servers"]
+    TLD -->|"baidu.com authoritative ->"| R
+    R -->|"iterative: A record of www?"| AUTH["baidu.com authoritative servers"]
+    AUTH -->|"IP 1.1.1.1 + TTL"| R
+    R -->|"IP 1.1.1.1"| C</pre>
+
+<p><strong>因果链</strong>：这个接力是「第 1 篇分层的递归应用」——每层只回答「下一层去哪问」的问题，与路由器「只认下一跳」完全同构（第 1 篇 §4.1）；区别是路由器转包、DNS 转「问题」。<strong>面试速记：客户端问递归（一次问完），递归服务器逐级迭代（分级追问）。</strong></p>
+<h3 id="1-3-缓存层级：TTL-是唯一的失效开关"><a href="#1-3-缓存层级：TTL-是唯一的失效开关" class="headerlink" title="1.3 缓存层级：TTL 是唯一的失效开关"></a>1.3 缓存层级：TTL 是唯一的失效开关</h3><p>解析结果会被<strong>四级缓存</strong>：浏览器 → 操作系统 → 本地递归服务器 → 各级 DNS 服务器，每级缓存按 <strong>TTL（记录生存时间，A 记录常见 60-600 秒）</strong> 过期：</p>
+<table>
+<thead>
+<tr>
+<th>缓存层</th>
+<th>谁持有</th>
+<th>特点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>浏览器缓存</td>
+<td>浏览器进程</td>
+<td>最快，几十秒级</td>
+</tr>
+<tr>
+<td>操作系统缓存</td>
+<td>&#x2F;etc&#x2F;hosts + 系统解析器</td>
+<td>hosts 优先于一切，可手动覆盖</td>
+</tr>
+<tr>
+<td>本地递归服务器</td>
+<td>ISP&#x2F;公共 DNS</td>
+<td>秒级 TTL，服务所有用户</td>
+</tr>
+<tr>
+<td>权威服务器</td>
+<td>域名所有者</td>
+<td>无缓存，TTL 由它下发</td>
+</tr>
+</tbody></table>
+<p><strong>TTL 是 DNS 的命门</strong>：域名切换 IP 后，「生效时间 &#x3D; 最高 TTL 的缓存层过期时间」——<strong>TTL 设 600 秒的域名切 IP，最坏 10 分钟才全部生效</strong>。生产「切了 IP 用户还在访问老机器」的根因九成在这。</p>
+<h3 id="1-4-动手验证：dig-把解析拆开看"><a href="#1-4-动手验证：dig-把解析拆开看" class="headerlink" title="1.4 动手验证：dig 把解析拆开看"></a>1.4 动手验证：dig 把解析拆开看</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">dig www.baidu.com +short                  <span class="comment"># 只给结果：A 记录列表（多个 IP = DNS 负载均衡）</span></span><br><span class="line">dig www.baidu.com | grep -A5 <span class="string">&#x27;ANSWER&#x27;</span>     <span class="comment"># 看 TTL（第二个数字）与记录类型</span></span><br><span class="line">dig +trace www.baidu.com                  <span class="comment"># 完整链路：根 → .com → baidu.com 权威</span></span><br><span class="line">dig @8.8.8.8 www.baidu.com +short         <span class="comment"># 换公共 DNS 对比（验证本地缓存 vs 上游结果）</span></span><br></pre></td></tr></table></figure>
+
+<p>观察点：<code>+trace</code> 输出从根服务器的提示开始逐级展开——<strong>递归与迭代的现场</strong>；多个 A 记录说明该域名在做 DNS 负载均衡。判定标准：<code>+trace</code> 里能看到「根 → .com → 权威」三级且最后给出 IP，就亲眼看到了 §1.2 的接力。</p>
+<h2 id="2-DNS-的生产形态：LB、CDN-与-HTTPDNS"><a href="#2-DNS-的生产形态：LB、CDN-与-HTTPDNS" class="headerlink" title="2. DNS 的生产形态：LB、CDN 与 HTTPDNS"></a>2. DNS 的生产形态：LB、CDN 与 HTTPDNS</h2><h3 id="2-1-深挖：CDN-与-HTTPDNS——DNS-的两个生产难题"><a href="#2-1-深挖：CDN-与-HTTPDNS——DNS-的两个生产难题" class="headerlink" title="2.1 深挖：CDN 与 HTTPDNS——DNS 的两个生产难题"></a>2.1 深挖：CDN 与 HTTPDNS——DNS 的两个生产难题</h3><p><strong>问题 1：就近调度不精准。</strong> 系统 DNS 由 ISP 分配，递归服务器所在位置不等于用户位置——CDN 拿递归服务器的 IP 判断用户地域，可能把北京用户导到上海节点。<strong>问题 2：DNS 可被劫持。</strong> 公共网络&#x2F;运营商可能篡改 UDP 53 的响应（污染），把域名指到广告&#x2F;钓鱼 IP。</p>
+<p>两个问题的解法汇聚到<strong>移动端 HTTPDNS</strong>：App 不走系统 DNS，而是<strong>直接 HTTP 请求厂商的解析 API</strong>（如 <code>http://119.29.29.29/d?dn=www.xxx.com</code>）拿到 IP——用 HTTP（第 3 篇的协议）替代 UDP 53（DNS 原生的脆弱通道），既绕开劫持（HTTPS 加密 + 厂商鉴权），又能拿到<strong>基于用户真实出口 IP 的精确调度</strong>。</p>
+<p><strong>因果链</strong>：DNS 用 UDP 53 是因为「单次请求-响应、无状态」（第 2 篇 UDP 对比表）——<strong>这个轻量设计是性能优势，也是被劫持的漏洞来源</strong>；HTTPDNS 是「用应用层更重的通道换可靠性」的典型交易，与 HTTP&#x2F;3 换掉 TCP（第 3 篇 §2.3）是同一个决策模式：<strong>下层通道给不了的保证，换个通道实现</strong>。</p>
+<h3 id="2-2-深挖：容器里的-DNS——K8s-的-CoreDNS"><a href="#2-2-深挖：容器里的-DNS——K8s-的-CoreDNS" class="headerlink" title="2.2 深挖：容器里的 DNS——K8s 的 CoreDNS"></a>2.2 深挖：容器里的 DNS——K8s 的 CoreDNS</h3><p>K8s 集群里 Pod 间通信靠 Service 名，解析由集群内 DNS（<strong>CoreDNS</strong>）完成：Pod 的 <code>/etc/resolv.conf</code> 指向 CoreDNS，且带 <code>search</code> 域（<code>default.svc.cluster.local</code>）——<strong>短域名自动补全域名后缀</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">nameserver 10.96.0.10</span><br><span class="line">search default.svc.cluster.local svc.cluster.local cluster.local</span><br></pre></td></tr></table></figure>
+
+<p><strong>因果链</strong>：Pod 访问 <code>my-service</code> 会依次试 <code>my-service.default.svc.cluster.local</code> → <code>my-service.svc.cluster.local</code> → <code>my-service.cluster.local</code>——<strong>search 域让「短名可用」是牺牲查询次数换来的</strong>；排查 K8s 里「跨 namespace 访问用短名失败」就是忘了加全限定名。这是 DNS 机制在容器时代的直接变形。</p>
+<h3 id="2-3-常见-DNS-故障速查"><a href="#2-3-常见-DNS-故障速查" class="headerlink" title="2.3 常见 DNS 故障速查"></a>2.3 常见 DNS 故障速查</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>切了 IP 用户还在访问旧的</td>
+<td>各级缓存未过期（TTL 太长）</td>
+<td>切换前先调低 TTL（如 60s），等生效再切</td>
+</tr>
+<tr>
+<td>解析超时&#x2F;特别慢</td>
+<td>递归服务器不可达、重试超时</td>
+<td>换 DNS 测试（dig @8.8.8.8）；确认防火墙放行 UDP 53</td>
+</tr>
+<tr>
+<td>解析到陌生 IP</td>
+<td>DNS 劫持&#x2F;污染</td>
+<td>公共 DNS 对比；移动端上 HTTPDNS</td>
+</tr>
+<tr>
+<td>内网域名解析不了</td>
+<td>内网 DNS 未配到 resolver</td>
+<td>检查 resolv.conf&#x2F;网络配置</td>
+</tr>
+</tbody></table>
+<h3 id="2-4-动手验证：复现一次「TTL-缓存」观察"><a href="#2-4-动手验证：复现一次「TTL-缓存」观察" class="headerlink" title="2.4 动手验证：复现一次「TTL 缓存」观察"></a>2.4 动手验证：复现一次「TTL 缓存」观察</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">dig www.baidu.com +noall +answer | <span class="built_in">head</span> -2      <span class="comment"># 记下 TTL 数字（比如 600）</span></span><br><span class="line"><span class="built_in">sleep</span> 10; dig www.baidu.com +noall +answer | <span class="built_in">head</span> -2   <span class="comment"># 10 秒后再查：同一 IP，TTL 递减了</span></span><br></pre></td></tr></table></figure>
+
+<p>观察点：两次查询 ANSWER 区<strong>IP 相同、TTL 递减</strong>——你在看一个<strong>活着的缓存条目</strong>在倒数计时。判定标准：TTL 从 600 → 590 左右即验证了「缓存按 TTL 倒计时」的机制；这也预告了 2.3 表第一行的生产教训（TTL 设多长，切换就等多长）。</p>
+<h2 id="3-网络排查实战：症状-→-层-→-工具"><a href="#3-网络排查实战：症状-→-层-→-工具" class="headerlink" title="3. 网络排查实战：症状 → 层 → 工具"></a>3. 网络排查实战：症状 → 层 → 工具</h2><h3 id="3-1-分层定位法：四问定层"><a href="#3-1-分层定位法：四问定层" class="headerlink" title="3.1 分层定位法：四问定层"></a>3.1 分层定位法：四问定层</h3><p>网络故障排查的核心是<strong>先定层、再用该层的工具</strong>（第 1 篇 §1.3 的雏形，现在收拢成完整流程）：</p>
+<pre class="mermaid">flowchart TD
+    FAIL["App error / timeout"] --> Q1{"DNS resolves?"}
+    Q1 -- No --> T1["dig / nslookup&lt;br/>-> DNS layer problem"]
+    Q1 -- Yes --> Q2{"TCP connects?"}
+    Q2 -- No --> T2["nc / ss / telnet&lt;br/>-> network / firewall / LB"]
+    Q2 -- Yes --> Q3{"TLS handshake?"}
+    Q3 -- No --> T3["openssl s_client&lt;br/>-> cert / TLS config"]
+    Q3 -- Yes --> Q4{"HTTP status?"}
+    Q4 -- "4xx" --> T4A["request problem (client)"]
+    Q4 -- "5xx" --> T4B["server / upstream problem"]</pre>
+
+<p><strong>每一层的工具与判定标准</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>层</th>
+<th>工具</th>
+<th>通过标准</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>DNS</td>
+<td><code>dig</code></td>
+<td>能返回 A 记录</td>
+</tr>
+<tr>
+<td>TCP</td>
+<td><code>nc -vz host port</code></td>
+<td><code>succeeded</code> 字样</td>
+</tr>
+<tr>
+<td>TLS</td>
+<td><code>openssl s_client -brief</code></td>
+<td>能输出证书与协议</td>
+</tr>
+<tr>
+<td>HTTP</td>
+<td><code>curl -i</code></td>
+<td>拿到状态码</td>
+</tr>
+<tr>
+<td>应用</td>
+<td>服务日志</td>
+<td>有对应请求日志</td>
+</tr>
+</tbody></table>
+<h3 id="3-2-案例复盘：三个真实排障"><a href="#3-2-案例复盘：三个真实排障" class="headerlink" title="3.2 案例复盘：三个真实排障"></a>3.2 案例复盘：三个真实排障</h3><p><strong>案例一：解析到老 IP</strong></p>
+<table>
+<thead>
+<tr>
+<th>环节</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>症状</td>
+<td>域名切换新机器后，部分用户仍访问旧机器，旧机器已关，用户报「打不开」</td>
+</tr>
+<tr>
+<td>工具</td>
+<td><code>dig +short</code> 在本机解析出新 IP；<code>dig @8.8.8.8 +short</code> 也是新 IP；但 <code>nslookup</code> 走运营商 DNS 仍是旧 IP</td>
+</tr>
+<tr>
+<td>根因</td>
+<td>运营商递归服务器缓存未过期（切换前 TTL 设的 600s）——§2.3 第一行的标准场景</td>
+</tr>
+<tr>
+<td>处理</td>
+<td>等 TTL 过期自然收敛；此后切换流程固定为「先降 TTL 至 60s，等 24h 再切」</td>
+</tr>
+</tbody></table>
+<p><strong>案例二：客户端偶发连接被重置</strong></p>
+<table>
+<thead>
+<tr>
+<th>环节</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>症状</td>
+<td>移动端间歇性 RST（连接被重置），PC 正常</td>
+</tr>
+<tr>
+<td>工具</td>
+<td>抓包看到 RST 直接回；<code>nc -vz</code> 偶发失败；对比不同网络（WiFi&#x2F;4G）</td>
+</tr>
+<tr>
+<td>根因</td>
+<td>运营商&#x2F;中间设备对 UDP 53 与长连接做干扰；或四层 LB 连接数限制触发重置</td>
+</tr>
+<tr>
+<td>处理</td>
+<td>移动端换 HTTPDNS（§2.1）；服务端确认四层 LB 连接复用配置</td>
+</tr>
+</tbody></table>
+<p><strong>案例三：502 与 504 的判别</strong></p>
+<table>
+<thead>
+<tr>
+<th>环节</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>症状</td>
+<td>网关报 502 或 504，业务侧「看起来没挂」</td>
+</tr>
+<tr>
+<td>工具</td>
+<td><code>curl -i</code> 确认状态码；<code>nc -vz 上游IP 端口</code> 测 TCP；看上游响应时间</td>
+</tr>
+<tr>
+<td>根因</td>
+<td>502 &#x3D; 连不上上游（端口&#x2F;防火墙&#x2F;上游没起）；504 &#x3D; 连上了但超时（上游慢、队列满）——第 3 篇 §1.2 的判别落地</td>
+</tr>
+<tr>
+<td>处理</td>
+<td>502 查网络与进程；504 查上游性能与超时配置（网关 proxy_read_timeout）</td>
+</tr>
+</tbody></table>
+<p><strong>三个案例的共同模式</strong>：先 <code>dig</code> 排除 DNS、再 <code>nc</code> 排除 TCP、最后才是应用层——<strong>按分层顺序排查，每层一个工具一次判定，永远不跳层</strong>。</p>
+<h3 id="3-3-动手验证：完整跑一遍分层定位"><a href="#3-3-动手验证：完整跑一遍分层定位" class="headerlink" title="3.3 动手验证：完整跑一遍分层定位"></a>3.3 动手验证：完整跑一遍分层定位</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">dig +short www.example.com                       <span class="comment"># 1. DNS 层：能解析吗？</span></span><br><span class="line">nc -vz www.example.com 443                       <span class="comment"># 2. TCP 层：能连吗？</span></span><br><span class="line">openssl s_client -connect www.example.com:443 -brief &lt;/dev/null 2&gt;&amp;1 | <span class="built_in">head</span> -3   <span class="comment"># 3. TLS 层</span></span><br><span class="line">curl -s -i https://www.example.com -o /dev/null -w <span class="string">&#x27;%&#123;http_code&#125;\n&#x27;</span>             <span class="comment"># 4. HTTP 层</span></span><br></pre></td></tr></table></figure>
+
+<p>观察点：四条命令依次通过&#x2F;失败的位置，就是故障所在的层——<strong>把「不知道哪坏了」变成「明确坏在第几层」</strong>。判定标准：任一步失败后，该层对应的工具（dig&#x2F;nc&#x2F;openssl&#x2F;curl）就是下一步排查的起点；这个流程值得存成 <code>netcheck.sh</code>，任何网络问题先跑一遍（与操作系统系列第 5 篇的 <code>sos.sh</code> 同款习惯）。</p>
+<h2 id="4-总结"><a href="#4-总结" class="headerlink" title="4. 总结"></a>4. 总结</h2><h3 id="4-1-面试速答表"><a href="#4-1-面试速答表" class="headerlink" title="4.1 面试速答表"></a>4.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>DNS 为什么是分层结构？</td>
+<td>根 → 顶级 → 权威逐级授权，每层只回答「下一层去哪问」——与路由器逐跳转发同构</td>
+</tr>
+<tr>
+<td>递归和迭代查询的区别？</td>
+<td>客户端问递归服务器（一次问完）；递归服务器逐级迭代追问（分级接力）</td>
+</tr>
+<tr>
+<td>域名切换 IP 为什么生效慢？</td>
+<td>各级缓存按 TTL 倒计时，生效时间 &#x3D; 最高 TTL 的缓存层过期时间</td>
+</tr>
+<tr>
+<td>DNS 怎么做负载均衡？</td>
+<td>一个域名多个 A 记录轮询返回；CNAME 到 CDN 后按地域返回就近 IP</td>
+</tr>
+<tr>
+<td>为什么移动端用 HTTPDNS？</td>
+<td>系统 DNS 用 UDP 53，可被劫持且就近调度不精准；HTTPDNS 走加密 HTTP 绕开</td>
+</tr>
+<tr>
+<td>网络故障排查第一步？</td>
+<td>定层：dig 排除 DNS → nc 排除 TCP → openssl 排除 TLS → curl 看 HTTP</td>
+</tr>
+<tr>
+<td>502 和 504 怎么分？</td>
+<td>502 连不上上游，504 连上了但超时——排查方向不同</td>
+</tr>
+</tbody></table>
+<h3 id="4-2-实战避坑表"><a href="#4-2-实战避坑表" class="headerlink" title="4.2 实战避坑表"></a>4.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>切 IP 后用户还在访问老机器</td>
+<td>TTL 缓存未过期</td>
+<td>切换前把 TTL 降到 60s，等 24h 再切</td>
+</tr>
+<tr>
+<td>域名解析超时</td>
+<td>递归服务器不可达、UDP 53 被拦</td>
+<td>换公共 DNS 对比；查防火墙</td>
+</tr>
+<tr>
+<td>解析到陌生 IP</td>
+<td>DNS 劫持&#x2F;污染</td>
+<td>公共 DNS 对比；移动端 HTTPDNS</td>
+</tr>
+<tr>
+<td>内网短域名解析失败</td>
+<td>search 域未覆盖目标 namespace</td>
+<td>K8s 里用全限定名 FQDN</td>
+</tr>
+<tr>
+<td>网关 502&#x2F;504 误判为应用挂了</td>
+<td>没先测 TCP 层</td>
+<td>nc -vz 先测，再谈应用</td>
+</tr>
+</tbody></table>
+<h3 id="4-3-工具速查表"><a href="#4-3-工具速查表" class="headerlink" title="4.3 工具速查表"></a>4.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>对应环节</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>dig +trace</code></td>
+<td>完整解析链路</td>
+<td>1. 递归&#x2F;迭代</td>
+</tr>
+<tr>
+<td><code>dig +short</code></td>
+<td>A 记录与 TTL</td>
+<td>1. 缓存&#x2F;LB</td>
+</tr>
+<tr>
+<td><code>dig @8.8.8.8</code></td>
+<td>换上游对比</td>
+<td>2. 劫持判定</td>
+</tr>
+<tr>
+<td><code>nc -vz</code></td>
+<td>TCP 连通性</td>
+<td>3. 分层定位</td>
+</tr>
+<tr>
+<td><code>openssl s_client</code></td>
+<td>TLS&#x2F;证书</td>
+<td>3. 分层定位</td>
+</tr>
+<tr>
+<td><code>curl -i/-w</code></td>
+<td>状态码与计时</td>
+<td>3. 分层定位</td>
+</tr>
+</tbody></table>
+<p>实操建议：</p>
+<ol>
+<li>任何「网站打不开」先跑 <code>dig</code> → <code>nc -vz</code> → <code>openssl</code> → <code>curl</code> 四条命令，把故障钉在某一层再动手——<strong>不跳层</strong>。</li>
+<li>域名切换的流程固定成「先降 TTL → 等 24h → 切换 → 观察」，这条流程的每一步都在为缓存的 TTL 买单。</li>
+<li>移动端网络请求一律接入 HTTPDNS；服务端对外域名用公共 DNS 做双保险探测，发现解析异常立即告警。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告（系列收官）</strong>：五篇机制全部就位，最后把链路串起来——第 5 篇《从输入 URL 到页面展示全链路》走一遍「输入网址 → DNS → TCP → TLS → HTTP → 服务端处理 → 渲染」的完整旅程，用一条真实请求把所有机制焊在一起，并给出全系列的面试题总复习。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%BD%91%E7%BB%9C/" rel="tag"># 计算机网络</a>
+              <a href="/tags/DNS/" rel="tag"># DNS</a>
+              <a href="/tags/%E7%BD%91%E7%BB%9C%E6%8E%92%E6%9F%A5/" rel="tag"># 网络排查</a>
+              <a href="/tags/%E6%95%85%E9%9A%9C%E5%AE%9A%E4%BD%8D/" rel="tag"># 故障定位</a>
+              <a href="/tags/%E9%9D%A2%E8%AF%95/" rel="tag"># 面试</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/1f63abdd.html" rel="prev" title="HTTP 协议：应用层之王">
+                  <i class="fa fa-angle-left"></i> HTTP 协议：应用层之王
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/post/9b8bb402.html" rel="next" title="从输入 URL 到页面展示全链路">
+                  从输入 URL 到页面展示全链路 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">579k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">35:04</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
+</html>

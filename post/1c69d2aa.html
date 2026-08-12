@@ -1,0 +1,871 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="IO 模型决定「数据没就绪时，你的线程在干什么」：阻塞模型让线程干等，非阻塞模型让线程反复问，多路复用让内核一次告诉你「谁好了」，异步模型让内核干完再叫你。本文串起三件事：五种模型的取舍、epoll 为什么是标准答案、以及 Java 侧（BIO&#x2F;NIO&#x2F;Netty&#x2F;虚拟线程）分别落在哪个模型上——并全程对照 Redis、nginx、Netty 这些你天天用的技术，看它">
+<meta property="og:type" content="article">
+<meta property="og:title" content="IO 模型：阻塞、多路复用与零拷贝">
+<meta property="og:url" content="http://timewait7.github.io/post/1c69d2aa.html">
+<meta property="og:site_name" content="知行栈">
+<meta property="og:description" content="IO 模型决定「数据没就绪时，你的线程在干什么」：阻塞模型让线程干等，非阻塞模型让线程反复问，多路复用让内核一次告诉你「谁好了」，异步模型让内核干完再叫你。本文串起三件事：五种模型的取舍、epoll 为什么是标准答案、以及 Java 侧（BIO&#x2F;NIO&#x2F;Netty&#x2F;虚拟线程）分别落在哪个模型上——并全程对照 Redis、nginx、Netty 这些你天天用的技术，看它">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-08-12T15:30:00.000Z">
+<meta property="article:modified_time" content="2026-08-12T14:42:34.940Z">
+<meta property="article:tag" content="面试">
+<meta property="article:tag" content="操作系统">
+<meta property="article:tag" content="IO 模型">
+<meta property="article:tag" content="epoll">
+<meta property="article:tag" content="NIO">
+<meta property="article:tag" content="Netty">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/1c69d2aa.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/1c69d2aa.html","path":"post/1c69d2aa.html","title":"IO 模型：阻塞、多路复用与零拷贝"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>IO 模型：阻塞、多路复用与零拷贝 | 知行栈</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<!-- hexo injector head_end start --><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
+</style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">知行栈</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>Categories</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-%E4%BA%94%E7%A7%8D-IO-%E6%A8%A1%E5%9E%8B%EF%BC%9A%E7%AD%89%E7%9A%84%E6%96%B9%E5%BC%8F%E4%B8%8D%E5%90%8C"><span class="nav-text">1. 五种 IO 模型：等的方式不同</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-%E4%B8%80%E5%BC%A0%E5%9B%BE%E7%9C%8B%E6%87%82%E4%BA%94%E4%B8%AA%E6%A8%A1%E5%9E%8B"><span class="nav-text">1.1 一张图看懂五个模型</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-2-%E9%98%BB%E5%A1%9E%E4%B8%8E%E9%9D%9E%E9%98%BB%E5%A1%9E%EF%BC%9Aread-%E7%9A%84%E4%B8%A4%E7%A7%8D%E7%AD%89%E5%BE%85"><span class="nav-text">1.2 阻塞与非阻塞：read 的两种等待</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-3-%E5%A4%9A%E8%B7%AF%E5%A4%8D%E7%94%A8%EF%BC%9A%E4%B8%80%E6%AC%A1%E7%AD%89%E4%B8%80%E5%A0%86"><span class="nav-text">1.3 多路复用：一次等一堆</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-4-%E5%BC%82%E6%AD%A5-IO%EF%BC%9A%E5%86%85%E6%A0%B8%E5%B9%B2%E5%AE%8C%E5%86%8D%E5%8F%AB%E4%BD%A0"><span class="nav-text">1.4 异步 IO：内核干完再叫你</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-5-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9Astrace-%E7%9C%8B%E4%B8%80%E6%AC%A1%E9%98%BB%E5%A1%9E%E8%AF%BB"><span class="nav-text">1.5 动手验证：strace 看一次阻塞读</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-epoll%EF%BC%9A%E5%A4%9A%E8%B7%AF%E5%A4%8D%E7%94%A8%E7%9A%84%E5%B7%A5%E7%A8%8B%E7%AD%94%E6%A1%88"><span class="nav-text">2. epoll：多路复用的工程答案</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-select-poll-%E7%9A%84%E4%B8%A4%E4%B8%AA%E9%97%AE%E9%A2%98"><span class="nav-text">2.1 select&#x2F;poll 的两个问题</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-epoll-%E7%9A%84%E4%B8%89%E6%9D%BF%E6%96%A7"><span class="nav-text">2.2 epoll 的三板斧</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-LT-%E4%B8%8E-ET%EF%BC%9A%E5%B0%B1%E7%BB%AA%E4%BA%8B%E4%BB%B6%E6%8A%A5%E5%87%A0%E6%AC%A1"><span class="nav-text">2.3 LT 与 ET：就绪事件报几次</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E6%9C%80%E5%B0%8F%E7%9A%84%E5%A4%9A%E8%B7%AF%E5%A4%8D%E7%94%A8%E6%9C%8D%E5%8A%A1%E5%99%A8"><span class="nav-text">2.4 动手验证：最小的多路复用服务器</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-Reactor%EF%BC%9A%E5%A4%9A%E8%B7%AF%E5%A4%8D%E7%94%A8%E7%9A%84%E7%BA%BF%E7%A8%8B%E6%A8%A1%E5%9E%8B"><span class="nav-text">3. Reactor：多路复用的线程模型</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E5%8D%95%E7%BA%BF%E7%A8%8B%E4%B8%8D%E5%A4%9F%EF%BC%8C%E4%B8%8A%E4%B8%BB%E4%BB%8E"><span class="nav-text">3.1 单线程不够，上主从</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-Netty-%E7%9A%84-boss-worker-%E4%B8%8E-epoll"><span class="nav-text">3.2 Netty 的 boss&#x2F;worker 与 epoll</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-%E8%99%9A%E6%8B%9F%E7%BA%BF%E7%A8%8B%EF%BC%9A%E6%8A%8A%E9%98%BB%E5%A1%9E%E5%86%99%E6%B3%95%E6%98%A0%E5%B0%84%E5%9B%9E%E5%A4%9A%E8%B7%AF%E5%A4%8D%E7%94%A8"><span class="nav-text">3.3 虚拟线程：把阻塞写法映射回多路复用</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E8%BF%9E%E6%8E%A5%E6%95%B0%E4%B8%8E%E7%BA%BF%E7%A8%8B%E6%95%B0%E7%9A%84%E5%AF%B9%E7%85%A7"><span class="nav-text">3.4 动手验证：连接数与线程数的对照</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-Java-%E4%BE%A7%E5%AE%9E%E8%B7%B5%EF%BC%9ABIO-NIO-AIO-%E6%80%8E%E4%B9%88%E9%80%89"><span class="nav-text">4. Java 侧实践：BIO&#x2F;NIO&#x2F;AIO 怎么选</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-%E4%B8%89%E7%A7%8D%E5%BD%A2%E6%80%81%E5%AF%B9%E7%85%A7"><span class="nav-text">4.1 三种形态对照</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-%E9%80%89%E5%9E%8B%E7%BB%93%E8%AE%BA"><span class="nav-text">4.2 选型结论</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%A4%8D%E7%8E%B0-Too-many-open-files"><span class="nav-text">4.3 动手验证：复现 Too many open files</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E6%80%BB%E7%BB%93%E4%B8%8E%E9%81%BF%E5%9D%91%E6%B8%85%E5%8D%95"><span class="nav-text">5. 总结与避坑清单</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E9%9D%A2%E8%AF%95%E9%80%9F%E7%AD%94%E8%A1%A8"><span class="nav-text">5.1 面试速答表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E5%AE%9E%E6%88%98%E9%81%BF%E5%9D%91%E6%B8%85%E5%8D%95"><span class="nav-text">5.2 实战避坑清单</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-%E5%B7%A5%E5%85%B7%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">5.3 工具速查表</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">84</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">17</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">127</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+    <div class="sidebar-inner sidebar-blogroll">
+      <div class="links-of-blogroll animated">
+        <div class="links-of-blogroll-title"><i class="fa fa-globe fa-fw"></i>
+          Links
+        </div>
+        <ul class="links-of-blogroll-list">
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhZ3VpZGUuY24v" title="https:&#x2F;&#x2F;javaguide.cn&#x2F;">JavaGuide</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly96aGFuZ3RpZWxlaS5jb20v" title="https:&#x2F;&#x2F;zhangtielei.com&#x2F;">张铁蕾</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9wYXVsZ3JhaGFtLmNvbS9hcnRpY2xlcy5odG1s" title="https:&#x2F;&#x2F;paulgraham.com&#x2F;articles.html">paulgraham</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly93d3cuam9lbG9uc29mdHdhcmUuY29tLw==" title="https:&#x2F;&#x2F;www.joelonsoftware.com&#x2F;">Joel on Software</span>
+            </li>
+        </ul>
+      </div>
+    </div>
+        <div class="pjax">
+        
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-后端开发"><a href="/docs/nav/backend-dev-nav.html" rel="section"><i class="fa fa-code fa-fw"></i>后端开发</a></li>
+
+
+      
+  <li class="menu-item menu-item-计算机基础"><a href="/docs/nav/cs-foundation-nav.html" rel="section"><i class="fa fa-desktop fa-fw"></i>计算机基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-ai-学习"><a href="/docs/nav/ai-learning-nav.html" rel="section"><i class="fa fa-robot fa-fw"></i>AI 学习</a></li>
+
+
+      
+  <li class="menu-item menu-item-项目实战"><a href="/docs/nav/5964f4da.html" rel="section"><i class="fa fa-flask fa-fw"></i>项目实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-misc"><a href="/docs/nav/misc-nav.html" rel="section"><i class="fa fa-box fa-fw"></i>Misc</a></li>
+
+
+      
+  <li class="menu-item menu-item-随笔·生活"><a href="/docs/nav/life-nav.html" rel="section"><i class="fa fa-feather fa-fw"></i>随笔·生活</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-操作系统"><a href="/docs/nav/os-nav.html" rel="section"><i class="fa fa-laptop fa-fw"></i>操作系统</a></li>
+
+
+      
+  <li class="menu-item menu-item-计算机网络"><a href="/docs/nav/network-nav.html" rel="section"><i class="fa fa-globe fa-fw"></i>计算机网络</a></li>
+
+
+      
+  <li class="menu-item menu-item-数据结构与算法"><a href="/docs/nav/dsa-nav.html" rel="section"><i class="fa fa-code-branch fa-fw"></i>数据结构与算法</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-进程与线程：从模型到调度"><a href="/post/7d52b3c4.html" rel="section"><i class="fa fa-file-text fa-fw"></i>进程与线程：从模型到调度</a></li>
+
+
+      
+  <li class="menu-item menu-item-内存管理：虚拟内存与分页"><a href="/post/aa1ba544.html" rel="section"><i class="fa fa-file-text fa-fw"></i>内存管理：虚拟内存与分页</a></li>
+
+
+      
+  <li class="menu-item menu-item-文件系统与磁盘-io"><a href="/post/fdff16da.html" rel="section"><i class="fa fa-file-text fa-fw"></i>文件系统与磁盘 IO</a></li>
+
+
+      
+  <li class="menu-item menu-item-io-模型：阻塞、多路复用与零拷贝"><a href="/post/1c69d2aa.html" rel="section"><i class="fa fa-file-text fa-fw"></i>IO 模型：阻塞、多路复用与零拷贝</a></li>
+
+
+      
+  <li class="menu-item menu-item-linux-资源排查实战"><a href="/post/22c01f5.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Linux 资源排查实战</a></li>
+
+
+    </ul>
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/1c69d2aa.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="IO 模型：阻塞、多路复用与零拷贝 | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          IO 模型：阻塞、多路复用与零拷贝
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-08-12 23:30:00" itemprop="dateCreated datePublished" datetime="2026-08-12T23:30:00+08:00">2026-08-12</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/" itemprop="url" rel="index"><span itemprop="name">操作系统</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>4.1k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>15 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><p><strong>IO 模型决定「数据没就绪时，你的线程在干什么」</strong>：阻塞模型让线程干等，非阻塞模型让线程反复问，多路复用让内核一次告诉你「谁好了」，异步模型让内核干完再叫你。本文串起三件事：五种模型的取舍、epoll 为什么是标准答案、以及 Java 侧（BIO&#x2F;NIO&#x2F;Netty&#x2F;虚拟线程）分别落在哪个模型上——并全程对照 Redis、nginx、Netty 这些你天天用的技术，看它们各自的线程模型怎么从本文的机制里长出来。</p>
+<blockquote>
+<p><strong>系列地图（操作系统）</strong>：① 进程与线程（执行单元与调度）→ ② 内存管理（地址空间与物理内存）→ ③ 文件系统与磁盘 IO（数据落盘）→ ④ <strong>IO 模型（本文：等待数据的方式）</strong> → ⑤ Linux 资源排查实战（前四篇工具收拢）。本文是前四篇的汇合点：阻塞线程的成本来自 ① 的切换开销与 ② 的栈内存，零拷贝数据路径来自 ③ 的页缓存。</p>
+</blockquote>
+<h2 id="1-五种-IO-模型：等的方式不同"><a href="#1-五种-IO-模型：等的方式不同" class="headerlink" title="1. 五种 IO 模型：等的方式不同"></a>1. 五种 IO 模型：等的方式不同</h2><h3 id="1-1-一张图看懂五个模型"><a href="#1-1-一张图看懂五个模型" class="headerlink" title="1.1 一张图看懂五个模型"></a>1.1 一张图看懂五个模型</h3><p>以「读 socket」为例，数据到达前线程的状态：</p>
+<pre class="mermaid">flowchart TD
+    subgraph Blocking["Blocking IO"]
+        B1["Thread calls read()"] --> B2["Thread blocks until data ready"]
+    end
+    subgraph Nonblocking["Non-blocking IO"]
+        N1["Thread calls read()"] --> N2{"Data ready?"}
+        N2 -- No --> N3["Return EAGAIN, poll again&lt;br/>(wastes CPU)"]
+        N2 -- Yes --> N4["Return data"]
+        N3 --> N1
+    end
+    subgraph Mux["Multiplexing (select / epoll)"]
+        M1["Thread calls epoll_wait()"] --> M2["Sleep in kernel"]
+        M2 --> M3{"Any fd ready?"}
+        M3 -- Yes --> M4["Wake up, return ready fd list"]
+        M3 -- No --> M2
+    end
+    subgraph Async["True async IO (io_uring)"]
+        A1["Submit read request, return"] --> A2["Kernel completes IO,&lt;br/>delivers completion event"]
+    end</pre>
+
+<table>
+<thead>
+<tr>
+<th>模型</th>
+<th>谁在等</th>
+<th>线程利用率</th>
+<th>代码难度</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>阻塞 IO（BIO）</td>
+<td>每个连接一个线程干等</td>
+<td>最低（线程数 &#x3D; 连接数）</td>
+<td>最简单</td>
+</tr>
+<tr>
+<td>非阻塞 IO</td>
+<td>应用自己轮询</td>
+<td>低（空转 CPU）</td>
+<td>简单但费电</td>
+</tr>
+<tr>
+<td>多路复用</td>
+<td>内核替所有 fd 等</td>
+<td>高（一个线程管几千连接）</td>
+<td>中等（状态机）</td>
+</tr>
+<tr>
+<td>信号驱动</td>
+<td>内核发信号</td>
+<td>高</td>
+<td>复杂，用得少</td>
+</tr>
+<tr>
+<td>异步 IO</td>
+<td>内核全包</td>
+<td>最高</td>
+<td>复杂（回调地狱）</td>
+</tr>
+</tbody></table>
+<h3 id="1-2-阻塞与非阻塞：read-的两种等待"><a href="#1-2-阻塞与非阻塞：read-的两种等待" class="headerlink" title="1.2 阻塞与非阻塞：read 的两种等待"></a>1.2 阻塞与非阻塞：read 的两种等待</h3><p><strong>阻塞 IO</strong>：<code>read()</code> 发出后线程挂起，数据就绪才返回——等待期间线程不占 CPU 但占「线程配额」，每个连接一个线程。</p>
+<p>这套「线程 &#x3D; 连接」的模型在 1999 年的 <strong>C10K 问题</strong>（万级并发连接）上撞了墙：1 万连接 &#x3D; 1 万线程。1 万线程意味着什么？用前两篇的知识算账：每线程默认 1MB 栈（第 2 篇），虚拟内存承诺 10GB；1 万线程轮流上 CPU，上下文切换每秒几十万次（第 1 篇），光调度就吃掉大半 CPU。<strong>所以 C10K 的解法不是「更多线程」，而是「更少线程」</strong>——epoll 让一个线程等 1 万 fd（§2），Reactor 让几个线程服务 1 万连接（§3）。</p>
+<p>回头看今天的技术，全是这套解法的后代：Redis 单线程事件循环扛 10 万 QPS、nginx 的 worker 数 &#x3D; CPU 核数、Netty 默认两组 EventLoop 线程池。<strong>它们的线程数差异（Redis&#x3D;1、nginx&#x2F;Netty&#x3D;核数级、BIO&#x3D;连接数）就是「切换成本 vs 并发需求」的三档答案</strong>——这也是为什么面试问「Redis 为什么单线程还快」，标准答案的第一句永远是「它不做阻塞 IO，一个线程足以喂饱 CPU」。</p>
+<p><strong>非阻塞 IO</strong>：<code>read()</code> 立即返回——没数据时返回 <code>EAGAIN</code>，应用必须自己重试。避免了线程浪费，但把「等」的责任推给了应用，纯轮询是 CPU 灾难，实战中只作为多路复用的补充（数据没就绪时转去等 epoll）。</p>
+<h3 id="1-3-多路复用：一次等一堆"><a href="#1-3-多路复用：一次等一堆" class="headerlink" title="1.3 多路复用：一次等一堆"></a>1.3 多路复用：一次等一堆</h3><p><strong>多路复用（I&#x2F;O multiplexing）让一个线程把「等待」交给内核</strong>：注册一堆 fd，内核在任何一个就绪时唤醒线程。select&#x2F;poll 是第一代实现，epoll 是 Linux 的工程答案（第 2 节展开）。Java NIO 的 <code>Selector</code> 就是对它的封装，Netty 底层就是它。</p>
+<h3 id="1-4-异步-IO：内核干完再叫你"><a href="#1-4-异步-IO：内核干完再叫你" class="headerlink" title="1.4 异步 IO：内核干完再叫你"></a>1.4 异步 IO：内核干完再叫你</h3><p><strong>异步 IO 是「提交请求就走，内核完成后再通知」</strong>：应用线程完全不参与等待。Linux 上的 <code>io_uring</code>（及早期 aio）是代表。注意区分：<strong>多路复用是「内核替你等」，异步是「内核替你干」</strong>——Netty 常被叫异步框架，其实是多路复用 + 回调，不是真异步。</p>
+<h3 id="1-5-动手验证：strace-看一次阻塞读"><a href="#1-5-动手验证：strace-看一次阻塞读" class="headerlink" title="1.5 动手验证：strace 看一次阻塞读"></a>1.5 动手验证：strace 看一次阻塞读</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">nc -l 8080 &amp;                                   <span class="comment"># 起一个不回复的服务器</span></span><br><span class="line">strace -p $(pgrep -f <span class="string">&#x27;nc -l 8080&#x27;</span>) -e trace=<span class="built_in">read</span>,recvfrom,poll -f &amp;</span><br><span class="line"><span class="built_in">sleep</span> 1; <span class="built_in">echo</span> hello | nc 127.0.0.1 8080        <span class="comment"># 客户端发数据</span></span><br></pre></td></tr></table></figure>
+
+<p>strace 输出里能看到 <code>recvfrom(3, ...</code> 阻塞住——<code>poll</code>&#x2F;<code>recvfrom</code> 返回前的等待就是「阻塞」。把同样的观测换成 NIO 程序，会看到 <code>epoll_wait</code> 在循环——这就是两种模型在系统调用层的全部区别。</p>
+<h2 id="2-epoll：多路复用的工程答案"><a href="#2-epoll：多路复用的工程答案" class="headerlink" title="2. epoll：多路复用的工程答案"></a>2. epoll：多路复用的工程答案</h2><h3 id="2-1-select-poll-的两个问题"><a href="#2-1-select-poll-的两个问题" class="headerlink" title="2.1 select&#x2F;poll 的两个问题"></a>2.1 select&#x2F;poll 的两个问题</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>select</th>
+<th>poll</th>
+<th>epoll</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>fd 上限</td>
+<td>1024（FD_SETSIZE）</td>
+<td>无上限</td>
+<td>无上限</td>
+</tr>
+<tr>
+<td>每次调用</td>
+<td>全量拷贝 fd 数组进内核</td>
+<td>同左</td>
+<td>只增删改（epoll_ctl）</td>
+</tr>
+<tr>
+<td>查找就绪</td>
+<td>O(n) 扫描全部</td>
+<td>O(n)</td>
+<td>O(1) 取就绪链表</td>
+</tr>
+<tr>
+<td>内核实现</td>
+<td>线性扫描</td>
+<td>线性扫描</td>
+<td>红黑树 + 就绪链表</td>
+</tr>
+</tbody></table>
+<p>select 每次调用都要把几千个 fd 拷进内核、扫描一遍——<strong>连接多了以后，等待本身变成了性能瓶颈</strong>。epoll 把「注册」和「等待」拆开：注册一次，之后只等结果。</p>
+<h3 id="2-2-epoll-的三板斧"><a href="#2-2-epoll-的三板斧" class="headerlink" title="2.2 epoll 的三板斧"></a>2.2 epoll 的三板斧</h3><pre class="mermaid">flowchart LR
+    APP["App"] --> C1["epoll_create()&lt;br/>create red-black tree"]
+    C1 --> C2["epoll_ctl()&lt;br/>register / modify / delete fd"]
+    C2 --> C3["epoll_wait()&lt;br/>sleep; wake on ready"]
+    C3 --> READY["Ready list (linked list)"]
+    KERN["Kernel: fd becomes readable"] --> READY
+    READY --> C3</pre>
+
+<p>机制拆解：内核里一棵<strong>红黑树</strong>存所有注册的 fd（增删改 O(log n)），一个<strong>就绪链表</strong>存已经可读可写的 fd（由中断&#x2F;唤醒路径挂入）；<code>epoll_wait</code> 只把就绪链表拷给用户——<strong>等待与规模无关，这就是 O(1) 的真相</strong>。</p>
+<h3 id="2-3-LT-与-ET：就绪事件报几次"><a href="#2-3-LT-与-ET：就绪事件报几次" class="headerlink" title="2.3 LT 与 ET：就绪事件报几次"></a>2.3 LT 与 ET：就绪事件报几次</h3><table>
+<thead>
+<tr>
+<th>模式</th>
+<th>行为</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>LT（水平触发，默认）</td>
+<td>fd 一直可读就反复报，不处理下次还报</td>
+<td>简单，不容易漏事件</td>
+</tr>
+<tr>
+<td>ET（边缘触发）</td>
+<td>只报一次，必须一次读完，否则丢事件</td>
+<td>高性能（配合非阻塞 + 读到 EAGAIN）</td>
+</tr>
+</tbody></table>
+<p>LT 与 ET 的取舍不是风格之争，是两套技术场景逼出来的设计——直接看两个最著名的使用者：</p>
+<ul>
+<li><strong>Redis 用 ET</strong>：单线程事件循环，所有连接的处理在一条线程里串行完成。LT 会反复上报同一个就绪事件、每次都唤醒循环白耗一次；而单线程意味着没有并发读竞争，「一次读到 EAGAIN」安全且必然——ET「必须读尽」的代价在单线程模型下不存在。这是 Redis 单线程 10 万 QPS 的细节之一。</li>
+<li><strong>Netty 默认 LT</strong>：EventLoop 池是多线程，且每次循环有读配额（默认 16MB）防止一个连接吃光 CPU——读不完的剩余数据回到队列、下次循环再读，此时 LT 的「反复上报」恰好保证事件不漏。所以 Netty 默认 LT 不是偷懒，是用重复唤醒换「不漏事件」的确定性。</li>
+</ul>
+<p><strong>生产后果</strong>：Netty 若手动改 ET，业务必须自己保证读尽——线上「偶发丢数据」事故的一大来源就是 ET 读循环少判了一次 EAGAIN；Redis 反而没有这个问题（单线程 + 读尽是写死的）。<strong>入门用 LT，性能临界再上 ET，前提是读循环写到 EAGAIN 为止</strong>。</p>
+<h3 id="2-4-动手验证：最小的多路复用服务器"><a href="#2-4-动手验证：最小的多路复用服务器" class="headerlink" title="2.4 动手验证：最小的多路复用服务器"></a>2.4 动手验证：最小的多路复用服务器</h3><p>一个线程管所有连接的完整骨架（NIO）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">Selector</span> <span class="variable">selector</span> <span class="operator">=</span> Selector.open();</span><br><span class="line"><span class="type">ServerSocketChannel</span> <span class="variable">ssc</span> <span class="operator">=</span> ServerSocketChannel.open();</span><br><span class="line">ssc.bind(<span class="keyword">new</span> <span class="title class_">InetSocketAddress</span>(<span class="number">8080</span>));</span><br><span class="line">ssc.configureBlocking(<span class="literal">false</span>);</span><br><span class="line">ssc.register(selector, SelectionKey.OP_ACCEPT);</span><br><span class="line"><span class="keyword">while</span> (<span class="literal">true</span>) &#123;</span><br><span class="line">    selector.select();                       <span class="comment">// 内核里有 fd 就绪才返回</span></span><br><span class="line">    <span class="type">var</span> <span class="variable">keys</span> <span class="operator">=</span> selector.selectedKeys();</span><br><span class="line">    <span class="type">var</span> <span class="variable">it</span> <span class="operator">=</span> keys.iterator();</span><br><span class="line">    <span class="keyword">while</span> (it.hasNext()) &#123;</span><br><span class="line">        <span class="type">var</span> <span class="variable">key</span> <span class="operator">=</span> it.next();</span><br><span class="line">        it.remove();                          <span class="comment">// 必须移除，否则重复处理</span></span><br><span class="line">        <span class="keyword">if</span> (key.isAcceptable()) &#123;</span><br><span class="line">            <span class="type">var</span> <span class="variable">ch</span> <span class="operator">=</span> ssc.accept();</span><br><span class="line">            ch.configureBlocking(<span class="literal">false</span>);</span><br><span class="line">            ch.register(selector, SelectionKey.OP_READ);</span><br><span class="line">        &#125; <span class="keyword">else</span> <span class="keyword">if</span> (key.isReadable()) &#123;</span><br><span class="line">            <span class="type">var</span> <span class="variable">buf</span> <span class="operator">=</span> ByteBuffer.allocate(<span class="number">1024</span>);</span><br><span class="line">            ((SocketChannel) key.channel()).read(buf);</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>观测它确实在走 epoll：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">strace -f -e trace=epoll_create,epoll_ctl,epoll_wait java -<span class="built_in">cp</span> . NioServer</span><br><span class="line"><span class="comment"># epoll_create / epoll_ctl(ADD, fd=..) / epoll_wait 循环，一个线程</span></span><br></pre></td></tr></table></figure>
+
+<p>再验证「一个线程能撑多少连接」的上限其实是 fd 配额：<code>ulimit -n</code>（默认 1024，生产要调大）、<code>/proc/sys/fs/file-max</code>（系统级）。压测机没调 <code>ulimit -n</code> 就报 <code>Too many open files</code>——<strong>高并发服务的第一道坑不是代码，是 nofile 配额</strong>。</p>
+<h2 id="3-Reactor：多路复用的线程模型"><a href="#3-Reactor：多路复用的线程模型" class="headerlink" title="3. Reactor：多路复用的线程模型"></a>3. Reactor：多路复用的线程模型</h2><h3 id="3-1-单线程不够，上主从"><a href="#3-1-单线程不够，上主从" class="headerlink" title="3.1 单线程不够，上主从"></a>3.1 单线程不够，上主从</h3><p>多路复用解决了「一个线程等一堆」，但业务处理也挤在这一个线程上：一个连接读数据慢，其他连接全被拖住。于是演进出 Reactor 系列：</p>
+<pre class="mermaid">flowchart TD
+    subgraph Boss["Main reactor (accept)"]
+        B["1 thread, epoll_wait on listen fd"]
+    end
+    subgraph Workers["Worker reactors (IO + business)"]
+        W1["Thread pool: epoll_wait&lt;br/>on accepted fd set"]
+        W2["Thread pool: epoll_wait&lt;br/>on accepted fd set"]
+    end
+    B -->|"hand off accepted socket"| W1
+    B -->|"hand off accepted socket"| W2</pre>
+
+<table>
+<thead>
+<tr>
+<th>模型</th>
+<th>线程数</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>单 Reactor 单线程</td>
+<td>1 线程全包</td>
+<td>Redis（纯内存、CPU 密集单线程够用）</td>
+</tr>
+<tr>
+<td>单 Reactor 多线程</td>
+<td>1 个 accept + 业务线程池</td>
+<td>入门架构</td>
+</tr>
+<tr>
+<td>主从 Reactor 多线程</td>
+<td>accept 线程 + IO 线程池</td>
+<td><strong>Netty 默认</strong>（boss + worker）</td>
+</tr>
+</tbody></table>
+<h3 id="3-2-Netty-的-boss-worker-与-epoll"><a href="#3-2-Netty-的-boss-worker-与-epoll" class="headerlink" title="3.2 Netty 的 boss&#x2F;worker 与 epoll"></a>3.2 Netty 的 boss&#x2F;worker 与 epoll</h3><p>Netty 的 <code>EventLoopGroup</code> 就是 Reactor 的实现：<code>bossGroup</code> 只负责 accept（epoll_wait 在监听 fd 上），<code>workerGroup</code> 负责已连接 socket 的读写。三个关键设计细节，每个都能对应上本节讲的机制：</p>
+<ol>
+<li><strong>EventLoop &#x3D; 线程 + epoll_wait 循环</strong>：默认 worker 线程数 &#x3D; CPU 核数 × 2。为什么不是越多越好？每个 EventLoop 是串行循环，线程数超过核数后，多出来的只是排队抢 CPU（第 1 篇的切换成本）——并发不涨，切换变多。</li>
+<li><strong>一个 channel 绑定一个 EventLoop，不轮询</strong>：同一连接的所有事件永远由同一个线程处理——天然免锁。这是「单线程串行」理念在 Netty 里的落地：Netty 内部几乎无锁，靠的就是这个绑定关系。</li>
+<li><strong>IO 线程红线</strong>：业务代码绝不能在 IO 线程里做阻塞操作（数据库查询、<code>Thread.sleep</code>、锁等待）——那会让这个 EventLoop 的几百个连接一起等，等于把「一线程管 N 连接」退化成「N 个连接共用一根喉咙」。这是 Netty 面试第一题，也是线上 Netty 服务卡顿的第一大原因。</li>
+</ol>
+<p>对照 Redis：Redis 是单 Reactor 单线程（纯内存操作，无阻塞 IO，一个线程够喂饱 CPU），Netty 是主从 Reactor 多线程（网络 IO + 业务混合，必须分线程）。<strong>Redis&#x3D;1、Netty&#x3D;核数×2、BIO&#x3D;连接数——三档线程数就是切换成本与并发需求的三档答案</strong>，与 C10K 一节的结论完全一致。</p>
+<h3 id="3-3-虚拟线程：把阻塞写法映射回多路复用"><a href="#3-3-虚拟线程：把阻塞写法映射回多路复用" class="headerlink" title="3.3 虚拟线程：把阻塞写法映射回多路复用"></a>3.3 虚拟线程：把阻塞写法映射回多路复用</h3><p>JDK 21 虚拟线程的妙处：<strong>业务代码写回阻塞风格，JVM 底层自动把「阻塞」变成「让出载体线程去服务别人」</strong>——本质是 JVM 内部实现了一个多路复用 + 线程调度器：</p>
+<pre class="mermaid">sequenceDiagram
+    participant VT as Virtual thread
+    participant Sched as JVM scheduler
+    participant Carrier as Carrier thread (OS thread)
+    participant Kernel as Kernel (epoll)
+    VT->>Sched: socket read (blocking syntax)
+    Sched->>Carrier: park, free the carrier
+    Kernel->>Sched: data ready (epoll wakes)
+    Sched->>Carrier: unpark, resume VT</pre>
+
+<p>对比：Netty 是「异步写法 + 多路复用」，虚拟线程是「阻塞写法 + JVM 替你多路复用」。<strong>都能扛高并发，选型取决于团队更熟哪种风格</strong>——虚拟线程省掉了回调状态机，但线程调度与锁竞争的可控性不如显式 Reactor。</p>
+<h3 id="3-4-动手验证：连接数与线程数的对照"><a href="#3-4-动手验证：连接数与线程数的对照" class="headerlink" title="3.4 动手验证：连接数与线程数的对照"></a>3.4 动手验证：连接数与线程数的对照</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">ss -lnt                          <span class="comment"># 本机所有监听与已建连接（State/Recv-Q/Send-Q）</span></span><br><span class="line">ss -s                            <span class="comment"># 连接统计：total、estab、timewait</span></span><br><span class="line"><span class="built_in">ulimit</span> -n                        <span class="comment"># 当前进程 fd 上限（每连接 ≈ 2 fd）</span></span><br><span class="line">lsof -p &lt;pid&gt; | grep -c TCP      <span class="comment"># 某进程实际连接数</span></span><br></pre></td></tr></table></figure>
+
+<p>对照实验：BIO 服务器 1000 连接 &#x3D; 1000+ 线程（<code>pstree -p &lt;pid&gt;</code> 数）；NIO&#x2F;Netty 服务器 1000 连接 &#x3D; 几个线程。<strong>线程数、连接数、fd 数三者的数量关系，就是 IO 模型在进程里的实锤</strong>。</p>
+<h2 id="4-Java-侧实践：BIO-NIO-AIO-怎么选"><a href="#4-Java-侧实践：BIO-NIO-AIO-怎么选" class="headerlink" title="4. Java 侧实践：BIO&#x2F;NIO&#x2F;AIO 怎么选"></a>4. Java 侧实践：BIO&#x2F;NIO&#x2F;AIO 怎么选</h2><h3 id="4-1-三种形态对照"><a href="#4-1-三种形态对照" class="headerlink" title="4.1 三种形态对照"></a>4.1 三种形态对照</h3><table>
+<thead>
+<tr>
+<th>形态</th>
+<th>底层模型</th>
+<th>典型类</th>
+<th>连接并发</th>
+<th>代码风格</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>BIO</td>
+<td>阻塞 IO</td>
+<td>Socket &#x2F; ServerSocket</td>
+<td>线程 &#x3D; 连接</td>
+<td>最简单</td>
+</tr>
+<tr>
+<td>NIO</td>
+<td>多路复用（Selector + epoll）</td>
+<td>Selector &#x2F; Channel &#x2F; Buffer</td>
+<td>线程 &lt;&lt; 连接</td>
+<td>回调&#x2F;状态机</td>
+</tr>
+<tr>
+<td>AIO</td>
+<td>真异步（Windows IOCP；Linux 上退化）</td>
+<td>AsynchronousSocketChannel</td>
+<td>线程 ≈ 0</td>
+<td>回调</td>
+</tr>
+<tr>
+<td>虚拟线程 + BIO</td>
+<td>阻塞写法 + JVM 多路复用</td>
+<td>普通 Socket + 虚拟线程池</td>
+<td>线程 &#x3D; 逻辑任务</td>
+<td>阻塞风格，最简单</td>
+</tr>
+</tbody></table>
+<p><strong>AIO 的坑</strong>：Linux 上 JDK 的 AIO 底层还是多路复用模拟，没有真异步 IO 的收益，Netty 直接不用 AIO。<strong>真异步（io_uring）的 Java 生态</strong>还在追赶（Netty 有 io_uring 移植、Loom 的 Poller），生产主力仍是 NIO 系。</p>
+<h3 id="4-2-选型结论"><a href="#4-2-选型结论" class="headerlink" title="4.2 选型结论"></a>4.2 选型结论</h3><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>选择</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>内部服务、连接数少（&lt;200）</td>
+<td>BIO + 线程池就够，别过度设计</td>
+</tr>
+<tr>
+<td>高并发网关&#x2F;RPC&#x2F;消息</td>
+<td>Netty（NIO + 主从 Reactor）</td>
+</tr>
+<tr>
+<td>高吞吐 IO 密集业务</td>
+<td>虚拟线程（JDK 21+）或 Netty</td>
+</tr>
+<tr>
+<td>需要精确控制每个连接</td>
+<td>NIO 裸写（极少）</td>
+</tr>
+</tbody></table>
+<h3 id="4-3-动手验证：复现-Too-many-open-files"><a href="#4-3-动手验证：复现-Too-many-open-files" class="headerlink" title="4.3 动手验证：复现 Too many open files"></a>4.3 动手验证：复现 Too many open files</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">ulimit</span> -n 64                      <span class="comment"># 把 fd 配额压到 64</span></span><br><span class="line"><span class="comment"># 跑一个 BIO 服务器（每连接一线程），循环 accept 不关闭连接</span></span><br><span class="line"><span class="comment"># 到第 60 个左右报 java.net.SocketException: Too many open files</span></span><br></pre></td></tr></table></figure>
+
+<p>这个报错的完整链路：连接数 × 每连接 fd（socket + 管道）&gt; nofile → accept 失败 → 服务半残。**生产上所有高并发进程的启动脚本里都要有 <code>ulimit -n 65535</code> 或 systemd 的 <code>LimitNOFILE</code>**——漏了它，压测第一波流量就能干崩服务。</p>
+<h2 id="5-总结与避坑清单"><a href="#5-总结与避坑清单" class="headerlink" title="5. 总结与避坑清单"></a>5. 总结与避坑清单</h2><h3 id="5-1-面试速答表"><a href="#5-1-面试速答表" class="headerlink" title="5.1 面试速答表"></a>5.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>BIO&#x2F;NIO&#x2F;AIO 区别？</td>
+<td>BIO 阻塞、一线程一连接；NIO 多路复用、一线程多连接；AIO 提交后回调（Linux JDK 上是模拟）</td>
+</tr>
+<tr>
+<td>epoll 为什么比 select 快？</td>
+<td>select 每次全量拷贝 + O(n) 扫描；epoll 注册一次、红黑树管理、只返回就绪链表（O(1)）</td>
+</tr>
+<tr>
+<td>LT 和 ET 区别？</td>
+<td>LT 反复报就绪（防漏）；ET 只报一次，必须读到 EAGAIN（高性能，写错丢事件）</td>
+</tr>
+<tr>
+<td>Netty 为什么快？</td>
+<td>主从 Reactor + epoll + 零拷贝 + 池化 ByteBuf，全是内核与 JVM 机制的叠加</td>
+</tr>
+<tr>
+<td>虚拟线程和 Netty 怎么选？</td>
+<td>都是「线程数低于连接数」；虚拟线程换阻塞写法，Netty 保留显式控制</td>
+</tr>
+<tr>
+<td>10 万连接怎么实现？</td>
+<td>多路复用（1 线程管 N 连接）+ 调大 nofile + 调大端口范围（ip_local_port_range）</td>
+</tr>
+</tbody></table>
+<h3 id="5-2-实战避坑清单"><a href="#5-2-实战避坑清单" class="headerlink" title="5.2 实战避坑清单"></a>5.2 实战避坑清单</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>压测报 Too many open files</td>
+<td>nofile 配额默认 1024，连接数轻松超</td>
+<td>启动脚本 ulimit -n &#x2F; systemd LimitNOFILE</td>
+</tr>
+<tr>
+<td>Netty 服务偶发卡顿</td>
+<td>业务线程把阻塞操作（DB 查询）写进了 IO 线程</td>
+<td>业务逻辑丢业务线程池；IO 线程只做编解码</td>
+</tr>
+<tr>
+<td>连接数高但线程数也高</td>
+<td>还在用 BIO 或线程池开太大</td>
+<td>换 NIO&#x2F;Netty；或虚拟线程</td>
+</tr>
+<tr>
+<td>NIO 数据偶尔丢&#x2F;错乱</td>
+<td>ET 模式没读到 EAGAIN 就放弃</td>
+<td>读循环直到返回 0 或 EAGAIN；入门用 LT</td>
+</tr>
+<tr>
+<td>select 服务器连接&gt;1024 异常</td>
+<td>select 的 FD_SETSIZE 硬上限</td>
+<td>换 poll&#x2F;epoll（或 Netty）</td>
+</tr>
+</tbody></table>
+<h3 id="5-3-工具速查表"><a href="#5-3-工具速查表" class="headerlink" title="5.3 工具速查表"></a>5.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>对应本节概念</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>strace -e trace=epoll_wait,select</code></td>
+<td>当前程序用哪种多路复用</td>
+<td>1&#x2F;2. IO 模型、epoll</td>
+</tr>
+<tr>
+<td><code>ss -lnt</code> &#x2F; <code>ss -s</code></td>
+<td>连接数、状态分布</td>
+<td>3. 线程模型对照</td>
+</tr>
+<tr>
+<td><code>ulimit -n</code> &#x2F; <code>/proc/sys/fs/file-max</code></td>
+<td>fd 配额</td>
+<td>4. 连接上限</td>
+</tr>
+<tr>
+<td><code>lsof -p &lt;pid&gt; | grep -c TCP</code></td>
+<td>进程真实连接数</td>
+<td>3&#x2F;4. 连接观测</td>
+</tr>
+<tr>
+<td><code>pstree -p &lt;pid&gt;</code></td>
+<td>线程数（对照连接数）</td>
+<td>3. 线程模型</td>
+</tr>
+</tbody></table>
+<p>四个收获：<strong>IO 模型本质是「谁在等数据」的分配问题</strong>；epoll 的快是「注册与等待分离」的快；线程模型解决「等到了之后谁来处理」；Java 的 BIO&#x2F;NIO&#x2F;虚拟线程是同一套内核机制的三副面孔。</p>
+<p>实操建议：</p>
+<ol>
+<li>高并发服务上线前检查三件事：<code>ulimit -n</code>、<code>ip_local_port_range</code>、监听端口 backlog（<code>ss -lnt</code> 看 Send-Q 溢出）。</li>
+<li>用了 Netty&#x2F;自研 NIO，先立规矩：IO 线程零阻塞操作，所有耗时逻辑必须出线程池。</li>
+<li>新项目 IO 密集业务直接评估虚拟线程，连接管理交给框架（Netty&#x2F;RPC 框架），两套并存不冲突。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告（操作系统系列收官）</strong>：本文的线程、连接、fd 全部是排查对象——第 5 篇《Linux 资源排查实战》把前四篇的工具（ps&#x2F;jstack&#x2F;vmstat&#x2F;iostat&#x2F;strace&#x2F;ss）收拢成 CPU、内存、IO 三类故障的定位流程，用真实案例走一遍「症状 → 工具 → 根因 → 处理」的完整链路。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/%E9%9D%A2%E8%AF%95/" rel="tag"># 面试</a>
+              <a href="/tags/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/" rel="tag"># 操作系统</a>
+              <a href="/tags/IO-%E6%A8%A1%E5%9E%8B/" rel="tag"># IO 模型</a>
+              <a href="/tags/epoll/" rel="tag"># epoll</a>
+              <a href="/tags/NIO/" rel="tag"># NIO</a>
+              <a href="/tags/Netty/" rel="tag"># Netty</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/fdff16da.html" rel="prev" title="文件系统与磁盘 IO">
+                  <i class="fa fa-angle-left"></i> 文件系统与磁盘 IO
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/post/22c01f5.html" rel="next" title="Linux 资源排查实战">
+                  Linux 资源排查实战 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">579k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">35:04</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
+</html>
