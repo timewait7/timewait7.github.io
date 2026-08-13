@@ -19,15 +19,15 @@
 
 <script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
 
-    <meta name="description" content="Zeus-Doc 高并发线程模型与锁竞争分析报告 版本：1.0.0 ｜ 更新日期：2026-07-31 ｜ 数据性质：模拟数据（基于架构合理推演） 相关文档：见《项目实战导航》   一、线程池设计总览线程池配置位于 zeus-doc-service-doc&#x2F;src&#x2F;main&#x2F;java&#x2F;com&#x2F;zeus&#x2F;doc&#x2F;threadpool&#x2F;ThreadPoolConfig.java。该类声明 4 个隔离线">
+    <meta name="description" content="Zeus-Doc 高并发线程模型与锁竞争分析报告 版本：1.0.0 ｜ 更新日期：2026-07-31 ｜ 数据性质：模拟数据（基于架构合理推演） 相关文档：《01-系统架构》｜《03-性能压测》｜《06-面试手册》   一、线程池设计总览线程池配置位于 zeus-doc-service-doc&#x2F;src&#x2F;main&#x2F;java&#x2F;com&#x2F;zeus&#x2F;doc&#x2F;threadpool&#x2F;ThreadPoolCon">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Zeus-Doc 高并发线程与锁设计">
 <meta property="og:url" content="http://timewait7.github.io/post/9e296fcf.html">
 <meta property="og:site_name" content="知行栈">
-<meta property="og:description" content="Zeus-Doc 高并发线程模型与锁竞争分析报告 版本：1.0.0 ｜ 更新日期：2026-07-31 ｜ 数据性质：模拟数据（基于架构合理推演） 相关文档：见《项目实战导航》   一、线程池设计总览线程池配置位于 zeus-doc-service-doc&#x2F;src&#x2F;main&#x2F;java&#x2F;com&#x2F;zeus&#x2F;doc&#x2F;threadpool&#x2F;ThreadPoolConfig.java。该类声明 4 个隔离线">
+<meta property="og:description" content="Zeus-Doc 高并发线程模型与锁竞争分析报告 版本：1.0.0 ｜ 更新日期：2026-07-31 ｜ 数据性质：模拟数据（基于架构合理推演） 相关文档：《01-系统架构》｜《03-性能压测》｜《06-面试手册》   一、线程池设计总览线程池配置位于 zeus-doc-service-doc&#x2F;src&#x2F;main&#x2F;java&#x2F;com&#x2F;zeus&#x2F;doc&#x2F;threadpool&#x2F;ThreadPoolCon">
 <meta property="og:locale" content="en_US">
 <meta property="article:published_time" content="2026-08-06T15:54:12.000Z">
-<meta property="article:modified_time" content="2026-08-12T05:03:31.125Z">
+<meta property="article:modified_time" content="2026-08-13T16:10:03.576Z">
 <meta name="twitter:card" content="summary">
 
 
@@ -168,7 +168,7 @@
       <div class="sidebar-panel-container">
         <!--noindex-->
         <div class="post-toc-wrap sidebar-panel">
-            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#Zeus-Doc-%E9%AB%98%E5%B9%B6%E5%8F%91%E7%BA%BF%E7%A8%8B%E6%A8%A1%E5%9E%8B%E4%B8%8E%E9%94%81%E7%AB%9E%E4%BA%89%E5%88%86%E6%9E%90%E6%8A%A5%E5%91%8A"><span class="nav-text">Zeus-Doc 高并发线程模型与锁竞争分析报告</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B8%80%E3%80%81%E7%BA%BF%E7%A8%8B%E6%B1%A0%E8%AE%BE%E8%AE%A1%E6%80%BB%E8%A7%88"><span class="nav-text">一、线程池设计总览</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-%E9%9A%94%E7%A6%BB%E8%AE%BE%E8%AE%A1%E5%8E%9F%E5%88%99%EF%BC%88ThreadPoolConfig-java-22-28-%E6%B3%A8%E9%87%8A%EF%BC%89"><span class="nav-text">1.1 隔离设计原则（ThreadPoolConfig.java:22-28 注释）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-2-%E6%8B%92%E7%BB%9D%E7%AD%96%E7%95%A5%E9%80%89%E6%8B%A9%EF%BC%88ThreadPoolConfig-java-29-32-%E6%B3%A8%E9%87%8A%EF%BC%89"><span class="nav-text">1.2 拒绝策略选择（ThreadPoolConfig.java:29-32 注释）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-3-TTL-%E4%B8%8A%E4%B8%8B%E6%96%87%E4%BC%A0%E9%80%92%EF%BC%88ThreadPoolConfig-java-88-90-%E6%B3%A8%E9%87%8A%EF%BC%89"><span class="nav-text">1.3 TTL 上下文传递（ThreadPoolConfig.java:88-90 注释）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-4-%E4%BC%98%E9%9B%85%E5%85%B3%E9%97%AD%EF%BC%88ThreadPoolConfig-java-99-101%EF%BC%89"><span class="nav-text">1.4 优雅关闭（ThreadPoolConfig.java:99-101）</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%BA%8C%E3%80%81500-%E5%B9%B6%E5%8F%91%E4%B8%8B%E7%BA%BF%E7%A8%8B%E6%B1%A0%E8%BF%90%E8%A1%8C%E6%95%B0%E6%8D%AE"><span class="nav-text">二、500 并发下线程池运行数据</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-doc-executor"><span class="nav-text">2.1 doc-executor</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-audit-executor"><span class="nav-text">2.2 audit-executor</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-search-sync-executor"><span class="nav-text">2.3 search-sync-executor</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-4-export-executor"><span class="nav-text">2.4 export-executor</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B8%89%E3%80%81jstack-%E7%BA%BF%E7%A8%8B%E6%A0%88%E5%88%86%E6%9E%90%EF%BC%9A%E7%AD%89%E5%BE%85%E9%94%81%E6%9C%80%E5%A4%9A%E7%9A%84%E7%BA%BF%E7%A8%8B-TOP-5"><span class="nav-text">三、jstack 线程栈分析：等待锁最多的线程 TOP 5</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E9%98%BB%E5%A1%9E%E7%BA%BF%E7%A8%8B-TOP-5"><span class="nav-text">3.1 阻塞线程 TOP 5</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E9%94%81%E7%AB%9E%E4%BA%89%E5%AE%9A%E4%BD%8D"><span class="nav-text">3.2 锁竞争定位</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-%E4%BC%98%E5%8C%96%E6%96%B9%E6%A1%88"><span class="nav-text">3.3 优化方案</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%9B%9B%E3%80%81%E9%94%81%E5%AF%B9%E6%AF%94%E6%B5%8B%E8%AF%95%EF%BC%9Asynchronized-vs-ReentrantLock-vs-LongAdder"><span class="nav-text">四、锁对比测试：synchronized vs ReentrantLock vs LongAdder</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-%E6%B5%8B%E8%AF%95%E8%AE%BE%E8%AE%A1"><span class="nav-text">4.1 测试设计</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-%E6%B5%8B%E8%AF%95%E7%BB%93%E6%9E%9C"><span class="nav-text">4.2 测试结果</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-LongAdder-%E5%8E%9F%E7%90%86%E5%88%86%E6%9E%90"><span class="nav-text">4.3 LongAdder 原理分析</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-4-%E9%80%82%E7%94%A8%E5%9C%BA%E6%99%AF"><span class="nav-text">4.4 适用场景</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%BA%94%E3%80%81%E5%85%B1%E7%94%A8%E7%BA%BF%E7%A8%8B%E6%B1%A0-vs-%E9%9A%94%E7%A6%BB%E7%BA%BF%E7%A8%8B%E6%B1%A0-TPS-%E5%B7%AE%E5%BC%82"><span class="nav-text">五、共用线程池 vs 隔离线程池 TPS 差异</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E6%B5%8B%E8%AF%95%E8%AE%BE%E8%AE%A1"><span class="nav-text">5.1 测试设计</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E6%B5%8B%E8%AF%95%E7%BB%93%E6%9E%9C"><span class="nav-text">5.2 测试结果</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-%E7%BB%93%E8%AE%BA"><span class="nav-text">5.3 结论</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%85%AD%E3%80%81%E4%BC%AA%E5%85%B1%E4%BA%AB%EF%BC%88False-Sharing%EF%BC%89%E6%8E%92%E6%9F%A5%E4%B8%8E-Contended-%E4%BC%98%E5%8C%96"><span class="nav-text">六、伪共享（False Sharing）排查与 @Contended 优化</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#6-1-%E9%97%AE%E9%A2%98%E7%8E%B0%E8%B1%A1"><span class="nav-text">6.1 问题现象</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-2-%E4%BC%AA%E5%85%B1%E4%BA%AB%E5%8E%9F%E7%90%86"><span class="nav-text">6.2 伪共享原理</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-3-%E6%8E%92%E6%9F%A5%E8%BF%87%E7%A8%8B"><span class="nav-text">6.3 排查过程</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-4-%E4%BC%98%E5%8C%96%E6%96%B9%E6%A1%88"><span class="nav-text">6.4 优化方案</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-5-%E4%BC%98%E5%8C%96%E6%95%88%E6%9E%9C"><span class="nav-text">6.5 优化效果</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B8%83%E3%80%81%E8%AF%BB%E5%86%99%E9%94%81%E9%99%8D%E7%BA%A7%E4%B8%8E%E5%8D%87%E7%BA%A7%E5%AE%9E%E6%B5%8B"><span class="nav-text">七、读写锁降级与升级实测</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#7-1-%E9%94%81%E9%99%8D%E7%BA%A7%E6%BC%94%E7%A4%BA%EF%BC%88DocCacheManager-updateAndRead%EF%BC%89"><span class="nav-text">7.1 锁降级演示（DocCacheManager.updateAndRead）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-2-%E9%94%81%E5%8D%87%E7%BA%A7%E6%AD%BB%E9%94%81%E9%AA%8C%E8%AF%81%EF%BC%88DocCacheManager-tryUpgradeToWriteLock%EF%BC%89"><span class="nav-text">7.2 锁升级死锁验证（DocCacheManager.tryUpgradeToWriteLock）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-3-%E5%8E%8B%E6%B5%8B%E5%AF%B9%E6%AF%94"><span class="nav-text">7.3 压测对比</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%85%AB%E3%80%81%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%8A%A8%E6%80%81%E8%B0%83%E4%BC%98"><span class="nav-text">八、线程池动态调优</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#8-1-%E8%BF%90%E8%A1%8C%E6%97%B6%E8%B0%83%E5%8F%82%EF%BC%88ThreadPoolConfig-java-108-119%EF%BC%89"><span class="nav-text">8.1 运行时调参（ThreadPoolConfig.java:108-119）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#8-2-%E5%8A%A8%E6%80%81%E8%B0%83%E5%8F%82%E5%AE%9E%E6%B5%8B"><span class="nav-text">8.2 动态调参实测</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B9%9D%E3%80%81%E7%BB%93%E8%AE%BA%E4%B8%8E%E6%9C%80%E4%BD%B3%E5%AE%9E%E8%B7%B5"><span class="nav-text">九、结论与最佳实践</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%99%841%E3%80%81%E7%BA%BF%E7%A8%8B%E6%B1%A0%E6%9E%B6%E6%9E%84%E6%A6%82%E8%A7%88"><span class="nav-text">附1、线程池架构概览</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%99%842%E3%80%814-%E7%BA%BF%E7%A8%8B%E6%B1%A0%E7%9B%91%E6%8E%A7"><span class="nav-text">附2、4 线程池监控</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E7%9B%91%E6%8E%A7%E6%95%B0%E6%8D%AE%E8%A1%A8"><span class="nav-text">2.1 监控数据表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E9%98%9F%E5%88%97%E7%A7%AF%E5%8E%8B%E9%9A%8F%E6%97%B6%E9%97%B4%E5%8F%98%E5%8C%96"><span class="nav-text">2.2 队列积压随时间变化</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-%E5%88%86%E6%9E%90"><span class="nav-text">2.3 分析</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-4-%E6%8B%92%E7%BB%9D%E7%AD%96%E7%95%A5%E8%A7%A6%E5%8F%91%E7%BB%9F%E8%AE%A1"><span class="nav-text">2.4 拒绝策略触发统计</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%99%843%E3%80%81jstack-%E7%BA%BF%E7%A8%8B%E6%A0%88%E5%88%86%E6%9E%90"><span class="nav-text">附3、jstack 线程栈分析</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E9%87%87%E9%9B%86%E6%96%B9%E6%B3%95"><span class="nav-text">3.1 采集方法</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E7%BA%BF%E7%A8%8B%E7%8A%B6%E6%80%81%E5%88%86%E5%B8%83"><span class="nav-text">3.2 线程状态分布</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-%E7%AD%89%E5%BE%85%E9%94%81%E6%9C%80%E5%A4%9A%E7%9A%84-TOP5-%E7%BA%BF%E7%A8%8B"><span class="nav-text">3.3 等待锁最多的 TOP5 线程</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-4-%E5%85%B8%E5%9E%8B-jstack-%E7%89%87%E6%AE%B5"><span class="nav-text">3.4 典型 jstack 片段</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%99%844%E3%80%81%E9%94%81%E7%AB%9E%E4%BA%89%E5%AF%B9%E6%AF%94"><span class="nav-text">附4、锁竞争对比</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-%E6%B5%8B%E8%AF%95%E5%9C%BA%E6%99%AF"><span class="nav-text">4.1 测试场景</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-%E5%AF%B9%E6%AF%94%E8%A1%A8%E6%A0%BC"><span class="nav-text">4.2 对比表格</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-TPS-%E5%AF%B9%E6%AF%94%E6%9F%B1%E7%8A%B6%E5%9B%BE"><span class="nav-text">4.3 TPS 对比柱状图</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-4-%E4%B8%8A%E4%B8%8B%E6%96%87%E5%88%87%E6%8D%A2%E5%AF%B9%E6%AF%94"><span class="nav-text">4.4 上下文切换对比</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-5-%E5%88%86%E6%9E%90"><span class="nav-text">4.5 分析</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%99%845%E3%80%81%E4%BC%AA%E5%85%B1%E4%BA%AB%EF%BC%88False-Sharing%EF%BC%89%E5%88%86%E6%9E%90"><span class="nav-text">附5、伪共享（False Sharing）分析</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E9%97%AE%E9%A2%98%E5%8E%9F%E7%90%86"><span class="nav-text">5.1 问题原理</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E6%B5%8B%E8%AF%95%E5%9C%BA%E6%99%AF"><span class="nav-text">5.2 测试场景</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-%E4%BC%98%E5%8C%96%E5%89%8D%E5%90%8E%E5%AF%B9%E6%AF%94"><span class="nav-text">5.3 优化前后对比</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-%E4%BC%98%E5%8C%96%E5%89%8D%E5%90%8E%E5%AF%B9%E6%AF%94%E5%9B%BE"><span class="nav-text">5.4 优化前后对比图</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-5-%E4%BC%98%E5%8C%96%E6%96%B9%E5%BC%8F"><span class="nav-text">5.5 优化方式</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-6-%E6%9C%AC%E9%A1%B9%E7%9B%AE%E5%BA%94%E7%94%A8"><span class="nav-text">5.6 本项目应用</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-7-%E9%80%82%E7%94%A8%E5%9C%BA%E6%99%AF"><span class="nav-text">5.7 适用场景</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%99%846%E3%80%81%E7%BA%BF%E7%A8%8B%E6%A8%A1%E5%9E%8B%E8%B0%83%E4%BC%98%E6%80%BB%E7%BB%93"><span class="nav-text">附6、线程模型调优总结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#6-1-%E5%85%B3%E9%94%AE%E5%8F%91%E7%8E%B0"><span class="nav-text">6.1 关键发现</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-2-%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%8F%82%E6%95%B0%E5%8A%A8%E6%80%81%E8%B0%83%E4%BC%98"><span class="nav-text">6.2 线程池参数动态调优</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-3-%E6%9C%80%E4%BD%B3%E5%AE%9E%E8%B7%B5"><span class="nav-text">6.3 最佳实践</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%99%847%E3%80%81%E7%9B%91%E6%8E%A7%E5%91%8A%E8%AD%A6%E9%85%8D%E7%BD%AE"><span class="nav-text">附7、监控告警配置</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%B3%BB%E5%88%97%E5%AF%BC%E8%88%AA"><span class="nav-text">系列导航</span></a></li></ol></li></ol></div>
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#Zeus-Doc-%E9%AB%98%E5%B9%B6%E5%8F%91%E7%BA%BF%E7%A8%8B%E6%A8%A1%E5%9E%8B%E4%B8%8E%E9%94%81%E7%AB%9E%E4%BA%89%E5%88%86%E6%9E%90%E6%8A%A5%E5%91%8A"><span class="nav-text">Zeus-Doc 高并发线程模型与锁竞争分析报告</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B8%80%E3%80%81%E7%BA%BF%E7%A8%8B%E6%B1%A0%E8%AE%BE%E8%AE%A1%E6%80%BB%E8%A7%88"><span class="nav-text">一、线程池设计总览</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-%E9%9A%94%E7%A6%BB%E8%AE%BE%E8%AE%A1%E5%8E%9F%E5%88%99%EF%BC%88ThreadPoolConfig-java-22-28-%E6%B3%A8%E9%87%8A%EF%BC%89"><span class="nav-text">1.1 隔离设计原则（ThreadPoolConfig.java:22-28 注释）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-2-%E6%8B%92%E7%BB%9D%E7%AD%96%E7%95%A5%E9%80%89%E6%8B%A9%EF%BC%88ThreadPoolConfig-java-29-32-%E6%B3%A8%E9%87%8A%EF%BC%89"><span class="nav-text">1.2 拒绝策略选择（ThreadPoolConfig.java:29-32 注释）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-3-TTL-%E4%B8%8A%E4%B8%8B%E6%96%87%E4%BC%A0%E9%80%92%EF%BC%88ThreadPoolConfig-java-88-90-%E6%B3%A8%E9%87%8A%EF%BC%89"><span class="nav-text">1.3 TTL 上下文传递（ThreadPoolConfig.java:88-90 注释）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-4-%E4%BC%98%E9%9B%85%E5%85%B3%E9%97%AD%EF%BC%88ThreadPoolConfig-java-99-101%EF%BC%89"><span class="nav-text">1.4 优雅关闭（ThreadPoolConfig.java:99-101）</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%BA%8C%E3%80%81500-%E5%B9%B6%E5%8F%91%E4%B8%8B%E7%BA%BF%E7%A8%8B%E6%B1%A0%E8%BF%90%E8%A1%8C%E6%95%B0%E6%8D%AE%EF%BC%88%E6%A8%A1%E6%8B%9F-Grafana-%E6%88%AA%E5%9B%BE%EF%BC%89"><span class="nav-text">二、500 并发下线程池运行数据（模拟 Grafana 截图）</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-doc-executor%EF%BC%88%E6%A0%B8%E5%BF%83%E5%86%99%EF%BC%89"><span class="nav-text">2.1 doc-executor（核心写）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-audit-executor%EF%BC%88%E5%AE%A1%E8%AE%A1%E6%97%A5%E5%BF%97%EF%BC%89"><span class="nav-text">2.2 audit-executor（审计日志）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-search-sync-executor%EF%BC%88ES-%E5%90%8C%E6%AD%A5%EF%BC%89"><span class="nav-text">2.3 search-sync-executor（ES 同步）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-4-export-executor%EF%BC%88%E5%AF%BC%E5%87%BA%EF%BC%89"><span class="nav-text">2.4 export-executor（导出）</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B8%89%E3%80%81jstack-%E7%BA%BF%E7%A8%8B%E6%A0%88%E5%88%86%E6%9E%90%EF%BC%9A%E7%AD%89%E5%BE%85%E9%94%81%E6%9C%80%E5%A4%9A%E7%9A%84%E7%BA%BF%E7%A8%8B-TOP-5"><span class="nav-text">三、jstack 线程栈分析：等待锁最多的线程 TOP 5</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E9%98%BB%E5%A1%9E%E7%BA%BF%E7%A8%8B-TOP-5%EF%BC%88%E6%A8%A1%E6%8B%9F%E6%95%B0%E6%8D%AE%EF%BC%89"><span class="nav-text">3.1 阻塞线程 TOP 5（模拟数据）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E9%94%81%E7%AB%9E%E4%BA%89%E5%AE%9A%E4%BD%8D"><span class="nav-text">3.2 锁竞争定位</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-%E4%BC%98%E5%8C%96%E6%96%B9%E6%A1%88"><span class="nav-text">3.3 优化方案</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%9B%9B%E3%80%81%E9%94%81%E5%AF%B9%E6%AF%94%E6%B5%8B%E8%AF%95%EF%BC%9Asynchronized-vs-ReentrantLock-vs-LongAdder"><span class="nav-text">四、锁对比测试：synchronized vs ReentrantLock vs LongAdder</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-%E6%B5%8B%E8%AF%95%E8%AE%BE%E8%AE%A1"><span class="nav-text">4.1 测试设计</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-%E6%B5%8B%E8%AF%95%E7%BB%93%E6%9E%9C%EF%BC%88%E6%A8%A1%E6%8B%9F%E6%95%B0%E6%8D%AE%EF%BC%89"><span class="nav-text">4.2 测试结果（模拟数据）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-LongAdder-%E5%8E%9F%E7%90%86%E5%88%86%E6%9E%90"><span class="nav-text">4.3 LongAdder 原理分析</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-4-%E9%80%82%E7%94%A8%E5%9C%BA%E6%99%AF"><span class="nav-text">4.4 适用场景</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%BA%94%E3%80%81%E5%85%B1%E7%94%A8%E7%BA%BF%E7%A8%8B%E6%B1%A0-vs-%E9%9A%94%E7%A6%BB%E7%BA%BF%E7%A8%8B%E6%B1%A0-TPS-%E5%B7%AE%E5%BC%82"><span class="nav-text">五、共用线程池 vs 隔离线程池 TPS 差异</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E6%B5%8B%E8%AF%95%E8%AE%BE%E8%AE%A1"><span class="nav-text">5.1 测试设计</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E6%B5%8B%E8%AF%95%E7%BB%93%E6%9E%9C%EF%BC%88%E6%A8%A1%E6%8B%9F%E6%95%B0%E6%8D%AE%EF%BC%89"><span class="nav-text">5.2 测试结果（模拟数据）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-%E7%BB%93%E8%AE%BA"><span class="nav-text">5.3 结论</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%85%AD%E3%80%81%E4%BC%AA%E5%85%B1%E4%BA%AB%EF%BC%88False-Sharing%EF%BC%89%E6%8E%92%E6%9F%A5%E4%B8%8E-Contended-%E4%BC%98%E5%8C%96"><span class="nav-text">六、伪共享（False Sharing）排查与 @Contended 优化</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#6-1-%E9%97%AE%E9%A2%98%E7%8E%B0%E8%B1%A1"><span class="nav-text">6.1 问题现象</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-2-%E4%BC%AA%E5%85%B1%E4%BA%AB%E5%8E%9F%E7%90%86"><span class="nav-text">6.2 伪共享原理</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-3-%E6%8E%92%E6%9F%A5%E8%BF%87%E7%A8%8B"><span class="nav-text">6.3 排查过程</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-4-%E4%BC%98%E5%8C%96%E6%96%B9%E6%A1%88"><span class="nav-text">6.4 优化方案</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-5-%E4%BC%98%E5%8C%96%E6%95%88%E6%9E%9C%EF%BC%88%E6%A8%A1%E6%8B%9F%E6%95%B0%E6%8D%AE%EF%BC%89"><span class="nav-text">6.5 优化效果（模拟数据）</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B8%83%E3%80%81%E8%AF%BB%E5%86%99%E9%94%81%E9%99%8D%E7%BA%A7%E4%B8%8E%E5%8D%87%E7%BA%A7%E5%AE%9E%E6%B5%8B"><span class="nav-text">七、读写锁降级与升级实测</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#7-1-%E9%94%81%E9%99%8D%E7%BA%A7%E6%BC%94%E7%A4%BA%EF%BC%88DocCacheManager-updateAndRead%EF%BC%89"><span class="nav-text">7.1 锁降级演示（DocCacheManager.updateAndRead）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-2-%E9%94%81%E5%8D%87%E7%BA%A7%E6%AD%BB%E9%94%81%E9%AA%8C%E8%AF%81%EF%BC%88DocCacheManager-tryUpgradeToWriteLock%EF%BC%89"><span class="nav-text">7.2 锁升级死锁验证（DocCacheManager.tryUpgradeToWriteLock）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-3-%E5%8E%8B%E6%B5%8B%E5%AF%B9%E6%AF%94%EF%BC%88%E6%A8%A1%E6%8B%9F%E6%95%B0%E6%8D%AE%EF%BC%89"><span class="nav-text">7.3 压测对比（模拟数据）</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%85%AB%E3%80%81%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%8A%A8%E6%80%81%E8%B0%83%E4%BC%98"><span class="nav-text">八、线程池动态调优</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#8-1-%E8%BF%90%E8%A1%8C%E6%97%B6%E8%B0%83%E5%8F%82%EF%BC%88ThreadPoolConfig-java-108-119%EF%BC%89"><span class="nav-text">8.1 运行时调参（ThreadPoolConfig.java:108-119）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#8-2-%E5%8A%A8%E6%80%81%E8%B0%83%E5%8F%82%E5%AE%9E%E6%B5%8B%EF%BC%88%E6%A8%A1%E6%8B%9F%E6%95%B0%E6%8D%AE%EF%BC%89"><span class="nav-text">8.2 动态调参实测（模拟数据）</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B9%9D%E3%80%81%E7%BB%93%E8%AE%BA%E4%B8%8E%E6%9C%80%E4%BD%B3%E5%AE%9E%E8%B7%B5"><span class="nav-text">九、结论与最佳实践</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%99%841%E3%80%81%E7%BA%BF%E7%A8%8B%E6%B1%A0%E6%9E%B6%E6%9E%84%E6%A6%82%E8%A7%88%EF%BC%88%E8%A1%A5%E5%85%85%E7%AB%A0%E8%8A%82%EF%BC%89"><span class="nav-text">附1、线程池架构概览（补充章节）</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%99%842%E3%80%814-%E7%BA%BF%E7%A8%8B%E6%B1%A0%E7%9B%91%E6%8E%A7%EF%BC%88500-%E5%B9%B6%E5%8F%91%EF%BC%8C%E6%A8%A1%E6%8B%9F-Grafana-%E6%88%AA%E5%9B%BE%E6%8F%8F%E8%BF%B0%EF%BC%89%EF%BC%88%E8%A1%A5%E5%85%85%E7%AB%A0%E8%8A%82%EF%BC%89"><span class="nav-text">附2、4 线程池监控（500 并发，模拟 Grafana 截图描述）（补充章节）</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E7%9B%91%E6%8E%A7%E6%95%B0%E6%8D%AE%E8%A1%A8"><span class="nav-text">2.1 监控数据表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E9%98%9F%E5%88%97%E7%A7%AF%E5%8E%8B%E9%9A%8F%E6%97%B6%E9%97%B4%E5%8F%98%E5%8C%96%EF%BC%88%E6%A8%A1%E6%8B%9F%E6%95%B0%E6%8D%AE%EF%BC%89"><span class="nav-text">2.2 队列积压随时间变化（模拟数据）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-%E5%88%86%E6%9E%90"><span class="nav-text">2.3 分析</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-4-%E6%8B%92%E7%BB%9D%E7%AD%96%E7%95%A5%E8%A7%A6%E5%8F%91%E7%BB%9F%E8%AE%A1%EF%BC%88%E6%A8%A1%E6%8B%9F%E6%95%B0%E6%8D%AE%EF%BC%89"><span class="nav-text">2.4 拒绝策略触发统计（模拟数据）</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%99%843%E3%80%81jstack-%E7%BA%BF%E7%A8%8B%E6%A0%88%E5%88%86%E6%9E%90%EF%BC%88%E8%A1%A5%E5%85%85%E7%AB%A0%E8%8A%82%EF%BC%89"><span class="nav-text">附3、jstack 线程栈分析（补充章节）</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E9%87%87%E9%9B%86%E6%96%B9%E6%B3%95"><span class="nav-text">3.1 采集方法</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E7%BA%BF%E7%A8%8B%E7%8A%B6%E6%80%81%E5%88%86%E5%B8%83%EF%BC%88%E6%A8%A1%E6%8B%9F%E6%95%B0%E6%8D%AE%EF%BC%89"><span class="nav-text">3.2 线程状态分布（模拟数据）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-%E7%AD%89%E5%BE%85%E9%94%81%E6%9C%80%E5%A4%9A%E7%9A%84-TOP5-%E7%BA%BF%E7%A8%8B"><span class="nav-text">3.3 等待锁最多的 TOP5 线程</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-4-%E5%85%B8%E5%9E%8B-jstack-%E7%89%87%E6%AE%B5%EF%BC%88%E6%A8%A1%E6%8B%9F%EF%BC%89"><span class="nav-text">3.4 典型 jstack 片段（模拟）</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%99%844%E3%80%81%E9%94%81%E7%AB%9E%E4%BA%89%E5%AF%B9%E6%AF%94%EF%BC%88%E8%A1%A5%E5%85%85%E7%AB%A0%E8%8A%82%EF%BC%89"><span class="nav-text">附4、锁竞争对比（补充章节）</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-%E6%B5%8B%E8%AF%95%E5%9C%BA%E6%99%AF"><span class="nav-text">4.1 测试场景</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-%E5%AF%B9%E6%AF%94%E8%A1%A8%E6%A0%BC%EF%BC%88%E6%A8%A1%E6%8B%9F%E6%95%B0%E6%8D%AE%EF%BC%89"><span class="nav-text">4.2 对比表格（模拟数据）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-TPS-%E5%AF%B9%E6%AF%94%E6%9F%B1%E7%8A%B6%E5%9B%BE"><span class="nav-text">4.3 TPS 对比柱状图</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-4-%E4%B8%8A%E4%B8%8B%E6%96%87%E5%88%87%E6%8D%A2%E5%AF%B9%E6%AF%94"><span class="nav-text">4.4 上下文切换对比</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-5-%E5%88%86%E6%9E%90"><span class="nav-text">4.5 分析</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%99%845%E3%80%81%E4%BC%AA%E5%85%B1%E4%BA%AB%EF%BC%88False-Sharing%EF%BC%89%E5%88%86%E6%9E%90%EF%BC%88%E8%A1%A5%E5%85%85%E7%AB%A0%E8%8A%82%EF%BC%89"><span class="nav-text">附5、伪共享（False Sharing）分析（补充章节）</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E9%97%AE%E9%A2%98%E5%8E%9F%E7%90%86"><span class="nav-text">5.1 问题原理</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E6%B5%8B%E8%AF%95%E5%9C%BA%E6%99%AF"><span class="nav-text">5.2 测试场景</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-%E4%BC%98%E5%8C%96%E5%89%8D%E5%90%8E%E5%AF%B9%E6%AF%94%EF%BC%88%E6%A8%A1%E6%8B%9F%E6%95%B0%E6%8D%AE%EF%BC%89"><span class="nav-text">5.3 优化前后对比（模拟数据）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-%E4%BC%98%E5%8C%96%E5%89%8D%E5%90%8E%E5%AF%B9%E6%AF%94%E5%9B%BE"><span class="nav-text">5.4 优化前后对比图</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-5-%E4%BC%98%E5%8C%96%E6%96%B9%E5%BC%8F"><span class="nav-text">5.5 优化方式</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-6-%E6%9C%AC%E9%A1%B9%E7%9B%AE%E5%BA%94%E7%94%A8"><span class="nav-text">5.6 本项目应用</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-7-%E9%80%82%E7%94%A8%E5%9C%BA%E6%99%AF"><span class="nav-text">5.7 适用场景</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%99%846%E3%80%81%E7%BA%BF%E7%A8%8B%E6%A8%A1%E5%9E%8B%E8%B0%83%E4%BC%98%E6%80%BB%E7%BB%93%EF%BC%88%E8%A1%A5%E5%85%85%E7%AB%A0%E8%8A%82%EF%BC%89"><span class="nav-text">附6、线程模型调优总结（补充章节）</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#6-1-%E5%85%B3%E9%94%AE%E5%8F%91%E7%8E%B0"><span class="nav-text">6.1 关键发现</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-2-%E7%BA%BF%E7%A8%8B%E6%B1%A0%E5%8F%82%E6%95%B0%E5%8A%A8%E6%80%81%E8%B0%83%E4%BC%98"><span class="nav-text">6.2 线程池参数动态调优</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-3-%E6%9C%80%E4%BD%B3%E5%AE%9E%E8%B7%B5"><span class="nav-text">6.3 最佳实践</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%99%847%E3%80%81%E7%9B%91%E6%8E%A7%E5%91%8A%E8%AD%A6%E9%85%8D%E7%BD%AE%EF%BC%88%E8%A1%A5%E5%85%85%E7%AB%A0%E8%8A%82%EF%BC%89"><span class="nav-text">附7、监控告警配置（补充章节）</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%B3%BB%E5%88%97%E5%AF%BC%E8%88%AA"><span class="nav-text">系列导航</span></a></li></ol></li></ol></div>
         </div>
         <!--/noindex-->
 
@@ -181,7 +181,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">84</span>
+          <span class="site-state-item-count">86</span>
           <span class="site-state-item-name">posts</span>
         </a>
       </div>
@@ -192,7 +192,7 @@
       </div>
       <div class="site-state-item site-state-tags">
           <a href="/tags/">
-        <span class="site-state-item-count">127</span>
+        <span class="site-state-item-count">132</span>
         <span class="site-state-item-name">tags</span></a>
       </div>
   </nav>
@@ -230,6 +230,44 @@
     </div>
         <div class="pjax">
         
+        <div class="sidebar-inner sidebar-post-related">
+          <div class="animated">
+              <div class="links-of-blogroll-title"><i class="fa fa-signs-post fa-fw"></i>
+    Related Posts
+  </div>
+  <ul class="popular-posts">
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/a3f81c2d.html" rel="bookmark">
+        <time class="popular-posts-time">2025-07-28</time>
+        <br>
+      Java 并发编程
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/22c01f5.html" rel="bookmark">
+        <time class="popular-posts-time">2026-08-12</time>
+        <br>
+      Linux 资源排查实战
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/5e9c8515.html" rel="bookmark">
+        <time class="popular-posts-time">2026-08-06</time>
+        <br>
+      Zeus-Doc 性能压测实战
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/e3c529af.html" rel="bookmark">
+        <time class="popular-posts-time">2026-08-06</time>
+        <br>
+      Zeus-Doc 数据库设计
+      </a>
+    </li>
+  </ul>
+
+          </div>
+        </div>
         </div>
   </aside>
 
@@ -264,10 +302,6 @@
 
     </ul>
     <ul class="sub-menu menu">
-      
-  <li class="menu-item menu-item-项目面试准备指南"><a href="/post/9811b68b.html" rel="section"><i class="fa fa-file-text fa-fw"></i>项目面试准备指南</a></li>
-
-
       
   <li class="menu-item menu-item-zeus-doc"><a href="/docs/nav/zeus-doc-nav.html" rel="section"><i class="fa fa-folder-open fa-fw"></i>Zeus-Doc</a></li>
 
@@ -363,14 +397,14 @@
         <i class="far fa-file-word"></i>
       </span>
       <span class="post-meta-item-text">Word count in article: </span>
-      <span>5k</span>
+      <span>5.8k</span>
     </span>
     <span class="post-meta-item" title="Reading time">
       <span class="post-meta-item-icon">
         <i class="far fa-clock"></i>
       </span>
       <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>18 mins.</span>
+      <span>21 mins.</span>
     </span>
 </div>
 
@@ -382,7 +416,7 @@
     
     <div class="post-body" itemprop="articleBody"><h1 id="Zeus-Doc-高并发线程模型与锁竞争分析报告"><a href="#Zeus-Doc-高并发线程模型与锁竞争分析报告" class="headerlink" title="Zeus-Doc 高并发线程模型与锁竞争分析报告"></a>Zeus-Doc 高并发线程模型与锁竞争分析报告</h1><blockquote>
 <p>版本：1.0.0 ｜ 更新日期：2026-07-31 ｜ 数据性质：模拟数据（基于架构合理推演）</p>
-<p>相关文档：见《项目实战导航》</p>
+<p>相关文档：《01-系统架构》｜《03-性能压测》｜《06-面试手册》</p>
 </blockquote>
 <hr>
 <h2 id="一、线程池设计总览"><a href="#一、线程池设计总览" class="headerlink" title="一、线程池设计总览"></a>一、线程池设计总览</h2><p>线程池配置位于 <code>zeus-doc-service-doc/src/main/java/com/zeus/doc/threadpool/ThreadPoolConfig.java</code>。该类声明 4 个隔离线程池（第 49-52 行）：</p>
@@ -447,8 +481,8 @@
 
 <p>应用关闭时等待队列任务执行完（最多 30s），避免任务半途丢失。<code>@PreDestroy</code>（第 121 行）触发清理。</p>
 <hr>
-<h2 id="二、500-并发下线程池运行数据"><a href="#二、500-并发下线程池运行数据" class="headerlink" title="二、500 并发下线程池运行数据"></a>二、500 并发下线程池运行数据</h2><p>测试条件：500 并发混合流量（70% 读 + 20% 写 + 10% 导出），持续 10 分钟。</p>
-<h3 id="2-1-doc-executor"><a href="#2-1-doc-executor" class="headerlink" title="2.1 doc-executor"></a>2.1 doc-executor</h3><table>
+<h2 id="二、500-并发下线程池运行数据（模拟-Grafana-截图）"><a href="#二、500-并发下线程池运行数据（模拟-Grafana-截图）" class="headerlink" title="二、500 并发下线程池运行数据（模拟 Grafana 截图）"></a>二、500 并发下线程池运行数据（模拟 Grafana 截图）</h2><p>测试条件：500 并发混合流量（70% 读 + 20% 写 + 10% 导出），持续 10 分钟。</p>
+<h3 id="2-1-doc-executor（核心写）"><a href="#2-1-doc-executor（核心写）" class="headerlink" title="2.1 doc-executor（核心写）"></a>2.1 doc-executor（核心写）</h3><table>
 <thead>
 <tr>
 <th>时刻</th>
@@ -500,7 +534,10 @@
 <td>0.013%</td>
 </tr>
 </tbody></table>
-<h3 id="2-2-audit-executor"><a href="#2-2-audit-executor" class="headerlink" title="2.2 audit-executor"></a>2.2 audit-executor</h3><table>
+<blockquote>
+<p>注：本表为 A 批次 10 分钟压测（混合流量 70% 读 + 20% 写 + 10% 导出），doc-executor 累计拒绝 8 次；附B「2.1 监控数据表」为另一批次（保存 20% &#x2F; 审计 30% &#x2F; 搜索同步 30% &#x2F; 导出 5% &#x2F; 读 15%），流量配比与批次不同，累计拒绝 12 次，两处数据不直接可比。</p>
+</blockquote>
+<h3 id="2-2-audit-executor（审计日志）"><a href="#2-2-audit-executor（审计日志）" class="headerlink" title="2.2 audit-executor（审计日志）"></a>2.2 audit-executor（审计日志）</h3><table>
 <thead>
 <tr>
 <th>时刻</th>
@@ -533,7 +570,7 @@
 </tr>
 </tbody></table>
 <p>CallerRunsPolicy 触发后，调用线程（Tomcat 工作线程）被占用执行日志写入，导致接口 RT 短暂上升 30ms。</p>
-<h3 id="2-3-search-sync-executor"><a href="#2-3-search-sync-executor" class="headerlink" title="2.3 search-sync-executor"></a>2.3 search-sync-executor</h3><table>
+<h3 id="2-3-search-sync-executor（ES-同步）"><a href="#2-3-search-sync-executor（ES-同步）" class="headerlink" title="2.3 search-sync-executor（ES 同步）"></a>2.3 search-sync-executor（ES 同步）</h3><table>
 <thead>
 <tr>
 <th>时刻</th>
@@ -559,7 +596,7 @@
 </tr>
 </tbody></table>
 <p>ES 同步出现背压，DiscardOldestPolicy 丢弃 12 个最旧任务，由全量补偿定时任务每小时补齐。</p>
-<h3 id="2-4-export-executor"><a href="#2-4-export-executor" class="headerlink" title="2.4 export-executor"></a>2.4 export-executor</h3><table>
+<h3 id="2-4-export-executor（导出）"><a href="#2-4-export-executor（导出）" class="headerlink" title="2.4 export-executor（导出）"></a>2.4 export-executor（导出）</h3><table>
 <thead>
 <tr>
 <th>时刻</th>
@@ -586,7 +623,7 @@
 </tbody></table>
 <hr>
 <h2 id="三、jstack-线程栈分析：等待锁最多的线程-TOP-5"><a href="#三、jstack-线程栈分析：等待锁最多的线程-TOP-5" class="headerlink" title="三、jstack 线程栈分析：等待锁最多的线程 TOP 5"></a>三、jstack 线程栈分析：等待锁最多的线程 TOP 5</h2><p>500 并发压测期间执行 5 次 <code>jstack &lt;pid&gt;</code>，统计线程阻塞分布。</p>
-<h3 id="3-1-阻塞线程-TOP-5"><a href="#3-1-阻塞线程-TOP-5" class="headerlink" title="3.1 阻塞线程 TOP 5"></a>3.1 阻塞线程 TOP 5</h3><table>
+<h3 id="3-1-阻塞线程-TOP-5（模拟数据）"><a href="#3-1-阻塞线程-TOP-5（模拟数据）" class="headerlink" title="3.1 阻塞线程 TOP 5（模拟数据）"></a>3.1 阻塞线程 TOP 5（模拟数据）</h3><table>
 <thead>
 <tr>
 <th>排名</th>
@@ -638,6 +675,9 @@
 <td>12%</td>
 </tr>
 </tbody></table>
+<blockquote>
+<p>注：本表为 A 批次 jstack 采样（500 并发压测期间 5 次采样）；附C「3.3 等待锁最多的 TOP5 线程」为另一批次（3 次采样），两批采样次数与场景细节不同，阻塞次数不直接可比。</p>
+</blockquote>
 <h3 id="3-2-锁竞争定位"><a href="#3-2-锁竞争定位" class="headerlink" title="3.2 锁竞争定位"></a>3.2 锁竞争定位</h3><p>阻塞集中在 <code>DocCacheManager.writeLock</code>（<code>DocCacheManager.java:41, 43, 62</code>）。<code>getOrLoad</code> 方法在缓存未中时先释放读锁再获取写锁（第 62 行），多线程并发回源 DB 时写锁串行化，成为瓶颈。</p>
 <p><strong>典型 jstack 片段</strong>（doc-executor-3 等待 writeLock）：</p>
 <figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">&quot;doc-executor-3&quot; #45 prio=5 os_prio=0 tid=0x... nid=0x... waiting on condition</span><br><span class="line">   java.lang.Thread.State: WAITING (parking)</span><br><span class="line">        at jdk.internal.misc.Unsafe.park(Native Method)</span><br><span class="line">        - parking to wait for  &lt;0x...&gt; (a java.util.concurrent.locks.ReentrantReadWriteLock$NonfairSync)</span><br><span class="line">        at java.util.concurrent.locks.LockSupport.park(LockSupport.java:211)</span><br><span class="line">        at java.util.concurrent.locks.AbstractQueuedSynchronizer.parkAndCheckInterrupt(AQS.java:...)</span><br><span class="line">        at java.util.concurrent.locks.AbstractQueuedSynchronizer.acquire(AQS.java:...)</span><br><span class="line">        at java.util.concurrent.locks.ReentrantReadWriteLock$WriteLock.lock(...)</span><br><span class="line">        at com.zeus.doc.manager.DocCacheManager.getOrLoad(DocCacheManager.java:62)</span><br></pre></td></tr></table></figure>
@@ -671,7 +711,7 @@
 </blockquote>
 <hr>
 <h2 id="四、锁对比测试：synchronized-vs-ReentrantLock-vs-LongAdder"><a href="#四、锁对比测试：synchronized-vs-ReentrantLock-vs-LongAdder" class="headerlink" title="四、锁对比测试：synchronized vs ReentrantLock vs LongAdder"></a>四、锁对比测试：synchronized vs ReentrantLock vs LongAdder</h2><h3 id="4-1-测试设计"><a href="#4-1-测试设计" class="headerlink" title="4.1 测试设计"></a>4.1 测试设计</h3><p>场景：在线人数计数器，200 并发线程，每线程累加 100 万次，持续 10 分钟，统计 TPS 与上下文切换。</p>
-<h3 id="4-2-测试结果"><a href="#4-2-测试结果" class="headerlink" title="4.2 测试结果"></a>4.2 测试结果</h3><table>
+<h3 id="4-2-测试结果（模拟数据）"><a href="#4-2-测试结果（模拟数据）" class="headerlink" title="4.2 测试结果（模拟数据）"></a>4.2 测试结果（模拟数据）</h3><table>
 <thead>
 <tr>
 <th>方案</th>
@@ -715,6 +755,9 @@
 <td>单点 CAS，高并发自旋失败多</td>
 </tr>
 </tbody></table>
+<blockquote>
+<p>注：本表为 A 批测试（在线人数计数器，200 并发线程 × 每线程累加 100 万次）；附D「4.2 对比表格」为另一批测试（HotStats 计数器，200 并发持续 10 分钟），测试对象与口径不同，两处 synchronized TPS（8200 vs 1850）不直接可比。</p>
+</blockquote>
 <h3 id="4-3-LongAdder-原理分析"><a href="#4-3-LongAdder-原理分析" class="headerlink" title="4.3 LongAdder 原理分析"></a>4.3 LongAdder 原理分析</h3><p>LongAdder 在高并发下 TPS 是 synchronized 的 8.3 倍，原理：</p>
 <ul>
 <li>内部维护 <code>base</code> + <code>Cell[]</code> 数组（默认 2 倍 CPU 核数）；</li>
@@ -744,7 +787,7 @@
 </tbody></table>
 <hr>
 <h2 id="五、共用线程池-vs-隔离线程池-TPS-差异"><a href="#五、共用线程池-vs-隔离线程池-TPS-差异" class="headerlink" title="五、共用线程池 vs 隔离线程池 TPS 差异"></a>五、共用线程池 vs 隔离线程池 TPS 差异</h2><h3 id="5-1-测试设计"><a href="#5-1-测试设计" class="headerlink" title="5.1 测试设计"></a>5.1 测试设计</h3><p>对比「4 池隔离」与「单池共用（core&#x3D;16, max&#x3D;32, queue&#x3D;3700）」在混合流量下的表现。模拟 audit-executor 被慢调用拖垮的场景：注入 1 个 500ms 慢日志写入任务。</p>
-<h3 id="5-2-测试结果"><a href="#5-2-测试结果" class="headerlink" title="5.2 测试结果"></a>5.2 测试结果</h3><table>
+<h3 id="5-2-测试结果（模拟数据）"><a href="#5-2-测试结果（模拟数据）" class="headerlink" title="5.2 测试结果（模拟数据）"></a>5.2 测试结果（模拟数据）</h3><table>
 <thead>
 <tr>
 <th>方案</th>
@@ -788,7 +831,7 @@
 <p>方案二：<code>@jdk.internal.vm.annotation.Contended</code> 注解（需 JVM 参数 <code>-XX:-RestrictContended</code>）：</p>
 <figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Contended</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">PaddedCounter</span> &#123;</span><br><span class="line">    <span class="keyword">volatile</span> <span class="type">long</span> value;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 
-<h3 id="6-5-优化效果"><a href="#6-5-优化效果" class="headerlink" title="6.5 优化效果"></a>6.5 优化效果</h3><table>
+<h3 id="6-5-优化效果（模拟数据）"><a href="#6-5-优化效果（模拟数据）" class="headerlink" title="6.5 优化效果（模拟数据）"></a>6.5 优化效果（模拟数据）</h3><table>
 <thead>
 <tr>
 <th>方案</th>
@@ -813,6 +856,9 @@
 </tr>
 </tbody></table>
 <p>填充后 TPS 提升 63%，缓存命中率从 62% 升至 89%。JDK 内部的 <code>LongAdder.Cell</code> 即用 <code>@Contended</code> 优化。</p>
+<blockquote>
+<p>注：本表为 TPS 指标（在线人数计数器压测）；附E「5.3 优化前后对比」为耗时实验口径（两线程各累加 1 亿次的总耗时），指标口径不同，两处数据不直接可比。</p>
+</blockquote>
 <hr>
 <h2 id="七、读写锁降级与升级实测"><a href="#七、读写锁降级与升级实测" class="headerlink" title="七、读写锁降级与升级实测"></a>七、读写锁降级与升级实测</h2><h3 id="7-1-锁降级演示（DocCacheManager-updateAndRead）"><a href="#7-1-锁降级演示（DocCacheManager-updateAndRead）" class="headerlink" title="7.1 锁降级演示（DocCacheManager.updateAndRead）"></a>7.1 锁降级演示（DocCacheManager.updateAndRead）</h3><p><code>DocCacheManager.java:86-114</code> 的 <code>updateAndRead</code> 方法演示写锁→读锁降级：</p>
 <figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">writeLock.lock() → 修改数据 → readLock.lock() → writeLock.unlock() → 业务读 → readLock.unlock()</span><br></pre></td></tr></table></figure>
@@ -820,7 +866,7 @@
 <p>降级后当前线程持有读锁继续读，其它读线程可并行进入，避免写完后独占阻塞读。</p>
 <h3 id="7-2-锁升级死锁验证（DocCacheManager-tryUpgradeToWriteLock）"><a href="#7-2-锁升级死锁验证（DocCacheManager-tryUpgradeToWriteLock）" class="headerlink" title="7.2 锁升级死锁验证（DocCacheManager.tryUpgradeToWriteLock）"></a>7.2 锁升级死锁验证（DocCacheManager.tryUpgradeToWriteLock）</h3><p><code>DocCacheManager.java:125-155</code> 注释说明：持有读锁时调用 <code>writeLock.lock()</code> 会永久阻塞（死锁）。第 132-133 行的错误示范已注释，正确做法是先 <code>readLock.unlock()</code> 再 <code>writeLock.lock()</code> + 双重检查（第 136-149 行）。</p>
 <p><strong>死锁原因</strong>：若允许读锁升级写锁，多个读线程同时持有读锁并都想升级时，写锁需等所有读锁释放，而读锁因等待写锁不释放，形成循环等待死锁。Java 显式禁止此操作。</p>
-<h3 id="7-3-压测对比"><a href="#7-3-压测对比" class="headerlink" title="7.3 压测对比"></a>7.3 压测对比</h3><table>
+<h3 id="7-3-压测对比（模拟数据）"><a href="#7-3-压测对比（模拟数据）" class="headerlink" title="7.3 压测对比（模拟数据）"></a>7.3 压测对比（模拟数据）</h3><table>
 <thead>
 <tr>
 <th>方案</th>
@@ -856,7 +902,7 @@
 <li><code>QueueCapacity</code> 无法动态改（<code>LinkedBlockingQueue</code> capacity 为 final），需重建线程池。</li>
 </ul>
 <p>项目通过 Nacos <code>@RefreshScope</code> 监听配置变更（<code>application.yml:81-99</code> 的 <code>zeus.threadpool.*</code>），<code>refresh</code> 方法（第 115 行）动态调整 core&#x2F;max。</p>
-<h3 id="8-2-动态调参实测"><a href="#8-2-动态调参实测" class="headerlink" title="8.2 动态调参实测"></a>8.2 动态调参实测</h3><p>压测期间将 doc-executor 从 core&#x3D;8&#x2F;max&#x3D;16 调整为 core&#x3D;12&#x2F;max&#x3D;24：</p>
+<h3 id="8-2-动态调参实测（模拟数据）"><a href="#8-2-动态调参实测（模拟数据）" class="headerlink" title="8.2 动态调参实测（模拟数据）"></a>8.2 动态调参实测（模拟数据）</h3><p>压测期间将 doc-executor 从 core&#x3D;8&#x2F;max&#x3D;16 调整为 core&#x3D;12&#x2F;max&#x3D;24：</p>
 <table>
 <thead>
 <tr>
@@ -891,9 +937,9 @@
 <li><strong>拒绝策略因业务而异</strong>：核心写用 Abort 暴露问题，日志用 CallerRuns 不丢，ES 同步用 DiscardOldest 保最新；</li>
 <li><strong>动态调优</strong>：core&#x2F;max 可 Nacos 热更新，队列容量需重建，设计时预留容量上限。</li>
 </ol>
-<p>线程模型设计需结合压测数据持续迭代，锁竞争排查依赖 jstack + JOL 工具链。详见《项目实战导航》。</p>
+<p>线程模型设计需结合压测数据持续迭代，锁竞争排查依赖 jstack + JOL 工具链。详见《05-JVM 调优报告》与《06-面试手册第7&#x2F;9问》。</p>
 <hr>
-<h2 id="附1、线程池架构概览"><a href="#附1、线程池架构概览" class="headerlink" title="附1、线程池架构概览"></a>附1、线程池架构概览</h2><p>文档服务（<code>zeus-doc-service-doc</code>）采用 4 线程池隔离架构，配置于 <code>ThreadPoolConfig.java:49-76</code>：</p>
+<h2 id="附1、线程池架构概览（补充章节）"><a href="#附1、线程池架构概览（补充章节）" class="headerlink" title="附1、线程池架构概览（补充章节）"></a>附1、线程池架构概览（补充章节）</h2><p>文档服务（<code>zeus-doc-service-doc</code>）采用 4 线程池隔离架构，配置于 <code>ThreadPoolConfig.java:49-76</code>：</p>
 <pre class="mermaid">graph TB
     Req[HTTP 请求 Tomcat 线程] --> DS[DocService]
     DS -->|@Async| DocExec[doc-executor&lt;br/>core=8 max=16 queue=2000&lt;br/>AbortPolicy&lt;br/>核心写]
@@ -910,6 +956,7 @@
     style AuditExec fill:#ffe4b5
     style SearchExec fill:#e0ffff
     style ExportExec fill:#f0fff0</pre>
+
 <p><strong>隔离原则</strong>（<code>ThreadPoolConfig.java:23-27</code>）：</p>
 <ol>
 <li><strong>故障隔离</strong>：A 业务慢请求堆积不拖垮 B 业务（避免”雪崩传染”）</li>
@@ -918,7 +965,7 @@
 <li><strong>调优隔离</strong>：不同业务 CPU&#x2F;IO 特性不同，参数独立调整</li>
 </ol>
 <hr>
-<h2 id="附2、4-线程池监控"><a href="#附2、4-线程池监控" class="headerlink" title="附2、4 线程池监控"></a>附2、4 线程池监控</h2><p>压测条件：500 并发混合流量（保存 20% &#x2F; 审计 30% &#x2F; 搜索同步 30% &#x2F; 导出 5% &#x2F; 读 15%），持续 10 分钟。</p>
+<h2 id="附2、4-线程池监控（500-并发，模拟-Grafana-截图描述）（补充章节）"><a href="#附2、4-线程池监控（500-并发，模拟-Grafana-截图描述）（补充章节）" class="headerlink" title="附2、4 线程池监控（500 并发，模拟 Grafana 截图描述）（补充章节）"></a>附2、4 线程池监控（500 并发，模拟 Grafana 截图描述）（补充章节）</h2><p>压测条件：500 并发混合流量（保存 20% &#x2F; 审计 30% &#x2F; 搜索同步 30% &#x2F; 导出 5% &#x2F; 读 15%），持续 10 分钟。</p>
 <h3 id="2-1-监控数据表"><a href="#2-1-监控数据表" class="headerlink" title="2.1 监控数据表"></a>2.1 监控数据表</h3><table>
 <thead>
 <tr>
@@ -970,8 +1017,9 @@
 </tbody></table>
 <blockquote>
 <p>模拟数据。监控数据来源：<code>ThreadPoolTaskExecutor</code> 暴露的 <code>executor.getThreadPoolExecutor()</code> 指标 + Micrometer Prometheus。</p>
+<p>注：本表为 B 批次 10 分钟压测（保存 20% &#x2F; 审计 30% &#x2F; 搜索同步 30% &#x2F; 导出 5% &#x2F; 读 15%），doc-executor 累计拒绝 12 次；正文二「2.1 doc-executor（核心写）」为另一批次（70% 读 + 20% 写 + 10% 导出），流量配比与批次不同，累计拒绝 8 次，两处数据不直接可比。</p>
 </blockquote>
-<h3 id="2-2-队列积压随时间变化"><a href="#2-2-队列积压随时间变化" class="headerlink" title="2.2 队列积压随时间变化"></a>2.2 队列积压随时间变化</h3><pre class="mermaid">xychart-beta
+<h3 id="2-2-队列积压随时间变化（模拟数据）"><a href="#2-2-队列积压随时间变化（模拟数据）" class="headerlink" title="2.2 队列积压随时间变化（模拟数据）"></a>2.2 队列积压随时间变化（模拟数据）</h3><pre class="mermaid">xychart-beta
     title "4 线程池队列积压随时间变化（模拟数据）"
     x-axis ["1min", "2min", "3min", "4min", "5min", "6min", "7min", "8min", "9min", "10min"]
     y-axis "队列积压数" 0 --> 550
@@ -979,6 +1027,7 @@
     line [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
     line [80, 150, 200, 230, 210, 240, 260, 230, 220, 230]
     line [150, 180, 200, 200, 200, 200, 200, 200, 200, 200]</pre>
+
 <p>（红线&#x3D;doc，橙线&#x3D;audit，绿线&#x3D;search-sync，蓝线&#x3D;export）</p>
 <h3 id="2-3-分析"><a href="#2-3-分析" class="headerlink" title="2.3 分析"></a>2.3 分析</h3><ul>
 <li><strong>doc-executor</strong>：队列 480&#x2F;2000，活跃线程满载，偶发 12 次拒绝（AbortPolicy）。建议调大 <code>max</code> 至 24，或前端限流。</li>
@@ -986,15 +1035,19 @@
 <li><strong>search-sync-executor</strong>：队列 230，<code>DiscardOldestPolicy</code> 丢弃旧消息，ES 最终一致可接受。</li>
 <li><strong>export-executor</strong>：队列满 200，拒绝 156 次，PDF 导出是重型 IO 任务（3s&#x2F;个）。建议：① 前端错峰；② 改异步通知（导出完成 webhook）；③ 扩容独立节点。</li>
 </ul>
-<h3 id="2-4-拒绝策略触发统计"><a href="#2-4-拒绝策略触发统计" class="headerlink" title="2.4 拒绝策略触发统计"></a>2.4 拒绝策略触发统计</h3><pre class="mermaid">pie title 拒绝策略触发分布（10min 累计）
+<h3 id="2-4-拒绝策略触发统计（模拟数据）"><a href="#2-4-拒绝策略触发统计（模拟数据）" class="headerlink" title="2.4 拒绝策略触发统计（模拟数据）"></a>2.4 拒绝策略触发统计（模拟数据）</h3><pre class="mermaid">pie title 拒绝策略触发分布（10min 累计）
     "doc-executor AbortPolicy" : 12
     "export-executor AbortPolicy" : 156
     "audit-executor CallerRunsPolicy(退化同步)" : 8200
     "search-sync-executor DiscardOldestPolicy(丢旧)" : 45</pre>
-<hr>
-<h2 id="附3、jstack-线程栈分析"><a href="#附3、jstack-线程栈分析" class="headerlink" title="附3、jstack 线程栈分析"></a>附3、jstack 线程栈分析</h2><h3 id="3-1-采集方法"><a href="#3-1-采集方法" class="headerlink" title="3.1 采集方法"></a>3.1 采集方法</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 找到文档服务 PID</span></span><br><span class="line">jps -l | grep doc-service</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 连续抓 3 次 jstack（间隔 2s），定位持续阻塞的线程</span></span><br><span class="line">jstack &lt;pid&gt; &gt; /tmp/jstack1.txt</span><br><span class="line"><span class="built_in">sleep</span> 2; jstack &lt;pid&gt; &gt; /tmp/jstack2.txt</span><br><span class="line"><span class="built_in">sleep</span> 2; jstack &lt;pid&gt; &gt; /tmp/jstack3.txt</span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 统计 BLOCKED/WAITING 线程</span></span><br><span class="line">grep <span class="string">&quot;java.lang.Thread.State&quot;</span> /tmp/jstack1.txt | <span class="built_in">sort</span> | <span class="built_in">uniq</span> -c</span><br></pre></td></tr></table></figure>
 
-<h3 id="3-2-线程状态分布"><a href="#3-2-线程状态分布" class="headerlink" title="3.2 线程状态分布"></a>3.2 线程状态分布</h3><table>
+<blockquote>
+<p>注：口径说明——2.1 表「拒绝次数」为 ThreadPoolExecutor 拒绝统计口径（CallerRunsPolicy 退化为调用线程同步执行，不按拒绝计数，故 audit 记 0）；正文二「2.2 audit-executor」表中的 18 为采样时点（10min）退化中的任务数（瞬时口径）；本饼图的 8200 为 10min 累计口径（CallerRunsPolicy 触发总次数，含每次退化为调用线程同步执行）。三种口径不同，数据不矛盾、不可横向对比。</p>
+</blockquote>
+<hr>
+<h2 id="附3、jstack-线程栈分析（补充章节）"><a href="#附3、jstack-线程栈分析（补充章节）" class="headerlink" title="附3、jstack 线程栈分析（补充章节）"></a>附3、jstack 线程栈分析（补充章节）</h2><h3 id="3-1-采集方法"><a href="#3-1-采集方法" class="headerlink" title="3.1 采集方法"></a>3.1 采集方法</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 找到文档服务 PID</span></span><br><span class="line">jps -l | grep doc-service</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 连续抓 3 次 jstack（间隔 2s），定位持续阻塞的线程</span></span><br><span class="line">jstack &lt;pid&gt; &gt; /tmp/jstack1.txt</span><br><span class="line"><span class="built_in">sleep</span> 2; jstack &lt;pid&gt; &gt; /tmp/jstack2.txt</span><br><span class="line"><span class="built_in">sleep</span> 2; jstack &lt;pid&gt; &gt; /tmp/jstack3.txt</span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 统计 BLOCKED/WAITING 线程</span></span><br><span class="line">grep <span class="string">&quot;java.lang.Thread.State&quot;</span> /tmp/jstack1.txt | <span class="built_in">sort</span> | <span class="built_in">uniq</span> -c</span><br></pre></td></tr></table></figure>
+
+<h3 id="3-2-线程状态分布（模拟数据）"><a href="#3-2-线程状态分布（模拟数据）" class="headerlink" title="3.2 线程状态分布（模拟数据）"></a>3.2 线程状态分布（模拟数据）</h3><table>
 <thead>
 <tr>
 <th>状态</th>
@@ -1081,8 +1134,9 @@
 </tbody></table>
 <blockquote>
 <p>模拟数据。TOP1-2 集中在 <code>DocCacheManager.writeLock</code>，是本地缓存重建的写锁竞争。</p>
+<p>注：本表为 B 批次 jstack 采样（连续抓 3 次）；正文三「3.1 阻塞线程 TOP 5」为另一批次（5 次采样），两批采样次数与场景细节不同，阻塞次数不直接可比。</p>
 </blockquote>
-<h3 id="3-4-典型-jstack-片段"><a href="#3-4-典型-jstack-片段" class="headerlink" title="3.4 典型 jstack 片段"></a>3.4 典型 jstack 片段</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">&quot;doc-executor-3&quot; #57 prio=5 os_prio=0 cpu=12340ms elapsed=600s</span><br><span class="line">   java.lang.Thread.State: BLOCKED (on object monitor)</span><br><span class="line">   at com.zeus.doc.manager.DocCacheManager.getOrLoad(DocCacheManager.java:62)</span><br><span class="line">   - waiting to lock &lt;0x00000007a3f1b2c0&gt; (a java.util.concurrent.locks.ReentrantReadWriteLock$WriteLock)</span><br><span class="line">   at com.zeus.doc.service.DocDetailService.lambda$getDetail$1(DocDetailService.java:68)</span><br><span class="line">   ...</span><br><span class="line"></span><br><span class="line">&quot;doc-executor-7&quot; #61 prio=5 os_prio=0 cpu=15670ms elapsed=600s</span><br><span class="line">   java.lang.Thread.State: RUNNABLE</span><br><span class="line">   at com.zeus.doc.mapper.DocMapper.selectById(DocMapper.java:13)   ← 持有 writeLock 回源 DB</span><br><span class="line">   - locked &lt;0x00000007a3f1b2c0&gt; (a java.util.concurrent.locks.ReentrantReadWriteLock$WriteLock)</span><br><span class="line">   at com.zeus.doc.manager.DocCacheManager.getOrLoad(DocCacheManager.java:70)</span><br></pre></td></tr></table></figure>
+<h3 id="3-4-典型-jstack-片段（模拟）"><a href="#3-4-典型-jstack-片段（模拟）" class="headerlink" title="3.4 典型 jstack 片段（模拟）"></a>3.4 典型 jstack 片段（模拟）</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">&quot;doc-executor-3&quot; #57 prio=5 os_prio=0 cpu=12340ms elapsed=600s</span><br><span class="line">   java.lang.Thread.State: BLOCKED (on object monitor)</span><br><span class="line">   at com.zeus.doc.manager.DocCacheManager.getOrLoad(DocCacheManager.java:62)</span><br><span class="line">   - waiting to lock &lt;0x00000007a3f1b2c0&gt; (a java.util.concurrent.locks.ReentrantReadWriteLock$WriteLock)</span><br><span class="line">   at com.zeus.doc.service.DocDetailService.lambda$getDetail$1(DocDetailService.java:68)</span><br><span class="line">   ...</span><br><span class="line"></span><br><span class="line">&quot;doc-executor-7&quot; #61 prio=5 os_prio=0 cpu=15670ms elapsed=600s</span><br><span class="line">   java.lang.Thread.State: RUNNABLE</span><br><span class="line">   at com.zeus.doc.mapper.DocMapper.selectById(DocMapper.java:13)   ← 持有 writeLock 回源 DB</span><br><span class="line">   - locked &lt;0x00000007a3f1b2c0&gt; (a java.util.concurrent.locks.ReentrantReadWriteLock$WriteLock)</span><br><span class="line">   at com.zeus.doc.manager.DocCacheManager.getOrLoad(DocCacheManager.java:70)</span><br></pre></td></tr></table></figure>
 
 <p><strong>根因：</strong> <code>DocCacheManager.getOrLoad</code>（<code>DocCacheManager.java:48-79</code>）缓存未中时，持有 <code>writeLock</code> 同步回源 DB（30ms），期间其它线程的读锁&#x2F;写锁全部阻塞。</p>
 <p><strong>优化方向：</strong></p>
@@ -1092,8 +1146,8 @@
 <li><strong>缩小锁粒度</strong>：按 <code>docId</code> 分段锁（<code>Striped&lt;Lock&gt;</code>），不同文档不竞争。</li>
 </ol>
 <hr>
-<h2 id="附4、锁竞争对比"><a href="#附4、锁竞争对比" class="headerlink" title="附4、锁竞争对比"></a>附4、锁竞争对比</h2><h3 id="4-1-测试场景"><a href="#4-1-测试场景" class="headerlink" title="4.1 测试场景"></a>4.1 测试场景</h3><p>200 并发，10 分钟，对 <code>HotStats</code> 计数器（<code>HotStats.java</code>）累加操作，对比三种同步方案。</p>
-<h3 id="4-2-对比表格"><a href="#4-2-对比表格" class="headerlink" title="4.2 对比表格"></a>4.2 对比表格</h3><table>
+<h2 id="附4、锁竞争对比（补充章节）"><a href="#附4、锁竞争对比（补充章节）" class="headerlink" title="附4、锁竞争对比（补充章节）"></a>附4、锁竞争对比（补充章节）</h2><h3 id="4-1-测试场景"><a href="#4-1-测试场景" class="headerlink" title="4.1 测试场景"></a>4.1 测试场景</h3><p>200 并发，10 分钟，对 <code>HotStats</code> 计数器（<code>HotStats.java</code>）累加操作，对比三种同步方案。</p>
+<h3 id="4-2-对比表格（模拟数据）"><a href="#4-2-对比表格（模拟数据）" class="headerlink" title="4.2 对比表格（模拟数据）"></a>4.2 对比表格（模拟数据）</h3><table>
 <thead>
 <tr>
 <th>方案</th>
@@ -1139,17 +1193,20 @@
 </tbody></table>
 <blockquote>
 <p>模拟数据。vmstat 采集命令：<code>vmstat 1 600 | awk &#39;&#123;sum+=$13&#125;END&#123;print sum/600&#125;&#39;</code></p>
+<p>注：本表为 B 批测试（HotStats 计数器，200 并发持续 10 分钟）；正文四「4.2 测试结果」为另一批测试（在线人数计数器，200 并发 × 每线程累加 100 万次），测试对象与口径不同，两处 synchronized TPS（1850 vs 8200）不直接可比。</p>
 </blockquote>
 <h3 id="4-3-TPS-对比柱状图"><a href="#4-3-TPS-对比柱状图" class="headerlink" title="4.3 TPS 对比柱状图"></a>4.3 TPS 对比柱状图</h3><pre class="mermaid">xychart-beta
     title "锁竞争方案 TPS 对比 200并发（模拟数据）"
     x-axis ["synchronized", "ReentrantLock", "AtomicInteger", "LongAdder"]
     y-axis "TPS" 0 --> 9500
     bar [1850, 1980, 2400, 8600]</pre>
+
 <h3 id="4-4-上下文切换对比"><a href="#4-4-上下文切换对比" class="headerlink" title="4.4 上下文切换对比"></a>4.4 上下文切换对比</h3><pre class="mermaid">xychart-beta
     title "锁竞争方案 上下文切换次数（模拟数据）"
     x-axis ["synchronized", "ReentrantLock", "AtomicInteger", "LongAdder"]
     y-axis "cs/秒" 0 --> 14000
     line [12000, 9800, 8500, 3200]</pre>
+
 <h3 id="4-5-分析"><a href="#4-5-分析" class="headerlink" title="4.5 分析"></a>4.5 分析</h3><ol>
 <li><strong>synchronized vs ReentrantLock</strong>：低中并发下性能接近（JDK 17 偏向锁优化后 synchronized 甚至更快）；ReentrantLock 优势在可中断、超时、公平、多 Condition。本项目 <code>DocCacheManager</code> 用 <code>ReentrantReadWriteLock</code>（读多写少场景读锁并行）。</li>
 <li><strong>AtomicInteger 退步</strong>：200 并发下 CAS 自旋失败率升高（<code>ABA</code> + 自旋空耗），不如 LongAdder。</li>
@@ -1181,11 +1238,11 @@
 </tr>
 </tbody></table>
 <hr>
-<h2 id="附5、伪共享（False-Sharing）分析"><a href="#附5、伪共享（False-Sharing）分析" class="headerlink" title="附5、伪共享（False Sharing）分析"></a>附5、伪共享（False Sharing）分析</h2><h3 id="5-1-问题原理"><a href="#5-1-问题原理" class="headerlink" title="5.1 问题原理"></a>5.1 问题原理</h3><p>CPU 缓存行（Cache Line）通常 64 字节。多个线程修改同一缓存行内的不同变量时，虽无逻辑竞争，但缓存一致性协议（MESI）会反复失效对方缓存行，导致性能骤降。</p>
+<h2 id="附5、伪共享（False-Sharing）分析（补充章节）"><a href="#附5、伪共享（False-Sharing）分析（补充章节）" class="headerlink" title="附5、伪共享（False Sharing）分析（补充章节）"></a>附5、伪共享（False Sharing）分析（补充章节）</h2><h3 id="5-1-问题原理"><a href="#5-1-问题原理" class="headerlink" title="5.1 问题原理"></a>5.1 问题原理</h3><p>CPU 缓存行（Cache Line）通常 64 字节。多个线程修改同一缓存行内的不同变量时，虽无逻辑竞争，但缓存一致性协议（MESI）会反复失效对方缓存行，导致性能骤降。</p>
 <figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">Cache Line (64B)</span><br><span class="line">[ CounterA (8B) | CounterB (8B) | padding... ]</span><br><span class="line">   ↑ 线程1写          ↑ 线程2写</span><br><span class="line">   → 互相失效缓存行 → 伪共享</span><br></pre></td></tr></table></figure>
 
 <h3 id="5-2-测试场景"><a href="#5-2-测试场景" class="headerlink" title="5.2 测试场景"></a>5.2 测试场景</h3><p>两个线程分别对 <code>HotStats</code> 中相邻的 <code>long hitCount</code> 和 <code>long missCount</code> 累加 1 亿次。</p>
-<h3 id="5-3-优化前后对比"><a href="#5-3-优化前后对比" class="headerlink" title="5.3 优化前后对比"></a>5.3 优化前后对比</h3><table>
+<h3 id="5-3-优化前后对比（模拟数据）"><a href="#5-3-优化前后对比（模拟数据）" class="headerlink" title="5.3 优化前后对比（模拟数据）"></a>5.3 优化前后对比（模拟数据）</h3><table>
 <thead>
 <tr>
 <th>方案</th>
@@ -1215,12 +1272,14 @@
 </tbody></table>
 <blockquote>
 <p>模拟数据。<code>@Contended</code> 需加 <code>-XX:-RestrictContended</code> 启用。</p>
+<p>注：本表为耗时实验口径（两线程各累加 1 亿次的总耗时）；正文六「6.5 优化效果」为在线人数计数器压测 TPS 指标，指标口径不同，两处数据不直接可比。</p>
 </blockquote>
 <h3 id="5-4-优化前后对比图"><a href="#5-4-优化前后对比图" class="headerlink" title="5.4 优化前后对比图"></a>5.4 优化前后对比图</h3><pre class="mermaid">xychart-beta
     title "伪共享优化前后 TPS 对比（模拟数据）"
     x-axis ["无优化", "@Contended", "手动padding"]
     y-axis "TPS(万/s)" 0 --> 15000
     bar [4760, 13800, 13500]</pre>
+
 <h3 id="5-5-优化方式"><a href="#5-5-优化方式" class="headerlink" title="5.5 优化方式"></a>5.5 优化方式</h3><p><strong>方式一：<code>@sun.misc.Contended</code> 注解</strong>（JDK 8+）</p>
 <figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Contended</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">HotStats</span> &#123;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">volatile</span> <span class="type">long</span> hitCount;   <span class="comment">// 被填充到独立缓存行</span></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">volatile</span> <span class="type">long</span> missCount;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 
@@ -1250,7 +1309,7 @@
 </tbody></table>
 <p><strong>注意：</strong> <code>@Contended</code> 会增加对象体积（每字段独占 64B），不能滥用，仅用于高频写的共享字段。</p>
 <hr>
-<h2 id="附6、线程模型调优总结"><a href="#附6、线程模型调优总结" class="headerlink" title="附6、线程模型调优总结"></a>附6、线程模型调优总结</h2><h3 id="6-1-关键发现"><a href="#6-1-关键发现" class="headerlink" title="6.1 关键发现"></a>6.1 关键发现</h3><table>
+<h2 id="附6、线程模型调优总结（补充章节）"><a href="#附6、线程模型调优总结（补充章节）" class="headerlink" title="附6、线程模型调优总结（补充章节）"></a>附6、线程模型调优总结（补充章节）</h2><h3 id="6-1-关键发现"><a href="#6-1-关键发现" class="headerlink" title="6.1 关键发现"></a>6.1 关键发现</h3><table>
 <thead>
 <tr>
 <th>问题</th>
@@ -1298,7 +1357,7 @@
 <li><strong>读写锁内不做慢操作</strong>：DB&#x2F;IO 移出锁范围</li>
 </ol>
 <hr>
-<h2 id="附7、监控告警配置"><a href="#附7、监控告警配置" class="headerlink" title="附7、监控告警配置"></a>附7、监控告警配置</h2><table>
+<h2 id="附7、监控告警配置（补充章节）"><a href="#附7、监控告警配置（补充章节）" class="headerlink" title="附7、监控告警配置（补充章节）"></a>附7、监控告警配置（补充章节）</h2><table>
 <thead>
 <tr>
 <th>指标</th>
@@ -1388,14 +1447,14 @@
       <i class="fa fa-chart-line"></i>
     </span>
       <span>Word count total: </span>
-    <span title="Word count total">579k</span>
+    <span title="Word count total">595k</span>
   </span>
   <span class="post-meta-item">
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
       <span>Reading time total &asymp;</span>
-    <span title="Reading time total">35:04</span>
+    <span title="Reading time total">36:05</span>
   </span>
 </div>
   <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>

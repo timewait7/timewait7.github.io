@@ -176,7 +176,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">84</span>
+          <span class="site-state-item-count">86</span>
           <span class="site-state-item-name">posts</span>
         </a>
       </div>
@@ -187,7 +187,7 @@
       </div>
       <div class="site-state-item site-state-tags">
           <a href="/tags/">
-        <span class="site-state-item-count">127</span>
+        <span class="site-state-item-count">132</span>
         <span class="site-state-item-name">tags</span></a>
       </div>
   </nav>
@@ -231,6 +231,1414 @@
     </div>
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/llm-finetuning-2026.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/llm-finetuning-2026.html" class="post-title-link" itemprop="url">LLM微调入门</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-08-05 18:00:00" itemprop="dateCreated datePublished" datetime="2026-08-05T18:00:00+08:00">2026-08-05</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/AI%E5%A4%A7%E6%A8%A1%E5%9E%8B/" itemprop="url" rel="index"><span itemprop="name">AI大模型</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>2.1k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>8 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="LLM-微调入门（LoRA-QLoRA）"><a href="#LLM-微调入门（LoRA-QLoRA）" class="headerlink" title="LLM 微调入门（LoRA &#x2F; QLoRA）"></a>LLM 微调入门（LoRA &#x2F; QLoRA）</h1><blockquote>
+<p>本文是《AI学习体系导航》阶段五的微调入门篇，定位收敛为<strong>决策 + LoRA&#x2F;QLoRA 实操入门</strong>（不做全参训练）：先讲清”什么情况该微调、什么情况不该”的决策框架，再落地 LoRA&#x2F;QLoRA 的最小实践与评估上线。RAG 与 Prompt 的对比决策见 <a href="/post/rag-2026.html">RAG原理与实践</a> 第一章，部署承接见 <a href="/post/llm-inference-2026.html">LLM推理与部署实战</a>。</p>
+<p><strong>撰写时快照</strong>：本文基于 2026 年 8 月的开源微调生态撰写（LLaMA-Factory &#x2F; unsloth 等）；框架版本迭代快，命令以官方文档为准。</p>
+</blockquote>
+<hr>
+<h2 id="一、微调全景"><a href="#一、微调全景" class="headerlink" title="一、微调全景"></a>一、微调全景</h2><h3 id="1-1-微调在做什么"><a href="#1-1-微调在做什么" class="headerlink" title="1.1 微调在做什么"></a>1.1 微调在做什么</h3><p>微调（Fine-tuning）是在预训练模型基础上，用<strong>任务数据</strong>继续训练，让模型适配特定任务&#x2F;风格&#x2F;领域。与预训练（训练基础能力）的区别：</p>
+<table>
+<thead>
+<tr>
+<th align="left">阶段</th>
+<th align="left">数据规模</th>
+<th align="left">成本</th>
+<th align="left">目的</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">预训练</td>
+<td align="left">万亿 token 级</td>
+<td align="left">千万级成本</td>
+<td align="left">语言能力</td>
+</tr>
+<tr>
+<td align="left"><strong>微调（SFT）</strong></td>
+<td align="left">万~百万条指令</td>
+<td align="left">数百元~数万元</td>
+<td align="left">任务适配</td>
+</tr>
+<tr>
+<td align="left">对齐（RLHF&#x2F;DPO）</td>
+<td align="left">千~万条偏好数据</td>
+<td align="left">更高</td>
+<td align="left">价值观对齐</td>
+</tr>
+</tbody></table>
+<p><strong>本文范围是 SFT（监督微调）</strong>——绝大多数业务需求够用的就是它。</p>
+<h3 id="1-2-微调能解决-不能解决什么"><a href="#1-2-微调能解决-不能解决什么" class="headerlink" title="1.2 微调能解决&#x2F;不能解决什么"></a>1.2 微调能解决&#x2F;不能解决什么</h3><table>
+<thead>
+<tr>
+<th align="left">能解决</th>
+<th align="left">不能解决</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">输出风格&#x2F;格式（客服口吻、固定模板）</td>
+<td align="left">知识缺失（知识问题归 RAG）</td>
+</tr>
+<tr>
+<td align="left">领域语言（医疗&#x2F;法律术语表达）</td>
+<td align="left">推理能力不足（换更大模型）</td>
+</tr>
+<tr>
+<td align="left">特殊指令遵循（按固定 schema 输出）</td>
+<td align="left">实时信息（数据是训练时的快照）</td>
+</tr>
+</tbody></table>
+<p>**微调的本质是”行为塑形”，不是”知识注入”**——这是决策的第一条铁律。</p>
+<hr>
+<h2 id="二、决策框架：微调是最后手段"><a href="#二、决策框架：微调是最后手段" class="headerlink" title="二、决策框架：微调是最后手段"></a>二、决策框架：微调是最后手段</h2><h3 id="2-1-代价顺序"><a href="#2-1-代价顺序" class="headerlink" title="2.1 代价顺序"></a>2.1 代价顺序</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">① Prompt 调优（分钟级，零成本）</span><br><span class="line">   ↓ 不够？</span><br><span class="line">② RAG 增强（小时级，低成本，知识类问题）</span><br><span class="line">   ↓ 不够？</span><br><span class="line">③ 微调（天级，高成本，行为类问题）</span><br></pre></td></tr></table></figure>
+
+<p><strong>按这个顺序排查，90% 的需求停在①②</strong>。这也是学习指南”误区 6：遇到效果问题就微调模型”的正解（<a href="/docs/nav/ai-learning-nav.html">AI学习体系导航</a>）。</p>
+<h3 id="2-2-微调的真实风险"><a href="#2-2-微调的真实风险" class="headerlink" title="2.2 微调的真实风险"></a>2.2 微调的真实风险</h3><table>
+<thead>
+<tr>
+<th align="left">风险</th>
+<th align="left">说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left"><strong>灾难性遗忘</strong></td>
+<td align="left">新数据学过头，通用能力下降（客服模型忘了写代码）</td>
+</tr>
+<tr>
+<td align="left">数据成本</td>
+<td align="left">高质量标注数据稀缺且贵</td>
+</tr>
+<tr>
+<td align="left">评估成本</td>
+<td align="left">微调效果必须评测，否则是黑盒赌博</td>
+</tr>
+<tr>
+<td align="left">维护成本</td>
+<td align="left">模型迭代、重新训练、部署管线</td>
+</tr>
+</tbody></table>
+<h3 id="2-3-决策检查表"><a href="#2-3-决策检查表" class="headerlink" title="2.3 决策检查表"></a>2.3 决策检查表</h3><ul>
+<li><input disabled="" type="checkbox"> 问题属于”行为&#x2F;风格&#x2F;格式”而非”知识”？</li>
+<li><input disabled="" type="checkbox"> Prompt 调优已经尽力（用了 <a href="/post/prompt-engineering-2026.html">Prompt工程实战</a> 的模式库与回归）？</li>
+<li><input disabled="" type="checkbox"> RAG 不适用或已试过（知识类问题 RAG 优先，见 <a href="/post/rag-2026.html">RAG原理与实践</a>）？</li>
+<li><input disabled="" type="checkbox"> 有足够的标注数据（起步万级指令）？</li>
+<li><input disabled="" type="checkbox"> 有评测集能验证微调效果（<a href="/post/llm-eval-observability-2026.html">LLM评测与可观测性</a>）？</li>
+</ul>
+<p>全部通过，才进入微调。</p>
+<hr>
+<h2 id="三、LoRA-原理"><a href="#三、LoRA-原理" class="headerlink" title="三、LoRA 原理"></a>三、LoRA 原理</h2><h3 id="3-1-问题：全参微调太贵"><a href="#3-1-问题：全参微调太贵" class="headerlink" title="3.1 问题：全参微调太贵"></a>3.1 问题：全参微调太贵</h3><p>7B 模型全参微调：需要更新 70 亿参数，显存要模型权重的 4-6 倍（优化器状态 + 梯度），一张 24GB 卡跑不了。</p>
+<h3 id="3-2-LoRA-的核心思想：冻结-低秩增量"><a href="#3-2-LoRA-的核心思想：冻结-低秩增量" class="headerlink" title="3.2 LoRA 的核心思想：冻结 + 低秩增量"></a>3.2 LoRA 的核心思想：冻结 + 低秩增量</h3><p><strong>LoRA（Low-Rank Adaptation）</strong>：冻结原模型全部权重，只训练一个<strong>低秩增量</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">原权重 W（冻结，不变）</span><br><span class="line">        ↓ 修改方式</span><br><span class="line">W&#x27; = W + ΔW，其中 ΔW = B × A</span><br><span class="line">        ↑          ↑</span><br><span class="line">    （小矩阵，可训练）   A: d×r，B: r×d，r &lt;&lt; d（如 r=8，d=4096）</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>可训练参数占比通常 **&lt; 1%**（7B 模型只训几千万参数）；</li>
+<li>显存需求从”4-6 倍权重”降到”权重 + 少量增量”；</li>
+<li><strong>效果对标全参微调</strong>（在大多数任务上差距很小）——LoRA 是 2026 年事实上的微调默认方案。</li>
+</ul>
+<blockquote>
+<p><strong>Java 对照</strong>：LoRA ≈ 不改基座代码，只加一个轻量”适配层”（装饰器&#x2F;Filter）——与 Spring 的 AOP 增强是同一个架构直觉。</p>
+</blockquote>
+<h3 id="3-3-关键超参数"><a href="#3-3-关键超参数" class="headerlink" title="3.3 关键超参数"></a>3.3 关键超参数</h3><table>
+<thead>
+<tr>
+<th align="left">参数</th>
+<th align="left">含义</th>
+<th align="left">常用值</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">r（秩）</td>
+<td align="left">增量矩阵的秩</td>
+<td align="left">8~64，任务复杂取大</td>
+</tr>
+<tr>
+<td align="left">alpha</td>
+<td align="left">缩放系数</td>
+<td align="left">常为 r 的 1-2 倍</td>
+</tr>
+<tr>
+<td align="left">学习率</td>
+<td align="left">微调用学习率</td>
+<td align="left">1e-4 ~ 2e-4（远小于预训练）</td>
+</tr>
+<tr>
+<td align="left">轮数</td>
+<td align="left">训练轮次</td>
+<td align="left">2~3 轮（数据少时防过拟合）</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="四、QLoRA-实践"><a href="#四、QLoRA-实践" class="headerlink" title="四、QLoRA 实践"></a>四、QLoRA 实践</h2><h3 id="4-1-QLoRA：量化-LoRA"><a href="#4-1-QLoRA：量化-LoRA" class="headerlink" title="4.1 QLoRA：量化 + LoRA"></a>4.1 QLoRA：量化 + LoRA</h3><p>QLoRA &#x3D; 权重 4bit 量化加载 + LoRA 训练：<strong>一张 24GB 卡能微调 7B~13B 模型</strong>（普通 LoRA 需 48GB+）。</p>
+<table>
+<thead>
+<tr>
+<th align="left">方案</th>
+<th align="left">7B 显存需求</th>
+<th align="left">效果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">全参微调</td>
+<td align="left">60GB+</td>
+<td align="left">基准</td>
+</tr>
+<tr>
+<td align="left">LoRA</td>
+<td align="left">30~48GB</td>
+<td align="left">≈ 全参</td>
+</tr>
+<tr>
+<td align="left"><strong>QLoRA</strong></td>
+<td align="left"><strong>~12GB</strong></td>
+<td align="left">≈ LoRA（可微差）</td>
+</tr>
+</tbody></table>
+<h3 id="4-2-数据格式：SFT-数据集"><a href="#4-2-数据格式：SFT-数据集" class="headerlink" title="4.2 数据格式：SFT 数据集"></a>4.2 数据格式：SFT 数据集</h3><p>最简形式是”指令-回答”对（JSONL），进阶用多轮对话格式：</p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="punctuation">&#123;</span><span class="attr">&quot;instruction&quot;</span><span class="punctuation">:</span> <span class="string">&quot;用一句话解释什么是LoRA&quot;</span><span class="punctuation">,</span></span><br><span class="line"> <span class="attr">&quot;input&quot;</span><span class="punctuation">:</span> <span class="string">&quot;&quot;</span><span class="punctuation">,</span></span><br><span class="line"> <span class="attr">&quot;output&quot;</span><span class="punctuation">:</span> <span class="string">&quot;LoRA是一种参数高效微调方法，通过训练低秩增量矩阵来适配模型。&quot;</span><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>数据质量 &gt; 数据数量</strong>：1000 条精心标注 &gt; 10000 条噪声数据。数据清洗、去重、格式校验是微调效果的第一变量。</p>
+<h3 id="4-3-用-LLaMA-Factory-跑起来"><a href="#4-3-用-LLaMA-Factory-跑起来" class="headerlink" title="4.3 用 LLaMA-Factory 跑起来"></a>4.3 用 LLaMA-Factory 跑起来</h3><p>LLaMA-Factory 是中文社区最主流的微调工具，一条命令完成 QLoRA 训练：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 安装（或使用其 WebUI / Docker 镜像）</span></span><br><span class="line">git <span class="built_in">clone</span> https://github.com/hiyouga/LLaMA-Factory</span><br><span class="line"><span class="built_in">cd</span> LLaMA-Factory &amp;&amp; pip install -e .</span><br><span class="line"></span><br><span class="line"><span class="comment"># QLoRA 训练（Qwen2.5-7B，lora 秩 16，2 轮）</span></span><br><span class="line">llamafactory-cli train \</span><br><span class="line">  --model_name_or_path Qwen/Qwen2.5-7B-Instruct \</span><br><span class="line">  --dataset alpaca_zh_demo \          <span class="comment"># 或自己的数据集</span></span><br><span class="line">  --finetuning_type lora \</span><br><span class="line">  --quantization_bit 4 \              <span class="comment"># QLoRA 关键：4bit 量化加载</span></span><br><span class="line">  --lora_rank 16 --lora_alpha 32 \</span><br><span class="line">  --learning_rate 1e-4 \</span><br><span class="line">  --num_train_epochs 2 \</span><br><span class="line">  --output_dir ./output/qwen-lora</span><br><span class="line"></span><br><span class="line"><span class="comment"># 合并导出（LoRA 增量合并回全量权重，用于部署）</span></span><br><span class="line">llamafactory-cli <span class="built_in">export</span> \</span><br><span class="line">  --model_name_or_path Qwen/Qwen2.5-7B-Instruct \</span><br><span class="line">  --adapter_name_or_path ./output/qwen-lora \</span><br><span class="line">  --export_dir ./output/qwen-lora-merged</span><br></pre></td></tr></table></figure>
+
+<h3 id="4-4-常见坑"><a href="#4-4-常见坑" class="headerlink" title="4.4 常见坑"></a>4.4 常见坑</h3><table>
+<thead>
+<tr>
+<th align="left">坑</th>
+<th align="left">表现</th>
+<th align="left">对策</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">过拟合</td>
+<td align="left">训练 loss 低但评测差</td>
+<td align="left">减轮数&#x2F;加数据&#x2F;加 dropout</td>
+</tr>
+<tr>
+<td align="left">灾难性遗忘</td>
+<td align="left">通用能力下降</td>
+<td align="left">混入通用指令数据（5%~10%）</td>
+</tr>
+<tr>
+<td align="left">数据泄露</td>
+<td align="left">模型”背出”训练数据</td>
+<td align="left">不微调敏感数据；评测用未见数据</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="五、评估与上线"><a href="#五、评估与上线" class="headerlink" title="五、评估与上线"></a>五、评估与上线</h2><h3 id="5-1-微调前必须建评测集"><a href="#5-1-微调前必须建评测集" class="headerlink" title="5.1 微调前必须建评测集"></a>5.1 微调前必须建评测集</h3><p>微调是”黑盒改造”，没有评测就是赌博。流程：</p>
+<ol>
+<li><strong>微调前</strong>：跑一组基线任务（目标任务 + 通用任务各一组）记录分数；</li>
+<li><strong>微调后</strong>：同一组评测集再跑一遍；</li>
+<li><strong>对比决策</strong>：目标任务升、通用任务不降 → 可上线；通用任务大跌 → 灾难性遗忘，回滚或调整。</li>
+</ol>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 对比示意（评测方法见《LLM评测与可观测性》）</span></span><br><span class="line">before = evaluate(baseline_model, eval_set)</span><br><span class="line">after  = evaluate(merged_model, eval_set)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">f&quot;目标任务: <span class="subst">&#123;before[<span class="string">&#x27;target&#x27;</span>]:<span class="number">.2</span>%&#125;</span> → <span class="subst">&#123;after[<span class="string">&#x27;target&#x27;</span>]:<span class="number">.2</span>%&#125;</span>&quot;</span>)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">f&quot;通用任务: <span class="subst">&#123;before[<span class="string">&#x27;general&#x27;</span>]:<span class="number">.2</span>%&#125;</span> → <span class="subst">&#123;after[<span class="string">&#x27;general&#x27;</span>]:<span class="number">.2</span>%&#125;</span>&quot;</span>)</span><br></pre></td></tr></table></figure>
+
+<h3 id="5-2-部署"><a href="#5-2-部署" class="headerlink" title="5.2 部署"></a>5.2 部署</h3><p>微调产物合并后（5.4 的 export），部署与普通模型<strong>零差别</strong>：</p>
+<ul>
+<li>本地：<code>ollama create</code> 导入 GGUF 或直接 vLLM 加载合并目录；</li>
+<li>服务化：vLLM 启动命令只改 <code>--model</code> 路径（见 <a href="/post/llm-inference-2026.html">LLM推理与部署实战</a>）；</li>
+<li>需要时再量化压缩（合并 → 量化 → 部署的流水线）。</li>
+</ul>
+<h3 id="5-3-上线后的维护"><a href="#5-3-上线后的维护" class="headerlink" title="5.3 上线后的维护"></a>5.3 上线后的维护</h3><ul>
+<li>效果漂移检测：线上抽样评测（<a href="/post/llm-eval-observability-2026.html">LLM评测与可观测性</a>）；</li>
+<li>数据版本管理：训练数据进版本库，可复现；</li>
+<li>多版本并存：微调版本与基座并存，路由切换灰度（模型路由见 <a href="/post/llm-inference-2026.html">LLM推理与部署实战</a> 第六章）。</li>
+</ul>
+<hr>
+<h2 id="六、微调-vs-RAG：一个对比案例"><a href="#六、微调-vs-RAG：一个对比案例" class="headerlink" title="六、微调 vs RAG：一个对比案例"></a>六、微调 vs RAG：一个对比案例</h2><table>
+<thead>
+<tr>
+<th align="left">场景</th>
+<th align="left">诉求</th>
+<th align="left">推荐</th>
+<th align="left">理由</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">客服要知道最新退款政策</td>
+<td align="left">知识 + 时效</td>
+<td align="left"><strong>RAG</strong></td>
+<td align="left">政策月月变，RAG 即时更新</td>
+</tr>
+<tr>
+<td align="left">客服要按固定话术模板回复</td>
+<td align="left">行为 + 风格</td>
+<td align="left"><strong>微调</strong></td>
+<td align="left">模板在 Prompt 里写不清，微调最稳</td>
+</tr>
+<tr>
+<td align="left">医疗报告要输出专业术语风格</td>
+<td align="left">风格 + 知识混合</td>
+<td align="left">RAG（知识）+ 微调（风格）</td>
+<td align="left">组合拳</td>
+</tr>
+<tr>
+<td align="left">只是想减少 Prompt 长度</td>
+<td align="left">成本</td>
+<td align="left"><strong>都不要</strong></td>
+<td align="left">先优化 Prompt 与缓存</td>
+</tr>
+</tbody></table>
+<p><strong>决策心法</strong>：知识归 RAG、行为归微调、成本归工程——三者不是竞争，是分工。</p>
+<hr>
+<h2 id="七、与-Java-存量技能迁移对照"><a href="#七、与-Java-存量技能迁移对照" class="headerlink" title="七、与 Java 存量技能迁移对照"></a>七、与 Java 存量技能迁移对照</h2><table>
+<thead>
+<tr>
+<th align="left">本文章节</th>
+<th align="left">Java 存量技能</th>
+<th align="left">迁移要点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">二、决策框架</td>
+<td align="left">技术选型评审</td>
+<td align="left">代价顺序 ≈ 方案评估阶梯</td>
+</tr>
+<tr>
+<td align="left">三、LoRA</td>
+<td align="left">AOP&#x2F;适配层</td>
+<td align="left">冻结+增量 ≈ 装饰器增强</td>
+</tr>
+<tr>
+<td align="left">四、数据工程</td>
+<td align="left">数据治理</td>
+<td align="left">数据质量 &gt; 数量，清洗去重</td>
+</tr>
+<tr>
+<td align="left">五、评估上线</td>
+<td align="left">灰度发布</td>
+<td align="left">基线对比 + 回滚 ≈ A&#x2F;B 测试</td>
+</tr>
+<tr>
+<td align="left">五、版本管理</td>
+<td align="left">模型即制品</td>
+<td align="left">训练数据进版本库、可复现</td>
+</tr>
+</tbody></table>
+<blockquote>
+<p>完整转型路线见 <a href="/docs/nav/ai-learning-nav.html">AI学习体系导航</a>；部署与量化承接见 <a href="/post/llm-inference-2026.html">LLM推理与部署实战</a>；效果验收见 <a href="/post/llm-eval-observability-2026.html">LLM评测与可观测性</a>。</p>
+</blockquote>
+<blockquote>
+<p><strong>相关文章：</strong> <a href="/post/rag-2026.html">RAG原理与实践</a>、<a href="/post/llm-inference-2026.html">LLM推理与部署实战</a>、<a href="/post/llm-eval-observability-2026.html">LLM评测与可观测性</a>、<a href="/docs/nav/ai-learning-nav.html">AI学习体系导航</a></p>
+</blockquote>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/llm-inference-2026.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/llm-inference-2026.html" class="post-title-link" itemprop="url">LLM推理与部署实战</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-08-05 16:00:00" itemprop="dateCreated datePublished" datetime="2026-08-05T16:00:00+08:00">2026-08-05</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/AI%E5%A4%A7%E6%A8%A1%E5%9E%8B/" itemprop="url" rel="index"><span itemprop="name">AI大模型</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>3.5k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>13 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="LLM-推理与部署实战"><a href="#LLM-推理与部署实战" class="headerlink" title="LLM 推理与部署实战"></a>LLM 推理与部署实战</h1><blockquote>
+<p>本文是《AI学习体系导航》阶段五的核心深文，主线一句话：**”模型服务 &#x3D; RPC 服务”**——vLLM&#x2F;Ollama 起的推理服务，本质就是你已经很熟的 RPC 服务（协议、并发、负载均衡、监控、成本），只是协议换成了 OpenAI 兼容、资源换成了 GPU 显存。覆盖 Ollama 起手、推理原理（Prefill&#x2F;Decode、KV Cache、batching）、vLLM 生产部署、量化、模型路由、成本控制与运维。API 侧的对接见 <a href="/post/llm-api-tool-calling-2026.html">LLM API与工具调用实战</a>，微调产物部署见 <a href="/post/llm-finetuning-2026.html">LLM微调入门</a>。</p>
+<p><strong>撰写时快照</strong>：本文基于 2026 年 8 月的推理生态撰写；vLLM&#x2F;Ollama 版本迭代快，文中版本号与参数以官方文档为准。</p>
+</blockquote>
+<hr>
+<h2 id="一、推理服务全景"><a href="#一、推理服务全景" class="headerlink" title="一、推理服务全景"></a>一、推理服务全景</h2><h3 id="1-1-云-API-vs-自部署：先决策"><a href="#1-1-云-API-vs-自部署：先决策" class="headerlink" title="1.1 云 API vs 自部署：先决策"></a>1.1 云 API vs 自部署：先决策</h3><table>
+<thead>
+<tr>
+<th align="left">维度</th>
+<th align="left">云 API（OpenAI&#x2F;通义等）</th>
+<th align="left">自部署（Ollama&#x2F;vLLM）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">起步成本</td>
+<td align="left">极低，Key 即用</td>
+<td align="left">GPU 硬件 + 运维</td>
+</tr>
+<tr>
+<td align="left">能力上限</td>
+<td align="left">旗舰模型（开源达不到）</td>
+<td align="left">受限于开源模型与显存</td>
+</tr>
+<tr>
+<td align="left">数据合规</td>
+<td align="left">数据出网</td>
+<td align="left">完全本地</td>
+</tr>
+<tr>
+<td align="left">成本曲线</td>
+<td align="left">按量计费，量大线性涨</td>
+<td align="left">固定成本，量大摊薄</td>
+</tr>
+<tr>
+<td align="left">延迟&#x2F;定制</td>
+<td align="left">不可控</td>
+<td align="left">可控、可量化、可微调模型</td>
+</tr>
+</tbody></table>
+<p><strong>决策点</strong>：数据敏感 → 自部署；需要旗舰模型能力 → 云 API；量大且模型可开源替代 → 自部署。实际生产多是<strong>混合</strong>：云 API 走旗舰，自部署走量大&#x2F;敏感场景，中间用路由网关切换（第六章）。</p>
+<h3 id="1-2-主线：模型服务就是-RPC-服务"><a href="#1-2-主线：模型服务就是-RPC-服务" class="headerlink" title="1.2 主线：模型服务就是 RPC 服务"></a>1.2 主线：模型服务就是 RPC 服务</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">[Java 服务] --HTTP/OpenAI 兼容协议--&gt; [推理服务 (vLLM/Ollama)]</span><br><span class="line">                POST /v1/chat/completions        |</span><br><span class="line">                                                 GPU</span><br></pre></td></tr></table></figure>
+
+<p>对照表（本文的骨架）：</p>
+<table>
+<thead>
+<tr>
+<th align="left">你熟悉的 Java 概念</th>
+<th align="left">推理服务对应</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">服务框架</td>
+<td align="left">vLLM &#x2F; Ollama &#x2F; TensorRT-LLM</td>
+</tr>
+<tr>
+<td align="left">RPC 协议</td>
+<td align="left">OpenAI 兼容 HTTP（<a href="/post/llm-api-tool-calling-2026.html">LLM API与工具调用实战</a>）</td>
+</tr>
+<tr>
+<td align="left">资源（CPU&#x2F;内存）</td>
+<td align="left">GPU 显存（KV Cache）</td>
+</tr>
+<tr>
+<td align="left">高并发手段</td>
+<td align="left">continuous batching、动态批处理</td>
+</tr>
+<tr>
+<td align="left">性能优化</td>
+<td align="left">量化（压缩）、投机解码（预测）</td>
+</tr>
+<tr>
+<td align="left">监控告警</td>
+<td align="left">吞吐&#x2F;延迟&#x2F;排队指标</td>
+</tr>
+<tr>
+<td align="left">成本治理</td>
+<td align="left">token 计价、模型路由、降级</td>
+</tr>
+</tbody></table>
+<p>**把推理服务当 RPC 服务治理，你就已经会了 80%**——剩下 20% 是 GPU 与推理引擎的特有知识，本文覆盖。</p>
+<hr>
+<h2 id="二、本地起手：Ollama"><a href="#二、本地起手：Ollama" class="headerlink" title="二、本地起手：Ollama"></a>二、本地起手：Ollama</h2><h3 id="2-1-为什么先学-Ollama"><a href="#2-1-为什么先学-Ollama" class="headerlink" title="2.1 为什么先学 Ollama"></a>2.1 为什么先学 Ollama</h3><p>Ollama 是本地模型管理的”最简单路径”：一条命令拉起模型、自带 OpenAI 兼容 API、跨平台（macOS&#x2F;Linux&#x2F;Windows）。<strong>学习推理、验证模型效果、本地开发调试</strong>用它最快。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 安装并拉取模型（Qwen2.5 7B 是中文友好的入门选择）</span></span><br><span class="line">brew install ollama</span><br><span class="line">ollama pull qwen2.5:7b</span><br><span class="line"></span><br><span class="line"><span class="comment"># 启动服务（默认 11434 端口，OpenAI 兼容端点）</span></span><br><span class="line">ollama serve</span><br><span class="line"></span><br><span class="line"><span class="comment"># 命令行直接对话</span></span><br><span class="line">ollama run qwen2.5:7b <span class="string">&quot;用Java写一个线程安全的单例&quot;</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="2-2-OpenAI-兼容-API"><a href="#2-2-OpenAI-兼容-API" class="headerlink" title="2.2 OpenAI 兼容 API"></a>2.2 OpenAI 兼容 API</h3><p>Ollama 提供 <code>/v1/chat/completions</code> 兼容端点——<strong>你的业务代码一行不改</strong>，把 base_url 指过来即可：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">from</span> openai <span class="keyword">import</span> OpenAI</span><br><span class="line"></span><br><span class="line">client = OpenAI(base_url=<span class="string">&quot;http://localhost:11434/v1&quot;</span>, api_key=<span class="string">&quot;ollama&quot;</span>)</span><br><span class="line">resp = client.chat.completions.create(</span><br><span class="line">    model=<span class="string">&quot;qwen2.5:7b&quot;</span>,</span><br><span class="line">    messages=[&#123;<span class="string">&quot;role&quot;</span>: <span class="string">&quot;user&quot;</span>, <span class="string">&quot;content&quot;</span>: <span class="string">&quot;你好&quot;</span>&#125;],</span><br><span class="line">    stream=<span class="literal">True</span>,          <span class="comment"># 流式同样支持</span></span><br><span class="line">)</span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p><strong>Java 对照</strong>：这就是把上游服务地址换了个 base_url——RPC 服务切换提供方的日常操作。协议统一（第一章的结论）在这里直接兑现。</p>
+</blockquote>
+<h3 id="2-3-GGUF-格式"><a href="#2-3-GGUF-格式" class="headerlink" title="2.3 GGUF 格式"></a>2.3 GGUF 格式</h3><p>Ollama 的模型是 <strong>GGUF</strong> 格式（llama.cpp 系），本质是”模型权重 + 量化 + 元数据”打包。GGUF 的好处：</p>
+<ul>
+<li>支持 4bit&#x2F;5bit&#x2F;6bit&#x2F;8bit 量化（省显存，见第五章）；</li>
+<li>CPU 也能跑（慢但可用）——没有 GPU 也能开始学习；</li>
+<li>生态兼容（Ollama、llama.cpp、LM Studio 通用）。</li>
+</ul>
+<hr>
+<h2 id="三、推理原理"><a href="#三、推理原理" class="headerlink" title="三、推理原理"></a>三、推理原理</h2><h3 id="3-1-Prefill-与-Decode"><a href="#3-1-Prefill-与-Decode" class="headerlink" title="3.1 Prefill 与 Decode"></a>3.1 Prefill 与 Decode</h3><p>LLM 生成分两个阶段：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">Prefill（预填充）：把整个输入 prompt 一次性并行处理，生成首个 token</span><br><span class="line">  输入 500 token → 约几百 ms（并行计算，快）</span><br><span class="line">Decode（解码）：逐 token 自回归生成</span><br><span class="line">  &quot;是&quot; → &quot;G&quot; → &quot;1&quot; → &quot;…&quot; 每个 token 约 10~50 ms（串行，慢）</span><br></pre></td></tr></table></figure>
+
+<p><strong>关键认知</strong>：总耗时 ≈ Prefill 一次 + Decode 逐 token。长输出的瓶颈在 Decode，长输入的瓶颈在 Prefill。</p>
+<h3 id="3-2-KV-Cache：为什么显存是关键资源"><a href="#3-2-KV-Cache：为什么显存是关键资源" class="headerlink" title="3.2 KV Cache：为什么显存是关键资源"></a>3.2 KV Cache：为什么显存是关键资源</h3><p>生成第 N 个 token 时，模型需要”看到”之前的 N-1 个 token——如果每次都重算，计算量爆炸。<strong>KV Cache 把历史 token 的中间结果缓存下来</strong>，代价是显存：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">KV Cache 显存 ≈ 2（K和V） × 层数 × 头维度 × token数 × 2字节（FP16）</span><br><span class="line"></span><br><span class="line">示例：7B 模型，128K 上下文满占用 ≈ 30~40 GB 显存（远超权重本身 14GB）</span><br></pre></td></tr></table></figure>
+
+<p><strong>这就是”上下文窗口”的真实物理代价</strong>：窗口越大，显存需求线性涨。显存不够 → 缩短窗口、用量化、或用 GQA 等减少 KV 的模型架构。</p>
+<h3 id="3-3-显存估算公式"><a href="#3-3-显存估算公式" class="headerlink" title="3.3 显存估算公式"></a>3.3 显存估算公式</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">所需显存 ≈ 权重（参数量 × 精度字节）+ KV Cache + 激活/开销（约 20~30% 余量）</span><br><span class="line"></span><br><span class="line">示例：7B FP16（14GB 权重）+ 16K 窗口 KV（约 4~8GB）→ 单卡 24GB 起步</span><br><span class="line">示例：70B INT4 量化（约 35GB 权重）→ 需 48GB 或双卡</span><br></pre></td></tr></table></figure>
+
+<p><strong>先算显存再买卡&#x2F;选模型</strong>——这是推理部署最常踩的坑（OOM 的根因全是预算没算对）。</p>
+<h3 id="3-4-批处理：static-vs-continuous-batching"><a href="#3-4-批处理：static-vs-continuous-batching" class="headerlink" title="3.4 批处理：static vs continuous batching"></a>3.4 批处理：static vs continuous batching</h3><p>GPU 是”吞吐机器”——一次喂 32 个请求并行算，比串行算 32 次快得多。批处理策略：</p>
+<table>
+<thead>
+<tr>
+<th align="left">策略</th>
+<th align="left">做法</th>
+<th align="left">问题</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">Static batching</td>
+<td align="left">攒够一批（如 32 个）一起算</td>
+<td align="left">长请求拖累全批（等最慢的）；短请求浪费算力</td>
+</tr>
+<tr>
+<td align="left"><strong>Continuous batching</strong></td>
+<td align="left">批内随时插入新请求、剔除完成的</td>
+<td align="left">利用率高 10 倍级；<strong>现代引擎标配</strong></td>
+</tr>
+</tbody></table>
+<p>Continuous batching 是 vLLM 的核心卖点（配合 PagedAttention 管理 KV Cache）——<strong>高吞吐的秘诀不在模型，在调度</strong>。这与 Java 线程池的”动态调整、避免排队等待”是同一个思想。</p>
+<hr>
+<h2 id="四、vLLM-生产部署"><a href="#四、vLLM-生产部署" class="headerlink" title="四、vLLM 生产部署"></a>四、vLLM 生产部署</h2><h3 id="4-1-vLLM-是什么"><a href="#4-1-vLLM-是什么" class="headerlink" title="4.1 vLLM 是什么"></a>4.1 vLLM 是什么</h3><p>vLLM 是高吞吐推理引擎（PagedAttention 显存管理 + continuous batching + 量化支持），生产自部署的事实标准。Ollama 负责”简单”，vLLM 负责”吞吐”。</p>
+<h3 id="4-2-启动与参数"><a href="#4-2-启动与参数" class="headerlink" title="4.2 启动与参数"></a>4.2 启动与参数</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 拉镜像启动（需 NVIDIA GPU + 容器运行时）</span></span><br><span class="line">docker run --gpus all \</span><br><span class="line">  -v ~/.cache/huggingface:/root/.cache/huggingface \</span><br><span class="line">  -p 8000:8000 \</span><br><span class="line">  vllm/vllm-openai:latest \</span><br><span class="line">  --model Qwen/Qwen2.5-7B-Instruct \</span><br><span class="line">  --max-model-len 16384 \        <span class="comment"># 上下文窗口（显存预算！）</span></span><br><span class="line">  --gpu-memory-utilization 0.9    <span class="comment"># 显存利用率上限</span></span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th align="left">关键参数</th>
+<th align="left">作用</th>
+<th align="left">调优要点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left"><code>--max-model-len</code></td>
+<td align="left">窗口上限</td>
+<td align="left">过大显存爆，过小拒长输入</td>
+</tr>
+<tr>
+<td align="left"><code>--gpu-memory-utilization</code></td>
+<td align="left">显存利用率</td>
+<td align="left">0.8-0.95；给 KV 留空间</td>
+</tr>
+<tr>
+<td align="left"><code>--tensor-parallel-size</code></td>
+<td align="left">多卡并行</td>
+<td align="left">模型太大时开</td>
+</tr>
+<tr>
+<td align="left"><code>--quantization</code></td>
+<td align="left">量化类型</td>
+<td align="left">见第五章</td>
+</tr>
+</tbody></table>
+<h3 id="4-3-服务形态与性能指标"><a href="#4-3-服务形态与性能指标" class="headerlink" title="4.3 服务形态与性能指标"></a>4.3 服务形态与性能指标</h3><p>vLLM 起的是 OpenAI 兼容服务（<code>/v1/chat/completions</code>），业务接入同第二章。衡量推理服务的四个指标：</p>
+<table>
+<thead>
+<tr>
+<th align="left">指标</th>
+<th align="left">含义</th>
+<th align="left">优化方向</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left"><strong>TTFT</strong></td>
+<td align="left">首 token 时间</td>
+<td align="left">降低批大小、量化、Prefill 优化</td>
+</tr>
+<tr>
+<td align="left"><strong>TPOT</strong></td>
+<td align="left">每 token 生成时间</td>
+<td align="left">模型&#x2F;精度选择</td>
+</tr>
+<tr>
+<td align="left"><strong>吞吐</strong></td>
+<td align="left">tokens&#x2F;s（全并发）</td>
+<td align="left">加大批处理、continuous batching 生效</td>
+</tr>
+<tr>
+<td align="left"><strong>P99 延迟</strong></td>
+<td align="left">体验红线</td>
+<td align="left">排队控制、容量规划</td>
+</tr>
+</tbody></table>
+<p><strong>关键权衡：吞吐 vs 延迟</strong>——批越大吞吐越高但单请求延迟越大。生产按 SLA 定批上限（如单请求等待 &lt; 2s）。</p>
+<h3 id="4-4-Java-接入与负载均衡"><a href="#4-4-Java-接入与负载均衡" class="headerlink" title="4.4 Java 接入与负载均衡"></a>4.4 Java 接入与负载均衡</h3><figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># Spring AI 指向自部署服务（与第二章 Ollama 完全同构）</span></span><br><span class="line"><span class="attr">spring:</span></span><br><span class="line">  <span class="attr">ai:</span></span><br><span class="line">    <span class="attr">openai:</span></span><br><span class="line">      <span class="attr">base-url:</span> <span class="string">http://inference-cluster:8000</span></span><br><span class="line">      <span class="attr">api-key:</span> <span class="string">$&#123;LOCAL_KEY:no-key-needed&#125;</span></span><br><span class="line">      <span class="attr">chat:</span></span><br><span class="line">        <span class="attr">options:</span></span><br><span class="line">          <span class="attr">model:</span> <span class="string">Qwen/Qwen2.5-7B-Instruct</span></span><br></pre></td></tr></table></figure>
+
+<p>多推理实例（多卡&#x2F;多机）时，<strong>业务层用负载均衡 + 健康检查</strong>（Nginx&#x2F;K8s Service 即可）——多实例推理集群的管理与 Java 服务集群<strong>零差别</strong>（扩缩容见第八章）。</p>
+<hr>
+<h2 id="五、量化"><a href="#五、量化" class="headerlink" title="五、量化"></a>五、量化</h2><h3 id="5-1-量化的本质"><a href="#5-1-量化的本质" class="headerlink" title="5.1 量化的本质"></a>5.1 量化的本质</h3><p>把权重从 FP16（2 字节）压到 INT8（1 字节）&#x2F;INT4（0.5 字节）：<strong>用精度换显存与速度</strong>。三大类：</p>
+<table>
+<thead>
+<tr>
+<th align="left">方案</th>
+<th align="left">精度</th>
+<th align="left">代表</th>
+<th align="left">特点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">训练后量化（PTQ）</td>
+<td align="left">INT8</td>
+<td align="left">bitsandbytes</td>
+<td align="left">最省事，小模型可无损</td>
+</tr>
+<tr>
+<td align="left">低比特量化</td>
+<td align="left">INT4</td>
+<td align="left">GPTQ &#x2F; AWQ</td>
+<td align="left">大模型主流（70B 压到 35GB）</td>
+</tr>
+<tr>
+<td align="left">动态量化打包</td>
+<td align="left">混合</td>
+<td align="left">GGUF k-quant</td>
+<td align="left">Ollama&#x2F;llama.cpp 生态</td>
+</tr>
+</tbody></table>
+<h3 id="5-2-权衡表"><a href="#5-2-权衡表" class="headerlink" title="5.2 权衡表"></a>5.2 权衡表</h3><table>
+<thead>
+<tr>
+<th align="left">维度</th>
+<th align="left">FP16</th>
+<th align="left">INT8</th>
+<th align="left">INT4</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">显存（7B）</td>
+<td align="left">14GB</td>
+<td align="left">7GB</td>
+<td align="left">4GB</td>
+</tr>
+<tr>
+<td align="left">效果损失</td>
+<td align="left">基准</td>
+<td align="left">可忽略</td>
+<td align="left">轻微（复杂任务可见）</td>
+</tr>
+<tr>
+<td align="left">速度</td>
+<td align="left">基准</td>
+<td align="left">略快</td>
+<td align="left">快（显存瓶颈场景显著）</td>
+</tr>
+<tr>
+<td align="left">适用</td>
+<td align="left">显存充足</td>
+<td align="left">通用默认</td>
+<td align="left">大模型&#x2F;显存受限</td>
+</tr>
+</tbody></table>
+<p><strong>实践建议</strong>：先跑 FP16 定基准，再试 INT8（通常无损）；显存不够再上 INT4（GPTQ&#x2F;AWQ），并用评测（<a href="/post/llm-eval-observability-2026.html">LLM评测与可观测性</a>）确认效果损失可接受——<strong>量化不是免费的，是有价的，要评测验收</strong>。</p>
+<h3 id="5-3-量化与微调的关系"><a href="#5-3-量化与微调的关系" class="headerlink" title="5.3 量化与微调的关系"></a>5.3 量化与微调的关系</h3><ul>
+<li>微调后的模型（LoRA 合并）可以再量化部署——流程：微调 → 合并 → 量化 → 部署（见 <a href="/post/llm-finetuning-2026.html">LLM微调入门</a>）；</li>
+<li>QLoRA 本身就是在量化权重上微调（训练侧量化）。</li>
+</ul>
+<hr>
+<h2 id="六、模型路由与降级"><a href="#六、模型路由与降级" class="headerlink" title="六、模型路由与降级"></a>六、模型路由与降级</h2><h3 id="6-1-为什么需要路由"><a href="#6-1-为什么需要路由" class="headerlink" title="6.1 为什么需要路由"></a>6.1 为什么需要路由</h3><p>真实系统同时有”旗舰需求”与”量大廉价需求”：全走旗舰，成本失控；全走小模型，复杂任务质量不达标。<strong>路由 &#x3D; 按任务难度把请求分到合适的模型</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">请求 → 路由网关（LLM Client 层）</span><br><span class="line">        ├─ 简单任务（分类/摘要/抽取）→ 小模型（本地 7B 或 API 小模型）</span><br><span class="line">        ├─ 复杂任务（推理/长文）→ 旗舰模型</span><br><span class="line">        └─ 失败/超时 → 降级链（见下）</span><br></pre></td></tr></table></figure>
+
+<h3 id="6-2-路由策略"><a href="#6-2-路由策略" class="headerlink" title="6.2 路由策略"></a>6.2 路由策略</h3><table>
+<thead>
+<tr>
+<th align="left">策略</th>
+<th align="left">做法</th>
+<th align="left">适用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">规则路由</td>
+<td align="left">按任务类型&#x2F;长度关键词匹配</td>
+<td align="left">任务形态固定</td>
+</tr>
+<tr>
+<td align="left">意图分类路由</td>
+<td align="left">小模型先分类，再路由</td>
+<td align="left">任务多样</td>
+</tr>
+<tr>
+<td align="left">打分路由</td>
+<td align="left">按输入复杂度评分阈值</td>
+<td align="left">需要精细控制</td>
+</tr>
+</tbody></table>
+<h3 id="6-3-降级链"><a href="#6-3-降级链" class="headerlink" title="6.3 降级链"></a>6.3 降级链</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">旗舰 → 中级 → 本地小模型 → 缓存命中 → 兜底话术</span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th align="left">环节</th>
+<th align="left">触发</th>
+<th align="left">说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">熔断</td>
+<td align="left">连续错误率超阈值</td>
+<td align="left">快速失败，避免雪崩（<a href="/post/llm-api-tool-calling-2026.html">LLM API与工具调用实战</a> 6.3）</td>
+</tr>
+<tr>
+<td align="left">降级</td>
+<td align="left">熔断&#x2F;超时</td>
+<td align="left">依次降档，本地模型是”最后一层保障”</td>
+</tr>
+<tr>
+<td align="left">兜底</td>
+<td align="left">全部失败</td>
+<td align="left">固定话术 + 记录待人工处理</td>
+</tr>
+</tbody></table>
+<p><strong>自部署模型在降级链里价值巨大</strong>：云 API 不可用时，本地模型保证服务不中断——这就是 1.1 说”混合架构”的工程理由。</p>
+<hr>
+<h2 id="七、成本控制"><a href="#七、成本控制" class="headerlink" title="七、成本控制"></a>七、成本控制</h2><h3 id="7-1-自部署的成本模型"><a href="#7-1-自部署的成本模型" class="headerlink" title="7.1 自部署的成本模型"></a>7.1 自部署的成本模型</h3><p>自部署的成本不是 0——是<strong>固定成本</strong>：GPU 折旧&#x2F;租赁 + 电力 + 运维。何时划算：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">自部署月成本 &lt; 云 API 月成本（token 量 × 单价）时，自部署划算</span><br></pre></td></tr></table></figure>
+
+<p>一个粗略决策示例：日均 100 万 token 全走云 API（中级模型），月成本数万元；一张 24GB GPU（月租数千元）跑 7B INT4 可支撑相近量级。<strong>量大才自部署</strong>。</p>
+<h3 id="7-2-token-视角的成本治理"><a href="#7-2-token-视角的成本治理" class="headerlink" title="7.2 token 视角的成本治理"></a>7.2 token 视角的成本治理</h3><table>
+<thead>
+<tr>
+<th align="left">手段</th>
+<th align="left">效果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">Prompt 缓存</td>
+<td align="left">固定前缀命中，输入 token 消耗与耗时双降（<a href="/post/llm-api-tool-calling-2026.html">LLM API与工具调用实战</a> 7.2）</td>
+</tr>
+<tr>
+<td align="left">输出上限控制</td>
+<td align="left">max_tokens 收紧，防长输出烧钱</td>
+</tr>
+<tr>
+<td align="left">模型路由</td>
+<td align="left">简单任务走小模型（第六章）</td>
+</tr>
+<tr>
+<td align="left">批处理监控</td>
+<td align="left">单 token 成本 &#x3D; 硬件成本 ÷ 总产出 token，吞吐即成本</td>
+</tr>
+</tbody></table>
+<h3 id="7-3-成本观测"><a href="#7-3-成本观测" class="headerlink" title="7.3 成本观测"></a>7.3 成本观测</h3><p>每请求记录：模型、输入&#x2F;输出 token、延迟、是否缓存命中——按模型&#x2F;业务线&#x2F;小时聚合，<strong>成本必须可归因</strong>（详见 <a href="/post/llm-eval-observability-2026.html">LLM评测与可观测性</a> 成本章节）。</p>
+<hr>
+<h2 id="八、可观测与运维"><a href="#八、可观测与运维" class="headerlink" title="八、可观测与运维"></a>八、可观测与运维</h2><h3 id="8-1-推理服务指标"><a href="#8-1-推理服务指标" class="headerlink" title="8.1 推理服务指标"></a>8.1 推理服务指标</h3><table>
+<thead>
+<tr>
+<th align="left">指标</th>
+<th align="left">含义</th>
+<th align="left">健康参考</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">吞吐（tokens&#x2F;s）</td>
+<td align="left">集群产能</td>
+<td align="left">基线对比</td>
+</tr>
+<tr>
+<td align="left">平均批大小</td>
+<td align="left">批处理效率</td>
+<td align="left">越高越省</td>
+</tr>
+<tr>
+<td align="left">排队请求数</td>
+<td align="left">积压程度</td>
+<td align="left">持续 &gt; 0 需扩容</td>
+</tr>
+<tr>
+<td align="left">显存利用率</td>
+<td align="left">资源紧张度</td>
+<td align="left">&gt; 90% 需规划</td>
+</tr>
+<tr>
+<td align="left">P99 延迟 &#x2F; TTFT</td>
+<td align="left">体验</td>
+<td align="left">SLA 内</td>
+</tr>
+</tbody></table>
+<h3 id="8-2-扩容与缩容"><a href="#8-2-扩容与缩容" class="headerlink" title="8.2 扩容与缩容"></a>8.2 扩容与缩容</h3><p>推理集群的扩缩容<strong>和 Java 服务完全一样</strong>：</p>
+<ul>
+<li><strong>水平扩展</strong>：多实例 + 负载均衡（4.4）；</li>
+<li><strong>垂直扩展</strong>：单实例加显存（换卡&#x2F;多卡）；</li>
+<li><strong>自动扩缩</strong>：K8s HPA 按”排队请求数”或”吞吐”指标伸缩；</li>
+<li><strong>关键差异</strong>：模型加载耗时（分钟级）→ 预热策略：提前拉起实例、避免流量高峰时现场加载。</li>
+</ul>
+<h3 id="8-3-常见故障与排查"><a href="#8-3-常见故障与排查" class="headerlink" title="8.3 常见故障与排查"></a>8.3 常见故障与排查</h3><table>
+<thead>
+<tr>
+<th align="left">故障</th>
+<th align="left">排查方向</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">OOM</td>
+<td align="left">显存预算（3.3 公式）→ 缩窗口&#x2F;量化&#x2F;减批</td>
+</tr>
+<tr>
+<td align="left">吞吐骤降</td>
+<td align="left">批大小&#x2F;排队 → 是否被长请求占满</td>
+</tr>
+<tr>
+<td align="left">首 token 慢</td>
+<td align="left">Prefill 瓶颈 → 批太大&#x2F;输入太长</td>
+</tr>
+<tr>
+<td align="left">输出乱码</td>
+<td align="left">量化精度 → 换精度&#x2F;评测验收</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="九、实战：Ollama-→-vLLM-生产迁移"><a href="#九、实战：Ollama-→-vLLM-生产迁移" class="headerlink" title="九、实战：Ollama → vLLM 生产迁移"></a>九、实战：Ollama → vLLM 生产迁移</h2><h3 id="9-1-迁移路径"><a href="#9-1-迁移路径" class="headerlink" title="9.1 迁移路径"></a>9.1 迁移路径</h3><table>
+<thead>
+<tr>
+<th align="left">阶段</th>
+<th align="left">形态</th>
+<th align="left">目的</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">1</td>
+<td align="left">Ollama 单机（开发机）</td>
+<td align="left">验证模型效果、跑通业务代码</td>
+</tr>
+<tr>
+<td align="left">2</td>
+<td align="left">Ollama + Docker 部署（测试）</td>
+<td align="left">验证容器化与 API 兼容</td>
+</tr>
+<tr>
+<td align="left">3</td>
+<td align="left">vLLM 单实例（预生产）</td>
+<td align="left">压测吞吐与延迟，定参数</td>
+</tr>
+<tr>
+<td align="left">4</td>
+<td align="left">vLLM 集群 + 负载均衡（生产）</td>
+<td align="left">扩缩容、监控、降级链</td>
+</tr>
+</tbody></table>
+<h3 id="9-2-关键动作清单"><a href="#9-2-关键动作清单" class="headerlink" title="9.2 关键动作清单"></a>9.2 关键动作清单</h3><ul>
+<li><input disabled="" type="checkbox"> 显存预算计算（3.3）→ 定模型规模与窗口</li>
+<li><input disabled="" type="checkbox"> 量化选型 + 评测验收（第五章 + <a href="/post/llm-eval-observability-2026.html">LLM评测与可观测性</a>）</li>
+<li><input disabled="" type="checkbox"> 压测：并发梯度 × 吞吐&#x2F;P99 曲线，定批上限</li>
+<li><input disabled="" type="checkbox"> 路由 + 降级链配置（第六章）</li>
+<li><input disabled="" type="checkbox"> 指标接入监控（吞吐&#x2F;排队&#x2F;显存&#x2F;P99）</li>
+<li><input disabled="" type="checkbox"> 成本观测（token 归因）</li>
+<li><input disabled="" type="checkbox"> 业务侧 base_url 切换 + 回归（<a href="/post/llm-api-tool-calling-2026.html">LLM API与工具调用实战</a> 兼容协议）</li>
+</ul>
+<h3 id="9-3-验收标准"><a href="#9-3-验收标准" class="headerlink" title="9.3 验收标准"></a>9.3 验收标准</h3><table>
+<thead>
+<tr>
+<th align="left">项</th>
+<th align="left">标准</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">协议兼容</td>
+<td align="left">业务代码零改动切换（base_url 例外）</td>
+</tr>
+<tr>
+<td align="left">性能</td>
+<td align="left">P99 &lt; SLA（如 5s），吞吐达压测基线</td>
+</tr>
+<tr>
+<td align="left">稳定性</td>
+<td align="left">压测 1 小时无 OOM、无错误率上升</td>
+</tr>
+<tr>
+<td align="left">降级</td>
+<td align="left">模拟推理集群故障，降级链生效、服务不中断</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="十、与-Java-存量技能迁移对照"><a href="#十、与-Java-存量技能迁移对照" class="headerlink" title="十、与 Java 存量技能迁移对照"></a>十、与 Java 存量技能迁移对照</h2><table>
+<thead>
+<tr>
+<th align="left">本文章节</th>
+<th align="left">Java 存量技能</th>
+<th align="left">迁移要点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">一、全景</td>
+<td align="left">RPC 服务治理</td>
+<td align="left">模型服务 &#x3D; 特殊 RPC 服务</td>
+</tr>
+<tr>
+<td align="left">三、推理原理</td>
+<td align="left">JVM 内存治理</td>
+<td align="left">KV Cache ≈ 堆内存，OOM 排查同源</td>
+</tr>
+<tr>
+<td align="left">三、批处理</td>
+<td align="left">线程池调度</td>
+<td align="left">continuous batching ≈ 动态线程池</td>
+</tr>
+<tr>
+<td align="left">四、vLLM</td>
+<td align="left">服务框架部署</td>
+<td align="left">参数调优 ≈ JVM 参数调优</td>
+</tr>
+<tr>
+<td align="left">五、量化</td>
+<td align="left">资源-质量权衡</td>
+<td align="left">量化 ≈ 压缩&#x2F;降精度换空间</td>
+</tr>
+<tr>
+<td align="left">六、路由降级</td>
+<td align="left">Sentinel 熔断降级</td>
+<td align="left">降级链直接平移</td>
+</tr>
+<tr>
+<td align="left">八、运维</td>
+<td align="left">集群扩缩容</td>
+<td align="left">HPA&#x2F;预热 ≈ K8s 既有技能</td>
+</tr>
+</tbody></table>
+<blockquote>
+<p>完整转型路线见 <a href="/docs/nav/ai-learning-nav.html">AI学习体系导航</a>；推理服务的对接端（流式&#x2F;重试&#x2F;成本）见 <a href="/post/llm-api-tool-calling-2026.html">LLM API与工具调用实战</a>；效果验收见 <a href="/post/llm-eval-observability-2026.html">LLM评测与可观测性</a>。</p>
+</blockquote>
+<blockquote>
+<p><strong>相关文章：</strong> <a href="/post/llm-api-tool-calling-2026.html">LLM API与工具调用实战</a>、<a href="/post/llm-finetuning-2026.html">LLM微调入门</a>、<a href="/post/llm-eval-observability-2026.html">LLM评测与可观测性</a>、<a href="/docs/nav/ai-learning-nav.html">AI学习体系导航</a></p>
+</blockquote>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/llm-eval-observability-2026.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/llm-eval-observability-2026.html" class="post-title-link" itemprop="url">LLM评测与可观测性</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-08-05 12:00:00" itemprop="dateCreated datePublished" datetime="2026-08-05T12:00:00+08:00">2026-08-05</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/AI%E5%A4%A7%E6%A8%A1%E5%9E%8B/" itemprop="url" rel="index"><span itemprop="name">AI大模型</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>2.3k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>8 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="LLM-评测与可观测性"><a href="#LLM-评测与可观测性" class="headerlink" title="LLM 评测与可观测性"></a>LLM 评测与可观测性</h1><blockquote>
+<p>本文是《AI学习体系导航》阶段五的评测+可观测专题：AI 系统上线后，”效果到底怎么样、哪里在变差、钱花到哪了”必须有数据回答。覆盖离线评测（RAGAS 等）与线上观测（Langfuse、指标告警）两条线，以及把两者串起来的优化闭环。RAG 场景的评测落地见 <a href="/post/rag-2026.html">RAG原理与实践</a> 第八章，本文是其体系化展开。</p>
+<p><strong>撰写时快照</strong>：本文基于 2026 年 8 月主流评测与观测工具撰写；指标定义与工具 API 以官方文档为准。</p>
+</blockquote>
+<hr>
+<h2 id="一、为什么要评测"><a href="#一、为什么要评测" class="headerlink" title="一、为什么要评测"></a>一、为什么要评测</h2><h3 id="1-1-LLM-系统是”概率系统”，必须用样本说话"><a href="#1-1-LLM-系统是”概率系统”，必须用样本说话" class="headerlink" title="1.1 LLM 系统是”概率系统”，必须用样本说话"></a>1.1 LLM 系统是”概率系统”，必须用样本说话</h3><p>传统软件的测试（单测、集成测试）对确定性逻辑有效；LLM 系统的输出每次不同，”这次跑对了”不能说明”下次也对”。<strong>评测 &#x3D; 用固定样本集 + 统计指标，把概率系统变成可度量的工程对象</strong>。</p>
+<blockquote>
+<p><strong>Java 对照</strong>：评测体系 ≈ 测试体系 + 监控体系的 AI 版。RAGAS 指标 ≈ 单测断言，评测集 ≈ 回归测试集，线上指标 ≈ Prometheus 告警。</p>
+</blockquote>
+<h3 id="1-2-两条线缺一不可"><a href="#1-2-两条线缺一不可" class="headerlink" title="1.2 两条线缺一不可"></a>1.2 两条线缺一不可</h3><table>
+<thead>
+<tr>
+<th align="left">线</th>
+<th align="left">时间</th>
+<th align="left">回答的问题</th>
+<th align="left">工具</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left"><strong>离线评测</strong></td>
+<td align="left">上线前&#x2F;迭代中</td>
+<td align="left">这次改动变好还是变差？</td>
+<td align="left">评测集 + RAGAS&#x2F;LLM Judge</td>
+</tr>
+<tr>
+<td align="left"><strong>线上观测</strong></td>
+<td align="left">运行中</td>
+<td align="left">生产上效果如何、哪里异常？</td>
+<td align="left">Langfuse&#x2F;自研埋点 + 指标告警</td>
+</tr>
+</tbody></table>
+<p>**离线评测管”改版门禁”，线上观测管”运行健康”**——只做任何一条都会出事：只做离线会漏掉线上分布偏移；只做线上则无法定位具体版本问题。</p>
+<hr>
+<h2 id="二、RAGAS-评测"><a href="#二、RAGAS-评测" class="headerlink" title="二、RAGAS 评测"></a>二、RAGAS 评测</h2><h3 id="2-1-四个核心指标"><a href="#2-1-四个核心指标" class="headerlink" title="2.1 四个核心指标"></a>2.1 四个核心指标</h3><p>RAGAS 是开源 RAG 评测框架，指标可分两层（检索层 + 生成层）：</p>
+<table>
+<thead>
+<tr>
+<th align="left">指标</th>
+<th align="left">层面</th>
+<th align="left">衡量</th>
+<th align="left">直觉理解</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">上下文相关性（Context Precision&#x2F;Relevancy）</td>
+<td align="left">检索</td>
+<td align="left">检索结果与问题相关度</td>
+<td align="left">检索得准不准</td>
+</tr>
+<tr>
+<td align="left">上下文召回（Context Recall）</td>
+<td align="left">检索</td>
+<td align="left">该有的资料是否都被召回</td>
+<td align="left">有没有漏</td>
+</tr>
+<tr>
+<td align="left">忠实度（Faithfulness）</td>
+<td align="left">生成</td>
+<td align="left">回答是否忠于检索资料</td>
+<td align="left">有没有编造</td>
+</tr>
+<tr>
+<td align="left">答案相关性（Answer Relevancy）</td>
+<td align="left">生成</td>
+<td align="left">回答是否切题</td>
+<td align="left">有没有答非所问</td>
+</tr>
+</tbody></table>
+<p><strong>两个层面分开看</strong>：检索指标差 → 修检索（分块&#x2F;重排&#x2F;混合检索）；生成指标差 → 修 Prompt 与上下文组装。混在一起无法定位。</p>
+<h3 id="2-2-评测集格式与运行"><a href="#2-2-评测集格式与运行" class="headerlink" title="2.2 评测集格式与运行"></a>2.2 评测集格式与运行</h3><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">from</span> ragas <span class="keyword">import</span> EvaluationDataset</span><br><span class="line"><span class="keyword">from</span> ragas.metrics <span class="keyword">import</span> faithfulness, answer_relevancy, context_precision, context_recall</span><br><span class="line"><span class="keyword">from</span> ragas <span class="keyword">import</span> evaluate</span><br><span class="line"></span><br><span class="line"><span class="comment"># 评测集：question（问题）+ ground_truth（标准答案）</span></span><br><span class="line"><span class="comment">#        + answer/contexts（被测系统的输出，评估时补充）</span></span><br><span class="line">dataset = EvaluationDataset.from_list([</span><br><span class="line">    &#123;</span><br><span class="line">        <span class="string">&quot;question&quot;</span>: <span class="string">&quot;退款多久到账？&quot;</span>,</span><br><span class="line">        <span class="string">&quot;ground_truth&quot;</span>: <span class="string">&quot;退款通常在 3-5 个工作日内到账。&quot;</span>,</span><br><span class="line">    &#125;,</span><br><span class="line">    <span class="comment"># ... 30-50 条，覆盖典型 + 边界</span></span><br><span class="line">])</span><br><span class="line"></span><br><span class="line">result = evaluate(dataset=dataset, metrics=[</span><br><span class="line">    faithfulness, answer_relevancy, context_precision, context_recall,</span><br><span class="line">])</span><br><span class="line"><span class="built_in">print</span>(result.to_pandas())   <span class="comment"># 每条样本逐项打分 + 整体均值</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="2-3-指标解读的注意事项"><a href="#2-3-指标解读的注意事项" class="headerlink" title="2.3 指标解读的注意事项"></a>2.3 指标解读的注意事项</h3><table>
+<thead>
+<tr>
+<th align="left">现象</th>
+<th align="left">说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">忠实度低</td>
+<td align="left">模型没”照着资料答”——查防幻觉指令、引用溯源</td>
+</tr>
+<tr>
+<td align="left">上下文召回低</td>
+<td align="left">检索漏了——查分块大小、混合检索、top_k</td>
+</tr>
+<tr>
+<td align="left">上下文相关低 + 召回高</td>
+<td align="left">召回太宽——查 Rerank、过滤规则</td>
+</tr>
+<tr>
+<td align="left">答案相关低</td>
+<td align="left">模型跑题——查系统指令与任务定义</td>
+</tr>
+</tbody></table>
+<p><strong>指标只是信号，不是结论</strong>：每个指标异常都对应一个可排查的方向清单（RAG 场景的排查表见 <a href="/post/rag-2026.html">RAG原理与实践</a> 8.4）。</p>
+<hr>
+<h2 id="三、评测集构建"><a href="#三、评测集构建" class="headerlink" title="三、评测集构建"></a>三、评测集构建</h2><h3 id="3-1-来源与规模"><a href="#3-1-来源与规模" class="headerlink" title="3.1 来源与规模"></a>3.1 来源与规模</h3><table>
+<thead>
+<tr>
+<th align="left">方式</th>
+<th align="left">做法</th>
+<th align="left">适用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">真实日志采样</td>
+<td align="left">线上用户问题抽样</td>
+<td align="left">最有代表性，<strong>首选</strong></td>
+</tr>
+<tr>
+<td align="left">人工标注</td>
+<td align="left">专家写标准答案与边界问题</td>
+<td align="left">冷启动、质量基准</td>
+</tr>
+<tr>
+<td align="left">LLM 合成</td>
+<td align="left">让模型生成变体&#x2F;边界问题</td>
+<td align="left">补充覆盖（需人工抽检防幻觉标注）</td>
+</tr>
+</tbody></table>
+<p>规模建议：<strong>起步 30-50 条</strong>（典型 70% + 边界 30%），迭代期逐步扩容；每条带 <code>category</code> 标签（退款&#x2F;物流&#x2F;账户…），改版时按类别看升降。</p>
+<h3 id="3-2-评测集的工程治理"><a href="#3-2-评测集的工程治理" class="headerlink" title="3.2 评测集的工程治理"></a>3.2 评测集的工程治理</h3><ul>
+<li><strong>进 Git</strong>：评测集是”测试用例”，随代码版本管理；</li>
+<li><strong>版本化</strong>：评测集改版与系统改版分开记录，防止”指标涨了是因为评测集换了”；</li>
+<li><strong>真值审查</strong>：定期抽检 ground_truth 本身的质量（AI 合成标注尤其要查）。</li>
+</ul>
+<hr>
+<h2 id="四、Agent-评测"><a href="#四、Agent-评测" class="headerlink" title="四、Agent 评测"></a>四、Agent 评测</h2><h3 id="4-1-为什么-Agent-评测不一样"><a href="#4-1-为什么-Agent-评测不一样" class="headerlink" title="4.1 为什么 Agent 评测不一样"></a>4.1 为什么 Agent 评测不一样</h3><p>Agent 是”过程 + 结果”的系统（见 <a href="/post/agent-2026.html">Agent原理与实践</a>）：结果对了但过程错（绕路、调用不该用的工具）也是问题。所以 Agent 评测必须<strong>评轨迹</strong>：</p>
+<table>
+<thead>
+<tr>
+<th align="left">维度</th>
+<th align="left">指标</th>
+<th align="left">采集方式</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">任务成功率</td>
+<td align="left">端到端完成率</td>
+<td align="left">人工&#x2F;规则判定最终结果</td>
+</tr>
+<tr>
+<td align="left">工具调用正确性</td>
+<td align="left">每一步是否用了正确的工具&#x2F;参数</td>
+<td align="left">轨迹标注或规则校验</td>
+</tr>
+<tr>
+<td align="left">步骤效率</td>
+<td align="left">平均轮数 vs 最优轮数</td>
+<td align="left">轨迹统计</td>
+</tr>
+<tr>
+<td align="left">安全合规</td>
+<td align="left">是否触犯禁区（误用高权限工具）</td>
+<td align="left">规则 + 人工抽检</td>
+</tr>
+</tbody></table>
+<h3 id="4-2-轨迹评测实操"><a href="#4-2-轨迹评测实操" class="headerlink" title="4.2 轨迹评测实操"></a>4.2 轨迹评测实操</h3><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 轨迹样例（Langfuse 或自研日志导出的结构化轨迹）</span></span><br><span class="line">trace = &#123;</span><br><span class="line">    <span class="string">&quot;steps&quot;</span>: [</span><br><span class="line">        &#123;<span class="string">&quot;type&quot;</span>: <span class="string">&quot;thought&quot;</span>, <span class="string">&quot;content&quot;</span>: <span class="string">&quot;需要查天气&quot;</span>&#125;,</span><br><span class="line">        &#123;<span class="string">&quot;type&quot;</span>: <span class="string">&quot;action&quot;</span>,  <span class="string">&quot;tool&quot;</span>: <span class="string">&quot;get_weather&quot;</span>, <span class="string">&quot;args&quot;</span>: &#123;<span class="string">&quot;city&quot;</span>: <span class="string">&quot;北京&quot;</span>&#125;&#125;,</span><br><span class="line">        &#123;<span class="string">&quot;type&quot;</span>: <span class="string">&quot;observation&quot;</span>, <span class="string">&quot;result&quot;</span>: <span class="string">&quot;晴 22°C&quot;</span>&#125;,</span><br><span class="line">        &#123;<span class="string">&quot;type&quot;</span>: <span class="string">&quot;answer&quot;</span>, <span class="string">&quot;content&quot;</span>: <span class="string">&quot;北京今天晴&quot;</span>&#125;,</span><br><span class="line">    ]</span><br><span class="line">&#125;</span><br><span class="line"><span class="comment"># 规则校验：是否用了预期工具链？轮数是否合理？结果是否成功？</span></span><br></pre></td></tr></table></figure>
+
+<p>**Agent 上线前必须有一组”轨迹用例”**（给定任务 → 期望工具链 → 判定通过&#x2F;失败），否则多步 Agent 的行为退化解耦无感。</p>
+<hr>
+<h2 id="五、LLM-可观测"><a href="#五、LLM-可观测" class="headerlink" title="五、LLM 可观测"></a>五、LLM 可观测</h2><h3 id="5-1-观测什么"><a href="#5-1-观测什么" class="headerlink" title="5.1 观测什么"></a>5.1 观测什么</h3><table>
+<thead>
+<tr>
+<th align="left">观测项</th>
+<th align="left">内容</th>
+<th align="left">对应问题</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">调用追踪（Trace）</td>
+<td align="left">一次请求全链路：模型调用、工具调用、RAG 检索</td>
+<td align="left">慢在哪、错在哪</td>
+</tr>
+<tr>
+<td align="left">Token 用量</td>
+<td align="left">输入&#x2F;输出&#x2F;缓存命中</td>
+<td align="left">钱花哪了</td>
+</tr>
+<tr>
+<td align="left">延迟</td>
+<td align="left">TTFT、总耗时、P50&#x2F;P95</td>
+<td align="left">体验如何</td>
+</tr>
+<tr>
+<td align="left">错误</td>
+<td align="left">429&#x2F;超时&#x2F;解析失败率</td>
+<td align="left">稳不稳</td>
+</tr>
+<tr>
+<td align="left">成本</td>
+<td align="left">token × 单价汇总</td>
+<td align="left">预算是否超支</td>
+</tr>
+</tbody></table>
+<h3 id="5-2-Langfuse：开源的-LLM-观测平台"><a href="#5-2-Langfuse：开源的-LLM-观测平台" class="headerlink" title="5.2 Langfuse：开源的 LLM 观测平台"></a>5.2 Langfuse：开源的 LLM 观测平台</h3><p>Langfuse 提供 trace、token 统计、成本估算、评测集管理与打分面板，SDK 接入极轻：</p>
+<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">from</span> langfuse <span class="keyword">import</span> Langfuse</span><br><span class="line"></span><br><span class="line">langfuse = Langfuse()</span><br><span class="line"></span><br><span class="line"><span class="comment"># 在 LLMClient 封装层埋点（见《LLM API与工具调用实战》第八章）</span></span><br><span class="line"><span class="keyword">with</span> langfuse.trace(name=<span class="string">&quot;chat&quot;</span>) <span class="keyword">as</span> trace:</span><br><span class="line">    span = trace.span(name=<span class="string">&quot;llm_call&quot;</span>, model=<span class="string">&quot;gpt-4o-mini&quot;</span>)</span><br><span class="line">    resp = client.chat.completions.create(...)</span><br><span class="line">    span.end(output=resp, usage=resp.usage)   <span class="comment"># token 自动统计</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>埋点位置必须是统一 LLMClient 层</strong>——业务代码无感，观测随框架自动生效。</p>
+<h3 id="5-3-自研-vs-工具"><a href="#5-3-自研-vs-工具" class="headerlink" title="5.3 自研 vs 工具"></a>5.3 自研 vs 工具</h3><table>
+<thead>
+<tr>
+<th align="left">方案</th>
+<th align="left">优点</th>
+<th align="left">缺点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">Langfuse 等现成平台</td>
+<td align="left">零维护、带评测面板</td>
+<td align="left">数据出网（合规需评估）</td>
+</tr>
+<tr>
+<td align="left">自研埋点（日志 + Prometheus + Grafana）</td>
+<td align="left">数据主权、与现有监控体系统一</td>
+<td align="left">开发成本、无现成 Agent 轨迹视图</td>
+</tr>
+</tbody></table>
+<p><strong>Java 团队建议</strong>：起步用自研（复用现有 Prometheus&#x2F;Grafana 体系，指标口径一致），Agent 轨迹视图按需自建；敏感场景必须自研。</p>
+<hr>
+<h2 id="六、线上指标与告警"><a href="#六、线上指标与告警" class="headerlink" title="六、线上指标与告警"></a>六、线上指标与告警</h2><h3 id="6-1-指标体系"><a href="#6-1-指标体系" class="headerlink" title="6.1 指标体系"></a>6.1 指标体系</h3><table>
+<thead>
+<tr>
+<th align="left">层级</th>
+<th align="left">指标</th>
+<th align="left">告警阈值（参考）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">可用性</td>
+<td align="left">请求成功率</td>
+<td align="left">&lt; 99% 告警</td>
+</tr>
+<tr>
+<td align="left">性能</td>
+<td align="left">P95 总延迟 &#x2F; TTFT</td>
+<td align="left">超业务 SLA 告警</td>
+</tr>
+<tr>
+<td align="left">质量</td>
+<td align="left">抽检满意度 &#x2F; 人工标注跑分</td>
+<td align="left">连续下降 2 个周期告警</td>
+</tr>
+<tr>
+<td align="left">成本</td>
+<td align="left">单日成本 &#x2F; 单请求平均成本</td>
+<td align="left">超预算 120% 告警</td>
+</tr>
+<tr>
+<td align="left">稳定性</td>
+<td align="left">429 率、超时率</td>
+<td align="left">&gt; 1% 告警</td>
+</tr>
+</tbody></table>
+<h3 id="6-2-质量指标怎么上告警"><a href="#6-2-质量指标怎么上告警" class="headerlink" title="6.2 质量指标怎么上告警"></a>6.2 质量指标怎么上告警</h3><p>LLM 质量无法实时自动判定（成本高），工程化做法是<strong>抽样 + 人工&#x2F;LLM 判定</strong>：</p>
+<ul>
+<li>按比例抽样（如 1%）存样本 → LLM Judge 初筛 → 人工复核疑点样本；</li>
+<li>判定结果回流成线上指标（满意度分）；</li>
+<li>连续下降触发告警 → 拉出变差样本 → 复现定位（Prompt 改了吗？模型换了吗？检索数据更新了吗？）。</li>
+</ul>
+<blockquote>
+<p>抽样判定 ≈ Java 侧的”线上拨测 + 日志采样分析”——把不确定的 LLM 质量变成可告警的数字。</p>
+</blockquote>
+<hr>
+<h2 id="七、评测-→-定位-→-优化闭环"><a href="#七、评测-→-定位-→-优化闭环" class="headerlink" title="七、评测 → 定位 → 优化闭环"></a>七、评测 → 定位 → 优化闭环</h2><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">① 线上观测（指标异常/用户反馈）</span><br><span class="line">   ↓</span><br><span class="line">② 拉取问题样本（trace + 原文）</span><br><span class="line">   ↓</span><br><span class="line">③ 离线复现（固定 temperature=0，跑评测集对应用例）</span><br><span class="line">   ↓</span><br><span class="line">④ 定位（检索层/生成层/提示层——用 RAGAS 分层指标定位）</span><br><span class="line">   ↓</span><br><span class="line">⑤ 优化（分块/重排/混合检索/Prompt/工具设计，按代价从低到高）</span><br><span class="line">   ↓</span><br><span class="line">⑥ 回归（全量评测集，分数不降才上线）</span><br><span class="line">   ↓</span><br><span class="line">⑦ 上线 → 回到①（对比前后线上指标）</span><br></pre></td></tr></table></figure>
+
+<p><strong>核心原则：一次只改一个变量。</strong> 同时改 Prompt + 分块 + 重排，指标涨了也不知道是谁的功劳——这和 Java 性能优化的控制变量法完全一致。</p>
+<hr>
+<h2 id="八、与-Java-存量技能迁移对照"><a href="#八、与-Java-存量技能迁移对照" class="headerlink" title="八、与 Java 存量技能迁移对照"></a>八、与 Java 存量技能迁移对照</h2><table>
+<thead>
+<tr>
+<th align="left">本文章节</th>
+<th align="left">Java 存量技能</th>
+<th align="left">迁移要点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">二、RAGAS</td>
+<td align="left">单元测试断言</td>
+<td align="left">指标 ≈ 断言，样本 ≈ 用例</td>
+</tr>
+<tr>
+<td align="left">三、评测集</td>
+<td align="left">测试用例管理</td>
+<td align="left">进 Git、版本化、类别标签</td>
+</tr>
+<tr>
+<td align="left">四、Agent 轨迹</td>
+<td align="left">集成测试&#x2F;链路测试</td>
+<td align="left">轨迹用例 ≈ 场景级集成测试</td>
+</tr>
+<tr>
+<td align="left">五、可观测</td>
+<td align="left">日志 + trace</td>
+<td align="left">Trace&#x2F;span 心智直接平移</td>
+</tr>
+<tr>
+<td align="left">六、指标告警</td>
+<td align="left">Prometheus + Grafana</td>
+<td align="left">指标体系复用，新增质量抽样</td>
+</tr>
+<tr>
+<td align="left">七、优化闭环</td>
+<td align="left">性能调优方法论</td>
+<td align="left">控制变量、回归门禁同构</td>
+</tr>
+</tbody></table>
+<blockquote>
+<p>成本侧的治理（Token 计价、模型路由、缓存）见 <a href="/post/llm-api-tool-calling-2026.html">LLM API与工具调用实战</a> 第七章与 <a href="/post/llm-inference-2026.html">LLM推理与部署实战</a>；Prompt 迭代的回归流程见 <a href="/post/prompt-engineering-2026.html">Prompt工程实战</a>。</p>
+</blockquote>
+<blockquote>
+<p><strong>相关文章：</strong> <a href="/post/rag-2026.html">RAG原理与实践</a>、<a href="/post/agent-2026.html">Agent原理与实践</a>、<a href="/post/llm-api-tool-calling-2026.html">LLM API与工具调用实战</a>、<a href="/docs/nav/ai-learning-nav.html">AI学习体系导航</a></p>
+</blockquote>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -561,1724 +1969,8 @@
 
 
 
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/multi-agent-langgraph-2026.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="知行栈">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | 知行栈">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/multi-agent-langgraph-2026.html" class="post-title-link" itemprop="url">多智能体协作实战</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-
-      <time title="Created: 2026-08-04 19:00:00" itemprop="dateCreated datePublished" datetime="2026-08-04T19:00:00+08:00">2026-08-04</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">In</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/AI%E5%A4%A7%E6%A8%A1%E5%9E%8B/" itemprop="url" rel="index"><span itemprop="name">AI大模型</span></a>
-        </span>
-    </span>
-
-  
-    <span class="post-meta-break"></span>
-    <span class="post-meta-item" title="Word count in article">
-      <span class="post-meta-item-icon">
-        <i class="far fa-file-word"></i>
-      </span>
-      <span class="post-meta-item-text">Word count in article: </span>
-      <span>2.3k</span>
-    </span>
-    <span class="post-meta-item" title="Reading time">
-      <span class="post-meta-item-icon">
-        <i class="far fa-clock"></i>
-      </span>
-      <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>8 mins.</span>
-    </span>
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="多智能体协作实战（LangGraph）"><a href="#多智能体协作实战（LangGraph）" class="headerlink" title="多智能体协作实战（LangGraph）"></a>多智能体协作实战（LangGraph）</h1><blockquote>
-<p>本文是《AI学习体系导航》阶段四&#x2F;五的多智能体落地篇：<a href="/post/agent-2026.html">Agent原理与实践</a> 讲了单 Agent 的完整原理，本文讲<strong>多个 Agent 怎么协作</strong>——以 LangGraph（Python 生态最主流的 Agent 编排框架）为主线，覆盖核心概念、三种编排模式与一个完整项目。</p>
-<p><strong>撰写时快照</strong>：本文基于 2026 年 8 月 LangGraph 生态撰写；API 以官方文档为准，文中版本为撰写时主流版本。</p>
-</blockquote>
-<hr>
-<h2 id="一、为什么需要多智能体"><a href="#一、为什么需要多智能体" class="headerlink" title="一、为什么需要多智能体"></a>一、为什么需要多智能体</h2><h3 id="1-1-单-Agent-的三个天花板"><a href="#1-1-单-Agent-的三个天花板" class="headerlink" title="1.1 单 Agent 的三个天花板"></a>1.1 单 Agent 的三个天花板</h3><table>
-<thead>
-<tr>
-<th align="left">天花板</th>
-<th align="left">表现</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left"><strong>上下文容量</strong></td>
-<td align="left">一个 Agent 装不下”产品文档 + 用户画像 + 工具手册 + 历史”</td>
-</tr>
-<tr>
-<td align="left"><strong>职责混杂</strong></td>
-<td align="left">一个 Agent 既当客服又当代码评审又当数据分析，指令互相干扰</td>
-</tr>
-<tr>
-<td align="left"><strong>单点决策</strong></td>
-<td align="left">所有判断一个模型做，出错即全错</td>
-</tr>
-</tbody></table>
-<p>多智能体的思路：<strong>拆成多个”专才”，各管一摊，协作完成</strong>——和微服务拆分是同一种架构直觉。</p>
-<h3 id="1-2-适用场景判断"><a href="#1-2-适用场景判断" class="headerlink" title="1.2 适用场景判断"></a>1.2 适用场景判断</h3><table>
-<thead>
-<tr>
-<th align="left">场景</th>
-<th align="left">单 Agent</th>
-<th align="left">多 Agent</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">步骤 &lt; 5 的单工具任务</td>
-<td align="left">✅</td>
-<td align="left">❌ 过度设计</td>
-</tr>
-<tr>
-<td align="left">单一职责、上下文可控</td>
-<td align="left">✅</td>
-<td align="left">❌</td>
-</tr>
-<tr>
-<td align="left">多领域知识混合（文档+代码+数据）</td>
-<td align="left">⚠️ 勉强</td>
-<td align="left">✅</td>
-</tr>
-<tr>
-<td align="left">需要并行调研多个方向</td>
-<td align="left">❌ 串行慢</td>
-<td align="left">✅ 并行</td>
-</tr>
-<tr>
-<td align="left">需要评审&#x2F;对抗机制</td>
-<td align="left">❌</td>
-<td align="left">✅</td>
-</tr>
-</tbody></table>
-<p><strong>铁律：单 Agent 能做的，不要上多智能体</strong>——多智能体的成本（N 倍 token、协调复杂度、失败放大）是实打实的。</p>
-<h3 id="1-3-主流框架对比"><a href="#1-3-主流框架对比" class="headerlink" title="1.3 主流框架对比"></a>1.3 主流框架对比</h3><table>
-<thead>
-<tr>
-<th align="left">框架</th>
-<th align="left">定位</th>
-<th align="left">特点</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left"><strong>LangGraph</strong></td>
-<td align="left">图编排</td>
-<td align="left">显式状态图、可控性强、生产友好</td>
-</tr>
-<tr>
-<td align="left">AutoGen</td>
-<td align="left">对话式多 Agent</td>
-<td align="left">天然多 Agent 对话、研究友好</td>
-</tr>
-<tr>
-<td align="left">CrewAI</td>
-<td align="left">角色化团队</td>
-<td align="left">上手快、抽象高、定制受限</td>
-</tr>
-</tbody></table>
-<p>本文选 LangGraph：<strong>把 Agent 流程画成图</strong>（节点&#x3D;步骤，边&#x3D;流转），比”自由对话”更容易工程化——与 Java 的 BPM&#x2F;状态机心智最接近。</p>
-<hr>
-<h2 id="二、LangGraph-核心概念"><a href="#二、LangGraph-核心概念" class="headerlink" title="二、LangGraph 核心概念"></a>二、LangGraph 核心概念</h2><h3 id="2-1-StateGraph：流程即图"><a href="#2-1-StateGraph：流程即图" class="headerlink" title="2.1 StateGraph：流程即图"></a>2.1 StateGraph：流程即图</h3><p>LangGraph 的三个基本元素：</p>
-<table>
-<thead>
-<tr>
-<th align="left">元素</th>
-<th align="left">类比</th>
-<th align="left">说明</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left"><strong>State（状态）</strong></td>
-<td align="left">共享变量</td>
-<td align="left">所有节点共享的结构化状态（如消息列表、中间结果）</td>
-</tr>
-<tr>
-<td align="left"><strong>Node（节点）</strong></td>
-<td align="left">处理器</td>
-<td align="left">一个步骤（Agent、工具、普通函数）</td>
-</tr>
-<tr>
-<td align="left"><strong>Edge（边）</strong></td>
-<td align="left">流转</td>
-<td align="left">连接节点；<strong>条件边</strong>按状态决定下一步</td>
-</tr>
-</tbody></table>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">from</span> langgraph.graph <span class="keyword">import</span> StateGraph, END</span><br><span class="line"><span class="keyword">from</span> typing <span class="keyword">import</span> TypedDict, Annotated</span><br><span class="line"></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">AgentState</span>(<span class="title class_ inherited__">TypedDict</span>):</span><br><span class="line">    messages: <span class="built_in">list</span>          <span class="comment"># 共享状态：对话消息</span></span><br><span class="line">    task: <span class="built_in">str</span></span><br><span class="line">    result: <span class="built_in">str</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">def</span> <span class="title function_">research_node</span>(<span class="params">state: AgentState</span>) -&gt; AgentState:   <span class="comment"># 节点=普通函数</span></span><br><span class="line">    <span class="keyword">return</span> &#123;<span class="string">&quot;result&quot;</span>: <span class="string">f&quot;调研完成：<span class="subst">&#123;state[<span class="string">&#x27;task&#x27;</span>]&#125;</span>&quot;</span>&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">def</span> <span class="title function_">review_node</span>(<span class="params">state: AgentState</span>) -&gt; AgentState:</span><br><span class="line">    <span class="keyword">return</span> &#123;<span class="string">&quot;result&quot;</span>: <span class="string">f&quot;评审通过：<span class="subst">&#123;state[<span class="string">&#x27;result&#x27;</span>]&#125;</span>&quot;</span>&#125;</span><br><span class="line"></span><br><span class="line">graph = StateGraph(AgentState)</span><br><span class="line">graph.add_node(<span class="string">&quot;research&quot;</span>, research_node)</span><br><span class="line">graph.add_node(<span class="string">&quot;review&quot;</span>, review_node)</span><br><span class="line">graph.add_edge(<span class="string">&quot;research&quot;</span>, <span class="string">&quot;review&quot;</span>)       <span class="comment"># 普通边：固定流转</span></span><br><span class="line">graph.add_edge(<span class="string">&quot;review&quot;</span>, END)              <span class="comment"># 结束</span></span><br><span class="line">app = graph.<span class="built_in">compile</span>()</span><br></pre></td></tr></table></figure>
-
-<h3 id="2-2-条件边：让图会”思考”"><a href="#2-2-条件边：让图会”思考”" class="headerlink" title="2.2 条件边：让图会”思考”"></a>2.2 条件边：让图会”思考”</h3><p>条件边是 LangGraph 的灵魂——<strong>按状态决定走哪条路</strong>（对应 ReAct 中”模型决定下一步”）：</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">def</span> <span class="title function_">route</span>(<span class="params">state: AgentState</span>) -&gt; <span class="built_in">str</span>:</span><br><span class="line">    <span class="keyword">if</span> <span class="string">&quot;需要评审&quot;</span> <span class="keyword">in</span> state[<span class="string">&quot;result&quot;</span>]:</span><br><span class="line">        <span class="keyword">return</span> <span class="string">&quot;review&quot;</span></span><br><span class="line">    <span class="keyword">return</span> <span class="string">&quot;final&quot;</span></span><br><span class="line"></span><br><span class="line">graph.add_conditional_edges(<span class="string">&quot;research&quot;</span>, route,</span><br><span class="line">                            &#123;<span class="string">&quot;review&quot;</span>: <span class="string">&quot;review&quot;</span>, <span class="string">&quot;final&quot;</span>: <span class="string">&quot;final&quot;</span>&#125;)</span><br></pre></td></tr></table></figure>
-
-<h3 id="2-3-与-Workflow-的区别"><a href="#2-3-与-Workflow-的区别" class="headerlink" title="2.3 与 Workflow 的区别"></a>2.3 与 Workflow 的区别</h3><ul>
-<li>LangGraph 的图节点里可以放 <strong>LLM 调用</strong>——图是”动态路由”的，节点可反复执行（循环边）；</li>
-<li>支持<strong>循环</strong>（Agent 本质是循环）与<strong>并行</strong>（多个节点同时执行）；</li>
-<li>显式的状态与边 &#x3D; 可观测、可暂停恢复、可测试——这正是生产系统需要的。</li>
-</ul>
-<blockquote>
-<p><strong>Java 对照</strong>：StateGraph ≈ 状态机 + 流程引擎（如 Spring StateMachine）；节点 ≈ 处理器 Bean，条件边 ≈ 路由规则。</p>
-</blockquote>
-<hr>
-<h2 id="三、三种编排模式"><a href="#三、三种编排模式" class="headerlink" title="三、三种编排模式"></a>三、三种编排模式</h2><h3 id="3-1-Supervisor"><a href="#3-1-Supervisor" class="headerlink" title="3.1 Supervisor"></a>3.1 Supervisor</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">用户 → [Supervisor 主管] ──分派──→ [专家A] → 结果</span><br><span class="line">                          └──分派──→ [专家B] → 结果</span><br><span class="line">                          └──汇总决策 → 最终回答</span><br></pre></td></tr></table></figure>
-
-<ul>
-<li>主管 Agent 负责：理解任务 → 分派给对应专家 → 汇总结果；</li>
-<li>专家 Agent 各管一摊（客服、代码、数据），上下文互不污染；</li>
-<li><strong>适用</strong>：职责清晰、可拆分的业务。</li>
-</ul>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">from</span> langgraph.graph <span class="keyword">import</span> StateGraph, END</span><br><span class="line"><span class="keyword">from</span> langgraph.prebuilt <span class="keyword">import</span> create_react_agent</span><br><span class="line"></span><br><span class="line"><span class="comment"># 专家 Agent（每个有自己的工具集）</span></span><br><span class="line">support_agent = create_react_agent(model, tools=[ticket_tools])</span><br><span class="line">data_agent    = create_react_agent(model, tools=[sql_tools])</span><br><span class="line"></span><br><span class="line"><span class="keyword">def</span> <span class="title function_">supervisor_node</span>(<span class="params">state</span>):</span><br><span class="line">    <span class="comment"># 主管用模型决定：分给谁</span></span><br><span class="line">    decision = llm.classify(<span class="string">f&quot;任务：<span class="subst">&#123;state[<span class="string">&#x27;task&#x27;</span>]&#125;</span> → 专家：support/data/结束&quot;</span>)</span><br><span class="line">    ...</span><br></pre></td></tr></table></figure>
-
-<h3 id="3-2-分层"><a href="#3-2-分层" class="headerlink" title="3.2 分层"></a>3.2 分层</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[主管] → [中层A] → [执行者A1, A2]</span><br><span class="line">       → [中层B] → [执行者B1]</span><br></pre></td></tr></table></figure>
-
-<ul>
-<li>层层分解，顶层只管分派，底层只管执行；</li>
-<li><strong>适用</strong>：大型任务（如企业级运营流程），副作用是深度增加、协调链路长。</li>
-</ul>
-<h3 id="3-3-对等"><a href="#3-3-对等" class="headerlink" title="3.3 对等"></a>3.3 对等</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[AgentA] ←→ [AgentB]（互相评审/讨论）</span><br></pre></td></tr></table></figure>
-
-<ul>
-<li>平级协作：A 产出 → B 评审 → A 修改（对抗机制）；</li>
-<li><strong>适用</strong>：方案评审、内容创作、代码 review——质量敏感场景。</li>
-</ul>
-<h3 id="3-4-选型表"><a href="#3-4-选型表" class="headerlink" title="3.4 选型表"></a>3.4 选型表</h3><table>
-<thead>
-<tr>
-<th align="left">模式</th>
-<th align="left">复杂度</th>
-<th align="left">成本</th>
-<th align="left">典型场景</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">Supervisor</td>
-<td align="left">中</td>
-<td align="left">中</td>
-<td align="left">客服分流、多领域助手</td>
-</tr>
-<tr>
-<td align="left">分层</td>
-<td align="left">高</td>
-<td align="left">高</td>
-<td align="left">大型流程编排</td>
-</tr>
-<tr>
-<td align="left">对等</td>
-<td align="left">低</td>
-<td align="left">中</td>
-<td align="left">评审、对抗、头脑风暴</td>
-</tr>
-</tbody></table>
-<p><strong>起步建议：从 Supervisor 开始</strong>——结构清晰、收益直接；对等模式可作为质量兜底叠加。</p>
-<hr>
-<h2 id="四、团队分工设计"><a href="#四、团队分工设计" class="headerlink" title="四、团队分工设计"></a>四、团队分工设计</h2><h3 id="4-1-角色划分准则"><a href="#4-1-角色划分准则" class="headerlink" title="4.1 角色划分准则"></a>4.1 角色划分准则</h3><table>
-<thead>
-<tr>
-<th align="left">准则</th>
-<th align="left">说明</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left"><strong>按知识域划分</strong></td>
-<td align="left">每个 Agent 一个领域（文档&#x2F;代码&#x2F;数据），上下文纯净</td>
-</tr>
-<tr>
-<td align="left"><strong>按工具集划分</strong></td>
-<td align="left">工具随 Agent 走，避免全量工具暴露（安全）</td>
-</tr>
-<tr>
-<td align="left"><strong>接口明确</strong></td>
-<td align="left">每个 Agent 的输入输出格式固定（结构化协议）</td>
-</tr>
-<tr>
-<td align="left"><strong>职责最小化</strong></td>
-<td align="left">一个 Agent 只做一件事，可独立测试</td>
-</tr>
-</tbody></table>
-<h3 id="4-2-结构化通信"><a href="#4-2-结构化通信" class="headerlink" title="4.2 结构化通信"></a>4.2 结构化通信</h3><p>Agent 之间<strong>不要传散文</strong>——用结构化消息：</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">&#123;<span class="string">&quot;agent&quot;</span>: <span class="string">&quot;researcher&quot;</span>, <span class="string">&quot;type&quot;</span>: <span class="string">&quot;findings&quot;</span>,</span><br><span class="line"> <span class="string">&quot;content&quot;</span>: <span class="string">&quot;A 方案成本 1.2 万/月&quot;</span>, <span class="string">&quot;evidence&quot;</span>: [<span class="string">&quot;价格页&quot;</span>, <span class="string">&quot;官网&quot;</span>]&#125;</span><br></pre></td></tr></table></figure>
-
-<p>结构化消息的好处：可校验、可追溯、可存档（全量消息日志 &#x3D; 审计线索）。</p>
-<h3 id="4-3-冲突处理"><a href="#4-3-冲突处理" class="headerlink" title="4.3 冲突处理"></a>4.3 冲突处理</h3><p>多 Agent 结果矛盾时（评审不通过、数据不一致）：</p>
-<table>
-<thead>
-<tr>
-<th align="left">策略</th>
-<th align="left">做法</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">主管裁决</td>
-<td align="left">主管 Agent 做最终决策</td>
-</tr>
-<tr>
-<td align="left">版本迭代</td>
-<td align="left">打回修改，最多 N 轮（防死循环）</td>
-</tr>
-<tr>
-<td align="left">人类介入</td>
-<td align="left">高代价决策升级人工（含权限场景，见 <a href="/post/agent-security-2026.html">Agent安全与防护</a>）</td>
-</tr>
-</tbody></table>
-<hr>
-<h2 id="五、实战：编排者-研究员-执行者"><a href="#五、实战：编排者-研究员-执行者" class="headerlink" title="五、实战：编排者 + 研究员 + 执行者"></a>五、实战：编排者 + 研究员 + 执行者</h2><h3 id="5-1-需求"><a href="#5-1-需求" class="headerlink" title="5.1 需求"></a>5.1 需求</h3><p>一个”竞品调研助手”：用户给个产品方向，三个 Agent 协作产出调研报告。</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">用户：&quot;调研 Java 生态的 AI 编码助手，给出选型建议&quot;</span><br><span class="line">  → [编排者 Supervisor]：拆任务、派单</span><br><span class="line">  → [研究员 Researcher]：搜索收集（web 搜索工具）</span><br><span class="line">  → [执行者 Writer]：整理成结构化报告</span><br><span class="line">  → 编排者：质量检查 → 输出</span><br></pre></td></tr></table></figure>
-
-<h3 id="5-2-核心实现"><a href="#5-2-核心实现" class="headerlink" title="5.2 核心实现"></a>5.2 核心实现</h3><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">from</span> langgraph.graph <span class="keyword">import</span> StateGraph, END</span><br><span class="line"><span class="keyword">from</span> langgraph.prebuilt <span class="keyword">import</span> create_react_agent</span><br><span class="line"><span class="keyword">from</span> typing <span class="keyword">import</span> TypedDict</span><br><span class="line"></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">ReportState</span>(<span class="title class_ inherited__">TypedDict</span>):</span><br><span class="line">    topic: <span class="built_in">str</span></span><br><span class="line">    findings: <span class="built_in">list</span>[<span class="built_in">str</span>]</span><br><span class="line">    report: <span class="built_in">str</span></span><br><span class="line">    rounds: <span class="built_in">int</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 1. 研究员 Agent：带搜索工具</span></span><br><span class="line">researcher = create_react_agent(model, tools=[web_search_tool])</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 执行者 Agent：带写作提示词（不调工具）</span></span><br><span class="line">writer = create_react_agent(model, tools=[], system_prompt=</span><br><span class="line">    <span class="string">&quot;你是技术文档写手，把 findings 整理成结构化报告：概述/对比表/结论。&quot;</span>)</span><br><span class="line"></span><br><span class="line"><span class="keyword">def</span> <span class="title function_">research_node</span>(<span class="params">state: ReportState</span>):</span><br><span class="line">    result = researcher.invoke(&#123;<span class="string">&quot;messages&quot;</span>: [</span><br><span class="line">        &#123;<span class="string">&quot;role&quot;</span>: <span class="string">&quot;user&quot;</span>, <span class="string">&quot;content&quot;</span>: <span class="string">f&quot;调研：<span class="subst">&#123;state[<span class="string">&#x27;topic&#x27;</span>]&#125;</span>，列出3个候选并收集要点&quot;</span>&#125;]&#125;)</span><br><span class="line">    <span class="keyword">return</span> &#123;<span class="string">&quot;findings&quot;</span>: extract_list(result[<span class="string">&quot;messages&quot;</span>][-<span class="number">1</span>].content)&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">def</span> <span class="title function_">write_node</span>(<span class="params">state: ReportState</span>):</span><br><span class="line">    result = writer.invoke(&#123;<span class="string">&quot;messages&quot;</span>: [</span><br><span class="line">        &#123;<span class="string">&quot;role&quot;</span>: <span class="string">&quot;user&quot;</span>, <span class="string">&quot;content&quot;</span>: <span class="string">f&quot;基于以下调研结果写报告：<span class="subst">&#123;state[<span class="string">&#x27;findings&#x27;</span>]&#125;</span>&quot;</span>&#125;]&#125;)</span><br><span class="line">    <span class="keyword">return</span> &#123;<span class="string">&quot;report&quot;</span>: result[<span class="string">&quot;messages&quot;</span>][-<span class="number">1</span>].content, <span class="string">&quot;rounds&quot;</span>: state[<span class="string">&quot;rounds&quot;</span>] + <span class="number">1</span>&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">def</span> <span class="title function_">quality_route</span>(<span class="params">state: ReportState</span>) -&gt; <span class="built_in">str</span>:</span><br><span class="line">    <span class="keyword">if</span> state[<span class="string">&quot;rounds&quot;</span>] &gt;= <span class="number">2</span>:          <span class="comment"># 最多重写 2 轮</span></span><br><span class="line">        <span class="keyword">return</span> <span class="string">&quot;END&quot;</span></span><br><span class="line">    ok = llm_judge(state[<span class="string">&quot;report&quot;</span>])   <span class="comment"># 质量检查（简单 LLM 判定）</span></span><br><span class="line">    <span class="keyword">return</span> <span class="string">&quot;write&quot;</span> <span class="keyword">if</span> <span class="keyword">not</span> ok <span class="keyword">else</span> <span class="string">&quot;END&quot;</span></span><br><span class="line"></span><br><span class="line">g = StateGraph(ReportState)</span><br><span class="line">g.add_node(<span class="string">&quot;research&quot;</span>, research_node)</span><br><span class="line">g.add_node(<span class="string">&quot;write&quot;</span>, write_node)</span><br><span class="line">g.add_edge(<span class="string">&quot;research&quot;</span>, <span class="string">&quot;write&quot;</span>)</span><br><span class="line">g.add_conditional_edges(<span class="string">&quot;write&quot;</span>, quality_route, &#123;<span class="string">&quot;write&quot;</span>: <span class="string">&quot;write&quot;</span>, <span class="string">&quot;END&quot;</span>: END&#125;)</span><br><span class="line">app = g.<span class="built_in">compile</span>()</span><br><span class="line"></span><br><span class="line">result = app.invoke(&#123;<span class="string">&quot;topic&quot;</span>: <span class="string">&quot;Java AI 编码助手&quot;</span>, <span class="string">&quot;findings&quot;</span>: [], <span class="string">&quot;report&quot;</span>: <span class="string">&quot;&quot;</span>, <span class="string">&quot;rounds&quot;</span>: <span class="number">0</span>&#125;)</span><br><span class="line"><span class="built_in">print</span>(result[<span class="string">&quot;report&quot;</span>])</span><br></pre></td></tr></table></figure>
-
-<h3 id="5-3-验收标准"><a href="#5-3-验收标准" class="headerlink" title="5.3 验收标准"></a>5.3 验收标准</h3><table>
-<thead>
-<tr>
-<th align="left">项</th>
-<th align="left">标准</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">流程正确性</td>
-<td align="left">三节点按预期流转，报告含”对比表 + 结论”</td>
-</tr>
-<tr>
-<td align="left">质量回路</td>
-<td align="left">低质量报告至少被重写 1 轮</td>
-</tr>
-<tr>
-<td align="left">防死循环</td>
-<td align="left">rounds 上限 2，必达 END</td>
-</tr>
-<tr>
-<td align="left">可观测</td>
-<td align="left">每轮调用记录（rounds、各节点耗时、token）</td>
-</tr>
-<tr>
-<td align="left">成本</td>
-<td align="left">单次任务 token 可估算（流程固定，成本可预算）</td>
-</tr>
-</tbody></table>
-<hr>
-<h2 id="六、可靠性"><a href="#六、可靠性" class="headerlink" title="六、可靠性"></a>六、可靠性</h2><h3 id="6-1-与-Agent-主循环共用护栏"><a href="#6-1-与-Agent-主循环共用护栏" class="headerlink" title="6.1 与 Agent 主循环共用护栏"></a>6.1 与 Agent 主循环共用护栏</h3><p>多智能体的每个节点 Agent 都有 <a href="/post/agent-2026.html">Agent原理与实践</a> 第六章的五道护栏（循环上限、超时、幂等、停止条件、补偿）；<strong>图层面再加两道</strong>：</p>
-<table>
-<thead>
-<tr>
-<th align="left">图级护栏</th>
-<th align="left">说明</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">全局步数上限</td>
-<td align="left">整个图执行的总步数上限（防多 Agent 级联死循环）</td>
-</tr>
-<tr>
-<td align="left">节点级熔断</td>
-<td align="left">某 Agent 连续失败 N 次 → 跳过&#x2F;降级到模板结果</td>
-</tr>
-</tbody></table>
-<h3 id="6-2-成本控制"><a href="#6-2-成本控制" class="headerlink" title="6.2 成本控制"></a>6.2 成本控制</h3><ul>
-<li>多 Agent &#x3D; 多份上下文 &#x3D; 多份 token，<strong>预算先算后写</strong>：每个 Agent 的上下文预估 × 轮次 × 调用次数；</li>
-<li>简单步骤用小模型（路由&#x2F;分类），复杂步骤才上大模型；</li>
-<li>共享状态里只传必要信息（结构化消息，不传全量历史）。</li>
-</ul>
-<h3 id="6-3-测试与观测"><a href="#6-3-测试与观测" class="headerlink" title="6.3 测试与观测"></a>6.3 测试与观测</h3><ul>
-<li><strong>图级测试</strong>：固定输入跑全流程，断言状态流转与最终输出（LangGraph 支持断点与状态快照，测试友好）；</li>
-<li><strong>观测</strong>：每个节点记 trace（模型调用、工具调用、耗时、token），全流程一条 traceId（见 <a href="/post/llm-eval-observability-2026.html">LLM评测与可观测性</a>）。</li>
-</ul>
-<hr>
-<h2 id="七、与-Java-存量技能迁移对照"><a href="#七、与-Java-存量技能迁移对照" class="headerlink" title="七、与 Java 存量技能迁移对照"></a>七、与 Java 存量技能迁移对照</h2><table>
-<thead>
-<tr>
-<th align="left">本文章节</th>
-<th align="left">Java 存量技能</th>
-<th align="left">迁移要点</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">二、StateGraph</td>
-<td align="left">状态机&#x2F;流程引擎</td>
-<td align="left">节点 ≈ 处理器，条件边 ≈ 路由规则</td>
-</tr>
-<tr>
-<td align="left">三、编排模式</td>
-<td align="left">微服务治理</td>
-<td align="left">Supervisor ≈ 网关&#x2F;编排器，专家 ≈ 服务</td>
-</tr>
-<tr>
-<td align="left">四、团队设计</td>
-<td align="left">服务拆分</td>
-<td align="left">按职责拆 Agent ≈ 按领域拆服务</td>
-</tr>
-<tr>
-<td align="left">四、结构化通信</td>
-<td align="left">RPC 契约</td>
-<td align="left">Agent 间消息 ≈ 接口 DTO</td>
-</tr>
-<tr>
-<td align="left">六、可靠性</td>
-<td align="left">熔断&#x2F;降级&#x2F;预算</td>
-<td align="left">节点熔断、全局步数上限直接平移</td>
-</tr>
-</tbody></table>
-<blockquote>
-<p>单 Agent 原理见 <a href="/post/agent-2026.html">Agent原理与实践</a>；参考实现 <a href="/post/17111a82.html">mini-cc</a>（Agent 循环 + 状态机）。</p>
-</blockquote>
-<blockquote>
-<p><strong>相关文章：</strong> <a href="/post/agent-2026.html">Agent原理与实践</a>、<a href="/post/llm-eval-observability-2026.html">LLM评测与可观测性</a>、<a href="/docs/nav/ai-learning-nav.html">AI学习体系导航</a></p>
-</blockquote>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/agent-2026.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="知行栈">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | 知行栈">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/agent-2026.html" class="post-title-link" itemprop="url">Agent原理与实践</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-
-      <time title="Created: 2026-08-04 18:00:00" itemprop="dateCreated datePublished" datetime="2026-08-04T18:00:00+08:00">2026-08-04</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">In</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/AI%E5%A4%A7%E6%A8%A1%E5%9E%8B/" itemprop="url" rel="index"><span itemprop="name">AI大模型</span></a>
-        </span>
-    </span>
-
-  
-    <span class="post-meta-break"></span>
-    <span class="post-meta-item" title="Word count in article">
-      <span class="post-meta-item-icon">
-        <i class="far fa-file-word"></i>
-      </span>
-      <span class="post-meta-item-text">Word count in article: </span>
-      <span>4.2k</span>
-    </span>
-    <span class="post-meta-item" title="Reading time">
-      <span class="post-meta-item-icon">
-        <i class="far fa-clock"></i>
-      </span>
-      <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>15 mins.</span>
-    </span>
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="Agent-原理与实践"><a href="#Agent-原理与实践" class="headerlink" title="Agent 原理与实践"></a>Agent 原理与实践</h1><blockquote>
-<p>本文是《AI学习体系导航》阶段四的核心深文，本站 Agent 的<strong>唯一原理专题</strong>：首次系统引入 ReAct 命名，把学习指南阶段四的四个模块（任务规划、上下文管理、记忆系统、工具调用）逐一展开，并覆盖 Agent 主循环的工程化（状态机、幂等重试）、可观测与安全。多智能体部分见 <a href="/post/multi-agent-langgraph-2026.html">多智能体协作实战</a>，安全纵深见 <a href="/post/agent-security-2026.html">Agent安全与防护</a>。</p>
-<p><strong>撰写时快照</strong>：本文基于 2026 年 8 月主流 Agent 技术栈撰写；模式（ReAct&#x2F;Reflexion 等）有稳定论文出处，框架 API 以各框架文档为准。</p>
-</blockquote>
-<hr>
-<h2 id="一、Agent-是什么"><a href="#一、Agent-是什么" class="headerlink" title="一、Agent 是什么"></a>一、Agent 是什么</h2><h3 id="1-1-定义：从”对话”到”做事”"><a href="#1-1-定义：从”对话”到”做事”" class="headerlink" title="1.1 定义：从”对话”到”做事”"></a>1.1 定义：从”对话”到”做事”</h3><p>LLM 应用的两个层级：</p>
-<table>
-<thead>
-<tr>
-<th align="left">层级</th>
-<th align="left">形态</th>
-<th align="left">特征</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left"><strong>Workflow（工作流）</strong></td>
-<td align="left">预编排的固定链路</td>
-<td align="left">每个步骤做什么、顺序如何，全部提前写死</td>
-</tr>
-<tr>
-<td align="left"><strong>Agent（智能体）</strong></td>
-<td align="left">模型自主决策的循环</td>
-<td align="left">模型决定下一步做什么、调什么工具、何时结束</td>
-</tr>
-</tbody></table>
-<p>区分一句话：<strong>控制权在谁手里。</strong> Workflow 的控制权在代码，Agent 的控制权在模型。</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">Workflow:  用户 → 意图分类 → 查库 → 模板回答（每一步固定）</span><br><span class="line">Agent:     用户 → 模型思考(Thought) → 行动(Act) → 观察(Observation) → 循环… → 完成</span><br></pre></td></tr></table></figure>
-
-<h3 id="1-2-Agent-循环的四个要素"><a href="#1-2-Agent-循环的四个要素" class="headerlink" title="1.2 Agent 循环的四个要素"></a>1.2 Agent 循环的四个要素</h3><p>一个 Agent 系统 &#x3D; <strong>模型（大脑）+ 工具（手脚）+ 记忆（经历）+ 循环（执行逻辑）</strong>：</p>
-<table>
-<thead>
-<tr>
-<th align="left">要素</th>
-<th align="left">作用</th>
-<th align="left">对应本文章节</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">模型</td>
-<td align="left">决策：下一步做什么</td>
-<td align="left">二、任务规划</td>
-</tr>
-<tr>
-<td align="left">上下文</td>
-<td align="left">决策依据的”眼前状态”</td>
-<td align="left">三、上下文管理</td>
-</tr>
-<tr>
-<td align="left">记忆</td>
-<td align="left">跨会话的”长期经历”</td>
-<td align="left">四、记忆系统</td>
-</tr>
-<tr>
-<td align="left">工具</td>
-<td align="left">执行动作的接口</td>
-<td align="left">五、工具调用</td>
-</tr>
-<tr>
-<td align="left">循环</td>
-<td align="left">把上面串起来的控制流</td>
-<td align="left">六、Agent 主循环工程</td>
-</tr>
-</tbody></table>
-<blockquote>
-<p><strong>Java 对照</strong>：Agent ≈ 一个”模型做决策”的状态机，工具 ≈ 注入的 Bean，记忆 ≈ 持久化存储，循环 ≈ 主流程编排。你已有的系统思维全部适用，唯一”黑盒”是决策函数（模型）。</p>
-</blockquote>
-<h3 id="1-3-Agent-适合做什么"><a href="#1-3-Agent-适合做什么" class="headerlink" title="1.3 Agent 适合做什么"></a>1.3 Agent 适合做什么</h3><table>
-<thead>
-<tr>
-<th align="left">任务类型</th>
-<th align="left">适合 Agent？</th>
-<th align="left">理由</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">多步、多工具任务</td>
-<td align="left">✅ 首选</td>
-<td align="left">中间步骤不可预测，需动态决策</td>
-</tr>
-<tr>
-<td align="left">步骤固定的流水线</td>
-<td align="left">❌ 用 Workflow</td>
-<td align="left">固定链路更便宜、更快、更可控</td>
-</tr>
-<tr>
-<td align="left">单轮问答</td>
-<td align="left">❌ 直接用 LLM</td>
-<td align="left">Agent 是过度设计</td>
-</tr>
-<tr>
-<td align="left">高代价操作链</td>
-<td align="left">⚠️ 谨慎</td>
-<td align="left">模型误判代价高，需安全护栏（第八章）</td>
-</tr>
-</tbody></table>
-<p><strong>原则：能用 Workflow 解决的，不要上 Agent</strong>——Agent 的灵活性是用可控性换来的。</p>
-<hr>
-<h2 id="二、任务规划：ReAct-与它的继承者们"><a href="#二、任务规划：ReAct-与它的继承者们" class="headerlink" title="二、任务规划：ReAct 与它的继承者们"></a>二、任务规划：ReAct 与它的继承者们</h2><h3 id="2-1-ReAct：推理与行动的交织"><a href="#2-1-ReAct：推理与行动的交织" class="headerlink" title="2.1 ReAct：推理与行动的交织"></a>2.1 ReAct：推理与行动的交织</h3><p>ReAct（<em>Reasoning + Acting</em>，Yao et al., 2022，论文《ReAct: Synergizing Reasoning and Acting in Language Models》）是最有影响力的 Agent 模式：<strong>把”思考”和”行动”交替输出，形成闭环</strong>。</p>
-<p>三个关键输出类型：</p>
-<table>
-<thead>
-<tr>
-<th align="left">输出类型</th>
-<th align="left">含义</th>
-<th align="left">示例</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left"><strong>Thought</strong></td>
-<td align="left">推理：分析现状、决定下一步</td>
-<td align="left">“用户要查北京天气，我需要先调用天气工具”</td>
-</tr>
-<tr>
-<td align="left"><strong>Action</strong></td>
-<td align="left">行动：申请调用工具</td>
-<td align="left"><code>get_weather(city=&quot;北京&quot;, date=&quot;明天&quot;)</code></td>
-</tr>
-<tr>
-<td align="left"><strong>Observation</strong></td>
-<td align="left">观察：工具返回结果</td>
-<td align="left">“晴，22°C”</td>
-</tr>
-</tbody></table>
-<p>循环过程（这就是 <a href="/post/llm-api-tool-calling-2026.html">LLM API与工具调用实战</a> 第四章的 Function Calling 在 Agent 层面的展开）：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">Thought: 用户问明天北京天气 → 需要工具</span><br><span class="line">Action:  get_weather(&quot;北京&quot;, &quot;明天&quot;)</span><br><span class="line">Observation: &#123;&quot;temp&quot;: 22, &quot;weather&quot;: &quot;晴&quot;&#125;</span><br><span class="line">Thought: 拿到数据了，可以回答</span><br><span class="line">Action:  (无) → 最终回答</span><br></pre></td></tr></table></figure>
-
-<p><strong>ReAct 的本质</strong>：让模型在”推理”与”行动”间交替，每一步都基于真实的工具反馈继续——这比让模型一次性”想完再答”可靠得多（错误可以在中途被观察结果纠正）。</p>
-<h3 id="2-2-从-ReAct-到-Plan-and-Execute"><a href="#2-2-从-ReAct-到-Plan-and-Execute" class="headerlink" title="2.2 从 ReAct 到 Plan-and-Execute"></a>2.2 从 ReAct 到 Plan-and-Execute</h3><p>ReAct 的短板：<strong>局部决策</strong>——每步只想着下一步，复杂任务容易”走一步看一步”，缺乏全局计划。</p>
-<p>Plan-and-Execute（Wang et al., 2023）拆成两阶段：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">规划阶段：模型先产出完整计划（Plan）</span><br><span class="line">  Plan: 1. 查北京天气  2. 查北京限行  3. 汇总出行建议</span><br><span class="line">执行阶段：逐个执行计划项，必要时调整计划</span><br></pre></td></tr></table></figure>
-
-<table>
-<thead>
-<tr>
-<th align="left">模式</th>
-<th align="left">优点</th>
-<th align="left">缺点</th>
-<th align="left">适用</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">ReAct</td>
-<td align="left">灵活、可中途纠错</td>
-<td align="left">复杂任务易迷失</td>
-<td align="left">步骤 &lt; 10、反馈驱动</td>
-</tr>
-<tr>
-<td align="left">Plan-and-Execute</td>
-<td align="left">全局视野、可并行执行独立计划项</td>
-<td align="left">计划可能过时</td>
-<td align="left">多步骤、可预规划</td>
-</tr>
-<tr>
-<td align="left">两者混合</td>
-<td align="left">计划 + 每步 ReAct 验证</td>
-<td align="left">工程复杂度</td>
-<td align="left">生产级 Agent 常见形态</td>
-</tr>
-</tbody></table>
-<h3 id="2-3-任务分解"><a href="#2-3-任务分解" class="headerlink" title="2.3 任务分解"></a>2.3 任务分解</h3><p>无论哪种模式，<strong>分解能力是 Agent 质量的核心</strong>。实用的分解准则：</p>
-<ul>
-<li><strong>原子性</strong>：每个子任务能用一步工具调用或一次推理完成；</li>
-<li><strong>可验证性</strong>：每个子任务有明确的完成判定（不依赖”感觉”）；</li>
-<li><strong>顺序标注</strong>：明确依赖关系（B 依赖 A 的输出）与可并行项（并行项可批量工具调用）。</li>
-</ul>
-<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">用户：对比 A/B 两家云厂商的 PostgreSQL 服务价格</span><br><span class="line">分解：</span><br><span class="line">1. [并行] 查 A 的价格页 → 2. [并行] 查 B 的价格页</span><br><span class="line">3. 按配置规格对齐（核数/内存/存储）→ 4. 汇总对比表</span><br><span class="line">依赖：3 依赖 1、2；4 依赖 3</span><br></pre></td></tr></table></figure>
-
-<blockquote>
-<p><strong>Java 对照</strong>：任务分解 ≈ 把大接口拆成小方法的思维，加上依赖图（DAG）——你的拓扑排序直觉直接复用。</p>
-</blockquote>
-<h3 id="2-4-Reflexion：让-Agent-会反思"><a href="#2-4-Reflexion：让-Agent-会反思" class="headerlink" title="2.4 Reflexion：让 Agent 会反思"></a>2.4 Reflexion：让 Agent 会反思</h3><p>Reflexion（Shinn et al., 2023）：任务失败后，<strong>让模型写下失败原因，存进记忆，下次同类任务先读反思</strong>。</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">任务失败（工具报错 / 结果被否决）</span><br><span class="line">  → 反思：生成结构化失败总结（什么环节错了？为什么？下次怎么避免？）</span><br><span class="line">  → 存入长期记忆</span><br><span class="line">  → 下次任务：先检索相关反思，避免重蹈覆辙</span><br></pre></td></tr></table></figure>
-
-<p>Reflexion 是把”试错成本”变成”系统资产”的机制——尤其适合重复性强的业务任务（客服、运维处置）。</p>
-<hr>
-<h2 id="三、上下文管理"><a href="#三、上下文管理" class="headerlink" title="三、上下文管理"></a>三、上下文管理</h2><h3 id="3-1-上下文是-Agent-的”工作内存”"><a href="#3-1-上下文是-Agent-的”工作内存”" class="headerlink" title="3.1 上下文是 Agent 的”工作内存”"></a>3.1 上下文是 Agent 的”工作内存”</h3><p>Agent 每轮循环都要把<strong>全部历史</strong>（用户问题、Thought、Action、Observation）塞进上下文，模型才能”记得”进行到哪。这是 Agent 区别于普通对话的关键工程点：循环 N 轮，上下文按 N 增长。</p>
-<h3 id="3-2-三个管理手段"><a href="#3-2-三个管理手段" class="headerlink" title="3.2 三个管理手段"></a>3.2 三个管理手段</h3><table>
-<thead>
-<tr>
-<th align="left">手段</th>
-<th align="left">做法</th>
-<th align="left">适用</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">窗口裁剪</td>
-<td align="left">只保留最近 K 轮（Thought&#x2F;Action&#x2F;Observation 成组裁剪）</td>
-<td align="left">循环轮次少的场景</td>
-</tr>
-<tr>
-<td align="left">摘要压缩</td>
-<td align="left">早期过程让模型压成摘要，替换原文</td>
-<td align="left">长任务（10 轮+）</td>
-</tr>
-<tr>
-<td align="left">关键信息抽取</td>
-<td align="left">把过程中的事实（用户偏好、已完成步骤）抽成结构化状态</td>
-<td align="left">生产 Agent 推荐</td>
-</tr>
-</tbody></table>
-<h3 id="3-3-关键设计：Observation-的”瘦身”"><a href="#3-3-关键设计：Observation-的”瘦身”" class="headerlink" title="3.3 关键设计：Observation 的”瘦身”"></a>3.3 关键设计：Observation 的”瘦身”</h3><p><strong>Observation 是上下文膨胀的最大源头</strong>——工具返回几 KB 原始数据，循环 10 轮就几十 KB。两条铁律：</p>
-<ol>
-<li><strong>工具返回前先精简</strong>：工具层过滤字段、截断、摘要（”只返回温度，不返回原始 JSON”）；</li>
-<li><strong>Observation 必须结构化</strong>：固定 schema 的结果让模型更好理解，也便于窗口裁剪时丢弃。</li>
-</ol>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 好：工具返回精简后的结果</span></span><br><span class="line">&#123;<span class="string">&quot;weather&quot;</span>: <span class="string">&quot;晴&quot;</span>, <span class="string">&quot;temp_c&quot;</span>: <span class="number">22</span>, <span class="string">&quot;advice&quot;</span>: <span class="string">&quot;适合出行&quot;</span>&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment"># 坏：把上游 API 原始响应整个塞回上下文（几十 KB JSON）</span></span><br></pre></td></tr></table></figure>
-
-<blockquote>
-<p><strong>Java 对照</strong>：上下文预算 ≈ 内存预算，Observation 瘦身 ≈ 接口返回 DTO 裁剪（只返所需字段）。你优化接口返回体积的习惯直接平移。</p>
-</blockquote>
-<hr>
-<h2 id="四、记忆系统"><a href="#四、记忆系统" class="headerlink" title="四、记忆系统"></a>四、记忆系统</h2><h3 id="4-1-短期记忆与长期记忆"><a href="#4-1-短期记忆与长期记忆" class="headerlink" title="4.1 短期记忆与长期记忆"></a>4.1 短期记忆与长期记忆</h3><table>
-<thead>
-<tr>
-<th align="left">类型</th>
-<th align="left">存储</th>
-<th align="left">生命周期</th>
-<th align="left">典型内容</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">短期（会话内）</td>
-<td align="left">上下文窗口</td>
-<td align="left">一次会话</td>
-<td align="left">当前任务的过程与中间结果</td>
-</tr>
-<tr>
-<td align="left">长期（跨会话）</td>
-<td align="left">向量库 &#x2F; 数据库</td>
-<td align="left">持久</td>
-<td align="left">用户偏好、历史事实、反思记录</td>
-</tr>
-</tbody></table>
-<p><strong>短期记忆就是上下文</strong>（第三章），长期记忆是”模型之外的第二大脑”。</p>
-<h3 id="4-2-长期记忆的写入与召回"><a href="#4-2-长期记忆的写入与召回" class="headerlink" title="4.2 长期记忆的写入与召回"></a>4.2 长期记忆的写入与召回</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">写入（异步、事后）：</span><br><span class="line">  会话结束 → 抽取事实（用户偏好、完成的任务、失败反思）</span><br><span class="line">  → 向量化 → 存入记忆库（带时间戳与类型标签）</span><br><span class="line"></span><br><span class="line">召回（任务开始/需要时）：</span><br><span class="line">  用户新输入 → 向量检索最相关的历史记忆 → 注入上下文</span><br></pre></td></tr></table></figure>
-
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">def</span> <span class="title function_">recall_memory</span>(<span class="params">user_input: <span class="built_in">str</span>, top_k: <span class="built_in">int</span> = <span class="number">5</span></span>) -&gt; <span class="built_in">list</span>[<span class="built_in">str</span>]:</span><br><span class="line">    q_vec = embed(user_input)</span><br><span class="line">    hits = memory_store.search(q_vec, top_k)   <span class="comment"># 向量库检索（见《向量数据库原理与实践》）</span></span><br><span class="line">    <span class="keyword">return</span> [h[<span class="string">&quot;content&quot;</span>] <span class="keyword">for</span> h <span class="keyword">in</span> hits]</span><br><span class="line"></span><br><span class="line"><span class="keyword">def</span> <span class="title function_">save_memory</span>(<span class="params">session_summary: <span class="built_in">str</span>, mem_type: <span class="built_in">str</span> = <span class="string">&quot;fact&quot;</span></span>):</span><br><span class="line">    memory_store.add([&#123;<span class="string">&quot;content&quot;</span>: session_summary,</span><br><span class="line">                       <span class="string">&quot;type&quot;</span>: mem_type, <span class="string">&quot;ts&quot;</span>: now()&#125;])</span><br></pre></td></tr></table></figure>
-
-<h3 id="4-3-记忆的工程陷阱"><a href="#4-3-记忆的工程陷阱" class="headerlink" title="4.3 记忆的工程陷阱"></a>4.3 记忆的工程陷阱</h3><table>
-<thead>
-<tr>
-<th align="left">陷阱</th>
-<th align="left">表现</th>
-<th align="left">对策</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">记忆污染</td>
-<td align="left">过时&#x2F;错误记忆被召回</td>
-<td align="left">带时间戳、过期淘汰、可删除</td>
-</tr>
-<tr>
-<td align="left">记忆膨胀</td>
-<td align="left">召回一堆无关历史</td>
-<td align="left">类型标签过滤 + top_k 收紧</td>
-</tr>
-<tr>
-<td align="left">写入越权</td>
-<td align="left">隐私信息入库</td>
-<td align="left">写入前脱敏、最小化采集（安全见 <a href="/post/agent-security-2026.html">Agent安全与防护</a>）</td>
-</tr>
-</tbody></table>
-<blockquote>
-<p>记忆 + 检索的完整实现参考本站 <a href="/post/71aac160.html">智能客服-mcp</a>（会话历史）与 <a href="/post/f4198aab.html">ticket-agent-mcp</a>（历史工单向量记忆）。</p>
-</blockquote>
-<hr>
-<h2 id="五、工具调用"><a href="#五、工具调用" class="headerlink" title="五、工具调用"></a>五、工具调用</h2><h3 id="5-1-工具是-Agent-的行动能力"><a href="#5-1-工具是-Agent-的行动能力" class="headerlink" title="5.1 工具是 Agent 的行动能力"></a>5.1 工具是 Agent 的行动能力</h3><p>没有工具的 Agent 只会”说”，有工具的 Agent 才能”做”：查数据库、调 API、发消息、操作文件。工具调用的协议细节（Schema 设计、并行调用、结果回填）见 <a href="/post/llm-api-tool-calling-2026.html">LLM API与工具调用实战</a> 第四章，本文聚焦 Agent 层面的工具治理。</p>
-<h3 id="5-2-工具治理三原则"><a href="#5-2-工具治理三原则" class="headerlink" title="5.2 工具治理三原则"></a>5.2 工具治理三原则</h3><table>
-<thead>
-<tr>
-<th align="left">原则</th>
-<th align="left">说明</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left"><strong>数量克制</strong></td>
-<td align="left">单个 Agent 暴露 5~15 个工具；工具太多，模型选择准确率断崖下降</td>
-</tr>
-<tr>
-<td align="left"><strong>描述即契约</strong></td>
-<td align="left">工具描述决定模型能否正确选择——“什么场景用这个工具、参数含义”写清楚</td>
-</tr>
-<tr>
-<td align="left"><strong>错误可回填</strong></td>
-<td align="left">工具异常转成结构化错误结果回填给模型，让它换方案，而不是中断循环</td>
-</tr>
-</tbody></table>
-<h3 id="5-3-工具的分层：Agent-不该直接摸数据库"><a href="#5-3-工具的分层：Agent-不该直接摸数据库" class="headerlink" title="5.3 工具的分层：Agent 不该直接摸数据库"></a>5.3 工具的分层：Agent 不该直接摸数据库</h3><p>生产 Agent 的工具设计有个常见错误：直接暴露 SQL 执行工具。正确的分层：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">Agent（模型决策）</span><br><span class="line">  → 业务工具层（语义化：create_ticket、query_order、refund_apply）</span><br><span class="line">  → 服务层（参数校验、权限校验、幂等）</span><br><span class="line">  → 基础设施（数据库、外部 API）</span><br></pre></td></tr></table></figure>
-
-<p><strong>Agent 只接触语义化工具</strong>——“create_ticket”而不是”execute_sql”。这既是安全边界（见 <a href="/post/agent-security-2026.html">Agent安全与防护</a>），也是质量边界（语义化工具的输入空间小，模型误用率低）。</p>
-<h3 id="5-4-MCP：工具的标准化接入"><a href="#5-4-MCP：工具的标准化接入" class="headerlink" title="5.4 MCP：工具的标准化接入"></a>5.4 MCP：工具的标准化接入</h3><p>手写工具接入（Function Calling）每对接一个客户端就要实现一遍协议。<strong>MCP（Model Context Protocol）把工具接入标准化</strong>：一个 MCP Server 暴露的工具，任何支持 MCP 的客户端（Claude Code、IDE、自研 Agent）开箱即用。</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">Agent ──MCP 协议──→ MCP Server（工具提供方）</span><br><span class="line">                      ├─ 天气工具</span><br><span class="line">                      ├─ 工单工具</span><br><span class="line">                      └─ 文件工具</span><br></pre></td></tr></table></figure>
-
-<p>Agent 侧集成 MCP 后，新增能力 &#x3D; 注册一个新 MCP Server，<strong>不改 Agent 代码</strong>（类似微服务的服务注册）。完整实现见 <a href="/post/8e39890e-rev1.html">MCP开发指南（修订版）</a>，概念辨析见 <a href="/post/f28dfa3f.html">MCP与Agent Skill双轮驱动</a>，本站三个真实 MCP 服务见 <a href="/post/41c29af0.html">file-server-mcp</a>、<a href="/post/893140a5.html">weathermate-mcp</a>、<a href="/post/f4198aab.html">ticket-agent-mcp</a>。</p>
-<hr>
-<h2 id="六、Agent-主循环工程"><a href="#六、Agent-主循环工程" class="headerlink" title="六、Agent 主循环工程"></a>六、Agent 主循环工程</h2><h3 id="6-1-主循环的状态机"><a href="#6-1-主循环的状态机" class="headerlink" title="6.1 主循环的状态机"></a>6.1 主循环的状态机</h3><p>Agent 主循环不是一个 while 循环那么简单——它是<strong>有状态、有终止条件、可观测</strong>的执行器：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">┌────────────┐   工具结果    ┌────────────┐</span><br><span class="line">│ THINKING   │ ───────────→ │ ACTING     │</span><br><span class="line">│ (模型决策)  │ ←─────────── │ (执行工具)  │</span><br><span class="line">└────────────┘              └────────────┘</span><br><span class="line">     │ 无工具申请</span><br><span class="line">     ▼</span><br><span class="line">┌────────────┐</span><br><span class="line">│ FINISHED   │ → 汇总输出</span><br><span class="line">└────────────┘</span><br><span class="line">状态：RUNNING / WAITING_TOOL / FINISHED / FAILED / CANCELLED</span><br></pre></td></tr></table></figure>
-
-<h3 id="6-2-循环的五道护栏"><a href="#6-2-循环的五道护栏" class="headerlink" title="6.2 循环的五道护栏"></a>6.2 循环的五道护栏</h3><table>
-<thead>
-<tr>
-<th align="left">护栏</th>
-<th align="left">说明</th>
-<th align="left">Java 对照</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left"><strong>循环上限</strong></td>
-<td align="left">max_steps（如 15 轮）强制终止</td>
-<td align="left">防死循环 ≈ 防无限递归</td>
-</tr>
-<tr>
-<td align="left"><strong>工具超时</strong></td>
-<td align="left">每个工具执行有超时上限</td>
-<td align="left">HTTP 调用超时</td>
-</tr>
-<tr>
-<td align="left"><strong>幂等与重试</strong></td>
-<td align="left">重试不重复副作用（工具带幂等键）</td>
-<td align="left">分布式事务的幂等设计</td>
-</tr>
-<tr>
-<td align="left"><strong>停止条件</strong></td>
-<td align="left">模型返回最终回答 &#x2F; 用户取消 &#x2F; 超上限</td>
-<td align="left">状态机的终止态</td>
-</tr>
-<tr>
-<td align="left"><strong>补偿</strong></td>
-<td align="left">失败时清理已完成步骤的副作用</td>
-<td align="left">分布式事务的补偿&#x2F;回滚</td>
-</tr>
-</tbody></table>
-<p>**关键认知：Agent 的多步执行 ≈ 分布式事务的”长事务”**——没有 ACID，只能靠”幂等 + 补偿 + 可观测”保证最终一致性。你在 <a href="/post/9787b587.html">分布式系统核心理论</a> 里学的 Saga&#x2F;补偿思路，就是 Agent 主循环的可靠性圣经。</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">def</span> <span class="title function_">agent_loop</span>(<span class="params">task: <span class="built_in">str</span>, max_steps: <span class="built_in">int</span> = <span class="number">15</span></span>):</span><br><span class="line">    messages = [&#123;<span class="string">&quot;role&quot;</span>: <span class="string">&quot;user&quot;</span>, <span class="string">&quot;content&quot;</span>: task&#125;]</span><br><span class="line">    state = <span class="string">&quot;RUNNING&quot;</span></span><br><span class="line">    <span class="keyword">for</span> step <span class="keyword">in</span> <span class="built_in">range</span>(max_steps):</span><br><span class="line">        resp = llm.chat(messages, tools=TOOLS)</span><br><span class="line">        <span class="keyword">if</span> resp.tool_calls:</span><br><span class="line">            messages.append(resp)                      <span class="comment"># 1. 追加模型消息</span></span><br><span class="line">            <span class="keyword">for</span> call <span class="keyword">in</span> resp.tool_calls:</span><br><span class="line">                <span class="keyword">try</span>:</span><br><span class="line">                    result = execute_tool(call)        <span class="comment"># 2. 执行（含超时/幂等）</span></span><br><span class="line">                <span class="keyword">except</span> ToolError <span class="keyword">as</span> e:</span><br><span class="line">                    result = &#123;<span class="string">&quot;error&quot;</span>: <span class="built_in">str</span>(e)&#125;         <span class="comment"># 3. 错误回填，不中断</span></span><br><span class="line">                messages.append(&#123;<span class="string">&quot;role&quot;</span>: <span class="string">&quot;tool&quot;</span>, <span class="string">&quot;tool_call_id&quot;</span>: call.<span class="built_in">id</span>,</span><br><span class="line">                                 <span class="string">&quot;content&quot;</span>: json.dumps(result)&#125;)</span><br><span class="line">            <span class="keyword">continue</span></span><br><span class="line">        state = <span class="string">&quot;FINISHED&quot;</span></span><br><span class="line">        <span class="keyword">return</span> resp.content                            <span class="comment"># 4. 无工具申请 → 结束</span></span><br><span class="line">    state = <span class="string">&quot;FAILED&quot;</span></span><br><span class="line">    <span class="keyword">return</span> <span class="string">&quot;已达步数上限，任务中止&quot;</span>                     <span class="comment"># 5. 循环上限兜底</span></span><br></pre></td></tr></table></figure>
-
-<h3 id="6-3-并发与编排"><a href="#6-3-并发与编排" class="headerlink" title="6.3 并发与编排"></a>6.3 并发与编排</h3><ul>
-<li>独立子任务可并行（批量工具调用 &#x2F; 多 Agent 并行）；</li>
-<li>长任务异步化：任务入队 → 后台执行 → 完成回调（消息队列思维）；</li>
-<li>状态持久化：Agent 中断后可恢复（保存 messages 与执行状态到存储——<a href="/post/17111a82.html">mini-cc</a> 用 bun:sqlite 实现了会话持久化，可参考）。</li>
-</ul>
-<hr>
-<h2 id="七、多智能体概览"><a href="#七、多智能体概览" class="headerlink" title="七、多智能体概览"></a>七、多智能体概览</h2><h3 id="7-1-为什么要多智能体"><a href="#7-1-为什么要多智能体" class="headerlink" title="7.1 为什么要多智能体"></a>7.1 为什么要多智能体</h3><p>单个 Agent 的局限：<strong>上下文容量有限、职责混杂、单点决策</strong>。多智能体把复杂任务拆给多个”专才”Agent 协作：</p>
-<table>
-<thead>
-<tr>
-<th align="left">模式</th>
-<th align="left">结构</th>
-<th align="left">适用</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">Supervisor（主管-下属）</td>
-<td align="left">一个主管分派任务给多个专家 Agent</td>
-<td align="left">职责清晰、任务可拆</td>
-</tr>
-<tr>
-<td align="left">分层（Hierarchical）</td>
-<td align="left">多级上下级，层层分解</td>
-<td align="left">大型复杂任务</td>
-</tr>
-<tr>
-<td align="left">对等（Peer）</td>
-<td align="left">平级 Agent 互相讨论&#x2F;评审</td>
-<td align="left">头脑风暴、评审</td>
-</tr>
-</tbody></table>
-<h3 id="7-2-多智能体的代价"><a href="#7-2-多智能体的代价" class="headerlink" title="7.2 多智能体的代价"></a>7.2 多智能体的代价</h3><ul>
-<li><strong>成本翻倍</strong>：N 个 Agent 各自有上下文与模型调用；</li>
-<li><strong>协调复杂度</strong>：消息格式、结果合并、冲突处理；</li>
-<li><strong>失败放大</strong>：一个 Agent 的失误会顺着协作链传播。</li>
-</ul>
-<p><strong>决策原则：单 Agent 能做的，不要上多智能体。</strong> 多智能体的完整工程实践见 <a href="/post/multi-agent-langgraph-2026.html">多智能体协作实战</a>（LangGraph 三种编排模式 + 完整项目）。</p>
-<hr>
-<h2 id="八、可观测与安全"><a href="#八、可观测与安全" class="headerlink" title="八、可观测与安全"></a>八、可观测与安全</h2><h3 id="8-1-Agent-可观测性：过程比结果重要"><a href="#8-1-Agent-可观测性：过程比结果重要" class="headerlink" title="8.1 Agent 可观测性：过程比结果重要"></a>8.1 Agent 可观测性：过程比结果重要</h3><p>Agent 的每一步（Thought&#x2F;Action&#x2F;Observation）都是<strong>审计线索</strong>——“为什么做这个决定”必须可回放：</p>
-<table>
-<thead>
-<tr>
-<th align="left">观测项</th>
-<th align="left">记录内容</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">决策轨迹</td>
-<td align="left">每一步 Thought 原文（不可省！）</td>
-</tr>
-<tr>
-<td align="left">工具调用</td>
-<td align="left">工具名、参数、结果摘要、耗时</td>
-</tr>
-<tr>
-<td align="left">成本</td>
-<td align="left">每轮 token 消耗（Agent 成本 &#x3D; 轮次 × 每轮成本）</td>
-</tr>
-<tr>
-<td align="left">状态流转</td>
-<td align="left">RUNNING → FINISHED&#x2F;FAILED 及原因</td>
-</tr>
-</tbody></table>
-<blockquote>
-<p><strong>Java 对照</strong>：这就是全链路 trace（traceId + span）——Agent 的 Thought&#x2F;Action&#x2F;Observation 就是天然 span 结构。完整体系见 <a href="/post/llm-eval-observability-2026.html">LLM评测与可观测性</a>。</p>
-</blockquote>
-<h3 id="8-2-Agent-安全基线"><a href="#8-2-Agent-安全基线" class="headerlink" title="8.2 Agent 安全基线"></a>8.2 Agent 安全基线</h3><table>
-<thead>
-<tr>
-<th align="left">风险</th>
-<th align="left">对策（详见 <a href="/post/agent-security-2026.html">Agent安全与防护</a>）</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">提示注入（工具结果伪装指令）</td>
-<td align="left">工具输出与指令角色分离</td>
-</tr>
-<tr>
-<td align="left">工具滥用</td>
-<td align="left">语义化工具 + 权限校验 + 敏感操作二次确认</td>
-</tr>
-<tr>
-<td align="left">数据泄露</td>
-<td align="left">工具结果脱敏、最小化返回</td>
-</tr>
-<tr>
-<td align="left">失控循环</td>
-<td align="left">循环上限 + 熔断 + 人工介入通道</td>
-</tr>
-</tbody></table>
-<p><strong>铁律：Agent 能调的工具 &#x3D; 你信任它能犯错的工具。</strong> 把”模型可能误用工具”当成默认假设来设计权限。</p>
-<hr>
-<h2 id="九、实战：从-20-行-ReAct-到生产-Agent"><a href="#九、实战：从-20-行-ReAct-到生产-Agent" class="headerlink" title="九、实战：从 20 行 ReAct 到生产 Agent"></a>九、实战：从 20 行 ReAct 到生产 Agent</h2><h3 id="9-1-手写最小-ReAct-循环"><a href="#9-1-手写最小-ReAct-循环" class="headerlink" title="9.1 手写最小 ReAct 循环"></a>9.1 手写最小 ReAct 循环</h3><p>不依赖框架，先理解骨架：</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> json</span><br><span class="line"><span class="keyword">from</span> openai <span class="keyword">import</span> OpenAI</span><br><span class="line"></span><br><span class="line">client = OpenAI()</span><br><span class="line">TOOLS = [get_weather_schema, search_db_schema]   <span class="comment"># 工具 Schema</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">def</span> <span class="title function_">execute</span>(<span class="params">name: <span class="built_in">str</span>, args: <span class="built_in">dict</span></span>) -&gt; <span class="built_in">str</span>:</span><br><span class="line">    <span class="keyword">return</span> &#123;<span class="string">&quot;get_weather&quot;</span>: <span class="keyword">lambda</span>: <span class="string">f&quot;<span class="subst">&#123;args[<span class="string">&#x27;city&#x27;</span>]&#125;</span>：晴 22°C&quot;</span>,</span><br><span class="line">            <span class="string">&quot;search_db&quot;</span>: <span class="keyword">lambda</span>: <span class="string">&quot;未找到相关记录&quot;</span>&#125;[name]()</span><br><span class="line"></span><br><span class="line"><span class="keyword">def</span> <span class="title function_">react</span>(<span class="params">task: <span class="built_in">str</span>, max_steps: <span class="built_in">int</span> = <span class="number">8</span></span>) -&gt; <span class="built_in">str</span>:</span><br><span class="line">    messages = [&#123;<span class="string">&quot;role&quot;</span>: <span class="string">&quot;user&quot;</span>, <span class="string">&quot;content&quot;</span>: task&#125;]</span><br><span class="line">    <span class="keyword">for</span> _ <span class="keyword">in</span> <span class="built_in">range</span>(max_steps):</span><br><span class="line">        msg = client.chat.completions.create(</span><br><span class="line">            model=<span class="string">&quot;gpt-4o-mini&quot;</span>, messages=messages,</span><br><span class="line">            tools=TOOLS).choices[<span class="number">0</span>].message</span><br><span class="line">        <span class="keyword">if</span> msg.tool_calls:</span><br><span class="line">            messages.append(msg.model_dump())</span><br><span class="line">            <span class="keyword">for</span> call <span class="keyword">in</span> msg.tool_calls:</span><br><span class="line">                messages.append(&#123;<span class="string">&quot;role&quot;</span>: <span class="string">&quot;tool&quot;</span>, <span class="string">&quot;tool_call_id&quot;</span>: call.<span class="built_in">id</span>,</span><br><span class="line">                                 <span class="string">&quot;content&quot;</span>: execute(call.function.name,</span><br><span class="line">                                                    json.loads(call.function.arguments))&#125;)</span><br><span class="line">            <span class="keyword">continue</span></span><br><span class="line">        <span class="keyword">return</span> msg.content</span><br><span class="line">    <span class="keyword">return</span> <span class="string">&quot;循环上限&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="built_in">print</span>(react(<span class="string">&quot;北京明天天气适合跑步吗？&quot;</span>))</span><br></pre></td></tr></table></figure>
-
-<h3 id="9-2-升级到生产-Agent-的差异清单"><a href="#9-2-升级到生产-Agent-的差异清单" class="headerlink" title="9.2 升级到生产 Agent 的差异清单"></a>9.2 升级到生产 Agent 的差异清单</h3><table>
-<thead>
-<tr>
-<th align="left">维度</th>
-<th align="left">20 行骨架</th>
-<th align="left">生产 Agent</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">循环</td>
-<td align="left">for 循环</td>
-<td align="left">状态机 + 五道护栏（6.2）</td>
-</tr>
-<tr>
-<td align="left">上下文</td>
-<td align="left">无管理</td>
-<td align="left">窗口裁剪 + Observation 瘦身（第三章）</td>
-</tr>
-<tr>
-<td align="left">记忆</td>
-<td align="left">无</td>
-<td align="left">长期记忆写入与召回（第四章）</td>
-</tr>
-<tr>
-<td align="left">工具</td>
-<td align="left">内存函数</td>
-<td align="left">MCP 接入 + 权限 + 幂等（第五章）</td>
-</tr>
-<tr>
-<td align="left">观测</td>
-<td align="left">无</td>
-<td align="left">决策轨迹 + trace + 成本记录（第八章）</td>
-</tr>
-<tr>
-<td align="left">安全</td>
-<td align="left">无</td>
-<td align="left">注入防护 + 敏感操作确认（第八章）</td>
-</tr>
-</tbody></table>
-<h3 id="9-3-工程参考"><a href="#9-3-工程参考" class="headerlink" title="9.3 工程参考"></a>9.3 工程参考</h3><ul>
-<li><a href="/post/17111a82.html">mini-cc</a>：完整 Agent 循环实现（状态机、工具执行、上下文压缩、权限门控），架构对照最直接的参考；</li>
-<li><a href="/post/71aac160.html">智能客服-mcp</a> 与 <a href="/post/f4198aab.html">ticket-agent-mcp</a>：业务 Agent（工单分类 + RAG + MCP 工具）全流程；</li>
-<li><a href="/post/multi-agent-langgraph-2026.html">多智能体协作实战</a>：多 Agent 编排的框架化实现。</li>
-</ul>
-<hr>
-<h2 id="十、与-Java-存量技能迁移对照"><a href="#十、与-Java-存量技能迁移对照" class="headerlink" title="十、与 Java 存量技能迁移对照"></a>十、与 Java 存量技能迁移对照</h2><table>
-<thead>
-<tr>
-<th align="left">本文章节</th>
-<th align="left">Java 存量技能</th>
-<th align="left">迁移要点</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">一、Agent 定义</td>
-<td align="left">架构设计</td>
-<td align="left">Workflow&#x2F;Agent 分工 ≈ 架构模式选型</td>
-</tr>
-<tr>
-<td align="left">二、任务规划</td>
-<td align="left">算法设计</td>
-<td align="left">任务分解 ≈ 模块拆解 + DAG 依赖</td>
-</tr>
-<tr>
-<td align="left">三、上下文管理</td>
-<td align="left">内存优化</td>
-<td align="left">Observation 瘦身 ≈ DTO 裁剪</td>
-</tr>
-<tr>
-<td align="left">四、记忆系统</td>
-<td align="left">缓存&#x2F;持久化</td>
-<td align="left">记忆写入召回 ≈ 缓存更新策略</td>
-</tr>
-<tr>
-<td align="left">五、工具调用</td>
-<td align="left">服务化&#x2F;SPI</td>
-<td align="left">MCP ≈ 统一协议的服务注册</td>
-</tr>
-<tr>
-<td align="left">六、主循环</td>
-<td align="left">状态机&#x2F;分布式事务</td>
-<td align="left">幂等 + 补偿 &#x3D; Saga 思维</td>
-</tr>
-<tr>
-<td align="left">八、可观测</td>
-<td align="left">链路追踪</td>
-<td align="left">Thought&#x2F;Action&#x2F;Observation ≈ trace span</td>
-</tr>
-</tbody></table>
-<blockquote>
-<p>转型路线见 <a href="/docs/nav/ai-learning-nav.html">AI学习体系导航</a>；Agent 效果评测（任务成功率、轨迹评估）见 <a href="/post/llm-eval-observability-2026.html">LLM评测与可观测性</a>。</p>
-</blockquote>
-<blockquote>
-<p><strong>相关文章：</strong> <a href="/post/multi-agent-langgraph-2026.html">多智能体协作实战</a>、<a href="/post/llm-api-tool-calling-2026.html">LLM API与工具调用实战</a>、<a href="/post/agent-security-2026.html">Agent安全与防护</a>、<a href="/post/8e39890e-rev1.html">MCP开发指南（修订版）</a>、<a href="/docs/nav/ai-learning-nav.html">AI学习体系导航</a></p>
-</blockquote>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/vector-db-2026.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="知行栈">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | 知行栈">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/vector-db-2026.html" class="post-title-link" itemprop="url">向量数据库原理与实践</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-
-      <time title="Created: 2026-08-04 14:00:00" itemprop="dateCreated datePublished" datetime="2026-08-04T14:00:00+08:00">2026-08-04</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">In</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/AI%E5%A4%A7%E6%A8%A1%E5%9E%8B/" itemprop="url" rel="index"><span itemprop="name">AI大模型</span></a>
-        </span>
-    </span>
-
-  
-    <span class="post-meta-break"></span>
-    <span class="post-meta-item" title="Word count in article">
-      <span class="post-meta-item-icon">
-        <i class="far fa-file-word"></i>
-      </span>
-      <span class="post-meta-item-text">Word count in article: </span>
-      <span>3.6k</span>
-    </span>
-    <span class="post-meta-item" title="Reading time">
-      <span class="post-meta-item-icon">
-        <i class="far fa-clock"></i>
-      </span>
-      <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>13 mins.</span>
-    </span>
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="向量数据库原理与实践"><a href="#向量数据库原理与实践" class="headerlink" title="向量数据库原理与实践"></a>向量数据库原理与实践</h1><blockquote>
-<p>本文是《AI学习体系导航》阶段三的向量库专题深文，也是本站 ES 深文在 AI 方向的姊妹篇：从 ANN 索引原理（IVF&#x2F;HNSW&#x2F;PQ）到 Milvus&#x2F;Pinecone&#x2F;Elasticsearch 的选型与实战，覆盖生产级向量检索的完整知识。RAG 主链路见 <a href="/post/rag-2026.html">RAG原理与实践</a>，本文解决其中的”存储与检索”底座。</p>
-<p><strong>撰写时快照</strong>：本文基于 2026 年 8 月向量数据库生态撰写；各产品版本迭代快，部署参数以官方文档为准。</p>
-</blockquote>
-<hr>
-<h2 id="一、为什么需要向量数据库"><a href="#一、为什么需要向量数据库" class="headerlink" title="一、为什么需要向量数据库"></a>一、为什么需要向量数据库</h2><h3 id="1-1-向量检索场景"><a href="#1-1-向量检索场景" class="headerlink" title="1.1 向量检索场景"></a>1.1 向量检索场景</h3><p>向量检索（语义相似度检索）在 AI 应用里无处不在：</p>
-<table>
-<thead>
-<tr>
-<th align="left">场景</th>
-<th align="left">检索什么</th>
-<th align="left">典型规模</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">RAG 知识库</td>
-<td align="left">文档分块的 Embedding</td>
-<td align="left">万~亿级</td>
-</tr>
-<tr>
-<td align="left">语义搜索</td>
-<td align="left">商品&#x2F;文档&#x2F;代码向量</td>
-<td align="left">十万~十亿级</td>
-</tr>
-<tr>
-<td align="left">推荐召回</td>
-<td align="left">用户与物品向量</td>
-<td align="left">亿级</td>
-</tr>
-<tr>
-<td align="left">去重&#x2F;查重</td>
-<td align="left">文本&#x2F;图片相似度</td>
-<td align="left">千万级</td>
-</tr>
-</tbody></table>
-<h3 id="1-2-与关系型数据库、全文检索的区别"><a href="#1-2-与关系型数据库、全文检索的区别" class="headerlink" title="1.2 与关系型数据库、全文检索的区别"></a>1.2 与关系型数据库、全文检索的区别</h3><table>
-<thead>
-<tr>
-<th align="left">维度</th>
-<th align="left">关系型 (MySQL)</th>
-<th align="left">全文检索 (ES)</th>
-<th align="left">向量数据库</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">查询方式</td>
-<td align="left">精确匹配&#x2F;范围</td>
-<td align="left">关键词&#x2F;分词</td>
-<td align="left"><strong>相似度 Top-K</strong></td>
-</tr>
-<tr>
-<td align="left">索引结构</td>
-<td align="left">B+Tree</td>
-<td align="left">倒排索引</td>
-<td align="left">ANN 图&#x2F;倒排+量化</td>
-</tr>
-<tr>
-<td align="left">返回</td>
-<td align="left">精确结果集</td>
-<td align="left">相关度排序</td>
-<td align="left">按相似度排序</td>
-</tr>
-<tr>
-<td align="left">典型查询</td>
-<td align="left"><code>WHERE user_id=?</code></td>
-<td align="left"><code>match(&#39;退款&#39;)</code></td>
-<td align="left"><code>knn(query_vec, k=5)</code></td>
-</tr>
-</tbody></table>
-<p><strong>关键差异是语义</strong>：向量数据库回答”<strong>和这句话最像的内容是什么</strong>“，而 SQL&#x2F;全文检索回答”<strong>包含什么</strong>“。”退款流程”和”怎么退钱”在 SQL 里毫无关系，在向量空间里是邻居。</p>
-<blockquote>
-<p><strong>Java 对照</strong>：把向量库理解为”语义索引 + 相似度排序”的新存储引擎。你熟悉的 MySQL&#x2F;Redis&#x2F;ES 选型思维（数据量、QPS、一致性、运维成本）直接套用。</p>
-</blockquote>
-<h3 id="1-3-为什么不用-MySQL-ES-硬算"><a href="#1-3-为什么不用-MySQL-ES-硬算" class="headerlink" title="1.3 为什么不用 MySQL&#x2F;ES 硬算"></a>1.3 为什么不用 MySQL&#x2F;ES 硬算</h3><ul>
-<li>MySQL 存向量可以（BLOB + 余弦计算），但<strong>全表扫描</strong>——百万级数据单次查询秒级起，不可扩展；</li>
-<li>ES 8.x 内置向量检索（dense_vector 字段自 7.10 引入，kNN 检索 8.x 完善，见第六章），小规模可用；</li>
-<li>专门的向量库在<strong>索引结构</strong>上做了优化（HNSW&#x2F;IVF），亿级数据毫秒级返回。</li>
-</ul>
-<p>选型铁律：<strong>数据量 × QPS 超过”硬算能扛”的阈值（约十万级×低QPS），就上专门的向量库。</strong></p>
-<hr>
-<h2 id="二、索引原理：从暴力检索到-ANN"><a href="#二、索引原理：从暴力检索到-ANN" class="headerlink" title="二、索引原理：从暴力检索到 ANN"></a>二、索引原理：从暴力检索到 ANN</h2><h3 id="2-1-暴力检索"><a href="#2-1-暴力检索" class="headerlink" title="2.1 暴力检索"></a>2.1 暴力检索</h3><p>逐条计算查询向量与库中所有向量的相似度，取 Top-K。结果最准（精确 Top-K），但复杂度 O(N)——百万向量 × 1024 维，单次查询需要数十亿次浮点运算，不可接受。</p>
-<p><strong>所有向量索引都是近似（ANN, Approximate Nearest Neighbor）</strong>：牺牲一点点召回率，换来数量级的性能提升。</p>
-<h3 id="2-2-IVF（倒排文件索引）"><a href="#2-2-IVF（倒排文件索引）" class="headerlink" title="2.2 IVF（倒排文件索引）"></a>2.2 IVF（倒排文件索引）</h3><p><strong>思想：分桶 + 只搜附近的桶。</strong></p>
-<ul>
-<li>聚类（K-means）把空间分成 N 个桶（如 1000 个），每个向量归入最近的桶；</li>
-<li>查询时只在与 query 最近的 n 个桶（nprobe）内暴力搜索；</li>
-<li>复杂度从 O(N) 降到 O(N&#x2F;nprobe)。</li>
-</ul>
-<table>
-<thead>
-<tr>
-<th align="left">参数</th>
-<th align="left">含义</th>
-<th align="left">权衡</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">nlist</td>
-<td align="left">桶数量</td>
-<td align="left">越多分得越细，建库越慢</td>
-</tr>
-<tr>
-<td align="left">nprobe</td>
-<td align="left">查询桶数</td>
-<td align="left">越大召回越高、越慢</td>
-</tr>
-</tbody></table>
-<p><strong>类比</strong>：图书分类上架（按类分桶），查书先找对书架。<strong>IVF 是”分区”思路，实现简单，适合数据规模稳定、并发高的场景。</strong></p>
-<h3 id="2-3-HNSW（层级可导航小世界图）"><a href="#2-3-HNSW（层级可导航小世界图）" class="headerlink" title="2.3 HNSW（层级可导航小世界图）"></a>2.3 HNSW（层级可导航小世界图）</h3><p><strong>思想：多层图，从上往下逐层逼近。</strong></p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">第 3 层（稀疏）：几个&quot;地标&quot;节点</span><br><span class="line">第 2 层：更多节点</span><br><span class="line">第 1 层（密集）：所有节点</span><br><span class="line">查询：从顶层开始贪心跳转，逐层细化，最终在底层找最近邻</span><br></pre></td></tr></table></figure>
-
-<table>
-<thead>
-<tr>
-<th align="left">参数</th>
-<th align="left">含义</th>
-<th align="left">权衡</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">M</td>
-<td align="left">每节点连接数</td>
-<td align="left">越大图越密、召回越高、内存越大</td>
-</tr>
-<tr>
-<td align="left">efConstruction</td>
-<td align="left">建图搜索宽度</td>
-<td align="left">越大图质量越高、建库越慢</td>
-</tr>
-<tr>
-<td align="left">efSearch</td>
-<td align="left">查询搜索宽度</td>
-<td align="left">越大召回越高、越慢</td>
-</tr>
-</tbody></table>
-<p><strong>HNSW 是当前 RAG 场景的事实标准</strong>：召回率高、查询快，代价是内存占用大（图结构常驻内存）。<strong>类比</strong>：城市的道路导航——先走高速（稀疏层），再转县道（密集层），最终到达目的地。</p>
-<h3 id="2-4-PQ（乘积量化）与压缩"><a href="#2-4-PQ（乘积量化）与压缩" class="headerlink" title="2.4 PQ（乘积量化）与压缩"></a>2.4 PQ（乘积量化）与压缩</h3><p><strong>思想：降精度换内存。</strong></p>
-<ul>
-<li>把 1024 维向量切成 M 段（如 64 段 × 16 维），每段用 K 个码字（如 256 个）量化；</li>
-<li>一个向量从”1024 个 float”（4KB）压缩为”M 个码字编号”（64 字节），内存降约 60 倍；</li>
-<li>相似度计算用查表（码本）代替浮点运算，更快。</li>
-</ul>
-<p><strong>代价</strong>：精度损失。生产实践：IVF+PQ 组合（大库标配）召回率可保持 95%+（配合足够 nprobe），内存却省一个数量级。</p>
-<h3 id="2-5-三种索引对比"><a href="#2-5-三种索引对比" class="headerlink" title="2.5 三种索引对比"></a>2.5 三种索引对比</h3><table>
-<thead>
-<tr>
-<th align="left">索引</th>
-<th align="left">查询性能</th>
-<th align="left">召回率</th>
-<th align="left">内存</th>
-<th align="left">建库成本</th>
-<th align="left">适用</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">Brute Force</td>
-<td align="left">差</td>
-<td align="left"><strong>100%</strong></td>
-<td align="left">高</td>
-<td align="left">无</td>
-<td align="left">小数据量、精度敏感</td>
-</tr>
-<tr>
-<td align="left">IVF</td>
-<td align="left">中</td>
-<td align="left">中</td>
-<td align="left">中</td>
-<td align="left">低</td>
-<td align="left">大库、可接受近似</td>
-</tr>
-<tr>
-<td align="left">HNSW</td>
-<td align="left"><strong>优</strong></td>
-<td align="left">高</td>
-<td align="left">高</td>
-<td align="left">中</td>
-<td align="left">RAG 默认首选</td>
-</tr>
-<tr>
-<td align="left">IVF+PQ</td>
-<td align="left">优</td>
-<td align="left">中高</td>
-<td align="left"><strong>低</strong></td>
-<td align="left">中</td>
-<td align="left">超大库、内存受限</td>
-</tr>
-</tbody></table>
-<blockquote>
-<p><strong>Java 对照</strong>：IVF ≈ 分库分表的分区思路；HNSW ≈ 多级索引（B+Tree 从上到下的逼近）；PQ ≈ 压缩&#x2F;降精度换空间。全是存量知识的换皮。</p>
-</blockquote>
-<hr>
-<h2 id="三、度量与评估"><a href="#三、度量与评估" class="headerlink" title="三、度量与评估"></a>三、度量与评估</h2><h3 id="3-1-距离度量"><a href="#3-1-距离度量" class="headerlink" title="3.1 距离度量"></a>3.1 距离度量</h3><table>
-<thead>
-<tr>
-<th align="left">度量</th>
-<th align="left">语义</th>
-<th align="left">典型场景</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">余弦相似度</td>
-<td align="left">方向相似（不看长度）</td>
-<td align="left">文本 Embedding 默认</td>
-</tr>
-<tr>
-<td align="left">内积</td>
-<td align="left">方向 + 幅度</td>
-<td align="left">已归一化向量的推荐</td>
-</tr>
-<tr>
-<td align="left">L2 距离</td>
-<td align="left">绝对距离</td>
-<td align="left">图像&#x2F;几何</td>
-</tr>
-</tbody></table>
-<p><strong>选型要点</strong>：文本 Embedding 首选余弦；库内度量必须与训练&#x2F;向量化时一致（混用 &#x3D; 检索失真）。注意：很多向量库把余弦预归一化为内积，声明要看清。</p>
-<h3 id="3-2-评估指标：Recall-k-与延迟"><a href="#3-2-评估指标：Recall-k-与延迟" class="headerlink" title="3.2 评估指标：Recall@k 与延迟"></a>3.2 评估指标：Recall@k 与延迟</h3><table>
-<thead>
-<tr>
-<th align="left">指标</th>
-<th align="left">定义</th>
-<th align="left">意义</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">Recall@k</td>
-<td align="left">暴力检索 Top-k 中，被 ANN 召回的比例</td>
-<td align="left">ANN 的”近似损失”</td>
-</tr>
-<tr>
-<td align="left">P95 查询延迟</td>
-<td align="left">95% 查询耗时</td>
-<td align="left">线上体验</td>
-</tr>
-<tr>
-<td align="left">索引内存</td>
-<td align="left">常驻内存占用</td>
-<td align="left">成本</td>
-</tr>
-</tbody></table>
-<p><strong>验收流程</strong>：同一批查询，先跑暴力检索得到”真值 Top-k”，再对比 ANN 索引的召回率。目标：<strong>Recall@10 ≥ 95%，P95 &lt; 20ms（百万级）</strong>。</p>
-<hr>
-<h2 id="四、Milvus-实战"><a href="#四、Milvus-实战" class="headerlink" title="四、Milvus 实战"></a>四、Milvus 实战</h2><h3 id="4-1-架构概览"><a href="#4-1-架构概览" class="headerlink" title="4.1 架构概览"></a>4.1 架构概览</h3><p>Milvus（开源向量数据库，Zilliz 主导）由松耦合组件构成：</p>
-<table>
-<thead>
-<tr>
-<th align="left">组件</th>
-<th align="left">职责</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">Proxy</td>
-<td align="left">接入层，解析请求、限流</td>
-</tr>
-<tr>
-<td align="left">Coordinator</td>
-<td align="left">元数据管理、集群调度</td>
-</tr>
-<tr>
-<td align="left">Datanode&#x2F;Indexnode</td>
-<td align="left">数据存储与索引构建</td>
-</tr>
-<tr>
-<td align="left">Querynode</td>
-<td align="left">查询执行（CPU&#x2F;GPU）</td>
-</tr>
-<tr>
-<td align="left">Meta Store（etcd）+ 对象存储</td>
-<td align="left">元数据与数据持久化</td>
-</tr>
-</tbody></table>
-<p><strong>部署形态</strong>：单机 <code>docker compose</code> 起步（学习&#x2F;原型），生产走 Kubernetes 集群（需要对象存储如 MinIO&#x2F;S3）。</p>
-<h3 id="4-2-Collection-与-Schema"><a href="#4-2-Collection-与-Schema" class="headerlink" title="4.2 Collection 与 Schema"></a>4.2 Collection 与 Schema</h3><p>向量库的”表”叫 <strong>Collection</strong>，字段需显式声明：</p>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">from</span> pymilvus <span class="keyword">import</span> MilvusClient, DataType</span><br><span class="line"></span><br><span class="line">client = MilvusClient(<span class="string">&quot;http://localhost:19530&quot;</span>)</span><br><span class="line"></span><br><span class="line">schema = client.create_schema(auto_id=<span class="literal">False</span>, enable_dynamic_field=<span class="literal">False</span>)</span><br><span class="line">schema.add_field(<span class="string">&quot;id&quot;</span>, DataType.VARCHAR, max_length=<span class="number">64</span>, is_primary=<span class="literal">True</span>)</span><br><span class="line">schema.add_field(<span class="string">&quot;doc_id&quot;</span>, DataType.VARCHAR, max_length=<span class="number">64</span>)    <span class="comment"># 元数据：文档归属</span></span><br><span class="line">schema.add_field(<span class="string">&quot;title&quot;</span>, DataType.VARCHAR, max_length=<span class="number">256</span>)</span><br><span class="line">schema.add_field(<span class="string">&quot;content&quot;</span>, DataType.VARCHAR, max_length=<span class="number">8192</span>) <span class="comment"># 原文（检索后直接给 LLM）</span></span><br><span class="line">schema.add_field(<span class="string">&quot;embedding&quot;</span>, DataType.FLOAT_VECTOR, dim=<span class="number">1024</span>) <span class="comment"># 向量列</span></span><br><span class="line"></span><br><span class="line">index_params = client.prepare_index_params()</span><br><span class="line">index_params.add_index(field_name=<span class="string">&quot;embedding&quot;</span>,</span><br><span class="line">                       index_type=<span class="string">&quot;HNSW&quot;</span>,      <span class="comment"># 索引类型</span></span><br><span class="line">                       metric_type=<span class="string">&quot;COSINE&quot;</span>,   <span class="comment"># 度量</span></span><br><span class="line">                       params=&#123;<span class="string">&quot;M&quot;</span>: <span class="number">16</span>, <span class="string">&quot;efConstruction&quot;</span>: <span class="number">200</span>&#125;)</span><br><span class="line">client.create_collection(<span class="string">&quot;kb_docs&quot;</span>, schema=schema, index_params=index_params)</span><br></pre></td></tr></table></figure>
-
-<blockquote>
-<p><strong>Java 对照</strong>：Collection&#x2F;Schema ≈ 建表 DDL。向量列就是”特殊类型的一列”，元数据字段就是普通列——SQL 建模习惯直接平移。</p>
-</blockquote>
-<h3 id="4-3-写入与查询"><a href="#4-3-写入与查询" class="headerlink" title="4.3 写入与查询"></a>4.3 写入与查询</h3><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 批量写入（RAG 入库）</span></span><br><span class="line">client.insert(<span class="string">&quot;kb_docs&quot;</span>, [</span><br><span class="line">    &#123;<span class="string">&quot;id&quot;</span>: <span class="string">&quot;chunk-001&quot;</span>, <span class="string">&quot;doc_id&quot;</span>: <span class="string">&quot;d-001&quot;</span>, <span class="string">&quot;title&quot;</span>: <span class="string">&quot;退款政策&quot;</span>,</span><br><span class="line">     <span class="string">&quot;content&quot;</span>: <span class="string">&quot;用户可在签收后 7 天内无理由退款……&quot;</span>,</span><br><span class="line">     <span class="string">&quot;embedding&quot;</span>: vec_001&#125;,          <span class="comment"># 由 Embedding 模型生成</span></span><br><span class="line">    <span class="comment"># ...</span></span><br><span class="line">])</span><br><span class="line"></span><br><span class="line"><span class="comment"># 向量检索 + 元数据过滤</span></span><br><span class="line">res = client.search(</span><br><span class="line">    collection_name=<span class="string">&quot;kb_docs&quot;</span>,</span><br><span class="line">    data=[query_vec],                 <span class="comment"># 查询向量</span></span><br><span class="line">    limit=<span class="number">5</span>,</span><br><span class="line">    <span class="built_in">filter</span>=<span class="string">&quot;doc_id == &#x27;d-001&#x27;&quot;</span>,       <span class="comment"># 元数据过滤（WHERE 前置）</span></span><br><span class="line">    output_fields=[<span class="string">&quot;content&quot;</span>, <span class="string">&quot;title&quot;</span>],   <span class="comment"># 返回原文</span></span><br><span class="line">)</span><br><span class="line"><span class="keyword">for</span> hit <span class="keyword">in</span> res[<span class="number">0</span>]:</span><br><span class="line">    <span class="built_in">print</span>(hit[<span class="string">&quot;entity&quot;</span>][<span class="string">&quot;content&quot;</span>], hit[<span class="string">&quot;distance&quot;</span>])</span><br></pre></td></tr></table></figure>
-
-<p><strong>关键点</strong>：<code>output_fields</code> 直接返回原文——RAG 流程中检索结果即上下文，不用二次查库。</p>
-<h3 id="4-4-索引参数调优速查"><a href="#4-4-索引参数调优速查" class="headerlink" title="4.4 索引参数调优速查"></a>4.4 索引参数调优速查</h3><table>
-<thead>
-<tr>
-<th align="left">目标</th>
-<th align="left">参数调整</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">提高召回</td>
-<td align="left">efSearch ↑（HNSW）、nprobe ↑（IVF）</td>
-</tr>
-<tr>
-<td align="left">降低延迟</td>
-<td align="left">M ↓、efSearch ↓（代价是召回）</td>
-</tr>
-<tr>
-<td align="left">降内存</td>
-<td align="left">换 IVF+PQ</td>
-</tr>
-<tr>
-<td align="left">写入吞吐优先</td>
-<td align="left">先建库后建索引（load 前 build）</td>
-</tr>
-</tbody></table>
-<p>调参心法：<strong>先用暴力检索标定”理论最好”，再调 ANN 参数逼近它</strong>（见 3.2 验收流程）。</p>
-<hr>
-<h2 id="五、Pinecone-与托管服务"><a href="#五、Pinecone-与托管服务" class="headerlink" title="五、Pinecone 与托管服务"></a>五、Pinecone 与托管服务</h2><h3 id="5-1-托管服务的定位"><a href="#5-1-托管服务的定位" class="headerlink" title="5.1 托管服务的定位"></a>5.1 托管服务的定位</h3><p>不想运维向量库时，托管服务（Pinecone、云厂商向量检索等）是省心之选：</p>
-<table>
-<thead>
-<tr>
-<th align="left">维度</th>
-<th align="left">自建 Milvus</th>
-<th align="left">托管（Pinecone 等）</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">运维</td>
-<td align="left">自己管集群&#x2F;备份&#x2F;扩容</td>
-<td align="left">全托管，Serverless 按量计费</td>
-</tr>
-<tr>
-<td align="left">起步</td>
-<td align="left">快（docker compose）</td>
-<td align="left">最快（API Key 即用）</td>
-</tr>
-<tr>
-<td align="left">成本</td>
-<td align="left">固定服务器成本</td>
-<td align="left">按存储+查询计费，量大后更高</td>
-</tr>
-<tr>
-<td align="left">数据主权</td>
-<td align="left">完全自主</td>
-<td align="left">数据出网（合规需评估）</td>
-</tr>
-<tr>
-<td align="left">能力边界</td>
-<td align="left">灵活可控</td>
-<td align="left">受平台限制（过滤语法等）</td>
-</tr>
-</tbody></table>
-<figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">from</span> pinecone <span class="keyword">import</span> Pinecone</span><br><span class="line"></span><br><span class="line">pc = Pinecone(api_key=<span class="string">&quot;...&quot;</span>)</span><br><span class="line">idx = pc.Index(<span class="string">&quot;kb-docs&quot;</span>)</span><br><span class="line"></span><br><span class="line">idx.upsert(vectors=[(<span class="string">&quot;chunk-001&quot;</span>, vec_001, &#123;<span class="string">&quot;doc_id&quot;</span>: <span class="string">&quot;d-001&quot;</span>, <span class="string">&quot;title&quot;</span>: <span class="string">&quot;退款政策&quot;</span>&#125;)])</span><br><span class="line"></span><br><span class="line">res = idx.query(vector=query_vec, top_k=<span class="number">5</span>,</span><br><span class="line">                <span class="built_in">filter</span>=&#123;<span class="string">&quot;doc_id&quot;</span>: <span class="string">&quot;d-001&quot;</span>&#125;)   <span class="comment"># 元数据过滤同样支持</span></span><br></pre></td></tr></table></figure>
-
-<p><strong>决策建议</strong>：原型&#x2F;验证期用托管（省时），进入规模化生产且数据敏感时迁自建。协议层面两者都能通过 Python SDK &#x2F; REST 接入，迁移成本主要在建库流程。</p>
-<hr>
-<h2 id="六、Elasticsearch-向量化"><a href="#六、Elasticsearch-向量化" class="headerlink" title="六、Elasticsearch 向量化"></a>六、Elasticsearch 向量化</h2><h3 id="6-1-为什么-ES-值得单独讲"><a href="#6-1-为什么-ES-值得单独讲" class="headerlink" title="6.1 为什么 ES 值得单独讲"></a>6.1 为什么 ES 值得单独讲</h3><p>本站读者基本都熟悉 ES（见 <a href="/post/d48132d3.html">Elasticsearch 原理与实践</a>）。已有 ES 集群时，<strong>先评估能否直接用 ES 的向量能力</strong>——少一套系统、运维心智一致。</p>
-<h3 id="6-2-dense-vector-与-knn-查询"><a href="#6-2-dense-vector-与-knn-查询" class="headerlink" title="6.2 dense_vector 与 knn 查询"></a>6.2 dense_vector 与 knn 查询</h3><figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 索引映射：声明向量字段</span></span><br><span class="line">PUT /kb_docs</span><br><span class="line"><span class="punctuation">&#123;</span></span><br><span class="line">  <span class="attr">&quot;mappings&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">    <span class="attr">&quot;properties&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">      <span class="attr">&quot;content&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span><span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;text&quot;</span><span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">      <span class="attr">&quot;doc_id&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span><span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;keyword&quot;</span><span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">      <span class="attr">&quot;embedding&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">        <span class="attr">&quot;type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;dense_vector&quot;</span><span class="punctuation">,</span></span><br><span class="line">        <span class="attr">&quot;dims&quot;</span><span class="punctuation">:</span> <span class="number">1024</span><span class="punctuation">,</span></span><br><span class="line">        <span class="attr">&quot;index&quot;</span><span class="punctuation">:</span> <span class="literal"><span class="keyword">true</span></span><span class="punctuation">,</span></span><br><span class="line">        <span class="attr">&quot;similarity&quot;</span><span class="punctuation">:</span> <span class="string">&quot;cosine&quot;</span></span><br><span class="line">      <span class="punctuation">&#125;</span></span><br><span class="line">    <span class="punctuation">&#125;</span></span><br><span class="line">  <span class="punctuation">&#125;</span></span><br><span class="line"><span class="punctuation">&#125;</span></span><br><span class="line"></span><br><span class="line"><span class="comment">// knn 查询（过滤内嵌于 knn 子句，pre-filter 官方写法）</span></span><br><span class="line">POST /kb_docs/_search</span><br><span class="line"><span class="punctuation">&#123;</span></span><br><span class="line">  <span class="attr">&quot;knn&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">    <span class="attr">&quot;field&quot;</span><span class="punctuation">:</span> <span class="string">&quot;embedding&quot;</span><span class="punctuation">,</span></span><br><span class="line">    <span class="attr">&quot;query_vector&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span>...<span class="punctuation">]</span><span class="punctuation">,</span></span><br><span class="line">    <span class="attr">&quot;k&quot;</span><span class="punctuation">:</span> <span class="number">5</span><span class="punctuation">,</span></span><br><span class="line">    <span class="attr">&quot;num_candidates&quot;</span><span class="punctuation">:</span> <span class="number">50</span><span class="punctuation">,</span></span><br><span class="line">    <span class="attr">&quot;filter&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span><span class="attr">&quot;term&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span><span class="attr">&quot;doc_id&quot;</span><span class="punctuation">:</span> <span class="string">&quot;d-001&quot;</span><span class="punctuation">&#125;</span><span class="punctuation">&#125;</span></span><br><span class="line">  <span class="punctuation">&#125;</span></span><br><span class="line"><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
-
-<h3 id="6-3-BM25-向量混合检索"><a href="#6-3-BM25-向量混合检索" class="headerlink" title="6.3 BM25 + 向量混合检索"></a>6.3 BM25 + 向量混合检索</h3><p>ES 的最大优势：<strong>全文检索与向量检索共存，混合排序内建支持</strong>：</p>
-<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 混合检索：顶层 knn + query + rrf（需 ES 8.12+ 的 RRF 支持）</span></span><br><span class="line">POST /kb_docs/_search</span><br><span class="line"><span class="punctuation">&#123;</span></span><br><span class="line">  <span class="attr">&quot;knn&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span><span class="attr">&quot;field&quot;</span><span class="punctuation">:</span> <span class="string">&quot;embedding&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;query_vector&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span>...<span class="punctuation">]</span><span class="punctuation">,</span> <span class="attr">&quot;k&quot;</span><span class="punctuation">:</span> <span class="number">5</span><span class="punctuation">,</span> <span class="attr">&quot;num_candidates&quot;</span><span class="punctuation">:</span> <span class="number">50</span><span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;query&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span><span class="attr">&quot;match&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span><span class="attr">&quot;content&quot;</span><span class="punctuation">:</span> <span class="string">&quot;退款&quot;</span><span class="punctuation">&#125;</span><span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;rrf&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span><span class="attr">&quot;rank_constant&quot;</span><span class="punctuation">:</span> <span class="number">60</span><span class="punctuation">&#125;</span></span><br><span class="line"><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
-
-<p>一个集群同时承担倒排与向量两套索引（HNSW 在 Lucene 内实现），RAG 的混合检索在 ES 里是”一个查询”。</p>
-<h3 id="6-4-ES-向量化的边界"><a href="#6-4-ES-向量化的边界" class="headerlink" title="6.4 ES 向量化的边界"></a>6.4 ES 向量化的边界</h3><table>
-<thead>
-<tr>
-<th align="left">维度</th>
-<th align="left">评价</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">数据规模</td>
-<td align="left">千万级 OK，亿级建议专门的向量库</td>
-</tr>
-<tr>
-<td align="left">过滤能力</td>
-<td align="left">成熟（DSL 过滤）</td>
-</tr>
-<tr>
-<td align="left">运维</td>
-<td align="left">与已有 ES 一致（加分项）</td>
-</tr>
-<tr>
-<td align="left">内存</td>
-<td align="left">HNSW 常驻堆外，需评估节点内存</td>
-</tr>
-</tbody></table>
-<p><strong>结论</strong>：已有 ES、数据量千万级以内 → ES 是低摩擦首选；从零起步或亿级规模 → Milvus。</p>
-<hr>
-<h2 id="七、选型对比与-Java-集成"><a href="#七、选型对比与-Java-集成" class="headerlink" title="七、选型对比与 Java 集成"></a>七、选型对比与 Java 集成</h2><h3 id="7-1-综合对比"><a href="#7-1-综合对比" class="headerlink" title="7.1 综合对比"></a>7.1 综合对比</h3><table>
-<thead>
-<tr>
-<th align="left">方案</th>
-<th align="left">部署</th>
-<th align="left">规模上限</th>
-<th align="left">查询性能</th>
-<th align="left">运维成本</th>
-<th align="left">适合</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">FAISS（库，非服务）</td>
-<td align="left">嵌入应用</td>
-<td align="left">百万级</td>
-<td align="left">优</td>
-<td align="left">最低</td>
-<td align="left">单机&#x2F;内存型</td>
-</tr>
-<tr>
-<td align="left">Chroma</td>
-<td align="left">单机</td>
-<td align="left">十万级</td>
-<td align="left">中</td>
-<td align="left">低</td>
-<td align="left">原型&#x2F;学习</td>
-</tr>
-<tr>
-<td align="left">Milvus</td>
-<td align="left">集群</td>
-<td align="left"><strong>亿级</strong></td>
-<td align="left">优</td>
-<td align="left">中</td>
-<td align="left">生产 RAG 首选</td>
-</tr>
-<tr>
-<td align="left">Elasticsearch</td>
-<td align="left">集群</td>
-<td align="left">千万级</td>
-<td align="left">优</td>
-<td align="left">中（复用存量）</td>
-<td align="left">已有 ES 团队</td>
-</tr>
-<tr>
-<td align="left">Pinecone</td>
-<td align="left">SaaS</td>
-<td align="left">亿级</td>
-<td align="left">优</td>
-<td align="left">最低</td>
-<td align="left">快速上线&#x2F;不敏感</td>
-</tr>
-</tbody></table>
-<blockquote>
-<p><strong>FAISS 特别说明</strong>：它不是数据库（无持久化、无过滤、无并发管理），但作为<strong>嵌入应用内的索引库</strong>（小知识库）简单暴力有效——学习 RAG 用它起步最合适。</p>
-</blockquote>
-<h3 id="7-2-Spring-AI-VectorStore-集成"><a href="#7-2-Spring-AI-VectorStore-集成" class="headerlink" title="7.2 Spring AI VectorStore 集成"></a>7.2 Spring AI VectorStore 集成</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// Spring AI 对各家向量库统一抽象，切换只改依赖与配置</span></span><br><span class="line"><span class="meta">@Configuration</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">VectorStoreConfig</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Bean</span></span><br><span class="line">    <span class="keyword">public</span> VectorStore <span class="title function_">vectorStore</span><span class="params">(MilvusClient milvusClient, EmbeddingModel embeddingModel)</span> &#123;</span><br><span class="line">        <span class="comment">// Milvus / Elasticsearch / pgvector / Redis 等实现任选</span></span><br><span class="line">        <span class="keyword">return</span> MilvusVectorStore.builder(milvusClient, embeddingModel)</span><br><span class="line">                .collectionName(<span class="string">&quot;kb_docs&quot;</span>)</span><br><span class="line">                .build();</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="meta">@Service</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">KnowledgeService</span> &#123;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> VectorStore vectorStore;</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 入库</span></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">addDocument</span><span class="params">(String content, Map&lt;String, String&gt; meta)</span> &#123;</span><br><span class="line">        vectorStore.add(List.of(<span class="keyword">new</span> <span class="title class_">Document</span>(content, meta)));</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 检索（返回 Document + 相似度）</span></span><br><span class="line">    <span class="keyword">public</span> List&lt;Document&gt; <span class="title function_">search</span><span class="params">(String question, <span class="type">int</span> topK)</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> vectorStore.similaritySearch(SearchRequest.query(question).withTopK(topK));</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>与 <a href="/post/rag-2026.html">RAG原理与实践</a> 第九章的 Python 链路对照可见：<strong>检索抽象（VectorStore）与 JDBC 同构，语言不影响设计</strong>。</p>
-<hr>
-<h2 id="八、生产优化"><a href="#八、生产优化" class="headerlink" title="八、生产优化"></a>八、生产优化</h2><h3 id="8-1-数据量预估"><a href="#8-1-数据量预估" class="headerlink" title="8.1 数据量预估"></a>8.1 数据量预估</h3><table>
-<thead>
-<tr>
-<th align="left">估算项</th>
-<th align="left">公式&#x2F;经验</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">分块数</td>
-<td align="left">文档总 token ÷ 块大小（500）</td>
-</tr>
-<tr>
-<td align="left">向量存储</td>
-<td align="left">分块数 × 维度 × 4 字节（float32）</td>
-</tr>
-<tr>
-<td align="left">HNSW 内存</td>
-<td align="left">向量存储 × 2~3 倍（图结构开销）</td>
-</tr>
-<tr>
-<td align="left">示例</td>
-<td align="left">100 万块 × 1024 维 ≈ 4GB 向量 + 8~12GB 图内存</td>
-</tr>
-</tbody></table>
-<p><strong>先算账再选型</strong>：内存超单机 → Milvus 集群 or IVF+PQ 压缩。</p>
-<h3 id="8-2-Filtered-ANN"><a href="#8-2-Filtered-ANN" class="headerlink" title="8.2 Filtered ANN"></a>8.2 Filtered ANN</h3><p>元数据过滤分两种实现：</p>
-<ul>
-<li><strong>先过滤后检索</strong>：候选集小 → 慢且召回可能被过滤打断；</li>
-<li><strong>先检索后过滤</strong>：候选集大 → 快但可能返回过滤后不足 k 条。</li>
-</ul>
-<p>各库实现不同（Milvus 支持过滤索引加速；ES 的 knn+filter 同理）。<strong>生产必须测</strong>：过滤字段加索引，压测”带过滤的查询”延迟，防止过滤把毫秒级查询拖到秒级。</p>
-<h3 id="8-3-缓存与降级"><a href="#8-3-缓存与降级" class="headerlink" title="8.3 缓存与降级"></a>8.3 缓存与降级</h3><ul>
-<li>热点 query 缓存（Redis，与业务缓存同构）；</li>
-<li>索引构建&#x2F;加载失败 → 降级到暴力扫描或直接报错（检索是强依赖，需有兜底）；</li>
-<li>监控：查询延迟、召回率抽样、索引内存、写入积压。</li>
-</ul>
-<h3 id="8-4-监控指标体系"><a href="#8-4-监控指标体系" class="headerlink" title="8.4 监控指标体系"></a>8.4 监控指标体系</h3><table>
-<thead>
-<tr>
-<th align="left">指标</th>
-<th align="left">阈值参考</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">P95 查询延迟</td>
-<td align="left">&lt; 20ms</td>
-</tr>
-<tr>
-<td align="left">Recall@10（抽样对暴力检索）</td>
-<td align="left">≥ 95%</td>
-</tr>
-<tr>
-<td align="left">写入延迟&#x2F;积压</td>
-<td align="left">不积压</td>
-</tr>
-<tr>
-<td align="left">索引内存</td>
-<td align="left">&lt; 节点内存 70%</td>
-</tr>
-</tbody></table>
-<hr>
-<h2 id="九、实战：RAG-场景的向量库选型决策"><a href="#九、实战：RAG-场景的向量库选型决策" class="headerlink" title="九、实战：RAG 场景的向量库选型决策"></a>九、实战：RAG 场景的向量库选型决策</h2><p>以”企业私有知识库（100 万文档分块）”为例走一遍决策：</p>
-<table>
-<thead>
-<tr>
-<th align="left">决策点</th>
-<th align="left">选择</th>
-<th align="left">理由</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">数据规模</td>
-<td align="left">~100 万块 × 1024 维</td>
-<td align="left">内存 ~12GB，单机 Milvus 或 ES 均可</td>
-</tr>
-<tr>
-<td align="left">是否已有 ES</td>
-<td align="left">是 → ES 起步</td>
-<td align="left">复用集群与运维</td>
-</tr>
-<tr>
-<td align="left">过滤需求</td>
-<td align="left">按 doc_id&#x2F;部门过滤</td>
-<td align="left">两种方案都支持，需加过滤索引压测</td>
-</tr>
-<tr>
-<td align="left">混合检索</td>
-<td align="left">是（编号&#x2F;专有名词多）</td>
-<td align="left">ES 内建 RRF，Milvus 配 BM25 外部融合</td>
-</tr>
-<tr>
-<td align="left">数据敏感</td>
-<td align="left">不出网</td>
-<td align="left">排除 Pinecone</td>
-</tr>
-<tr>
-<td align="left">最终</td>
-<td align="left"><strong>ES（复用存量）→ 数据过亿再评估 Milvus</strong></td>
-<td align="left">摩擦最小</td>
-</tr>
-</tbody></table>
-<p><strong>决策心法</strong>：向量库选型不是”哪个最强”，而是”哪个摩擦最小”——运维一致性、团队熟悉度、过滤能力往往比峰值性能更关键。</p>
-<hr>
-<h2 id="十、与-Java-存量技能迁移对照"><a href="#十、与-Java-存量技能迁移对照" class="headerlink" title="十、与 Java 存量技能迁移对照"></a>十、与 Java 存量技能迁移对照</h2><table>
-<thead>
-<tr>
-<th align="left">本文章节</th>
-<th align="left">Java 存量技能</th>
-<th align="left">迁移要点</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">二、索引原理</td>
-<td align="left">B+Tree &#x2F; 分区</td>
-<td align="left">IVF ≈ 分桶，HNSW ≈ 多级索引逼近</td>
-</tr>
-<tr>
-<td align="left">三、度量评估</td>
-<td align="left">基准测试</td>
-<td align="left">Recall@k 对标暴力检索 ≈ 基准真值</td>
-</tr>
-<tr>
-<td align="left">四、Milvus</td>
-<td align="left">SQL 建模</td>
-<td align="left">Collection&#x2F;Schema ≈ 建表 DDL</td>
-</tr>
-<tr>
-<td align="left">六、ES 向量化</td>
-<td align="left">ES 已有技能</td>
-<td align="left">dense_vector ≈ 新字段类型</td>
-</tr>
-<tr>
-<td align="left">八、生产优化</td>
-<td align="left">缓存&#x2F;监控&#x2F;容量规划</td>
-<td align="left">数据量预估、过滤索引压测是存量技能</td>
-</tr>
-<tr>
-<td align="left">七、Spring AI</td>
-<td align="left">JDBC 抽象</td>
-<td align="left">VectorStore ≈ 数据访问层</td>
-</tr>
-</tbody></table>
-<blockquote>
-<p>完整 RAG 主链路见 <a href="/post/rag-2026.html">RAG原理与实践</a>；ES 基础见 <a href="/post/d48132d3.html">Elasticsearch 原理与实践</a>；本站已有向量检索工程案例：<a href="/post/71aac160.html">智能客服-mcp</a>（MySQL 向量列方案）、<a href="/post/f4198aab.html">ticket-agent-mcp</a>（pgvector 方案）。</p>
-</blockquote>
-<blockquote>
-<p><strong>相关文章：</strong> <a href="/post/rag-2026.html">RAG原理与实践</a>、<a href="/post/d48132d3.html">Elasticsearch 原理与实践</a>、<a href="/post/java-ai-frameworks-2026.html">Spring AI与LangChain4j实战</a>、<a href="/docs/nav/ai-learning-nav.html">AI学习体系导航</a></p>
-</blockquote>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
   <nav class="pagination">
-    <a class="extend prev" rel="prev" title="Previous page" aria-label="Previous page" href="/home/page/10/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/home/">1</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/10/">10</a><span class="page-number current">11</span><a class="page-number" href="/home/page/12/">12</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/21/">21</a><a class="extend next" rel="next" title="Next page" aria-label="Next page" href="/home/page/12/"><i class="fa fa-angle-right"></i></a>
+    <a class="extend prev" rel="prev" title="Previous page" aria-label="Previous page" href="/home/page/10/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/home/">1</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/10/">10</a><span class="page-number current">11</span><a class="page-number" href="/home/page/12/">12</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/22/">22</a><a class="extend next" rel="next" title="Next page" aria-label="Next page" href="/home/page/12/"><i class="fa fa-angle-right"></i></a>
   </nav>
 
 </div>
@@ -2301,14 +1993,14 @@
       <i class="fa fa-chart-line"></i>
     </span>
       <span>Word count total: </span>
-    <span title="Word count total">579k</span>
+    <span title="Word count total">595k</span>
   </span>
   <span class="post-meta-item">
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
       <span>Reading time total &asymp;</span>
-    <span title="Reading time total">35:04</span>
+    <span title="Reading time total">36:05</span>
   </span>
 </div>
   <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>

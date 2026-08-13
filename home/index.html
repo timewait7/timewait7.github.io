@@ -176,7 +176,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">84</span>
+          <span class="site-state-item-count">86</span>
           <span class="site-state-item-name">posts</span>
         </a>
       </div>
@@ -187,7 +187,7 @@
       </div>
       <div class="site-state-item site-state-tags">
           <a href="/tags/">
-        <span class="site-state-item-count">127</span>
+        <span class="site-state-item-count">132</span>
         <span class="site-state-item-name">tags</span></a>
       </div>
   </nav>
@@ -231,6 +231,1028 @@
     </div>
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/tomcat-deep-2025.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/tomcat-deep-2025.html" class="post-title-link" itemprop="url">Tomcat 深度解析：连接器、类加载与调优排障</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-08-13 22:00:00" itemprop="dateCreated datePublished" datetime="2026-08-13T22:00:00+08:00">2026-08-13</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E6%A1%86%E6%9E%B6/" itemprop="url" rel="index"><span itemprop="name">框架</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>3.8k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>14 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <p><strong>「你的应用是怎么跑起来的？」——Spring Boot 内嵌的 Tomcat 替你回答了这个问题的全部复杂度，但面试官问的就是这些被藏起来的细节：一个 HTTP 请求从网线到你的 Controller 经历了什么？为什么 Tomcat 要打破双亲委派？maxThreads&#x2F;maxConnections&#x2F;acceptCount 三个参数怎么配合？</strong> 本文按「整体架构 → 线程模型 → 类加载 → 调优排障」四层讲透 Tomcat：每个概念配可运行验证，读完你能在面试中画出请求旅程图，并在线上「Tomcat 线程打满&#x2F;连接堆积」时知道先看什么。</p>
+<blockquote>
+<p>联动：本文是 <a href="/post/18f2748c.html">Spring 深度解析</a>（应用框架层）之下、<a href="/post/a3f81c2d.html">Java 并发编程</a> 与 <a href="/post/netty-2025.html">Netty 原理与实践</a>（IO 模型）之上的中间层——Tomcat 是两者的交会点；连接器调优的压测验证见 <a href="/post/5e9c8515.html">Zeus-Doc 性能压测实战</a>；类加载与 <a href="/post/4e153c5e.html">JVM 原理与调优</a> 的类加载机制直接相关。</p>
+</blockquote>
+<h2 id="1-定位：Tomcat-在面试里的三个位置"><a href="#1-定位：Tomcat-在面试里的三个位置" class="headerlink" title="1. 定位：Tomcat 在面试里的三个位置"></a>1. 定位：Tomcat 在面试里的三个位置</h2><table>
+<thead>
+<tr>
+<th>面试问题</th>
+<th>本质考点</th>
+<th>本文章节</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Tomcat 的架构？一个请求怎么走？</td>
+<td><strong>连接器 + 容器</strong>两段式，IO 线程与业务线程分离</td>
+<td>§2</td>
+</tr>
+<tr>
+<td>maxThreads &#x2F; maxConnections &#x2F; acceptCount 什么关系？</td>
+<td><strong>连接缓冲深度</strong>与线程模型的配合</td>
+<td>§3</td>
+</tr>
+<tr>
+<td>Tomcat 为什么打破双亲委派？</td>
+<td>类加载器的隔离设计</td>
+<td>§5</td>
+</tr>
+</tbody></table>
+<p><strong>因果链主线</strong>：Tomcat 的全部设计都围绕一个矛盾——<strong>「Web 容器要同时服务很多请求（并发），但每个请求的 IO 很慢（网络）」</strong>。解法：<strong>IO 线程只做读写不干活，业务线程池干活</strong>（连接器两段式）；<strong>应用之间&#x2F;应用与容器之间的类要隔离</strong>（WebappClassLoader）。记住这两条，所有参数和机制都能推出来。</p>
+<h2 id="2-整体架构：连接器-容器"><a href="#2-整体架构：连接器-容器" class="headerlink" title="2. 整体架构：连接器 + 容器"></a>2. 整体架构：连接器 + 容器</h2><h3 id="2-1-两段式架构"><a href="#2-1-两段式架构" class="headerlink" title="2.1 两段式架构"></a>2.1 两段式架构</h3><pre class="mermaid">flowchart LR
+    C["客户端"] -->|"TCP 连接"| AC["Acceptor&lt;br/>(接收连接)"]
+    AC -->|"socket"| PP["Poller&lt;br/>(NIO 多路复用)"]
+    PP -->|"可读事件"| WC["工作线程池&lt;br/>(执行业务)"]
+    WC -->|"解析后的请求"| EN["Engine&lt;br/>(顶层容器)"]
+    EN --> H["Host&lt;br/>(虚拟主机)"]
+    H --> CT["Context&lt;br/>(Web 应用)"]
+    CT --> W["Wrapper&lt;br/>(Servlet)"]
+    W --> S["Controller/Servlet&lt;br/>业务代码"]</pre>
+
+<p><strong>两个半场</strong>：<strong>Connector（连接器）</strong>管「网络 IO + 协议解析」，把 socket 变成 <code>Request/Response</code> 对象；<strong>Container（容器）</strong>管「请求分发 + Servlet 生命周期」，从 Engine 逐层下钻到 Wrapper。<strong>IO 与业务彻底分离</strong>——这是 Tomcat 能扛高并发的架构根基。</p>
+<table>
+<thead>
+<tr>
+<th>组件</th>
+<th>职责</th>
+<th>对应</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Connector</td>
+<td>接受连接、IO、协议解析（HTTP&#x2F;1.1、HTTP&#x2F;2、AJP）</td>
+<td>端口监听（如 8080）</td>
+</tr>
+<tr>
+<td>Engine</td>
+<td>顶层容器，处理所有请求入口</td>
+<td>一个 Tomcat 一个</td>
+</tr>
+<tr>
+<td>Host</td>
+<td>虚拟主机，按域名区分</td>
+<td>server.xml 里一个 <code>&lt;Host&gt;</code></td>
+</tr>
+<tr>
+<td>Context</td>
+<td>一个 Web 应用（一个 WAR&#x2F;应用目录）</td>
+<td>Spring Boot 内嵌时就是你的应用</td>
+</tr>
+<tr>
+<td>Wrapper</td>
+<td>一个 Servlet 的包装</td>
+<td>Spring MVC 的 DispatcherServlet</td>
+</tr>
+</tbody></table>
+<p><strong>因果链</strong>：容器分层（Engine → Host → Context → Wrapper）的粒度 &#x3D; <strong>「一个 Tomcat 可以跑多个应用（多 Context），一个应用由多个 Servlet 组成」</strong>——分层就是为了「多应用共存 + 每个应用独立管理」。<strong>Spring Boot 内嵌 Tomcat 只有单应用，但分层结构不变</strong>（面试常考「内嵌与独立部署的区别」，分层答案通用）。</p>
+<h3 id="2-2-动手验证：看一个请求的旅程"><a href="#2-2-动手验证：看一个请求的旅程" class="headerlink" title="2.2 动手验证：看一个请求的旅程"></a>2.2 动手验证：看一个请求的旅程</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 用 Spring Boot 内嵌 Tomcat 的默认 8080（或 docker 起一个 tomcat）</span></span><br><span class="line">docker run -d -p 8080:8080 --name tomcat9 tomcat:9.0</span><br><span class="line"><span class="comment"># 访问默认页</span></span><br><span class="line">curl -i <span class="string">&quot;http://localhost:8080/&quot;</span> | <span class="built_in">head</span> -5</span><br><span class="line"></span><br><span class="line"><span class="comment"># 观察连接与线程：8080 上有 ESTABLISHED 连接，Tomcat 进程有工作线程</span></span><br><span class="line">lsof -i :8080 | <span class="built_in">head</span> -5</span><br><span class="line">jps -l | grep -i tomcat   <span class="comment"># 容器内 Tomcat 是 java 进程</span></span><br></pre></td></tr></table></figure>
+
+<p>观察点：<code>lsof -i :8080</code> 能看到 ESTABLISHED 连接（Acceptor 接收）、Tomcat 是普通 Java 进程（一切跑在 JVM 上）。判定标准：理解「Tomcat &#x3D; 一个 Java 程序，用线程处理并发，用 socket 收发数据」——<strong>它没有魔法，就是 JVM 上的多线程网络程序</strong>，所以 <a href="/post/a3f81c2d.html">Java 并发编程</a> 的线程模型知识全部适用。</p>
+<h2 id="3-连接器：NIO-线程模型与三大参数"><a href="#3-连接器：NIO-线程模型与三大参数" class="headerlink" title="3. 连接器：NIO 线程模型与三大参数"></a>3. 连接器：NIO 线程模型与三大参数</h2><h3 id="3-1-三个线程的职责分工"><a href="#3-1-三个线程的职责分工" class="headerlink" title="3.1 三个线程的职责分工"></a>3.1 三个线程的职责分工</h3><table>
+<thead>
+<tr>
+<th>线程</th>
+<th>职责</th>
+<th>数量</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Acceptor</strong></td>
+<td>只做 <code>accept()</code> 拿新连接</td>
+<td>1 个（每端口）</td>
+</tr>
+<tr>
+<td><strong>Poller</strong></td>
+<td>NIO Selector 多路复用，检测 socket 可读&#x2F;可写</td>
+<td>1-2 个（每端口）</td>
+</tr>
+<tr>
+<td><strong>工作线程池</strong></td>
+<td>解析请求、执行业务</td>
+<td>maxThreads（默认 200）</td>
+</tr>
+</tbody></table>
+<p><strong>因果链：NIO 模型下「一个 Poller 线程服务几千个连接」</strong>（Selector 多路复用，<a href="/post/1c69d2aa.html">IO 模型：阻塞、多路复用与零拷贝</a> 的原理），所以 <strong>maxThreads 是「同时处理的请求数」，不是「连接数上限」</strong>——连接可以有几万个，同时干活的最多 200 个，其余在队列等待。</p>
+<h3 id="3-2-maxThreads-maxConnections-acceptCount-三参数（面试核心）"><a href="#3-2-maxThreads-maxConnections-acceptCount-三参数（面试核心）" class="headerlink" title="3.2 maxThreads &#x2F; maxConnections &#x2F; acceptCount 三参数（面试核心）"></a>3.2 maxThreads &#x2F; maxConnections &#x2F; acceptCount 三参数（面试核心）</h3><table>
+<thead>
+<tr>
+<th>参数</th>
+<th>含义</th>
+<th>默认值</th>
+<th>超了会怎样</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>acceptCount</code></td>
+<td>TCP accept 队列长度（OS 层 backlog）</td>
+<td>100</td>
+<td>队列满 → <strong>connection refused</strong>（直接拒绝新连接）</td>
+</tr>
+<tr>
+<td><code>maxConnections</code></td>
+<td>连接器保持的最大连接数（含等待中的）</td>
+<td>10000（NIO）</td>
+<td>满了不再 accept，连接在 accept 队列排队</td>
+</tr>
+<tr>
+<td><code>maxThreads</code></td>
+<td>工作线程池上限，同时处理的请求数</td>
+<td>200</td>
+<td>线程全忙 → 新请求在<strong>等待队列</strong>（内部队列）排队</td>
+</tr>
+</tbody></table>
+<p><strong>三者的配合（面试必画）</strong>：</p>
+<pre class="mermaid">flowchart LR
+    A["新连接"] -->|"连接数 &lt; maxConnections"| B["accept 进来"]
+    B -->|"有线程空闲"| C["立即处理"]
+    B -->|"线程全忙"| D["内部等待队列"]
+    A -->|"连接数 ≥ maxConnections"| E["accept 队列&lt;br/>(acceptCount 长度)"]
+    E -->|"队列满"| F["connection refused"]</pre>
+
+<p><strong>因果链</strong>：三参数是<strong>三级缓冲</strong>——<code>maxThreads</code> 管「同时干活的」，<code>maxConnections</code> 管「连接能堆多少」，<code>acceptCount</code> 管「拒绝前的最后缓冲」。<strong>压测时先触达哪个，取决于负载形态</strong>：请求密集但执行快 → 先触达 maxThreads；连接数暴涨（慢客户端多）→ 先触达 maxConnections。</p>
+<h3 id="3-3-动手验证：压测观察三参数排队"><a href="#3-3-动手验证：压测观察三参数排队" class="headerlink" title="3.3 动手验证：压测观察三参数排队"></a>3.3 动手验证：压测观察三参数排队</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 起一个限速应用（业务 sleep 100ms，模拟慢接口）</span></span><br><span class="line"><span class="comment"># 用 JMeter/ab 发 1000 并发：</span></span><br><span class="line">ab -n 1000 -c 500 <span class="string">&quot;http://localhost:8080/slow&quot;</span> &amp;</span><br><span class="line"><span class="comment"># 观察线程池状态：内部队列堆积、线程全忙</span></span><br><span class="line">jstack &lt;tomcat_pid&gt; | grep -c <span class="string">&quot;http-nio-8080-exec&quot;</span>    <span class="comment"># 工作线程数</span></span><br><span class="line">curl <span class="string">&quot;http://localhost:8080/manager/status&quot;</span>            <span class="comment"># 连接器状态页（需配置）</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 调参对比：server.xml connector 节点</span></span><br><span class="line"><span class="comment"># &lt;Connector port=&quot;8080&quot; protocol=&quot;HTTP/1.1&quot; maxThreads=&quot;400&quot; acceptCount=&quot;200&quot;/&gt;</span></span><br></pre></td></tr></table></figure>
+
+<p>观察点：<code>jstack</code> 里 <code>http-nio-8080-exec-N</code> 线程数变化；<code>ab</code> 结果里的 failed&#x2F;complete 比例。判定标准：能说出「调 maxThreads 是调吞吐上限，调 acceptCount 是调拒绝时机」——<strong>别一压测失败就盲目调 maxThreads</strong>（<a href="/post/5e9c8515.html">Zeus 压测实战</a> 有完整调参案例）。</p>
+<h2 id="4-请求处理：Pipeline-与-Servlet-生命周期"><a href="#4-请求处理：Pipeline-与-Servlet-生命周期" class="headerlink" title="4. 请求处理：Pipeline 与 Servlet 生命周期"></a>4. 请求处理：Pipeline 与 Servlet 生命周期</h2><h3 id="4-1-Valve-责任链与-Servlet-三段生命周期"><a href="#4-1-Valve-责任链与-Servlet-三段生命周期" class="headerlink" title="4.1 Valve 责任链与 Servlet 三段生命周期"></a>4.1 Valve 责任链与 Servlet 三段生命周期</h3><p><strong>Pipeline&#x2F;Valve</strong>：容器每一层（Engine&#x2F;Host&#x2F;Context&#x2F;Wrapper）都有一条责任链，请求逐层穿过 Valve（如 AccessLogValve 记录访问日志）——<strong>这是 AOP 思想的容器版</strong>（<a href="/post/18f2748c.html">Spring 深度解析</a> 的拦截器是同一模式）。</p>
+<p><strong>Servlet 生命周期三阶段</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>时机</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>init</td>
+<td>首次请求或启动时</td>
+<td>只执行一次，做初始化</td>
+</tr>
+<tr>
+<td>service</td>
+<td>每次请求</td>
+<td>线程池中的线程并发调用（<strong>多线程共享实例</strong>）</td>
+</tr>
+<tr>
+<td>destroy</td>
+<td>应用卸载</td>
+<td>只执行一次，释放资源</td>
+</tr>
+</tbody></table>
+<p><strong>因果链（面试高频）</strong>：Servlet 是<strong>单实例多线程</strong>——一个 Servlet 实例被所有请求共享，<strong>实例变量必须线程安全</strong>（这就是 <a href="/post/a3f81c2d.html">Java 并发编程</a> 的线程安全问题在 Web 层的具体落点：controller&#x2F;service 里的实例字段就是共享状态）。<strong>面试答「为什么 Controller 不该有实例变量」：单实例多线程 + 线程池并发调用，实例字段就是竞态源</strong>。</p>
+<h3 id="4-2-动手验证：看-Servlet-实例与线程"><a href="#4-2-动手验证：看-Servlet-实例与线程" class="headerlink" title="4.2 动手验证：看 Servlet 实例与线程"></a>4.2 动手验证：看 Servlet 实例与线程</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 一个简单 Servlet 打印「实例 hashCode + 线程名 + 请求路径」</span></span><br><span class="line"><span class="meta">@WebServlet(&quot;/who&quot;)</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">WhoServlet</span> <span class="keyword">extends</span> <span class="title class_">HttpServlet</span> &#123;</span><br><span class="line">    <span class="meta">@Override</span> <span class="keyword">protected</span> <span class="keyword">void</span> <span class="title function_">doGet</span><span class="params">(HttpServletRequest req, HttpServletResponse resp)</span></span><br><span class="line">        <span class="keyword">throws</span> IOException &#123;</span><br><span class="line">        resp.getWriter().write(<span class="string">&quot;instance=&quot;</span> + <span class="built_in">this</span>.hashCode()</span><br><span class="line">            + <span class="string">&quot;, thread=&quot;</span> + Thread.currentThread().getName()</span><br><span class="line">            + <span class="string">&quot;, path=&quot;</span> + req.getRequestURI());</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 并发访问 10 次</span></span><br><span class="line"><span class="keyword">for</span> i <span class="keyword">in</span> $(<span class="built_in">seq</span> 1 10); <span class="keyword">do</span> curl -s <span class="string">&quot;http://localhost:8080/who&quot;</span> &amp; <span class="keyword">done</span>; <span class="built_in">wait</span></span><br><span class="line"><span class="comment"># 输出：instance= 全部相同（单实例），thread= 各不相同（线程池并发）</span></span><br></pre></td></tr></table></figure>
+
+<p>观察点：<code>instance=</code> 每次一样、<code>thread=</code> 每次不同——<strong>单实例多线程的现场</strong>。判定标准：亲眼确认「Servlet 实例只有一个、线程是池里随便抽的」，理解实例变量的危险性。</p>
+<h2 id="5-类加载：为什么打破双亲委派"><a href="#5-类加载：为什么打破双亲委派" class="headerlink" title="5. 类加载：为什么打破双亲委派"></a>5. 类加载：为什么打破双亲委派</h2><h3 id="5-1-双亲委派-vs-Tomcat-的破坏"><a href="#5-1-双亲委派-vs-Tomcat-的破坏" class="headerlink" title="5.1 双亲委派 vs Tomcat 的破坏"></a>5.1 双亲委派 vs Tomcat 的破坏</h3><p><strong>JVM 双亲委派</strong>（<a href="/post/4e153c5e.html">JVM 原理与调优</a> 详细讲）：类加载先委托父加载器，父类找不到才自己找——保证核心类不被篡改。</p>
+<p><strong>Tomcat 的 WebappClassLoader 打破双亲委派</strong>：<strong>先自己找，找不到再委派父加载器</strong>（对 web 应用类目录）。为什么？</p>
+<table>
+<thead>
+<tr>
+<th>理由</th>
+<th>场景</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>应用类隔离</strong></td>
+<td>同一 Tomcat 部署两个应用，各自带不同版本的 Spring——双亲委派会让先加载的版本被所有应用共享，版本冲突</td>
+</tr>
+<tr>
+<td><strong>热部署</strong></td>
+<td>应用重新部署时旧类加载器整体作废换新的——双亲委派下父加载器会缓存类，无法替换</td>
+</tr>
+</tbody></table>
+<p><strong>因果链：双亲委派保证「核心类唯一」；Tomcat 需要「应用类可替换、可隔离」——两者目标冲突，所以 WebappClassLoader 对应用类先自己加载，但对 <code>javax.servlet</code>、JVM 核心类仍然委派</strong>（容器自身规范类不能重载）。<strong>面试答：『打破双亲委派有两个原因——多应用类隔离 + 热部署；但规范类与核心类仍走委派』，两个原因+边界都说全才是完整答案</strong>。</p>
+<h3 id="5-2-动手验证：打印类加载器链"><a href="#5-2-动手验证：打印类加载器链" class="headerlink" title="5.2 动手验证：打印类加载器链"></a>5.2 动手验证：打印类加载器链</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 在任意 Servlet 里打印：</span></span><br><span class="line"><span class="type">ClassLoader</span> <span class="variable">cl</span> <span class="operator">=</span> getClass().getClassLoader();</span><br><span class="line"><span class="keyword">while</span> (cl != <span class="literal">null</span>) &#123;</span><br><span class="line">    System.out.println(cl.getClass().getName());</span><br><span class="line">    cl = cl.getParent();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 输出链（典型顺序）：</span></span><br><span class="line"><span class="comment"># org.apache.catalina.loader.WebappClassLoader   ← 打破双亲委派的加载器</span></span><br><span class="line"><span class="comment"># sun.misc.Launcher$AppClassLoader               ← 应用类加载器</span></span><br><span class="line"><span class="comment"># sun.misc.Launcher$ExtClassLoader</span></span><br><span class="line"><span class="comment"># null                                          ← Bootstrap（JVM 核心类）</span></span><br></pre></td></tr></table></figure>
+
+<p>观察点：顶层是 <code>WebappClassLoader</code> 而非 <code>AppClassLoader</code>——<strong>你的类默认由 WebappClassLoader 加载</strong>。判定标准：能指着这条链讲「WebappClassLoader 先找自己、再委派」，并说出为什么 JVM 核心类（<code>java.lang.String</code>）不经过它。</p>
+<h2 id="6-调优与排障：实战三件套"><a href="#6-调优与排障：实战三件套" class="headerlink" title="6. 调优与排障：实战三件套"></a>6. 调优与排障：实战三件套</h2><h3 id="6-1-调优参数速查"><a href="#6-1-调优参数速查" class="headerlink" title="6.1 调优参数速查"></a>6.1 调优参数速查</h3><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>参数</th>
+<th>建议</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>接口执行慢、线程全忙</td>
+<td><code>maxThreads</code></td>
+<td>先确认瓶颈在业务不在容器，再调大（默认 200 常见够用）</td>
+</tr>
+<tr>
+<td>连接堆积、TIME_WAIT 多</td>
+<td><code>maxConnections</code></td>
+<td>加大 + 客户端复用连接（keep-alive）</td>
+</tr>
+<tr>
+<td>高峰直接 connection refused</td>
+<td><code>acceptCount</code></td>
+<td>适度加大（TCP 队列），但别指望它扛洪峰</td>
+</tr>
+<tr>
+<td>慢客户端拖垮连接</td>
+<td><code>connectionTimeout</code>（默认 20s）</td>
+<td>调小，快速释放坏连接</td>
+</tr>
+<tr>
+<td>IO 密集 vs CPU 密集</td>
+<td>线程池策略</td>
+<td>IO 密集线程数可 &#x3D; CPU×2 以上；CPU 密集 ≤ CPU 核数</td>
+</tr>
+<tr>
+<td>请求体过大 413</td>
+<td><code>maxPostSize</code> &#x2F; <code>maxHttpHeaderSize</code></td>
+<td>按业务实际放宽</td>
+</tr>
+</tbody></table>
+<h3 id="6-2-排障路径（症状-→-先看什么）"><a href="#6-2-排障路径（症状-→-先看什么）" class="headerlink" title="6.2 排障路径（症状 → 先看什么）"></a>6.2 排障路径（症状 → 先看什么）</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>第一步</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>请求全部超时</td>
+<td><code>jstack</code> 看 <code>http-nio-8080-exec</code> 线程都在哪（业务阻塞 vs 池满排队）</td>
+</tr>
+<tr>
+<td>新连接 refused</td>
+<td>看是 acceptCount 满了还是连接数触顶（<code>ss -s</code> 看队列）</td>
+</tr>
+<tr>
+<td>CPU 100%</td>
+<td>区分 GC 线程 vs 业务线程（<a href="/post/4e153c5e.html">JVM 调优</a> 的 jstack&#x2F;jstat 流程）</td>
+</tr>
+<tr>
+<td>偶发 500</td>
+<td>看是否线程池拒绝（<code>RejectedExecutionException</code>）→ 调队列&#x2F;降级</td>
+</tr>
+<tr>
+<td>重启后还是慢</td>
+<td>检查是否有连接泄漏（未归还的连接池）</td>
+</tr>
+</tbody></table>
+<p><strong>因果链（排障核心）</strong>：Tomcat 故障的本质只有三类——<strong>线程池耗尽（业务慢&#x2F;死锁）、连接池耗尽（连接泄漏）、accept 队列满（洪峰&#x2F;慢客户端）</strong>。先判断是哪一类，再对症调参，<strong>不要一慢就调 maxThreads</strong>。</p>
+<h3 id="6-3-动手验证：制造并定位线程池耗尽"><a href="#6-3-动手验证：制造并定位线程池耗尽" class="headerlink" title="6.3 动手验证：制造并定位线程池耗尽"></a>6.3 动手验证：制造并定位线程池耗尽</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 起一个 sleep 30s 的接口（模拟慢业务）</span></span><br><span class="line"><span class="comment"># 2. 并发打满线程池</span></span><br><span class="line">ab -n 1000 -c 300 <span class="string">&quot;http://localhost:8080/sleep&quot;</span> &amp;</span><br><span class="line"><span class="comment"># 3. 观察：新请求开始排队/超时</span></span><br><span class="line"><span class="comment"># 4. 定位线程都卡在哪</span></span><br><span class="line">jstack &lt;pid&gt; | grep <span class="string">&quot;http-nio-8080-exec&quot;</span> | <span class="built_in">wc</span> -l          <span class="comment"># 200（全忙）</span></span><br><span class="line">jstack &lt;pid&gt; | grep -A3 <span class="string">&quot;sleep&quot;</span> | <span class="built_in">head</span> -20                  <span class="comment"># 都在 sleep 阻塞</span></span><br><span class="line">jstack &lt;pid&gt; | grep -c <span class="string">&quot;java.lang.Thread.State: RUNNABLE&quot;</span>   <span class="comment"># 区分忙 vs 等锁</span></span><br></pre></td></tr></table></figure>
+
+<p>观察点：线程数到 maxThreads 后请求开始排队；jstack 显示线程全在业务代码里——<strong>瓶颈是业务慢，不是容器参数</strong>。判定标准：能说出「调 maxThreads 是治标，治本是查业务为什么慢」——<strong>容器参数只决定排队深度，不决定处理速度</strong>。</p>
+<h2 id="7-面试应答：Tomcat-五连问"><a href="#7-面试应答：Tomcat-五连问" class="headerlink" title="7. 面试应答：Tomcat 五连问"></a>7. 面试应答：Tomcat 五连问</h2><h3 id="7-1-完整话术"><a href="#7-1-完整话术" class="headerlink" title="7.1 完整话术"></a>7.1 完整话术</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>回答要点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Tomcat 架构？</td>
+<td>连接器 + 容器两段式：Connector 管 IO 与协议解析，Container（Engine→Host→Context→Wrapper）管分发与 Servlet 生命周期</td>
+</tr>
+<tr>
+<td>NIO 线程模型？</td>
+<td>Acceptor 收连接 → Poller 多路复用 → 工作线程池执行业务，IO 与业务分离</td>
+</tr>
+<tr>
+<td>三参数关系？</td>
+<td>maxThreads 管同时干活数、maxConnections 管连接上限、acceptCount 管拒绝前缓冲；三级缓冲</td>
+</tr>
+<tr>
+<td>为什么打破双亲委派？</td>
+<td>多应用类隔离 + 热部署；但规范类与核心类仍委派</td>
+</tr>
+<tr>
+<td>Servlet 为什么单实例多线程？</td>
+<td>容器设计如此；实例变量是共享状态，必须线程安全</td>
+</tr>
+<tr>
+<td>内嵌 Tomcat 与独立部署区别？</td>
+<td>架构相同；内嵌单 Context、生命周期由 Spring Boot 管理（<a href="/post/18f2748c.html">Spring 深度解析</a>）</td>
+</tr>
+</tbody></table>
+<h3 id="7-2-深挖：与-Netty-的对照（跨篇联动）"><a href="#7-2-深挖：与-Netty-的对照（跨篇联动）" class="headerlink" title="7.2 深挖：与 Netty 的对照（跨篇联动）"></a>7.2 深挖：与 Netty 的对照（跨篇联动）</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>Tomcat</th>
+<th>Netty</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>定位</td>
+<td>Web 容器（HTTP 应用服务）</td>
+<td>通用网络框架（任意协议）</td>
+</tr>
+<tr>
+<td>线程模型</td>
+<td>Acceptor + Poller + 工作线程池</td>
+<td>Boss + Worker EventLoop（<a href="/post/netty-2025.html">Netty 原理与实践</a>）</td>
+</tr>
+<tr>
+<td>IO 模型</td>
+<td>NIO（BIO 可切换）</td>
+<td>NIO&#x2F;EPOLL 原生</td>
+</tr>
+<tr>
+<td>业务执行</td>
+<td>线程池（可阻塞）</td>
+<td><strong>EventLoop 内不可阻塞</strong>（阻塞会拖死同 EventLoop 的所有连接）</td>
+</tr>
+</tbody></table>
+<p><strong>一句话：Tomcat 是「Netty 思想的服务化产物」——都用多路复用 + 线程池，但 Tomcat 允许业务线程阻塞（用线程池隔离），Netty 的 EventLoop 模型不允许（阻塞即灾难）</strong>。面试被问「Tomcat 和 Netty 的线程模型区别」，答出「业务可阻塞 vs 不可阻塞」就是区分点。</p>
+<h2 id="8-总结"><a href="#8-总结" class="headerlink" title="8. 总结"></a>8. 总结</h2><h3 id="8-1-面试速答表"><a href="#8-1-面试速答表" class="headerlink" title="8.1 面试速答表"></a>8.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>请求怎么走完 Tomcat？</td>
+<td>连接器收连接+解析 → 容器分发（Engine→Host→Context→Wrapper）→ Servlet 处理 → 原路返回</td>
+</tr>
+<tr>
+<td>为什么 NIO 能扛大并发？</td>
+<td>Poller 一个线程 Selector 管理几千连接，工作线程只处理就绪请求</td>
+</tr>
+<tr>
+<td>maxThreads 是多少？</td>
+<td>默认 200，同时处理请求数上限，不是连接数上限</td>
+</tr>
+<tr>
+<td>connection refused 是哪个参数满了？</td>
+<td>acceptCount 队列满（TCP backlog 层）</td>
+</tr>
+<tr>
+<td>打破双亲委派为了什么？</td>
+<td>应用类隔离 + 热部署；JVM 核心类与规范类仍委派</td>
+</tr>
+<tr>
+<td>Servlet 生命周期？</td>
+<td>init 一次 → service 多线程并发 → destroy 一次</td>
+</tr>
+<tr>
+<td>压测慢先查什么？</td>
+<td>先分三类：线程池耗尽&#x2F;连接池耗尽&#x2F;accept 队列满，别盲目调 maxThreads</td>
+</tr>
+</tbody></table>
+<h3 id="8-2-实战避坑表"><a href="#8-2-实战避坑表" class="headerlink" title="8.2 实战避坑表"></a>8.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>一压测就 500</td>
+<td>线程池拒绝（RejectedExecutionException）</td>
+<td>查业务耗时，必要时 maxThreads 配合调</td>
+</tr>
+<tr>
+<td>connection refused 频繁</td>
+<td>acceptCount 满了</td>
+<td>加大 + 客户端 keep-alive 复用连接</td>
+</tr>
+<tr>
+<td>偶发超时</td>
+<td>慢客户端占连接</td>
+<td>调小 connectionTimeout</td>
+</tr>
+<tr>
+<td>重启后偶发类找不到</td>
+<td>应用类加载顺序</td>
+<td>检查是否依赖了 WebappClassLoader 的隔离边界</td>
+</tr>
+<tr>
+<td>实例变量错乱</td>
+<td>Servlet 单实例多线程共享状态</td>
+<td>去掉实例可变字段，用 ThreadLocal&#x2F;无状态</td>
+</tr>
+<tr>
+<td>端口被占</td>
+<td>内嵌 Tomcat 端口冲突</td>
+<td>检查 <code>server.port</code> 与已启动实例</td>
+</tr>
+</tbody></table>
+<h3 id="8-3-工具速查表"><a href="#8-3-工具速查表" class="headerlink" title="8.3 工具速查表"></a>8.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>jstack &lt;pid&gt;</code></td>
+<td>看工作线程状态（阻塞&#x2F;排队&#x2F;GC）</td>
+</tr>
+<tr>
+<td><code>lsof -i :8080</code></td>
+<td>看连接数（对比 maxConnections）</td>
+</tr>
+<tr>
+<td><code>ss -s</code> &#x2F; <code>ss -ltn</code></td>
+<td>TCP 队列与 TIME_WAIT</td>
+</tr>
+<tr>
+<td>JConsole &#x2F; VisualVM</td>
+<td>线程池与连接池监控</td>
+</tr>
+<tr>
+<td>ab &#x2F; JMeter</td>
+<td>压测触发排队现象</td>
+</tr>
+<tr>
+<td>Tomcat Manager Status</td>
+<td>连接器实时状态（线程&#x2F;连接&#x2F;排队）</td>
+</tr>
+</tbody></table>
+<h3 id="8-4-系列定位"><a href="#8-4-系列定位" class="headerlink" title="8.4 系列定位"></a>8.4 系列定位</h3><p>本文补上「框架」组最后一块正文（Tomcat 导航页从建设中转正）。框架三条线闭环：<strong>Spring（应用框架）→ Tomcat（Web 容器）→ JVM（运行时）</strong>，与 <a href="/post/720ca998.html">Java 后端面试导航</a> 的能力链第 2 阶段对应；下一篇可联动 <a href="/post/netty-2025.html">Netty 原理与实践</a>（网络底层）继续下潜。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/url-shortener-2025.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/url-shortener-2025.html" class="post-title-link" itemprop="url">短链系统设计：从方法论到落地</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-08-13 20:00:00" itemprop="dateCreated datePublished" datetime="2026-08-13T20:00:00+08:00">2026-08-13</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E7%B3%BB%E7%BB%9F%E8%AE%BE%E8%AE%A1/" itemprop="url" rel="index"><span itemprop="name">系统设计</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>3.3k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>12 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <p><strong>「设计一个短链系统」是系统设计题的常青树——它看着简单（不就是个映射吗），但面试官真正在考的是三件事：长 URL 怎么变成 7 位短码（发号与进制转换）、短码怎么存（分表 + 缓存分层）、跳转用 301 还是 302（状态码背后的业务意图）。</strong> 秒杀篇讲的是「写」场景（削峰、防超卖），短链篇讲的是「读」场景（缓存、布隆、热点）——两篇合起来，方法论的两个极端就都有了。读完你能在面试现场把这道题从头推到尾，并且说清每个选择的理由。</p>
+<blockquote>
+<p>联动：本文是 <a href="/post/53a2d197.html">系统设计方法论</a>（需求澄清&#x2F;容量估算&#x2F;评估权衡）的第二个完整案例；与 <a href="/post/a10bd761.html">秒杀系统设计</a>（写场景）对照形成读写双案例；缓存分层与布隆过滤器复用 <a href="/post/bae4ff13.html">Redis 深度解析</a>；发号器与分表复用 <a href="/post/mysql-ha-2025.html">MySQL 高可用与分库分表实战</a>、<a href="/post/9787b587.html">分布式系统核心理论</a>（分布式 ID）。</p>
+</blockquote>
+<h2 id="1-定位：这道题考什么"><a href="#1-定位：这道题考什么" class="headerlink" title="1. 定位：这道题考什么"></a>1. 定位：这道题考什么</h2><p><strong>短链系统的需求一句话：输入任意长 URL，输出 7 位短码；访问短链时重定向到原长 URL</strong>（如 <code>t.cn/Ab3dE9</code> → 长链接）。</p>
+<p><strong>它为什么高频</strong>：短链表面是「字符串映射」，实际覆盖了系统设计的<strong>读路径全部考点</strong>——容量估算、哈希与冲突、发号器、分库分表、缓存分层、布隆过滤器、热点防护、301&#x2F;302 语义。<strong>一题考完「读场景」所有基本功</strong>，这是它和秒杀（写场景）互补的原因。</p>
+<p><strong>与秒杀的核心对照（面试立论用）</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>秒杀（<a href="/post/a10bd761.html">上一案例</a>）</th>
+<th>短链</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>场景类型</td>
+<td>写密集（下单）</td>
+<td><strong>读密集（跳转）</strong></td>
+</tr>
+<tr>
+<td>核心矛盾</td>
+<td>瞬时流量洪峰</td>
+<td>热点 key 与缓存击穿</td>
+</tr>
+<tr>
+<td>关键中间件</td>
+<td>Redis 预扣 + MQ 削峰</td>
+<td>Redis 缓存 + 布隆过滤器</td>
+</tr>
+<tr>
+<td>容量估算重点</td>
+<td>峰值 QPS（10 万级）</td>
+<td>总量与读放大（百万级）</td>
+</tr>
+</tbody></table>
+<h2 id="2-需求澄清与容量估算（方法论第一步）"><a href="#2-需求澄清与容量估算（方法论第一步）" class="headerlink" title="2. 需求澄清与容量估算（方法论第一步）"></a>2. 需求澄清与容量估算（方法论第一步）</h2><p><strong>面试先做需求澄清，别急着画架构</strong>——短链的四个关键问题：</p>
+<table>
+<thead>
+<tr>
+<th>问题</th>
+<th>默认假设（可主动询问）</th>
+<th>影响</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>每天新增多少长链接？</td>
+<td>1000 万条&#x2F;天</td>
+<td>决定发号器吞吐与表容量</td>
+</tr>
+<tr>
+<td>短链跳转 QPS？</td>
+<td>峰值 2 万 QPS</td>
+<td>决定缓存层级与热点策略</td>
+</tr>
+<tr>
+<td>短码长度？</td>
+<td>7 位（字母+数字 62 进制）</td>
+<td>决定容量上限</td>
+</tr>
+<tr>
+<td>数据保存多久？</td>
+<td>长期（10 年）</td>
+<td>决定总量与淘汰策略</td>
+</tr>
+</tbody></table>
+<p><strong>容量估算（写出数字，面试加分）</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">日新增 1000 万 → 年新增 36.5 亿 → 10 年 365 亿条</span><br><span class="line">7 位 62 进制容量：62^7 ≈ 3.5 万亿 ≫ 365 亿    ✅ 容量充足</span><br><span class="line">跳转峰值 2 万 QPS，读:写 ≈ 20:1（短链被反复访问）   → 读是主要矛盾</span><br><span class="line">单条记录 ~200B → 365 亿条 ≈ 7.3TB（10 年）   → 必须分表（≥64 张）</span><br></pre></td></tr></table></figure>
+
+<p><strong>因果链</strong>：容量估算的结论直接决定架构——「总量 365 亿 → 单表扛不住 → 分 64 表；读 2 万 QPS → DB 扛不住 → 缓存扛 90%」——<strong>每一步架构决策都是上一步数字的推论</strong>，这是方法论的核心（完整流程见 <a href="/post/53a2d197.html">系统设计方法论</a>）。</p>
+<h2 id="3-核心机制一：短码生成——发号器-62-进制"><a href="#3-核心机制一：短码生成——发号器-62-进制" class="headerlink" title="3. 核心机制一：短码生成——发号器 + 62 进制"></a>3. 核心机制一：短码生成——发号器 + 62 进制</h2><h3 id="3-1-为什么不用-MD5-截断"><a href="#3-1-为什么不用-MD5-截断" class="headerlink" title="3.1 为什么不用 MD5 截断"></a>3.1 为什么不用 MD5 截断</h3><table>
+<thead>
+<tr>
+<th>方案</th>
+<th>问题</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>MD5 长 URL 截 7 位</td>
+<td><strong>哈希冲突</strong>概率随数据量上升，冲突要重算（循环）</td>
+</tr>
+<tr>
+<td>随机短码</td>
+<td>碰撞检测麻烦，每次生成要查重</td>
+</tr>
+<tr>
+<td><strong>发号器 + 62 进制</strong></td>
+<td><strong>无冲突</strong>（号唯一）、可预测、可支持批量</td>
+</tr>
+</tbody></table>
+<p><strong>短码 &#x3D; 发号器拿到的自增 ID，转成 62 进制</strong>：<code>ID=1 → &quot;1&quot;</code>，<code>ID=1000000 → &quot;4c92&quot;</code>……7 位最多 62^7≈3.5 万亿个短码，<strong>用不完</strong>。</p>
+<h3 id="3-2-发号器三方案（面试核心）"><a href="#3-2-发号器三方案（面试核心）" class="headerlink" title="3.2 发号器三方案（面试核心）"></a>3.2 发号器三方案（面试核心）</h3><table>
+<thead>
+<tr>
+<th>方案</th>
+<th>机制</th>
+<th>优缺点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Redis INCR</td>
+<td>单 key 自增</td>
+<td>简单；Redis 挂影响发号，可持久化兜底</td>
+</tr>
+<tr>
+<td><strong>DB 号段</strong>（segment）</td>
+<td>每次取一批号（如 1 万），内存发完再取</td>
+<td>无网络往返、DB 压力小，<strong>生产主流</strong></td>
+</tr>
+<tr>
+<td>雪花算法</td>
+<td>时间戳+机器号+序列号</td>
+<td>无序、不可预测；但短码要「短」反而用它少见</td>
+</tr>
+</tbody></table>
+<p><strong>因果链</strong>：发号器选型的关键是「发号频率 &#x3D; 写入频率 &#x3D; 日增 1000 万」——<strong>每次取号都打 Redis&#x2F;DB 会打死存储，号段模式把「1 万次取号」合并成「1 次 DB 查询」</strong>（与 MQ 批量消费同一个思想：批量换吞吐）。<strong>面试答发号器：「DB 号段 + 内存发号」是标准答案，补一句『发号是写路径唯一瓶颈，所以必须批量』就是完整逻辑</strong>。</p>
+<h3 id="3-3-动手验证：号段发号的最小实现"><a href="#3-3-动手验证：号段发号的最小实现" class="headerlink" title="3.3 动手验证：号段发号的最小实现"></a>3.3 动手验证：号段发号的最小实现</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 核心：批量取号，内存发放（伪代码）</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">IdSegmentAllocator</span> &#123;</span><br><span class="line">    <span class="keyword">private</span> <span class="type">long</span> current;    <span class="comment">// 内存当前号</span></span><br><span class="line">    <span class="keyword">private</span> <span class="type">long</span> max;        <span class="comment">// 本批上限</span></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> JdbcTemplate jdbc;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="type">long</span> <span class="title function_">nextId</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">synchronized</span> (<span class="built_in">this</span>) &#123;</span><br><span class="line">            <span class="keyword">if</span> (current &gt;= max) &#123;           <span class="comment">// 本批耗尽 → 取新号段</span></span><br><span class="line">                jdbc.update(<span class="string">&quot;UPDATE id_segment SET max_id = max_id + 10000 WHERE biz = &#x27;short_url&#x27;&quot;</span>);</span><br><span class="line">                current = jdbc.queryForObject(</span><br><span class="line">                    <span class="string">&quot;SELECT max_id FROM id_segment WHERE biz = &#x27;short_url&#x27;&quot;</span>, Long.class);</span><br><span class="line">                max = current + <span class="number">10000</span>;</span><br><span class="line">            &#125;</span><br><span class="line">            <span class="keyword">return</span> current++;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>观察点：前 1 万次调用只触发 1 次 DB 更新（<code>UPDATE ... + 10000</code>），之后全部内存返回。判定标准：能说出「DB 压力 &#x3D; 日增 1000 万 ÷ 号段 1 万 &#x3D; 每天 1000 次写」——<strong>发号从「每秒 115 次」降到「每天 1000 次」，这就是号段的威力</strong>。</p>
+<h2 id="4-核心机制二：存储与读取——分表-缓存分层"><a href="#4-核心机制二：存储与读取——分表-缓存分层" class="headerlink" title="4. 核心机制二：存储与读取——分表 + 缓存分层"></a>4. 核心机制二：存储与读取——分表 + 缓存分层</h2><h3 id="4-1-存储设计"><a href="#4-1-存储设计" class="headerlink" title="4.1 存储设计"></a>4.1 存储设计</h3><table>
+<thead>
+<tr>
+<th>层</th>
+<th>方案</th>
+<th>理由</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>主表</td>
+<td>MySQL，按短码 hash 分 <strong>64 表</strong>（<code>short_url_0</code> ~ <code>short_url_63</code>）</td>
+<td>10 年 365 亿条，单表 ~5.7 亿超阈值</td>
+</tr>
+<tr>
+<td>路由</td>
+<td><code>hash(short_code) % 64</code>（或按 ID 段路由）</td>
+<td>短码定表，读路径直查</td>
+</tr>
+<tr>
+<td>冗余</td>
+<td>主从 + 读写分离</td>
+<td>读多写少，从库扛查询</td>
+</tr>
+<tr>
+<td>索引</td>
+<td>短码唯一索引</td>
+<td>跳转按短码精确查</td>
+</tr>
+</tbody></table>
+<p><strong>为什么分 64 表而不是 4 表</strong>：10 年数据量 × 单表 5.7 亿超红线（MySQL 单表 5000 万经验线）——<strong>分表数 &#x3D; 总量 ÷ 单表容量，先把十年算完再定</strong>（细节见 <a href="/post/mysql-ha-2025.html">MySQL 高可用与分库分表实战</a>）。</p>
+<h3 id="4-2-缓存分层与布隆过滤器"><a href="#4-2-缓存分层与布隆过滤器" class="headerlink" title="4.2 缓存分层与布隆过滤器"></a>4.2 缓存分层与布隆过滤器</h3><pre class="mermaid">flowchart LR
+    C["客户端"] -->|短链访问 2W QPS| NG["网关/本地缓存&lt;br/>(Caffeine, 毫秒级)"]
+    NG -->|未命中| R["Redis 缓存&lt;br/>(命中率 ~95%)"]
+    R -->|未命中| BF{布隆过滤器&lt;br/>短码存在?}
+    BF -->|不存在| E["直接返回 404&lt;br/>(拦掉无效短码)"]
+    BF -->|可能存在| DB[("MySQL 分表")]
+    DB -->|回填| R
+    R -->|回填| NG</pre>
+
+<p><strong>因果链（这一层是全题精华）</strong>：缓存未命中的请求会打到 DB——但<strong>无效短码（用户乱拼的）每次都不存在，会绕开缓存直接打 DB（缓存穿透）</strong>，2 万 QPS 里若有 10% 无效请求，DB 每秒要扛 2000 次无效查询 → <strong>布隆过滤器在 DB 前拦一层：不存在直接 404，存在才放行</strong>。布隆的代价是「可能误判存在」但不误判不存在——<strong>宁放行一次空查，不放过一次真查</strong>（布隆过滤器原理与实现见 <a href="/post/bae4ff13.html">Redis 深度解析</a>）。</p>
+<h3 id="4-3-动手验证：布隆拦截无效短码"><a href="#4-3-动手验证：布隆拦截无效短码" class="headerlink" title="4.3 动手验证：布隆拦截无效短码"></a>4.3 动手验证：布隆拦截无效短码</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># Redis 布隆（RedisBloom 模块）</span></span><br><span class="line">docker run -d -p 6379:6379 redislabs/rebloom:2.6.0</span><br><span class="line">redis-cli BF.RESERVE short_url_filter 0.01 1000000000   <span class="comment"># 误判率 1%，容量 10 亿</span></span><br><span class="line">redis-cli BF.ADD short_url_filter <span class="string">&quot;Ab3dE9&quot;</span>              <span class="comment"># 写入短码时同步加</span></span><br><span class="line">redis-cli BF.EXISTS short_url_filter <span class="string">&quot;Ab3dE9&quot;</span>           <span class="comment"># → 1（存在）</span></span><br><span class="line">redis-cli BF.EXISTS short_url_filter <span class="string">&quot;Xx9Fz1&quot;</span>           <span class="comment"># → 0（不存在，直接 404）</span></span><br></pre></td></tr></table></figure>
+
+<p>观察点：无效短码在布隆层即被拦，DB 零压力；写入短链时 <code>BF.ADD</code> 与 DB 同步（失败可容忍——误判只是多查一次）。判定标准：能说出布隆过滤器的取舍——<strong>「不存在的必拦，存在的可能漏拦（误判），所以它只防穿透、不防击穿」</strong>。</p>
+<h2 id="5-核心机制三：301-vs-302-与热点防护"><a href="#5-核心机制三：301-vs-302-与热点防护" class="headerlink" title="5. 核心机制三：301 vs 302 与热点防护"></a>5. 核心机制三：301 vs 302 与热点防护</h2><h3 id="5-1-301-还是-302（面试高频追问）"><a href="#5-1-301-还是-302（面试高频追问）" class="headerlink" title="5.1 301 还是 302（面试高频追问）"></a>5.1 301 还是 302（面试高频追问）</h3><table>
+<thead>
+<tr>
+<th>状态码</th>
+<th>语义</th>
+<th>对短链的影响</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>301</strong></td>
+<td>永久重定向</td>
+<td>浏览器&#x2F;客户端<strong>缓存跳转结果</strong>，下次直接访问长链——<strong>后续请求不经过我们</strong>，但<strong>无法统计点击量</strong>、无法修改跳转目标</td>
+</tr>
+<tr>
+<td><strong>302</strong></td>
+<td>临时重定向</td>
+<td>每次访问都先打我们的服务——<strong>可以统计、可以改目标</strong>，但服务压力大</td>
+</tr>
+</tbody></table>
+<p><strong>面试标准答案：选 302</strong>——短链是营销&#x2F;内容运营工具，<strong>点击统计和可修改性是产品刚需</strong>，牺牲一点服务压力换这两个能力。<strong>因果链：301 把控制权交给了客户端缓存，302 把每次访问留在自己手里——「要数据就要 302」</strong>。</p>
+<h3 id="5-2-热点短链防护"><a href="#5-2-热点短链防护" class="headerlink" title="5.2 热点短链防护"></a>5.2 热点短链防护</h3><p>短链符合「二八定律」：20% 的短链扛 80% 的点击（爆款链接）。防护层次：</p>
+<table>
+<thead>
+<tr>
+<th>层</th>
+<th>手段</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>本地缓存</td>
+<td>Caffeine 短 TTL（秒级），挡住大部分热点</td>
+</tr>
+<tr>
+<td>Redis</td>
+<td>热点 key 天然被缓存吸收；单 key 打爆加本地缓存兜底</td>
+</tr>
+<tr>
+<td>热点识别</td>
+<td>计数器识别 topN 热点 → 加大本地缓存 TTL</td>
+</tr>
+<tr>
+<td>限流</td>
+<td>网关限流保护后端（见 <a href="/post/a10bd761.html">秒杀篇</a> 的限流章节）</td>
+</tr>
+</tbody></table>
+<p><strong>因果链</strong>：读场景的雪崩风险是「热点 key 过期瞬间，大量请求同时打到 DB」——<strong>本地缓存（Caffeine）是第一层盾：Redis 挂了热点还在本地挡着</strong>。面试答「读场景高可用」的标准句式：「多级缓存 + 热点识别 + 网关限流」。</p>
+<h2 id="6-完整架构图（读路径全景）"><a href="#6-完整架构图（读路径全景）" class="headerlink" title="6. 完整架构图（读路径全景）"></a>6. 完整架构图（读路径全景）</h2><pre class="mermaid">flowchart LR
+    U["用户"] -->|"t.cn/Ab3dE9"| LB["负载均衡"]
+    LB --> W["短链服务集群"]
+    W --> C1["Caffeine 本地缓存"]
+    W --> R["Redis（短码→长链）"]
+    W --> BF["布隆过滤器"]
+    W --> DB[("MySQL 64 表")]
+    R -->|回填| C1
+    DB -->|回填| R
+    DB --> ID["发号器&lt;br/>(DB 号段)"]
+    ID -->|"长链写入时取号"| DB
+    W -->|302| U
+    U --> L["长 URL 目标站"]</pre>
+
+<p><strong>完整链路</strong>：写入（长链 → 发号取号 → 62 进制转短码 → 落 64 表 → 布隆 ADD → 缓存回填）；读取（短码 → 本地缓存 → Redis → 布隆 → DB → 逐级回填 → 302 跳转）。</p>
+<h2 id="7-面试应答：短链六连问"><a href="#7-面试应答：短链六连问" class="headerlink" title="7. 面试应答：短链六连问"></a>7. 面试应答：短链六连问</h2><h3 id="7-1-完整话术"><a href="#7-1-完整话术" class="headerlink" title="7.1 完整话术"></a>7.1 完整话术</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>回答要点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>短码怎么生成？</td>
+<td>发号器（DB 号段）取自增 ID → 62 进制转 7 位短码，无冲突</td>
+</tr>
+<tr>
+<td>为什么不用 MD5？</td>
+<td>截断有冲突率，冲突处理复杂；发号器确定性无冲突</td>
+</tr>
+<tr>
+<td>数据怎么存？</td>
+<td>按总量算分表（10 年 365 亿 → 64 表），短码唯一索引，主从读写分离</td>
+</tr>
+<tr>
+<td>缓存穿透怎么防？</td>
+<td>布隆过滤器拦无效短码：不存在必拦，存在可能误判放行</td>
+</tr>
+<tr>
+<td>301 还是 302？</td>
+<td>302：要点击统计与可修改性，每次访问留在自己手里</td>
+</tr>
+<tr>
+<td>热点怎么防？</td>
+<td>多级缓存（Caffeine + Redis）+ 热点识别 + 网关限流</td>
+</tr>
+<tr>
+<td>发号器挂了怎么办？</td>
+<td>号段模式 DB 压力极小；DB 用主从，主挂从顶上（号段不丢）</td>
+</tr>
+</tbody></table>
+<h3 id="7-2-深挖：与秒杀的双案例对照（跨篇联动）"><a href="#7-2-深挖：与秒杀的双案例对照（跨篇联动）" class="headerlink" title="7.2 深挖：与秒杀的双案例对照（跨篇联动）"></a>7.2 深挖：与秒杀的双案例对照（跨篇联动）</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>秒杀（写场景）</th>
+<th>短链（读场景）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>核心矛盾</td>
+<td>瞬时洪峰（写放大）</td>
+<td>热点 + 穿透（读放大）</td>
+</tr>
+<tr>
+<td>第一防线</td>
+<td>限流（令牌桶&#x2F;双层）</td>
+<td>多级缓存（Caffeine→Redis）</td>
+</tr>
+<tr>
+<td>中间件</td>
+<td>MQ 削峰 + Redis 预扣</td>
+<td>布隆过滤器 + Redis</td>
+</tr>
+<tr>
+<td>容量重点</td>
+<td>峰值 QPS 与库存原子性</td>
+<td>总量 × 生命周期与命中率</td>
+</tr>
+<tr>
+<td>最终兜底</td>
+<td>对账 + 降级</td>
+<td>302 语义 + 限流</td>
+</tr>
+</tbody></table>
+<p><strong>一句话：秒杀教你怎么扛「一分钟的十万并发」，短链教你怎么扛「十年的每天两万」——一个是打（洪峰），一个是磨（长尾）</strong>。面试把两篇的对照讲出来，等于证明「方法论不是背的，是用的」。</p>
+<h2 id="8-总结"><a href="#8-总结" class="headerlink" title="8. 总结"></a>8. 总结</h2><h3 id="8-1-面试速答表"><a href="#8-1-面试速答表" class="headerlink" title="8.1 面试速答表"></a>8.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>短码生成方案？</td>
+<td>发号器（DB 号段）→ 62 进制，无冲突、可批量</td>
+</tr>
+<tr>
+<td>号段发号原理？</td>
+<td>一次取 1 万号内存发放，DB 压力从每秒降到每天</td>
+</tr>
+<tr>
+<td>为什么 64 张表？</td>
+<td>10 年 365 亿条 ÷ 单表 5.7 亿超线，分表数由总量反推</td>
+</tr>
+<tr>
+<td>缓存穿透怎么防？</td>
+<td>布隆过滤器：不存在的必拦，存在的可能放行</td>
+</tr>
+<tr>
+<td>301 vs 302？</td>
+<td>302：要统计与可改目标；301 把控制权交给客户端</td>
+</tr>
+<tr>
+<td>热点怎么护？</td>
+<td>本地缓存 + 热点识别 + 限流，Redis 挂热点仍挡得住</td>
+</tr>
+<tr>
+<td>缓存击穿怎么防？</td>
+<td>热点 key 永不过期 + 重建互斥锁（Redis 深度解析的经典方案）</td>
+</tr>
+</tbody></table>
+<h3 id="8-2-实战避坑表"><a href="#8-2-实战避坑表" class="headerlink" title="8.2 实战避坑表"></a>8.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>短码偶尔跳错</td>
+<td>62 进制实现有歧义字符</td>
+<td>去掉 0&#x2F;O、1&#x2F;l&#x2F;I 等易混字符</td>
+</tr>
+<tr>
+<td>无效短码打爆 DB</td>
+<td>缓存穿透</td>
+<td>布隆过滤器（先写后读，注意写入同步）</td>
+</tr>
+<tr>
+<td>热点链接雪崩</td>
+<td>热点 key 过期同时回源</td>
+<td>本地缓存 + 互斥重建 + 热点识别</td>
+</tr>
+<tr>
+<td>发号器并发重复</td>
+<td>号段分配无锁</td>
+<td>内存分配 synchronized&#x2F;乐观锁，DB 唯一索引兜底</td>
+</tr>
+<tr>
+<td>改短链跳转目标</td>
+<td>301 被客户端缓存</td>
+<td>业务上不给改（301）或用 302 保修改能力</td>
+</tr>
+<tr>
+<td>短码被遍历</td>
+<td>顺序号可预测</td>
+<td>号段偏移加盐（如 ID×随机步长）或哈希混淆</td>
+</tr>
+</tbody></table>
+<h3 id="8-3-工具速查表"><a href="#8-3-工具速查表" class="headerlink" title="8.3 工具速查表"></a>8.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>RedisBloom（BF.* 命令）</td>
+<td>布隆过滤器落地</td>
+</tr>
+<tr>
+<td>Caffeine &#x2F; Guava Cache</td>
+<td>本地缓存第一层</td>
+</tr>
+<tr>
+<td>MySQL 分表（sharding-key 路由）</td>
+<td>64 表路由</td>
+</tr>
+<tr>
+<td>Nginx&#x2F;Gateway 限流</td>
+<td>网关层保护</td>
+</tr>
+<tr>
+<td>链路监控（Prometheus+grafana）</td>
+<td>命中率&#x2F;回源率监控</td>
+</tr>
+</tbody></table>
+<h3 id="8-4-本篇定位"><a href="#8-4-本篇定位" class="headerlink" title="8.4 本篇定位"></a>8.4 本篇定位</h3><p>短链篇是系统设计「读场景」案例，与秒杀篇（写场景）形成完整闭环；「高性能&#x2F;高可用&#x2F;熔断限流降级」三个子导航页的具体机制（缓存分层、冗余、限流算法）在秒杀与短链两篇中均已落地，导航页将补充「内容已并入案例正文」的跳转说明。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -1260,1100 +2282,8 @@
 
 
 
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/dist-tx-2025.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="知行栈">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | 知行栈">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/dist-tx-2025.html" class="post-title-link" itemprop="url">分布式事务：从 2PC 到 Seata</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-
-      <time title="Created: 2026-08-13 17:00:00" itemprop="dateCreated datePublished" datetime="2026-08-13T17:00:00+08:00">2026-08-13</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">In</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/%E5%88%86%E5%B8%83%E5%BC%8F/" itemprop="url" rel="index"><span itemprop="name">分布式</span></a>
-        </span>
-    </span>
-
-  
-    <span class="post-meta-break"></span>
-    <span class="post-meta-item" title="Word count in article">
-      <span class="post-meta-item-icon">
-        <i class="far fa-file-word"></i>
-      </span>
-      <span class="post-meta-item-text">Word count in article: </span>
-      <span>3.9k</span>
-    </span>
-    <span class="post-meta-item" title="Reading time">
-      <span class="post-meta-item-icon">
-        <i class="far fa-clock"></i>
-      </span>
-      <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>14 mins.</span>
-    </span>
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <p><strong>「一个订单要扣库存、减余额、记流水，三个服务各有一个数据库，怎么保证要么全成要么全不成？」</strong> 单库事务到此失效——这不是代码问题，是「跨系统无原子性」的架构问题。本文从 2PC 的起源讲到 Seata 的落地：为什么教科书级的 XA 没人敢生产用、TCC 为什么是「业务自己写三阶段」、Saga 为什么是「一条补偿链」、以及 Seata AT 模式怎么用「全局锁 + undo 日志」做到业务零侵入。读完你能在方案评审会上说清「这个场景该用 Seata 的哪种模式、为什么」。</p>
-<blockquote>
-<p>联动：本文是 <a href="/post/9787b587.html">分布式系统核心理论</a>（CAP&#x2F;BASE&#x2F;一致性模型）的落地篇；事务消息方案与 <a href="/post/es-query-2025.html">ES 查询优化与实战</a> 的本地消息表、<a href="/post/rocketmq-2025.html">RocketMQ 原理与实践</a> 的事务消息同源；Seata 全局锁与 <a href="/post/4354e479.html">MySQL 事务原理与实践</a> 的锁语义直接相关。</p>
-</blockquote>
-<h2 id="1-定位：为什么需要分布式事务"><a href="#1-定位：为什么需要分布式事务" class="headerlink" title="1. 定位：为什么需要分布式事务"></a>1. 定位：为什么需要分布式事务</h2><p><strong>单库事务失效的场景</strong>：微服务拆分后，「一次业务操作」跨多个服务、多个数据库，每个库自己的事务管不到别的库——<strong>「扣库存成功、减余额失败」就成了可能</strong>。</p>
-<table>
-<thead>
-<tr>
-<th>术语</th>
-<th>一句话定义</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>本地事务</td>
-<td>单个数据库内的事务（ACID）</td>
-</tr>
-<tr>
-<td>分布式事务</td>
-<td>跨多个数据库&#x2F;服务，保证「全成或全不成」的事务</td>
-</tr>
-<tr>
-<td>全局事务</td>
-<td>分布式事务的总称，与「分支事务」相对</td>
-</tr>
-<tr>
-<td>分支事务</td>
-<td>各参与者的本地事务</td>
-</tr>
-<tr>
-<td>协调者</td>
-<td>统筹全局事务提交&#x2F;回滚的角色</td>
-</tr>
-</tbody></table>
-<p><strong>核心矛盾一句话：分布式事务的本质是「在无单点权威的分布式系统里，模拟一个全局的原子性」</strong>——但 CAP 定理说可用性、一致性、分区容错只能三选二，<strong>任何分布式事务方案都是在「牺牲一部分可用性&#x2F;性能」换「全局一致」</strong>。记住这条，所有方案的取舍都能自己推出来（理论细节见 <a href="/post/9787b587.html">分布式系统核心理论</a>）。</p>
-<h2 id="2-2PC：两阶段提交的由来与代价"><a href="#2-2PC：两阶段提交的由来与代价" class="headerlink" title="2. 2PC：两阶段提交的由来与代价"></a>2. 2PC：两阶段提交的由来与代价</h2><h3 id="2-1-两阶段：准备-提交"><a href="#2-1-两阶段：准备-提交" class="headerlink" title="2.1 两阶段：准备 + 提交"></a>2.1 两阶段：准备 + 提交</h3><pre class="mermaid">sequenceDiagram
-    participant C as 协调者
-    participant A as 服务A(扣库存)
-    participant B as 服务B(减余额)
-    C->>A: 1. Prepare：能提交吗？
-    C->>B: 1. Prepare：能提交吗？
-    A-->>C: 2a. 可以（资源已锁）
-    B-->>C: 2b. 可以（资源已锁）
-    C->>A: 3. Commit / Rollback
-    C->>B: 3. Commit / Rollback</pre>
-
-<p><strong>阶段一 Prepare</strong>：协调者问每个参与者「能提交吗」，参与者<strong>执行本地事务但不提交，资源加锁</strong>，回复「可以」或「不行」。<strong>阶段二 Commit</strong>：全票通过 → 广播 Commit；有人拒绝或超时 → 广播 Rollback。</p>
-<p><strong>因果链</strong>：2PC 用「先锁定资源、后统一提交」实现原子性——<strong>但「锁定」是全部代价的来源</strong>：Prepare 阶段开始，所有参与者的资源一直锁着，直到阶段二结束，<strong>锁的时长 &#x3D; 最慢参与者的响应时间</strong>，这就是「2PC 阻塞性」的根源。</p>
-<h3 id="2-2-三个致命问题（面试核心）"><a href="#2-2-三个致命问题（面试核心）" class="headerlink" title="2.2 三个致命问题（面试核心）"></a>2.2 三个致命问题（面试核心）</h3><table>
-<thead>
-<tr>
-<th>问题</th>
-<th>场景</th>
-<th>后果</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><strong>阻塞</strong></td>
-<td>某参与者慢&#x2F;挂</td>
-<td>所有参与者资源一直锁着，拖垮全局吞吐</td>
-</tr>
-<tr>
-<td><strong>单点</strong></td>
-<td>协调者挂了</td>
-<td>参与者不知提交还是回滚，永远等（无超时自决）</td>
-</tr>
-<tr>
-<td><strong>脑裂风险</strong></td>
-<td>阶段二网络分区</td>
-<td>部分 Commit、部分回滚不了，数据不一致</td>
-</tr>
-</tbody></table>
-<p><strong>面试必答话术</strong>：2PC（XA）是教科书方案，但<strong>三个问题让它生产上没人敢直接用</strong>——「阻塞 + 单点 + 脑裂」，本质是「把单点权威（协调者）引入分布式系统，权威自己却不可靠」。<strong>XA 协议（数据库原生支持）是 2PC 的标准实现，但因为上述原因，互联网公司几乎不用 XA，改用下面「业务化的 2PC」</strong>。</p>
-<h2 id="3-3PC：多一轮预提交，解决了一半"><a href="#3-3PC：多一轮预提交，解决了一半" class="headerlink" title="3. 3PC：多一轮预提交，解决了一半"></a>3. 3PC：多一轮预提交，解决了一半</h2><h3 id="3-1-三阶段：CanCommit-→-PreCommit-→-DoCommit"><a href="#3-1-三阶段：CanCommit-→-PreCommit-→-DoCommit" class="headerlink" title="3.1 三阶段：CanCommit → PreCommit → DoCommit"></a>3.1 三阶段：CanCommit → PreCommit → DoCommit</h3><pre class="mermaid">flowchart LR
-    A["CanCommit&lt;br/>先问可行性&lt;br/>（无锁）"] --> B["PreCommit&lt;br/>锁定资源&lt;br/>（有超时）"] --> C["DoCommit&lt;br/>统一提交"]</pre>
-
-<p>3PC 把阶段一拆成两步：</p>
-<table>
-<thead>
-<tr>
-<th>阶段</th>
-<th>动作</th>
-<th>与 2PC 的差异</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>CanCommit</td>
-<td>问「能不能提交」（不动资源）</td>
-<td><strong>提前排除不可行者，缩短锁定窗口</strong></td>
-</tr>
-<tr>
-<td>PreCommit</td>
-<td>锁定资源、写日志</td>
-<td>参与者多了超时自决能力</td>
-</tr>
-<tr>
-<td>DoCommit</td>
-<td>提交</td>
-<td>参与者超时后可自行提交（默认提交）</td>
-</tr>
-</tbody></table>
-<h3 id="3-2-解决了什么、没解决什么"><a href="#3-2-解决了什么、没解决什么" class="headerlink" title="3.2 解决了什么、没解决什么"></a>3.2 解决了什么、没解决什么</h3><p><strong>解决</strong>：参与者有超时自决机制（协调者失联超时后默认提交），<strong>缓解了协调者单点导致的无限阻塞</strong>。</p>
-<p><strong>没解决</strong>：超时默认提交引入新风险——<strong>协调者其实要回滚，但参与者已经提交了</strong>（网络分区下的两难：等&#x3D;永远阻塞，自决&#x3D;可能错）。<strong>因果链：3PC 用「减少等待」换「增加出错概率」，所以实际使用比 2PC 还少</strong>。记住结论即可：<strong>3PC 是学术改进，工程上几乎无人用，面试提到「知道它存在、知道它为什么没人用」就够了</strong>。</p>
-<h2 id="4-TCC：业务自己写三阶段"><a href="#4-TCC：业务自己写三阶段" class="headerlink" title="4. TCC：业务自己写三阶段"></a>4. TCC：业务自己写三阶段</h2><h3 id="4-1-Try-Confirm-Cancel"><a href="#4-1-Try-Confirm-Cancel" class="headerlink" title="4.1 Try &#x2F; Confirm &#x2F; Cancel"></a>4.1 Try &#x2F; Confirm &#x2F; Cancel</h3><p><strong>TCC 是「业务化的 2PC」：不依赖数据库锁，让业务接口自己实现三个动作</strong>：</p>
-<table>
-<thead>
-<tr>
-<th>阶段</th>
-<th>接口</th>
-<th>业务示例（余额服务）</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><strong>Try</strong></td>
-<td>预留资源</td>
-<td>冻结 100 元（<code>frozen=100</code>，可用余额不变）</td>
-</tr>
-<tr>
-<td><strong>Confirm</strong></td>
-<td>确认提交</td>
-<td>扣减：冻结-100，可用余额-100</td>
-</tr>
-<tr>
-<td><strong>Cancel</strong></td>
-<td>取消回滚</td>
-<td>解冻：冻结-100，可用余额不变</td>
-</tr>
-</tbody></table>
-<pre class="mermaid">flowchart TD
-    S[发起方] --> T[Try 全部成功] --> C[Confirm 全部执行] --> D[事务成功]
-    T -->|任一 Try 失败| X[Cancel 全部执行] --> E[事务回滚]</pre>
-
-<h3 id="4-2-TCC-的三道坎（面试深水区）"><a href="#4-2-TCC-的三道坎（面试深水区）" class="headerlink" title="4.2 TCC 的三道坎（面试深水区）"></a>4.2 TCC 的三道坎（面试深水区）</h3><table>
-<thead>
-<tr>
-<th>坎</th>
-<th>问题</th>
-<th>解法</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><strong>空回滚</strong></td>
-<td>网络重试导致 Try 没到、Cancel 先到</td>
-<td>Cancel 幂等 + 记录事务状态</td>
-</tr>
-<tr>
-<td><strong>悬挂</strong></td>
-<td>Try 迟到（Cancel 已完成后又来 Try）</td>
-<td>状态机校验：已 Cancel 的事务拒绝再 Try</td>
-</tr>
-<tr>
-<td><strong>幂等</strong></td>
-<td>Confirm&#x2F;Cancel 被重试执行多次</td>
-<td>接口幂等（状态字段&#x2F;版本号）</td>
-</tr>
-</tbody></table>
-<p><strong>因果链</strong>：TCC 把「锁」从数据库换成了「业务预留」，<strong>不阻塞数据库、并发能力强</strong>——但代价是<strong>业务要自己写三个接口、处理空回滚&#x2F;悬挂&#x2F;幂等三道坎</strong>。<strong>适用场景</strong>：强一致要求高、并发大的资金类操作（账户冻结&#x2F;库存预留）。<strong>面试加分点：主动说出「TCC 的三个空回滚场景」而不是只说『Try Confirm Cancel 三阶段』</strong>。</p>
-<h2 id="5-Saga：一条补偿链"><a href="#5-Saga：一条补偿链" class="headerlink" title="5. Saga：一条补偿链"></a>5. Saga：一条补偿链</h2><h3 id="5-1-正向执行-反向补偿"><a href="#5-1-正向执行-反向补偿" class="headerlink" title="5.1 正向执行 + 反向补偿"></a>5.1 正向执行 + 反向补偿</h3><p><strong>Saga 的核心思想：不预留、不锁定，只管正向执行；哪一步失败，就把前面所有步骤「反向补偿」一遍</strong>：</p>
-<pre class="mermaid">flowchart LR
-    S1[扣库存] --> S2[减余额] --> S3[记流水]
-    S3 -->|失败| C2[补偿：余额+100] --> C1[补偿：库存+1]</pre>
-
-<table>
-<thead>
-<tr>
-<th>维度</th>
-<th>特点</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>无锁</td>
-<td>每步直接提交本地事务，<strong>不锁定资源</strong></td>
-</tr>
-<tr>
-<td>补偿</td>
-<td>反向执行取消操作（库存加回、余额退回）</td>
-</tr>
-<tr>
-<td>编排</td>
-<td>两种：<strong>编排式</strong>（中心化一个 Saga 引擎指挥）&#x2F; <strong>协同式</strong>（每个服务监听事件自己接下一棒）</td>
-</tr>
-<tr>
-<td>一致性</td>
-<td><strong>最终一致</strong>（中间状态对别的事务可见）</td>
-</tr>
-</tbody></table>
-<h3 id="5-2-与-TCC-的分工（面试必考）"><a href="#5-2-与-TCC-的分工（面试必考）" class="headerlink" title="5.2 与 TCC 的分工（面试必考）"></a>5.2 与 TCC 的分工（面试必考）</h3><table>
-<thead>
-<tr>
-<th>对比</th>
-<th>TCC</th>
-<th>Saga</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>预留</td>
-<td>有（Try 冻结）</td>
-<td>无（直接提交）</td>
-</tr>
-<tr>
-<td>一致性窗口</td>
-<td>短（Try→Confirm 之间）</td>
-<td>长（全程都可能被看到中间态）</td>
-</tr>
-<tr>
-<td>适用</td>
-<td>强一致 + 高并发（资金）</td>
-<td>弱一致可接受 + 长流程（订单&#x2F;旅行预订）</td>
-</tr>
-<tr>
-<td>补偿方式</td>
-<td>Cancel 恢复预留</td>
-<td>反向业务操作</td>
-</tr>
-</tbody></table>
-<p><strong>一句话分工：TCC 适合「必须强一致但并发又高」的短操作；Saga 适合「可以最终一致」的长流程。资金用 TCC，订单&#x2F;活动用 Saga</strong>——面试被问「TCC 和 Saga 怎么选」，先问一句「业务能接受最终一致吗」，答案自然出来。</p>
-<h2 id="6-Seata-AT：全局锁-undo-日志的「无侵入」方案"><a href="#6-Seata-AT：全局锁-undo-日志的「无侵入」方案" class="headerlink" title="6. Seata AT：全局锁 + undo 日志的「无侵入」方案"></a>6. Seata AT：全局锁 + undo 日志的「无侵入」方案</h2><h3 id="6-1-AT-模式的两件武器"><a href="#6-1-AT-模式的两件武器" class="headerlink" title="6.1 AT 模式的两件武器"></a>6.1 AT 模式的两件武器</h3><p><strong>AT（Auto Transaction）模式 &#x3D; 自动化的 2PC</strong>：业务代码几乎不用改（只加 <code>@GlobalTransactional</code>），Seata 用两个机制替你完成全局原子性：</p>
-<p><strong>武器一：undo_log 快照</strong>。每个分支事务执行前，Seata 拦截 SQL，把「改动前的数据镜像」写入 <code>undo_log</code> 表；全局回滚时<strong>用镜像反向执行 UPDATE&#x2F;DELETE 把数据改回去</strong>——相当于自动生成 Cancel。</p>
-<p><strong>武器二：全局锁</strong>。事务执行期间，Seata 锁定被改动的<strong>主键记录</strong>，其他全局事务改到同一记录必须等待，<strong>防止两个事务互相覆盖导致回滚错乱</strong>。</p>
-<pre class="mermaid">sequenceDiagram
-    participant A as 业务应用
-    participant TC as TC(全局事务协调)
-    participant RM as RM(分支1: 订单库)
-    participant RM2 as RM(分支2: 库存库)
-    A->>TC: 1. 开启全局事务（XID）
-    A->>RM: 2. 分支注册 + 执行 SQL + 写 undo_log
-    A->>RM2: 3. 分支注册 + 执行 SQL + 写 undo_log
-    A->>TC: 4. 提交全局事务
-    TC->>RM: 5. 删 undo_log，提交
-    TC->>RM2: 5. 删 undo_log，提交
-    Note over TC: 任一步失败 → 各分支按 undo_log 反向执行回滚</pre>
-
-<h3 id="6-2-AT-与-TCC-的对比（生产选型核心）"><a href="#6-2-AT-与-TCC-的对比（生产选型核心）" class="headerlink" title="6.2 AT 与 TCC 的对比（生产选型核心）"></a>6.2 AT 与 TCC 的对比（生产选型核心）</h3><table>
-<thead>
-<tr>
-<th>维度</th>
-<th>Seata AT</th>
-<th>TCC</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>业务改造</td>
-<td><strong>零侵入</strong>（注解 + 建 undo_log 表）</td>
-<td>手写 Try&#x2F;Confirm&#x2F;Cancel 三接口</td>
-</tr>
-<tr>
-<td>锁粒度</td>
-<td>行级（改哪锁哪）</td>
-<td>业务预留（可按资源冻结）</td>
-</tr>
-<tr>
-<td>性能</td>
-<td>有 undo_log 写入开销</td>
-<td>无日志开销，纯业务</td>
-</tr>
-<tr>
-<td>场景</td>
-<td>通用（大部分业务）</td>
-<td>资金强一致 + 高并发</td>
-</tr>
-<tr>
-<td>侵入度</td>
-<td>全局事务是「两阶段」，冲突时<strong>等待</strong></td>
-<td>无等待，但代码多</td>
-</tr>
-</tbody></table>
-<p><strong>因果链：AT 用「undo_log 自动补偿 + 全局锁防冲突」模拟出 2PC 的效果，把复杂度从业务代码搬进了中间件</strong>——这就是它成为生产主流的根本原因。<strong>代价是全局锁的等待开销：长事务会拖慢并发</strong>，所以 <strong>AT 也要求分支事务「短」</strong>。</p>
-<h3 id="6-3-动手验证：本地跑一个-Seata-最小闭环"><a href="#6-3-动手验证：本地跑一个-Seata-最小闭环" class="headerlink" title="6.3 动手验证：本地跑一个 Seata 最小闭环"></a>6.3 动手验证：本地跑一个 Seata 最小闭环</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 起 Seata Server（docker 单机）</span></span><br><span class="line">docker run -d --name seata-server -p 8091:8091 -e STORE_MODE=file \</span><br><span class="line">  seataio/seata-server:2.0.0</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 业务库建 undo_log 表（AT 模式必需）</span></span><br><span class="line">CREATE TABLE IF NOT EXISTS `undo_log` (</span><br><span class="line">  `branch_id` BIGINT NOT NULL,</span><br><span class="line">  `xid` VARCHAR(128) NOT NULL,</span><br><span class="line">  `rollback_info` LONGBLOB NOT NULL,</span><br><span class="line">  `log_status` INT NOT NULL,</span><br><span class="line">  `log_created` DATETIME NOT NULL,</span><br><span class="line">  PRIMARY KEY (`branch_id`), KEY `xid` (`xid`)</span><br><span class="line">) ENGINE=InnoDB;</span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 应用侧：一个注解 + 两个数据源（业务库 + 事务协调）</span></span><br><span class="line">@GlobalTransactional</span><br><span class="line">public void createOrder(OrderReq req) &#123;</span><br><span class="line">    orderService.insert(req);     // 分支1：订单库</span><br><span class="line">    stockService.deduct(req);     // 分支2：库存库</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>观察点：<code>@GlobalTransactional</code> 方法内两个库的写操作，在第二个库抛异常时<strong>第一个库的写入被自动回滚</strong>（undo_log 反向执行）。判定标准：亲手验证「库存减了但订单插入失败 → 库存被回滚」的完整闭环，理解「业务零侵入」的真实含义。</p>
-<h2 id="7-方案选型：一张决策树"><a href="#7-方案选型：一张决策树" class="headerlink" title="7. 方案选型：一张决策树"></a>7. 方案选型：一张决策树</h2><h3 id="7-1-决策流程"><a href="#7-1-决策流程" class="headerlink" title="7.1 决策流程"></a>7.1 决策流程</h3><pre class="mermaid">flowchart TD
-    Q1{业务能接受最终一致吗？} -->|能| Q2{有现成 MQ 吗？}
-    Q2 -->|有| MQ[事务消息/本地消息表&lt;br/>推荐：最简单]
-    Q2 -->|无| SAGA[Saga 补偿链]
-    Q1 -->|不能，要强一致| Q3{事务短且并发高？}
-    Q3 -->|是| TCC[Seata AT / TCC&lt;br/>按侵入度选]
-    Q3 -->|否| AT[Seata AT&lt;br/>通用首选]</pre>
-
-<h3 id="7-2-决策表"><a href="#7-2-决策表" class="headerlink" title="7.2 决策表"></a>7.2 决策表</h3><table>
-<thead>
-<tr>
-<th>业务特征</th>
-<th>首选方案</th>
-<th>理由</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>弱一致可接受 + 有 MQ</td>
-<td><strong>事务消息&#x2F;本地消息表</strong></td>
-<td>最简单、无中间件依赖（<a href="/post/rocketmq-2025.html">RocketMQ 事务消息</a>）</td>
-</tr>
-<tr>
-<td>弱一致 + 长流程</td>
-<td>Saga</td>
-<td>无锁、适合订单&#x2F;旅行</td>
-</tr>
-<tr>
-<td>强一致 + 通用业务</td>
-<td><strong>Seata AT</strong></td>
-<td>零侵入、行级锁</td>
-</tr>
-<tr>
-<td>强一致 + 极高并发资金</td>
-<td>TCC（或 AT + 短事务）</td>
-<td>业务预留不阻塞库</td>
-</tr>
-<tr>
-<td>同库多表</td>
-<td>本地事务</td>
-<td>别引分布式事务（最常见优化）</td>
-</tr>
-</tbody></table>
-<p><strong>一句话选型：「能最终一致就消息，必须强一致就 Seata；Seata 里短事务用 AT、资金类用 TCC」</strong>。另外记住反模式：<strong>能在一个库里解决的（同库多表）绝不上分布式事务</strong>——很多「分布式事务」其实是表设计&#x2F;服务拆分问题。</p>
-<h2 id="8-面试应答：分布式事务六连问"><a href="#8-面试应答：分布式事务六连问" class="headerlink" title="8. 面试应答：分布式事务六连问"></a>8. 面试应答：分布式事务六连问</h2><h3 id="8-1-完整话术"><a href="#8-1-完整话术" class="headerlink" title="8.1 完整话术"></a>8.1 完整话术</h3><table>
-<thead>
-<tr>
-<th>面试题</th>
-<th>回答要点</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>2PC 是什么？</td>
-<td>准备+提交两阶段；先锁资源后统一提交；阻塞、协调者单点、脑裂三个问题，生产不用</td>
-</tr>
-<tr>
-<td>XA 为什么没人用？</td>
-<td>XA 是 2PC 标准实现，数据库锁资源时长&#x3D;最慢参与者，互联网高并发场景扛不住</td>
-</tr>
-<tr>
-<td>TCC 三阶段？</td>
-<td>Try 预留 → Confirm 确认 → Cancel 回滚；注意空回滚&#x2F;悬挂&#x2F;幂等三道坎</td>
-</tr>
-<tr>
-<td>TCC 和 Saga 区别？</td>
-<td>TCC 预留锁、强一致、短操作；Saga 无锁直接提交、最终一致、长流程补偿链</td>
-</tr>
-<tr>
-<td>Seata AT 原理？</td>
-<td>undo_log 快照反向回滚 + 全局锁防冲突；业务零侵入（注解+建表）</td>
-</tr>
-<tr>
-<td>怎么选型？</td>
-<td>能最终一致→消息；必须强一致→Seata（AT&#x2F;TCC 按并发与侵入度）</td>
-</tr>
-</tbody></table>
-<h3 id="8-2-深挖：与本地消息表-事务消息的对照（跨篇联动）"><a href="#8-2-深挖：与本地消息表-事务消息的对照（跨篇联动）" class="headerlink" title="8.2 深挖：与本地消息表&#x2F;事务消息的对照（跨篇联动）"></a>8.2 深挖：与本地消息表&#x2F;事务消息的对照（跨篇联动）</h3><table>
-<thead>
-<tr>
-<th>维度</th>
-<th>2PC&#x2F;Seata</th>
-<th>本地消息表</th>
-<th>事务消息（RocketMQ）</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>一致性强度</td>
-<td>强一致（有锁&#x2F;快照）</td>
-<td>最终一致</td>
-<td>最终一致</td>
-</tr>
-<tr>
-<td>业务侵入</td>
-<td>注解（AT）&#x2F; 三接口（TCC）</td>
-<td>写一张消息表</td>
-<td>一个事务消息接口</td>
-</tr>
-<tr>
-<td>消息可靠性</td>
-<td>无消息</td>
-<td>消息与业务同事务</td>
-<td>MQ 半消息+回查</td>
-</tr>
-<tr>
-<td>适用</td>
-<td>强一致场景</td>
-<td>无 MQ 时的替代</td>
-<td>有 MQ 时首选</td>
-</tr>
-</tbody></table>
-<p><strong>因果链：本地消息表和事务消息的本质是「把『发消息』和『业务写』放进同一个本地事务」，用『消息一定会到』换『跨库强一致』</strong>（<a href="/post/es-query-2025.html">ES 查询优化与实战</a> 的 Canal 同步用的就是这套思路）。面试答「消息最终一致」，能说出「消息表保证消息不丢 + 消费端幂等保证不重」两层，就是完整答案。</p>
-<h2 id="9-总结"><a href="#9-总结" class="headerlink" title="9. 总结"></a>9. 总结</h2><h3 id="9-1-面试速答表"><a href="#9-1-面试速答表" class="headerlink" title="9.1 面试速答表"></a>9.1 面试速答表</h3><table>
-<thead>
-<tr>
-<th>面试题</th>
-<th>一句话答案</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>分布式事务是什么？</td>
-<td>跨多个库&#x2F;服务保证「全成或全不成」，本质是无单点权威下模拟全局原子性</td>
-</tr>
-<tr>
-<td>2PC 流程？</td>
-<td>Prepare 锁定资源 → 全票通过 Commit &#x2F; 任一拒绝 Rollback</td>
-</tr>
-<tr>
-<td>2PC 三个问题？</td>
-<td>阻塞（锁时长&#x3D;最慢者）、单点（协调者挂）、脑裂（分区后不一致）</td>
-</tr>
-<tr>
-<td>3PC 改进了什么？</td>
-<td>CanCommit 先问可行性 + 参与者超时自决；但自决可能提交错，工程无人用</td>
-</tr>
-<tr>
-<td>TCC 三道坎？</td>
-<td>空回滚（Cancel 先到）、悬挂（Try 迟到）、幂等（重试）</td>
-</tr>
-<tr>
-<td>Saga 是什么？</td>
-<td>无锁正向执行，失败逐级反向补偿；编排式&#x2F;协同式</td>
-</tr>
-<tr>
-<td>Seata AT 原理？</td>
-<td>undo_log 快照自动反向回滚 + 全局锁防覆盖，业务零侵入</td>
-</tr>
-<tr>
-<td>怎么选？</td>
-<td>最终一致→消息；强一致→Seata；资金高并发→TCC；同库→本地事务</td>
-</tr>
-</tbody></table>
-<h3 id="9-2-实战避坑表"><a href="#9-2-实战避坑表" class="headerlink" title="9.2 实战避坑表"></a>9.2 实战避坑表</h3><table>
-<thead>
-<tr>
-<th>症状</th>
-<th>原因</th>
-<th>处理</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>全局事务回滚了但数据没回来</td>
-<td>undo_log 表没建&#x2F;被删</td>
-<td>建 undo_log 表；检查表结构一致</td>
-</tr>
-<tr>
-<td>事务极慢</td>
-<td>全局锁等待长事务</td>
-<td>分支事务必须短；改 TCC 或消息方案</td>
-</tr>
-<tr>
-<td>同库多表也上了 Seata</td>
-<td>方案滥用</td>
-<td>同库用本地事务，别引分布式事务</td>
-</tr>
-<tr>
-<td>TCC Cancel 执行了两次</td>
-<td>网络重试</td>
-<td>Cancel 接口幂等</td>
-</tr>
-<tr>
-<td>消息最终一致丢数据</td>
-<td>消息表&#x2F;事务消息没兜底</td>
-<td>消费端幂等 + 重试队列 + 对账</td>
-</tr>
-<tr>
-<td>Seata 版本升级不兼容</td>
-<td>undo_log 字段差异</td>
-<td>按对应版本建表脚本执行</td>
-</tr>
-</tbody></table>
-<h3 id="9-3-工具速查表"><a href="#9-3-工具速查表" class="headerlink" title="9.3 工具速查表"></a>9.3 工具速查表</h3><table>
-<thead>
-<tr>
-<th>工具</th>
-<th>用途</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>Seata（AT&#x2F;TCC&#x2F;Saga）</td>
-<td>分布式事务主流框架，AT 零侵入</td>
-</tr>
-<tr>
-<td>RocketMQ 事务消息</td>
-<td>消息最终一致首选</td>
-</tr>
-<tr>
-<td>本地消息表</td>
-<td>无 MQ 时的最终一致替代</td>
-</tr>
-<tr>
-<td>XA（数据库原生）</td>
-<td>2PC 标准实现，了解即可</td>
-</tr>
-<tr>
-<td>Saga 引擎（Seata Saga&#x2F;自研）</td>
-<td>长流程编排</td>
-</tr>
-</tbody></table>
-<h3 id="9-4-下一篇预告"><a href="#9-4-下一篇预告" class="headerlink" title="9.4 下一篇预告"></a>9.4 下一篇预告</h3><p>事务篇解决「多库怎么一致」，下一篇《消息队列选型与核心机制对比》解决「异步与解耦的载体怎么选」：<strong>Kafka&#x2F;RocketMQ&#x2F;RabbitMQ 三选一不再纠结——吞吐、延迟、事务、顺序，四张对比表 + 一张决策树，把「选型题」变成「套公式题」</strong>；顺带讲透顺序消息、重复消费幂等、以及事务消息与本文的衔接。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/es-query-2025.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="知行栈">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | 知行栈">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/es-query-2025.html" class="post-title-link" itemprop="url">ES 查询优化与实战：深度分页、聚合与双写一致性</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-
-      <time title="Created: 2026-08-13 16:00:00" itemprop="dateCreated datePublished" datetime="2026-08-13T16:00:00+08:00">2026-08-13</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">In</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/" itemprop="url" rel="index"><span itemprop="name">数据存储</span></a>
-        </span>
-    </span>
-
-  
-    <span class="post-meta-break"></span>
-    <span class="post-meta-item" title="Word count in article">
-      <span class="post-meta-item-icon">
-        <i class="far fa-file-word"></i>
-      </span>
-      <span class="post-meta-item-text">Word count in article: </span>
-      <span>3.7k</span>
-    </span>
-    <span class="post-meta-item" title="Reading time">
-      <span class="post-meta-item-icon">
-        <i class="far fa-clock"></i>
-      </span>
-      <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>14 mins.</span>
-    </span>
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <p><strong>搜索系统上生产的三道坎：分页超过 1 万条怎么办？聚合为什么慢？MySQL 和 ES 数据不一致怎么收场？</strong> 原理篇讲了 ES 为什么快、数据怎么存，本文解决「怎么查得快、查得准、查得全」：深度分页的正确姿势（search_after&#x2F;scroll 的选择）、聚合的代价模型、以及双写一致性的三种架构方案。读完你能在设计评审上说清「为什么 ES 分页只支持前 1 万条」「聚合上亿数据用什么策略」，并给 MySQL→ES 同步画出一张完整的架构图。</p>
-<blockquote>
-<p>联动：本文是 <a href="/post/es-deep-2025.html">ES 原理深挖</a>（写入链路&#x2F;分片&#x2F;集群健康）的实战续篇；双写一致性与 <a href="/post/9787b587.html">分布式系统核心理论</a> 的最终一致性呼应；本地消息表方案与 <a href="/post/rocketmq-2025.html">RocketMQ 原理与实践</a> 的事务消息是同一思路的两条实现路径。</p>
-</blockquote>
-<h2 id="1-定位：这篇实战什么"><a href="#1-定位：这篇实战什么" class="headerlink" title="1. 定位：这篇实战什么"></a>1. 定位：这篇实战什么</h2><p>原理篇回答「数据怎么存、怎么不丢」，本文回答三个「查询与同步」问题：</p>
-<table>
-<thead>
-<tr>
-<th>场景</th>
-<th>表面现象</th>
-<th>本文答案</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>分页翻到第 2 万条</td>
-<td>报错 <code>Result window is too large</code></td>
-<td>§2：from+size 的代价模型，search_after&#x2F;scroll 的分工</td>
-</tr>
-<tr>
-<td>聚合查询跑几秒</td>
-<td>大基数聚合内存爆炸</td>
-<td>§3：聚合原理与高基数应对</td>
-</tr>
-<tr>
-<td>MySQL 改了 ES 没变</td>
-<td>双写失败&#x2F;不一致</td>
-<td>§4：三种同步方案与最终一致性兜底</td>
-</tr>
-</tbody></table>
-<p><strong>因果链主线</strong>：ES 的查询优化不是「调参玄学」，是<strong>「一切查询都要在多个分片上并行执行」这个架构事实的推论</strong>——深度分页贵在「每个分片都要取全量再排序」，聚合贵在「每个分片先算局部再归并」，双写难在「两个系统没有同一事务」。<strong>记住「分片并行」这四个字，所有查询优化的理由都能自己推出来</strong>。</p>
-<h2 id="2-深度分页：from-size-为什么-1-万行内"><a href="#2-深度分页：from-size-为什么-1-万行内" class="headerlink" title="2. 深度分页：from+size 为什么 1 万行内"></a>2. 深度分页：from+size 为什么 1 万行内</h2><h3 id="2-1-代价模型：每个分片都要白干"><a href="#2-1-代价模型：每个分片都要白干" class="headerlink" title="2.1 代价模型：每个分片都要白干"></a>2.1 代价模型：每个分片都要白干</h3><p><code>GET /orders/_search?from=10000&amp;size=10</code> 为什么被拒绝（默认 <code>max_result_window: 10000</code>）？看它在 3 分片集群上的执行路径：</p>
-<pre class="mermaid">sequenceDiagram
-    participant C as 协调节点
-    participant S1 as 分片1
-    participant S2 as 分片2
-    participant S3 as 分片3
-    C->>S1: 取 from+size=10010 条
-    C->>S2: 取 from+size=10010 条
-    C->>S3: 取 from+size=10010 条
-    Note over S1: 各分片按 score 排序取前 10010
-    S1-->>C: 10010 条
-    S2-->>C: 10010 条
-    S3-->>C: 10010 条
-    Note over C: 归并 30030 条，排序，丢弃前 10000 条
-    C-->>C: 最终返回 10 条</pre>
-
-<p><strong>因果链</strong>：from+size 的代价是 <strong>O(from+size) × 分片数</strong>——翻到第 10 万条，每个分片都要取 10 万条到协调节点排序。这不是「ES 蠢」，是<strong>分布式查询的必然</strong>：谁也不知道全局前 10 万条分布在哪个分片，只能每片都取。<strong>这个模型下「深度分页」不是功能缺失，是代价不可接受</strong>，所以 ES 用 <code>max_result_window</code> 直接拦住。</p>
-<p><strong>三个方案的定位（面试核心）</strong>：</p>
-<table>
-<thead>
-<tr>
-<th>方案</th>
-<th>适用场景</th>
-<th>原理</th>
-<th>缺点</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>from+size</td>
-<td>前 10000 条（翻前 100 页）</td>
-<td>每片取全量排序再归并</td>
-<td>深翻页 O(from+size)×分片</td>
-</tr>
-<tr>
-<td><strong>search_after</strong></td>
-<td>实时滚动（下翻 2 万+条）</td>
-<td>记住上页最后一条的排序值，只取「比它大」的</td>
-<td>不能随机跳页、依赖排序值稳定</td>
-</tr>
-<tr>
-<td><strong>scroll</strong></td>
-<td>全量导出（导入导出&#x2F;批处理）</td>
-<td>生成快照游标，每次取一段</td>
-<td>快照期间数据不变、游标耗内存</td>
-</tr>
-</tbody></table>
-<p><strong>search_after 与 scroll 的核心区别一句话：search_after 是「活的」（每次重新查询，新数据能看到），scroll 是「死的」（固定快照，新写入不可见）</strong>。导出数据用 scroll（要一致性快照），实时翻页用 search_after（要新数据），两者用途完全不同。</p>
-<h3 id="2-2-动手验证：复现报错与-search-after-翻页"><a href="#2-2-动手验证：复现报错与-search-after-翻页" class="headerlink" title="2.2 动手验证：复现报错与 search_after 翻页"></a>2.2 动手验证：复现报错与 search_after 翻页</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 造 15000 条数据</span></span><br><span class="line"><span class="keyword">for</span> i <span class="keyword">in</span> $(<span class="built_in">seq</span> 1 15000); <span class="keyword">do</span> curl -s -X POST <span class="string">&quot;localhost:9200/big/_doc&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> \</span><br><span class="line">  -d <span class="string">&quot;&#123;\&quot;n\&quot;:<span class="variable">$i</span>&#125;&quot;</span> --user elastic:PASSWORD &gt; /dev/null; <span class="keyword">done</span></span><br><span class="line">curl -s -X POST <span class="string">&quot;localhost:9200/big/_refresh&quot;</span> --user elastic:PASSWORD</span><br><span class="line"></span><br><span class="line"><span class="comment"># 1. 深翻页直接报错（默认窗口 10000）</span></span><br><span class="line">curl <span class="string">&quot;localhost:9200/big/_search?size=10&amp;from=10001&quot;</span> --user elastic:PASSWORD</span><br><span class="line"><span class="comment"># → Result window is too large, from + size must be less than or equal to [10000]</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. search_after：取第一页，拿最后一个 sort 值，再翻下一页</span></span><br><span class="line">curl -s <span class="string">&quot;localhost:9200/big/_search&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> -d \</span><br><span class="line">  <span class="string">&#x27;&#123;&quot;size&quot;:10,&quot;sort&quot;:[&#123;&quot;n&quot;:&quot;asc&quot;&#125;]&#125;&#x27;</span> --user elastic:PASSWORD</span><br><span class="line"><span class="comment"># → 记下最后一行的 &quot;sort&quot;:[n]</span></span><br><span class="line">curl -s <span class="string">&quot;localhost:9200/big/_search&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> -d \</span><br><span class="line">  <span class="string">&#x27;&#123;&quot;size&quot;:10,&quot;sort&quot;:[&#123;&quot;n&quot;:&quot;asc&quot;&#125;],&quot;search_after&quot;:[14991]&#125;&#x27;</span> --user elastic:PASSWORD</span><br></pre></td></tr></table></figure>
-
-<p>观察点：from&#x3D;10001 被拒绝；search_after 用上页的 sort 值无缝续翻。判定标准：亲手触发 <code>Result window is too large</code> 并改用 search_after 绕过，理解「不是不能翻，是不能用 from 翻」。</p>
-<h3 id="2-3-避坑：search-after-的排序值陷阱"><a href="#2-3-避坑：search-after-的排序值陷阱" class="headerlink" title="2.3 避坑：search_after 的排序值陷阱"></a>2.3 避坑：search_after 的排序值陷阱</h3><table>
-<thead>
-<tr>
-<th>坑</th>
-<th>表现</th>
-<th>解法</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>排序值有并列</td>
-<td>重复&#x2F;漏条</td>
-<td>加唯一字段作 tie-breaker（如 <code>_id</code>）</td>
-</tr>
-<tr>
-<td>排序字段有 null</td>
-<td>排序不稳定</td>
-<td>用 <code>missing:_last</code> 固定空值位置</td>
-</tr>
-<tr>
-<td>索引时间戳排序</td>
-<td>翻页中途新数据插入</td>
-<td>search_after 能看见（这是特性）；需要冻结视图则用 scroll</td>
-</tr>
-<tr>
-<td>多字段复合排序</td>
-<td>遗漏某字段就乱序</td>
-<td>sort 数组里所有字段都要有值</td>
-</tr>
-</tbody></table>
-<p><strong>因果链</strong>：search_after 的正确性建立在「排序值能唯一定位一条记录」上——<strong>排序值并列时它只知道「比这个值大」，不知道「比这条记录靠后」</strong>，所以必须加唯一字段 tie-breaker。这个细节是面试官最爱追问的：「search_after 有重复数据怎么办？」</p>
-<h2 id="3-聚合：先局部后归并"><a href="#3-聚合：先局部后归并" class="headerlink" title="3. 聚合：先局部后归并"></a>3. 聚合：先局部后归并</h2><h3 id="3-1-聚合的两步模型"><a href="#3-1-聚合的两步模型" class="headerlink" title="3.1 聚合的两步模型"></a>3.1 聚合的两步模型</h3><p><strong>聚合 &#x3D; 每个分片先算局部结果（bucket&#x2F;metrics），协调节点再归并成全局结果</strong>——与搜索的「每片取 topN 再归并」是同一架构，但代价模型完全不同：</p>
-<table>
-<thead>
-<tr>
-<th>维度</th>
-<th>搜索</th>
-<th>聚合</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>分片结果</td>
-<td>每片 topN（量可控）</td>
-<td>每片全部 bucket（量&#x3D;基数）</td>
-</tr>
-<tr>
-<td>归并成本</td>
-<td>O(topN × 分片数)</td>
-<td>O(bucket 数 × 分片数)</td>
-</tr>
-<tr>
-<td>内存压力</td>
-<td>排序堆</td>
-<td><strong>bucket 全部驻留内存</strong></td>
-</tr>
-</tbody></table>
-<p><strong>聚合慢的真正原因：高基数聚合（如按 user_id 分桶）每个分片都要建几百万个 bucket 存内存，协调节点再合并——基数 × 分片数 &#x3D; 内存爆炸</strong>。这就是为什么「聚合上亿日志按 IP 分桶」会 OOM。</p>
-<h3 id="3-2-三招应对高基数聚合"><a href="#3-2-三招应对高基数聚合" class="headerlink" title="3.2 三招应对高基数聚合"></a>3.2 三招应对高基数聚合</h3><table>
-<thead>
-<tr>
-<th>手段</th>
-<th>机制</th>
-<th>适用</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><strong>近似聚合</strong>（cardinality）</td>
-<td>HyperLogLog，固定内存算基数</td>
-<td>只数「多少个」，不要明细</td>
-</tr>
-<tr>
-<td><strong>date_histogram</strong></td>
-<td>按时间分桶（桶数可控）</td>
-<td>日志趋势分析</td>
-</tr>
-<tr>
-<td><strong>前置预聚合</strong></td>
-<td>写入时把明细聚成汇总（rollup）</td>
-<td>上亿数据的固定报表</td>
-</tr>
-</tbody></table>
-<p><strong>因果链</strong>：<code>cardinality</code> 是近似值（误差 1% 左右）但内存恒定——<strong>HLL 用「丢了明细换固定内存」</strong>。做报表&#x2F;去重计数选它；要精确值或明细，只能 rollup 或分片预计算。<strong>面试答「聚合优化」的标准句式：「高基数聚合先问三个问题——能近似吗（cardinality）、能按时间降维吗（date_histogram）、能预计算吗（rollup）」</strong>。</p>
-<h3 id="3-3-动手验证：看聚合的执行与内存"><a href="#3-3-动手验证：看聚合的执行与内存" class="headerlink" title="3.3 动手验证：看聚合的执行与内存"></a>3.3 动手验证：看聚合的执行与内存</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 按标签聚合（低基数，快）</span></span><br><span class="line">curl -s <span class="string">&quot;localhost:9200/orders/_search&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> -d \</span><br><span class="line">  <span class="string">&#x27;&#123;&quot;size&quot;:0,&quot;aggs&quot;:&#123;&quot;by_tag&quot;:&#123;&quot;terms&quot;:&#123;&quot;field&quot;:&quot;tag.keyword&quot;,&quot;size&quot;:10&#125;&#125;&#125;&#125;&#x27;</span> --user elastic:PASSWORD</span><br><span class="line"></span><br><span class="line"><span class="comment"># 精确计数 vs 近似计数（对比 hits 和 errors 字段）</span></span><br><span class="line">curl -s <span class="string">&quot;localhost:9200/big/_search&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> -d \</span><br><span class="line">  <span class="string">&#x27;&#123;&quot;size&quot;:0,&quot;aggs&quot;:&#123;&quot;exact&quot;:&#123;&quot;cardinality&quot;:&#123;&quot;field&quot;:&quot;n&quot;&#125;&#125;&#125;&#125;&#x27;</span> --user elastic:PASSWORD</span><br><span class="line"></span><br><span class="line"><span class="comment"># 聚合慢时看节点堆内存（GC 指标）</span></span><br><span class="line">curl <span class="string">&quot;localhost:9200/_cat/nodes?v&amp;h=name,heap.percent,heap.max&quot;</span> --user elastic:PASSWORD</span><br></pre></td></tr></table></figure>
-
-<p>观察点：<code>cardinality</code> 返回的 <code>value</code> 与真实值可能有 ±1% 偏差（<code>HLL</code> 精度参数 <code>precision_threshold</code> 默认 3000）。判定标准：能解释「为什么聚合比搜索更容易打爆内存」，并说出近似聚合的代价（不精确）。</p>
-<h2 id="4-MySQL-与-ES-双写一致性：三种方案与最终兜底"><a href="#4-MySQL-与-ES-双写一致性：三种方案与最终兜底" class="headerlink" title="4. MySQL 与 ES 双写一致性：三种方案与最终兜底"></a>4. MySQL 与 ES 双写一致性：三种方案与最终兜底</h2><h3 id="4-1-为什么难：两个系统没有同一事务"><a href="#4-1-为什么难：两个系统没有同一事务" class="headerlink" title="4.1 为什么难：两个系统没有同一事务"></a>4.1 为什么难：两个系统没有同一事务</h3><p>MySQL 写成功、ES 写失败，数据就不一致了——<strong>根源是「跨系统无原子性」：MySQL 事务管不了 ES，ES 没有事务</strong>。所有方案的本质都是在回答同一个问题：<strong>怎么把「一次业务写」变成「两次可靠写」</strong>。</p>
-<h3 id="4-2-三种方案对比"><a href="#4-2-三种方案对比" class="headerlink" title="4.2 三种方案对比"></a>4.2 三种方案对比</h3><pre class="mermaid">flowchart LR
-    subgraph A["方案一：应用双写"]
-        App["业务应用"] -->|1. 写 MySQL| M1[(MySQL)]
-        App -->|2. 写 ES（可能失败）| E1[(ES)]
-    end
-    subgraph B["方案二：binlog 订阅（Canal）"]
-        M2[(MySQL)] -->|binlog| C2[Canal]
-        C2 -->|解析/转换| MQ2[(MQ)]
-        MQ2 --> W2[同步服务]
-        W2 --> E2[(ES)]
-    end
-    subgraph C["方案三：本地消息表"]
-        M3[(MySQL)] -->|同事务写消息表| T3[本地消息表]
-        T3 -->|定时扫/事务消息| MQ3[(MQ)]
-        MQ3 --> W3[同步服务]
-        W3 --> E3[(ES)]
-    end</pre>
-
-<table>
-<thead>
-<tr>
-<th>维度</th>
-<th>应用双写</th>
-<th>binlog 订阅（Canal）</th>
-<th>本地消息表</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>一致性时机</td>
-<td>实时（尽力而为）</td>
-<td>近实时（秒级延迟）</td>
-<td>近实时</td>
-</tr>
-<tr>
-<td>与业务解耦</td>
-<td>❌ 侵入业务代码</td>
-<td>✅ 完全解耦</td>
-<td>半解耦（要写消息表）</td>
-</tr>
-<tr>
-<td>对 MySQL 的感知</td>
-<td>无</td>
-<td>只认 binlog（支持 ROW 格式）</td>
-<td>无</td>
-</tr>
-<tr>
-<td>丢失风险</td>
-<td>应用崩溃即丢</td>
-<td>低（Canal 有 offset）</td>
-<td>低（消息表和业务同事务）</td>
-</tr>
-<tr>
-<td>改造量</td>
-<td>最小（但最脆弱）</td>
-<td>中等（Canal+MQ+同步服务）</td>
-<td>中等</td>
-</tr>
-<tr>
-<td>生产推荐</td>
-<td>小流量临时方案</td>
-<td><strong>主流方案</strong></td>
-<td>无 MQ 时的替代</td>
-</tr>
-</tbody></table>
-<p><strong>因果链</strong>：三种方案的演进逻辑是「把「双写」从业务代码里一步步挪出来」——双写侵入业务（方案一）→ 用 binlog 当「MySQL 的变化通知」（方案二，业务无感知）→ 用同事务消息表保证「消息不丢」（方案三，比 Canal 简单但要多写一张表）。<strong>方案二是生产主流：Canal 订阅 binlog → MQ 削峰 → 同步服务写 ES</strong>，延迟秒级、业务零侵入、Canal 挂了对主库无影响。</p>
-<h3 id="4-3-最终一致性兜底：对账与修复"><a href="#4-3-最终一致性兜底：对账与修复" class="headerlink" title="4.3 最终一致性兜底：对账与修复"></a>4.3 最终一致性兜底：对账与修复</h3><p>即使有 Canal，<strong>同步服务崩溃&#x2F;ES 集群故障仍会造成短暂不一致</strong>——所以生产必须加兜底层：</p>
-<table>
-<thead>
-<tr>
-<th>层</th>
-<th>手段</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>重试</td>
-<td>同步失败进重试队列，指数退避</td>
-<td>解决瞬时故障</td>
-</tr>
-<tr>
-<td>对账</td>
-<td>定时任务对比 MySQL 与 ES 数据量&#x2F;版本号</td>
-<td>发现长期不一致</td>
-</tr>
-<tr>
-<td>兜底</td>
-<td>每日全量重建索引（reindex）</td>
-<td>修复一切历史遗留</td>
-</tr>
-</tbody></table>
-<p><strong>因果链</strong>：同步方案保证「绝大多数时间一致」，对账任务保证「发现不一致」，全量重建保证「最终一定一致」——<strong>三层叠加才是完整的最终一致性</strong>。面试答双写问题，说出「Canal + 重试 + 对账 + 定期重建」四件套，比只说 Canal 高一个档次。</p>
-<h3 id="4-4-动手验证：体验「双写」的脆弱"><a href="#4-4-动手验证：体验「双写」的脆弱" class="headerlink" title="4.4 动手验证：体验「双写」的脆弱"></a>4.4 动手验证：体验「双写」的脆弱</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 模拟最朴素的双写失败（不用真实 MySQL，看思路）：</span></span><br><span class="line"><span class="comment"># 1. MySQL 事务已提交，2. ES 写入报错（先故意关掉 ES 的写入）</span></span><br><span class="line">curl -X PUT <span class="string">&quot;localhost:9200/orders/_settings&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> \</span><br><span class="line">  -d <span class="string">&#x27;&#123;&quot;index.blocks.write&quot;: true&#125;&#x27;</span> --user elastic:PASSWORD</span><br><span class="line"><span class="comment"># 业务代码里：DB 成功 → ES 报错（index.blocks.write 拒绝写入）→ 数据不一致</span></span><br><span class="line">curl -X POST <span class="string">&quot;localhost:9200/orders/_doc/1&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> \</span><br><span class="line">  -d <span class="string">&#x27;&#123;&quot;title&quot;:&quot;x&quot;&#125;&#x27;</span> --user elastic:PASSWORD   <span class="comment"># → blocked by [FORBIDDEN/12/index write]</span></span><br><span class="line"><span class="comment"># 解除写入阻塞</span></span><br><span class="line">curl -X PUT <span class="string">&quot;localhost:9200/orders/_settings&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> \</span><br><span class="line">  -d <span class="string">&#x27;&#123;&quot;index.blocks.write&quot;: false&#125;&#x27;</span> --user elastic:PASSWORD</span><br></pre></td></tr></table></figure>
-
-<p>观察点：ES 拒绝写入但业务侧 MySQL 已提交——<strong>「DB 成功、ES 失败」的现场，双写方案必须自己处理这种不一致</strong>（重试&#x2F;补偿&#x2F;消息队列）。判定标准：理解双写方案为何脆弱——<strong>两个系统任何一方抖动，都需要人工或兜底层收尾</strong>。</p>
-<h2 id="5-面试应答：查询优化四连问"><a href="#5-面试应答：查询优化四连问" class="headerlink" title="5. 面试应答：查询优化四连问"></a>5. 面试应答：查询优化四连问</h2><h3 id="5-1-完整话术"><a href="#5-1-完整话术" class="headerlink" title="5.1 完整话术"></a>5.1 完整话术</h3><table>
-<thead>
-<tr>
-<th>面试题</th>
-<th>回答要点</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>深度分页怎么做？</td>
-<td>from+size 只能前 1 万条（代价 O(from+size)×分片）；实时滚动用 search_after（记住排序值续翻）；全量导出用 scroll（快照游标）</td>
-</tr>
-<tr>
-<td>search_after 和 scroll 区别？</td>
-<td>search_after 重新查询（能看到新数据）、不能跳页；scroll 固定快照（数据冻结）、适合导出</td>
-</tr>
-<tr>
-<td>聚合慢怎么办？</td>
-<td>高基数&#x3D;内存爆炸；先问能近似吗（cardinality&#x2F;HLL）、能时间降维吗（date_histogram）、能预聚合吗（rollup）</td>
-</tr>
-<tr>
-<td>MySQL 与 ES 怎么同步？</td>
-<td>生产用 binlog 订阅（Canal→MQ→同步服务），加重试+对账+定期重建兜底；双写只适合小流量</td>
-</tr>
-</tbody></table>
-<h3 id="5-2-深挖：与-MySQL-分页-主从的对照（跨篇联动）"><a href="#5-2-深挖：与-MySQL-分页-主从的对照（跨篇联动）" class="headerlink" title="5.2 深挖：与 MySQL 分页&#x2F;主从的对照（跨篇联动）"></a>5.2 深挖：与 MySQL 分页&#x2F;主从的对照（跨篇联动）</h3><table>
-<thead>
-<tr>
-<th>维度</th>
-<th>MySQL</th>
-<th>ES</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>分页</td>
-<td>limit 深翻页要扫全表（<a href="/post/629ad3df.html">MySQL 索引原理与实战</a>）</td>
-<td>from+size 深翻页每片全量取（代价模型相同）</td>
-</tr>
-<tr>
-<td>大数据分页正解</td>
-<td>游标&#x2F;书签（where id &gt; last）</td>
-<td>search_after（排序值书签）</td>
-</tr>
-<tr>
-<td>异步同步</td>
-<td>主从 binlog 复制（<a href="/post/mysql-ha-2025.html">MySQL 高可用</a>）</td>
-<td>Canal 订阅 binlog 同步 ES</td>
-</tr>
-<tr>
-<td>一致性保障</td>
-<td>半同步&#x2F;GTID</td>
-<td>重试+对账+重建</td>
-</tr>
-</tbody></table>
-<p><strong>一句话：MySQL 深分页用「书签」绕开 LIMIT 扫描，ES 用 search_after 绕开 from+size——「记住上次的位置，而不是从头上重新数」是分页优化的共同思想</strong>；ES 的 Canal 同步本质上就是「把 MySQL 的 binlog 复制架构搬到了 ES 侧」。跨库答出这层对照，面试是明显的差异化加分。</p>
-<h2 id="6-总结"><a href="#6-总结" class="headerlink" title="6. 总结"></a>6. 总结</h2><h3 id="6-1-面试速答表"><a href="#6-1-面试速答表" class="headerlink" title="6.1 面试速答表"></a>6.1 面试速答表</h3><table>
-<thead>
-<tr>
-<th>面试题</th>
-<th>一句话答案</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>为什么 ES 分页限制 1 万条？</td>
-<td>深度分页代价 O(from+size)×分片数，每片白取全量再归并，干脆限制</td>
-</tr>
-<tr>
-<td>search_after 怎么用？</td>
-<td>用上页最后一条的排序值续翻，实时数据可见；排序加唯一字段 tie-breaker</td>
-</tr>
-<tr>
-<td>scroll 适合什么？</td>
-<td>全量导出&#x2F;批处理，固定快照游标，游标期间数据不可变</td>
-</tr>
-<tr>
-<td>聚合为什么慢？</td>
-<td>高基数 bucket 全驻内存，基数×分片数爆炸</td>
-</tr>
-<tr>
-<td>高基数聚合怎么办？</td>
-<td>cardinality 近似、date_histogram 降维、rollup 预聚合</td>
-</tr>
-<tr>
-<td>MySQL→ES 怎么同步？</td>
-<td>Canal 订阅 binlog → MQ → 同步服务；重试+对账+定期重建兜底</td>
-</tr>
-<tr>
-<td>双写方案为什么不好？</td>
-<td>业务侵入 + 两个系统无同一事务，任何一方失败都要手工收尾</td>
-</tr>
-</tbody></table>
-<h3 id="6-2-实战避坑表"><a href="#6-2-实战避坑表" class="headerlink" title="6.2 实战避坑表"></a>6.2 实战避坑表</h3><table>
-<thead>
-<tr>
-<th>症状</th>
-<th>原因</th>
-<th>处理</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>Result window is too large</code></td>
-<td>from+size 超 1 万</td>
-<td>改 search_after&#x2F;scroll，不要只调 max_result_window（治标不治本）</td>
-</tr>
-<tr>
-<td>search_after 翻页重复&#x2F;漏条</td>
-<td>排序值并列</td>
-<td>sort 加唯一字段 tie-breaker</td>
-</tr>
-<tr>
-<td>聚合 OOM</td>
-<td>高基数 bucket</td>
-<td>换 cardinality&#x2F;date_histogram&#x2F;rollup</td>
-</tr>
-<tr>
-<td>ES 数据少一条</td>
-<td>双写&#x2F;同步失败</td>
-<td>查重试队列；对账任务对比；必要时重建索引</td>
-</tr>
-<tr>
-<td>同步延迟大</td>
-<td>MQ 积压&#x2F;同步服务瓶颈</td>
-<td>监控消费 lag，扩同步服务并发</td>
-</tr>
-<tr>
-<td>Canal 挂了对主库的影响</td>
-<td>无（旁路解析 binlog）</td>
-<td>放心重启，offset 续传</td>
-</tr>
-</tbody></table>
-<h3 id="6-3-工具速查表"><a href="#6-3-工具速查表" class="headerlink" title="6.3 工具速查表"></a>6.3 工具速查表</h3><table>
-<thead>
-<tr>
-<th>工具&#x2F;API</th>
-<th>用途</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>max_result_window</code>（settings）</td>
-<td>分页窗口上限，生产不建议调大</td>
-</tr>
-<tr>
-<td><code>search_after</code> &#x2F; <code>scroll</code></td>
-<td>深翻页两件套（活视图&#x2F;快照）</td>
-</tr>
-<tr>
-<td><code>cardinality</code> &#x2F; <code>date_histogram</code></td>
-<td>聚合降内存两招</td>
-</tr>
-<tr>
-<td><code>_cat/nodes?v&amp;h=name,heap.percent</code></td>
-<td>聚合 OOM 前观察堆内存</td>
-</tr>
-<tr>
-<td>Canal（阿帕奇&#x2F;阿里）</td>
-<td>binlog 订阅，MySQL→ES 主流同步件</td>
-</tr>
-<tr>
-<td>对账任务 + 重建索引</td>
-<td>最终一致性兜底两层</td>
-</tr>
-</tbody></table>
-<h3 id="6-4-下一篇预告"><a href="#6-4-下一篇预告" class="headerlink" title="6.4 下一篇预告"></a>6.4 下一篇预告</h3><p>查询篇解决「怎么查得对」，下一篇《分布式事务：从 2PC 到 Seata》解决「怎么写得对」——<strong>MySQL 事务管不了 ES，同样管不了多个微服务</strong>：2PC 为什么是「协调者的单点赌博」、TCC 为什么是「业务三阶段」、Saga 为什么是「一条补偿链」，以及 Seata 的 AT 模式怎么用全局锁做到「业务无侵入」——分布式一致性的最后一块拼图。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
   <nav class="pagination">
-    <span class="page-number current">1</span><a class="page-number" href="/home/page/2/">2</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/21/">21</a><a class="extend next" rel="next" title="Next page" aria-label="Next page" href="/home/page/2/"><i class="fa fa-angle-right"></i></a>
+    <span class="page-number current">1</span><a class="page-number" href="/home/page/2/">2</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/22/">22</a><a class="extend next" rel="next" title="Next page" aria-label="Next page" href="/home/page/2/"><i class="fa fa-angle-right"></i></a>
   </nav>
 
 </div>
@@ -2376,14 +2306,14 @@
       <i class="fa fa-chart-line"></i>
     </span>
       <span>Word count total: </span>
-    <span title="Word count total">579k</span>
+    <span title="Word count total">595k</span>
   </span>
   <span class="post-meta-item">
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
       <span>Reading time total &asymp;</span>
-    <span title="Reading time total">35:04</span>
+    <span title="Reading time total">36:05</span>
   </span>
 </div>
   <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>

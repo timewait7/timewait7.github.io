@@ -176,7 +176,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">84</span>
+          <span class="site-state-item-count">86</span>
           <span class="site-state-item-name">posts</span>
         </a>
       </div>
@@ -187,7 +187,7 @@
       </div>
       <div class="site-state-item site-state-tags">
           <a href="/tags/">
-        <span class="site-state-item-count">127</span>
+        <span class="site-state-item-count">132</span>
         <span class="site-state-item-name">tags</span></a>
       </div>
   </nav>
@@ -231,6 +231,1715 @@
     </div>
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/a10bd761.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/a10bd761.html" class="post-title-link" itemprop="url">秒杀系统设计：从方法论到落地</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-08-12 22:30:00" itemprop="dateCreated datePublished" datetime="2026-08-12T22:30:00+08:00">2026-08-12</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E7%B3%BB%E7%BB%9F%E8%AE%BE%E8%AE%A1/" itemprop="url" rel="index"><span itemprop="name">系统设计</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>5.3k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>19 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <p><strong>秒杀是系统设计面试里「一题考全」的题目：限流、缓存、消息队列、分布式锁、分库分表、降级兜底，六个知识点在一道题里全部串联。</strong> 它考的不是「背方案」，而是「能不能把『瞬间高并发读 + 有限资源并发写』拆成可讨论的设计决策」——这正是 <a href="/post/53a2d197.html">《系统设计方法论》</a> 的解题框架在真实题目上的完整落地。本文按「需求拆解 → 整体架构 → 逐层设计 → 全链路走查 → 面试应答」组织，读完你能把一个秒杀方案从「听过」变成「能讲」。</p>
+<blockquote>
+<p>联动：本文复用 <a href="/post/bae4ff13.html">Redis 深度解析</a>（原子操作&#x2F;Lua&#x2F;缓存）、<a href="/post/mysql-ha-2025.html">MySQL 高可用与分库分表实战</a>（订单表拆分）、<a href="/post/rocketmq-2025.html">RocketMQ 原理与实践</a>（削峰）、<a href="/post/67126.html">设计模式</a>（策略&#x2F;责任链&#x2F;外观）的知识点，把它们串成一张系统级方案。</p>
+</blockquote>
+<h2 id="1-题目拆解：秒杀考的不是高并发，是「并发写」"><a href="#1-题目拆解：秒杀考的不是高并发，是「并发写」" class="headerlink" title="1. 题目拆解：秒杀考的不是高并发，是「并发写」"></a>1. 题目拆解：秒杀考的不是高并发，是「并发写」</h2><h3 id="1-1-需求澄清：面试从「问清数字」开始"><a href="#1-1-需求澄清：面试从「问清数字」开始" class="headerlink" title="1.1 需求澄清：面试从「问清数字」开始"></a>1.1 需求澄清：面试从「问清数字」开始</h3><p>面试官抛出「设计一个秒杀系统」后，<strong>第一件事不是画架构，是澄清需求</strong>——这是方法论篇第 1 节的「问题拆解」，也是区分「背方案」和「会设计」的第一步：</p>
+<table>
+<thead>
+<tr>
+<th>澄清项</th>
+<th>示例答案</th>
+<th>为什么必须问</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>规模</td>
+<td>100 万用户抢 1 万件商品，峰值 10 万 QPS</td>
+<td>决定要不要上 MQ、要不要分库</td>
+</tr>
+<tr>
+<td>商品数量</td>
+<td>1 个 SKU 还是多个</td>
+<td>决定热点是否集中</td>
+</tr>
+<tr>
+<td>一致性要求</td>
+<td>库存不能超卖，订单不能重复</td>
+<td>决定扣减方案</td>
+</tr>
+<tr>
+<td>时间窗口</td>
+<td>10 分钟还是 1 分钟</td>
+<td>决定削峰策略</td>
+</tr>
+<tr>
+<td>读多还是写多</td>
+<td>查商品 100 万次，下单 10 万次</td>
+<td>读可缓存，写是瓶颈</td>
+</tr>
+</tbody></table>
+<p><strong>一句话结论：秒杀 &#x3D; 海量读（可缓存解决）+ 集中写（必须原子化）+ 瞬时高峰（必须削峰）。</strong> 读是「工程问题」（缓存扛住即可），写是「正确性问题」（超卖就是 bug），峰是「容量问题」（QPS 超过阈值怎么办）。</p>
+<h3 id="1-2-瓶颈分析：先找唯一的并发写热点"><a href="#1-2-瓶颈分析：先找唯一的并发写热点" class="headerlink" title="1.2 瓶颈分析：先找唯一的并发写热点"></a>1.2 瓶颈分析：先找唯一的并发写热点</h3><p>秒杀系统的数据流只有两类：</p>
+<pre class="mermaid">flowchart TD
+    U["100 万用户"] -->|"读商品信息&lt;br/>读操作，可缓存"| R["Redis 缓存&lt;br/>扛住 99% 读"]
+    U -->|"下单扣库存&lt;br/>写操作，必须准确"| W["库存扣减&lt;br/>唯一热点"]
+    W -->|"扣减必须原子"| R2["Redis + Lua"]
+    R2 -->|"异步落库"| MQ["消息队列&lt;br/>削峰"]
+    MQ --> DB["MySQL&lt;br/>订单表"]</pre>
+
+<p><strong>因果链</strong>：读请求打到数据库会被缓存拦截（Redis 缓存商品信息，读 QPS 与 DB 无关）；真正的热点只剩一个——<strong>库存扣减</strong>。设计重点全部集中在这里：扣减要原子（防超卖）、要快（Redis 而不是 DB）、要异步（落库不阻塞用户）。<strong>「先找热点，再设计」是系统设计的第一原则</strong>——不找热点就画架构图，方案必然泛泛。</p>
+<h3 id="1-3-设计决策总表：每层解决什么"><a href="#1-3-设计决策总表：每层解决什么" class="headerlink" title="1.3 设计决策总表：每层解决什么"></a>1.3 设计决策总表：每层解决什么</h3><table>
+<thead>
+<tr>
+<th>层</th>
+<th>解决什么</th>
+<th>核心手段</th>
+<th>关联知识点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>前端</td>
+<td>拦截无效流量</td>
+<td>按钮置灰、倒计时、静态化</td>
+<td>—</td>
+</tr>
+<tr>
+<td>网关</td>
+<td>限流</td>
+<td>令牌桶&#x2F;漏桶</td>
+<td>方法论 §4</td>
+</tr>
+<tr>
+<td>应用层</td>
+<td>扣减原子性</td>
+<td>Redis + Lua</td>
+<td>Redis 深度解析 §8</td>
+</tr>
+<tr>
+<td>缓存层</td>
+<td>扛读峰值</td>
+<td>商品缓存、热点 key 拆分</td>
+<td>Redis 深度解析 §12</td>
+</tr>
+<tr>
+<td>MQ</td>
+<td>削峰</td>
+<td>异步下单、排队</td>
+<td>RocketMQ 篇</td>
+</tr>
+<tr>
+<td>DB</td>
+<td>最终落库</td>
+<td>分库分表、唯一索引防重</td>
+<td>分库分表篇 §4</td>
+</tr>
+</tbody></table>
+<h2 id="2-整体架构：分层职责图"><a href="#2-整体架构：分层职责图" class="headerlink" title="2. 整体架构：分层职责图"></a>2. 整体架构：分层职责图</h2><h3 id="2-1-五层架构总览"><a href="#2-1-五层架构总览" class="headerlink" title="2.1 五层架构总览"></a>2.1 五层架构总览</h3><pre class="mermaid">flowchart LR
+    A["浏览器/App&lt;br/>倒计时+按钮置灰"] --> B["CDN + 静态页&lt;br/>商品详情静态化"]
+    B --> C["接入层网关&lt;br/>令牌桶限流+黑名单"]
+    C --> D["秒杀应用&lt;br/>① 查缓存（商品信息）&lt;br/>② Lua 原子扣库存&lt;br/>③ 发下单 MQ"]
+    D --> E["Redis&lt;br/>库存+限流+防重"]
+    D --> F["RocketMQ&lt;br/>下单队列"]
+    F --> G["订单消费者&lt;br/>落库+对账"]
+    G --> H["MySQL&lt;br/>订单表（分库分表）"]</pre>
+
+<p><strong>每一层只做一件事，任何一层被打爆都不影响其他层</strong>：网关限流保证应用不被打爆，Redis 扣减保证库存准确，MQ 排队保证 DB 不被瞬时打爆。<strong>这就是方法论篇「高可用设计：用冗余换可靠性」在秒杀场景的实例化</strong>——每层都有兜底，任何单点故障只是「少卖」而不是「卖错」。</p>
+<h3 id="2-2-与普通下单的区别：读路径与写路径分离"><a href="#2-2-与普通下单的区别：读路径与写路径分离" class="headerlink" title="2.2 与普通下单的区别：读路径与写路径分离"></a>2.2 与普通下单的区别：读路径与写路径分离</h3><table>
+<thead>
+<tr>
+<th>环节</th>
+<th>普通下单</th>
+<th>秒杀下单</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>商品信息读取</td>
+<td>每次查 DB（或缓存）</td>
+<td>缓存 + 静态页，读路径 99% 不到应用层</td>
+</tr>
+<tr>
+<td>库存检查</td>
+<td>查 DB 行</td>
+<td>Redis 原子预扣</td>
+</tr>
+<tr>
+<td>下单</td>
+<td>同步写 DB</td>
+<td>MQ 异步写，用户先看到「排队中」</td>
+</tr>
+<tr>
+<td>失败处理</td>
+<td>直接返回失败</td>
+<td>排队后异步通知成功&#x2F;失败</td>
+</tr>
+</tbody></table>
+<p><strong>因果链</strong>：普通下单是「一次事务」——检查库存、扣减、下单在一个事务里保证一致性；秒杀把这个事务拆成了「<strong>先占坑（Redis 预扣）→ 后处理（异步落库）</strong>」两段，用「最终一致性」换「扛住峰值」。<strong>面试必被追问：「预扣了库存但后面落库失败怎么办？」——答案是对账：定时任务比对 Redis 预扣数与 DB 订单数，差额回补库存。</strong> 这是「两段式设计」的代价，必须主动说出来。</p>
+<h2 id="3-限流：把流量挡在应用之外"><a href="#3-限流：把流量挡在应用之外" class="headerlink" title="3. 限流：把流量挡在应用之外"></a>3. 限流：把流量挡在应用之外</h2><h3 id="3-1-四种限流算法对比"><a href="#3-1-四种限流算法对比" class="headerlink" title="3.1 四种限流算法对比"></a>3.1 四种限流算法对比</h3><table>
+<thead>
+<tr>
+<th>算法</th>
+<th>原理</th>
+<th>优点</th>
+<th>缺点</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>固定窗口</td>
+<td>每秒计数，超限拒绝</td>
+<td>实现简单</td>
+<td>窗口边界突发（59 秒和 01 秒各 100 次可绕过）</td>
+<td>粗略限流</td>
+</tr>
+<tr>
+<td>滑动窗口</td>
+<td>记录每个请求时间戳，统计窗口内请求数</td>
+<td>消除边界问题</td>
+<td>内存开销随 QPS 增</td>
+<td>网关</td>
+</tr>
+<tr>
+<td>漏桶</td>
+<td>请求进桶，固定速率流出</td>
+<td>流量绝对平滑</td>
+<td>突发流量被削平，延迟增大</td>
+<td>保护下游</td>
+</tr>
+<tr>
+<td>令牌桶</td>
+<td>令牌按速率生成，请求取令牌</td>
+<td>允许一定突发（桶容量）</td>
+<td>桶容量需调</td>
+<td>秒杀（允许瞬间放量）</td>
+</tr>
+</tbody></table>
+<p><strong>秒杀选令牌桶</strong>：秒杀的特点是「开闸瞬间所有用户同时涌来」——固定窗口和漏桶会直接杀掉大部分请求，令牌桶允许桶内突发（比如桶容量 1 万），让「前 1 万个请求快速通过，后续平滑」——<strong>既保护系统，又保证有能力的用户进得来</strong>。</p>
+<h3 id="3-2-网关限流-应用限流双层"><a href="#3-2-网关限流-应用限流双层" class="headerlink" title="3.2 网关限流 + 应用限流双层"></a>3.2 网关限流 + 应用限流双层</h3><pre class="mermaid">flowchart LR
+    U["100 万请求"] --> G["网关层（Nginx/网关）&lt;br/>令牌桶：总量 10 万 QPS"]
+    G -->|"通过 ~10 万"| A["应用层&lt;br/>Redis 分布式限流：每秒 5 万"]
+    G -->|"拒绝 90 万&lt;br/>返回"排队失败""| R["快速失败"]
+    A -->|"拒绝超额"| R2["提示"手慢了""]
+    A -->|"通过"| S["进入扣库存"]</pre>
+
+<ul>
+<li><strong>网关限流</strong>：无状态、靠内存令牌桶，挡掉 90% 流量——<strong>这是性价比最高的一道闸</strong>，Nginx 单机可扛百万级连接；</li>
+<li><strong>应用限流</strong>：多实例部署时内存令牌桶各算各的，必须用 Redis 分布式限流（Lua 脚本保证原子）——<strong>单机限流 × N 实例 &#x3D; 总限流 × N，这是面试必问的「限流在分布式下怎么保证总量」</strong>。</li>
+</ul>
+<h3 id="3-3-动手验证：手写令牌桶"><a href="#3-3-动手验证：手写令牌桶" class="headerlink" title="3.3 动手验证：手写令牌桶"></a>3.3 动手验证：手写令牌桶</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">TokenBucket</span> &#123;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> <span class="type">int</span> capacity;                    <span class="comment">// 桶容量：允许的瞬时突发</span></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> <span class="type">double</span> rate;                     <span class="comment">// 令牌速率：每秒补充</span></span><br><span class="line">    <span class="keyword">private</span> <span class="type">double</span> tokens;</span><br><span class="line">    <span class="keyword">private</span> <span class="type">long</span> <span class="variable">lastRefill</span> <span class="operator">=</span> System.currentTimeMillis();</span><br><span class="line">    <span class="keyword">public</span> <span class="title function_">TokenBucket</span><span class="params">(<span class="type">int</span> capacity, <span class="type">double</span> rate)</span> &#123; <span class="built_in">this</span>.capacity = capacity; <span class="built_in">this</span>.rate = rate; &#125;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">synchronized</span> <span class="type">boolean</span> <span class="title function_">tryAcquire</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="type">long</span> <span class="variable">now</span> <span class="operator">=</span> System.currentTimeMillis();</span><br><span class="line">        tokens = Math.min(capacity, tokens + (now - lastRefill) / <span class="number">1000.0</span> * rate);  <span class="comment">// 按时间补充</span></span><br><span class="line">        lastRefill = now;</span><br><span class="line">        <span class="keyword">if</span> (tokens &gt;= <span class="number">1</span>) &#123; tokens -= <span class="number">1</span>; <span class="keyword">return</span> <span class="literal">true</span>; &#125;</span><br><span class="line">        <span class="keyword">return</span> <span class="literal">false</span>;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>观察点：容量 10、速率 5 的桶——瞬间来 20 个请求，前 10 个通过，之后按每秒 5 个放行。判定标准：跑出「突发 10 + 匀速 5&#x2F;s」的通过曲线，即理解令牌桶与漏桶的本质区别（<strong>允许突发 vs 强制平滑</strong>）。</p>
+<h3 id="3-4-深挖：限流与降级的联动"><a href="#3-4-深挖：限流与降级的联动" class="headerlink" title="3.4 深挖：限流与降级的联动"></a>3.4 深挖：限流与降级的联动</h3><p><strong>限流是「预先划定的容量」，降级是「故障时的保底」</strong>——两者必须联动：当限流指标（拒绝率）超过阈值，说明系统真被打到了，触发降级——<strong>关闭非核心功能（购物车、推荐位），把资源全部让给下单链路</strong>。<strong>因果链</strong>：秒杀开场瞬间，任何非核心请求都是对核心链路的伤害，降级是「主动选择服务哪些流量」——方法论篇 §5「熔断与降级：故障下的体验保障」在秒杀里是必选项而不是可选项。</p>
+<h2 id="4-防超卖：库存扣减的原子性"><a href="#4-防超卖：库存扣减的原子性" class="headerlink" title="4. 防超卖：库存扣减的原子性"></a>4. 防超卖：库存扣减的原子性</h2><h3 id="4-1-超卖的本质：检查与扣减不是原子操作"><a href="#4-1-超卖的本质：检查与扣减不是原子操作" class="headerlink" title="4.1 超卖的本质：检查与扣减不是原子操作"></a>4.1 超卖的本质：检查与扣减不是原子操作</h3><p>超卖的根因永远是同一个：<strong>「先查库存 &gt;0，再扣减」这两步之间，另一个请求插队了</strong>。</p>
+<pre class="mermaid">sequenceDiagram
+    participant A as 请求 A
+    participant B as 请求 B
+    participant S as 库存
+    A->>S: 查询库存 = 1
+    B->>S: 查询库存 = 1
+    A->>S: 扣减 → 0
+    B->>S: 扣减 → -1  ← 超卖！</pre>
+
+<p>三种方案对比：</p>
+<table>
+<thead>
+<tr>
+<th>方案</th>
+<th>做法</th>
+<th>问题</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>DB 悲观锁</td>
+<td><code>SELECT ... FOR UPDATE</code></td>
+<td>锁行导致 QPS 上不去（所有扣减串行化）</td>
+</tr>
+<tr>
+<td>DB 乐观锁</td>
+<td><code>UPDATE stock SET n=n-1 WHERE n&gt;0</code></td>
+<td>每次更新一次 DB 往返，10 万 QPS 打不穿</td>
+</tr>
+<tr>
+<td><strong>Redis + Lua</strong></td>
+<td>Lua 脚本内原子检查+扣减</td>
+<td><strong>单线程执行天然原子，10 万 QPS 无压力</strong></td>
+</tr>
+</tbody></table>
+<p><strong>Redis 单线程执行命令是原子性的核心</strong>——Lua 脚本在 Redis 里整段执行，中间不可能被其他命令插队，等于把「检查 + 扣减」变成了一个不可分割的操作。这就是秒杀选 Redis 扣库存的根本原因：<strong>不是 Redis 快，是 Redis 单线程给了我们免费的原子性</strong>。</p>
+<h3 id="4-2-Lua-扣库存脚本：秒杀核心代码"><a href="#4-2-Lua-扣库存脚本：秒杀核心代码" class="headerlink" title="4.2 Lua 扣库存脚本：秒杀核心代码"></a>4.2 Lua 扣库存脚本：秒杀核心代码</h3><figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 扣库存：库存够则扣减返回 1，不够返回 0（防超卖）</span></span><br><span class="line"><span class="comment">-- KEYS[1] = 库存 key，ARGV[1] = 扣减数量</span></span><br><span class="line"><span class="keyword">local</span> stock = <span class="built_in">tonumber</span>(redis.call(<span class="string">&#x27;GET&#x27;</span>, KEYS[<span class="number">1</span>]))</span><br><span class="line"><span class="keyword">if</span> stock == <span class="literal">nil</span> <span class="keyword">then</span> <span class="keyword">return</span> <span class="number">-1</span> <span class="keyword">end</span>          <span class="comment">-- key 不存在（未初始化）</span></span><br><span class="line"><span class="keyword">if</span> stock &gt;= <span class="built_in">tonumber</span>(ARGV[<span class="number">1</span>]) <span class="keyword">then</span></span><br><span class="line">    redis.call(<span class="string">&#x27;DECRBY&#x27;</span>, KEYS[<span class="number">1</span>], ARGV[<span class="number">1</span>])</span><br><span class="line">    <span class="keyword">return</span> <span class="number">1</span>                                <span class="comment">-- 扣减成功</span></span><br><span class="line"><span class="keyword">end</span></span><br><span class="line"><span class="keyword">return</span> <span class="number">0</span>                                    <span class="comment">-- 库存不足</span></span><br></pre></td></tr></table></figure>
+
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// Spring 侧调用</span></span><br><span class="line"><span class="keyword">public</span> <span class="type">boolean</span> <span class="title function_">deductStock</span><span class="params">(String key, <span class="type">int</span> count)</span> &#123;</span><br><span class="line">    DefaultRedisScript&lt;Long&gt; script = <span class="keyword">new</span> <span class="title class_">DefaultRedisScript</span>&lt;&gt;(LUA_SCRIPT, Long.class);</span><br><span class="line">    <span class="type">Long</span> <span class="variable">result</span> <span class="operator">=</span> redisTemplate.execute(script, List.of(key), count);</span><br><span class="line">    <span class="keyword">return</span> result != <span class="literal">null</span> &amp;&amp; result == <span class="number">1L</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h3 id="4-3-防重：同一用户不能下两单"><a href="#4-3-防重：同一用户不能下两单" class="headerlink" title="4.3 防重：同一用户不能下两单"></a>4.3 防重：同一用户不能下两单</h3><p>扣库存之外，还要防「一个用户抢到两件」：</p>
+<ul>
+<li><strong>Redis SETNX 用户级防重</strong>：<code>SETNX order:uid:&#123;userId&#125; 1</code>，抢到锁的用户才能进入下单流程，流程结束 DEL；</li>
+<li><strong>DB 唯一索引兜底</strong>：<code>user_id + goods_id</code> 建唯一索引——即使 Redis 层被绕过，DB 层也能挡掉重复单。<strong>两层防重：Redis 挡 99.9%，唯一索引兜 0.1%，这就是「多层防御」的典型用法。</strong></li>
+</ul>
+<h3 id="4-4-动手验证：并发扣库存压测"><a href="#4-4-动手验证：并发扣库存压测" class="headerlink" title="4.4 动手验证：并发扣库存压测"></a>4.4 动手验证：并发扣库存压测</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 用 redis-benchmark 或 jmeter 并发 100 线程各扣 1 次，库存 50</span></span><br><span class="line"><span class="comment"># 预期：恰好 50 次成功，50 次失败，库存归零，无负数</span></span><br><span class="line">redis-cli SET stock:sku1 50</span><br><span class="line"><span class="comment"># 并发扣减后检查：</span></span><br><span class="line">redis-cli GET stock:sku1   <span class="comment"># 必须是 0，绝不能是负数</span></span><br></pre></td></tr></table></figure>
+
+<p>观察点：任何一次并发下出现负数，说明扣减代码不是原子的。判定标准：库存恰好归零 + 成功次数恰好等于初始库存——<strong>这就是「不超卖」的可验证定义</strong>。</p>
+<h2 id="5-削峰：MQ-排队，把瞬时流量拉平"><a href="#5-削峰：MQ-排队，把瞬时流量拉平" class="headerlink" title="5. 削峰：MQ 排队，把瞬时流量拉平"></a>5. 削峰：MQ 排队，把瞬时流量拉平</h2><h3 id="5-1-为什么要-MQ：DB-的写入能力是硬上限"><a href="#5-1-为什么要-MQ：DB-的写入能力是硬上限" class="headerlink" title="5.1 为什么要 MQ：DB 的写入能力是硬上限"></a>5.1 为什么要 MQ：DB 的写入能力是硬上限</h3><table>
+<thead>
+<tr>
+<th>环节</th>
+<th>峰值吞吐</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Redis 扣库存</td>
+<td>10 万 QPS</td>
+<td>内存操作，单线程也扛得住</td>
+</tr>
+<tr>
+<td>MQ 写入</td>
+<td>数万 TPS</td>
+<td>顺序写磁盘，远高于 DB 随机写</td>
+</tr>
+<tr>
+<td>MySQL 订单插入</td>
+<td>数千 TPS</td>
+<td>单库 B+ 树随机写是硬瓶颈</td>
+</tr>
+</tbody></table>
+<p><strong>因果链</strong>：Redis 扣库存成功后，如果把「生成订单」同步做（写 MySQL），DB 会被瞬时 10 万 QPS 打爆——所以扣完库存<strong>只发一条 MQ 消息就返回「排队中」</strong>，订单消费者按自己能力（数千 TPS）慢慢落库。<strong>用户感知从「下单成功」变成「排队中」，这是秒杀体验设计的核心取舍：把瞬时负载平摊到秒级甚至分钟级。</strong></p>
+<h3 id="5-2-消息丢失与重复：削峰方案的必答延伸"><a href="#5-2-消息丢失与重复：削峰方案的必答延伸" class="headerlink" title="5.2 消息丢失与重复：削峰方案的必答延伸"></a>5.2 消息丢失与重复：削峰方案的必答延伸</h3><p>面试官必追：「MQ 消息丢了怎么办？重复消费怎么办？」——<strong>削峰方案的价值建立在 MQ 可靠性的三条承诺上</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>风险</th>
+<th>方案</th>
+<th>机制出处</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>生产端丢失</td>
+<td>同步发送 + 重试</td>
+<td>RocketMQ 同步发送</td>
+</tr>
+<tr>
+<td>MQ 端丢失</td>
+<td>集群 + 主从同步 + 刷盘策略</td>
+<td>RocketMQ 高可用篇</td>
+</tr>
+<tr>
+<td>消费端重复</td>
+<td>幂等（唯一索引 + 状态机）</td>
+<td>§4.3 的 DB 唯一索引兜底</td>
+</tr>
+</tbody></table>
+<p><strong>因果链</strong>：防超卖和防重复是同一件事的两面——扣库存用 Redis 原子保证「卖不多」，落库用唯一索引保证「不重复」。<strong>面试答到这里，方案就从「背出来的」变成「能闭环的」</strong>：每个环节的失败都有对策，这正是方法论「可讨论的设计决策」的要求。</p>
+<h3 id="5-3-排队-vs-拒绝：什么时候削峰，什么时候直接拒"><a href="#5-3-排队-vs-拒绝：什么时候削峰，什么时候直接拒" class="headerlink" title="5.3 排队 vs 拒绝：什么时候削峰，什么时候直接拒"></a>5.3 排队 vs 拒绝：什么时候削峰，什么时候直接拒</h3><table>
+<thead>
+<tr>
+<th>策略</th>
+<th>做法</th>
+<th>代价</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>削峰（MQ 排队）</td>
+<td>超量请求进队列，异步处理</td>
+<td>用户体验变差（等待）</td>
+<td>秒杀（1 万件商品值得排队）</td>
+</tr>
+<tr>
+<td>直接拒绝</td>
+<td>超量请求返回失败</td>
+<td>简单直接</td>
+<td>限量活动（100 件商品，排队没意义）</td>
+</tr>
+</tbody></table>
+<p><strong>判断标准：排队队列的长度要可控</strong>——1 万件商品配 10 万请求，排队有意义；100 件商品配 10 万请求，排队只会让 99.99% 的用户等一个注定失败的结果，直接拒绝更合理。<strong>设计决策没有标准答案，只有「代价与收益匹配」</strong>。</p>
+<h2 id="6-缓存与热点：让-99-的读请求到不了应用"><a href="#6-缓存与热点：让-99-的读请求到不了应用" class="headerlink" title="6. 缓存与热点：让 99% 的读请求到不了应用"></a>6. 缓存与热点：让 99% 的读请求到不了应用</h2><h3 id="6-1-缓存层级：静态页-→-CDN-→-Redis"><a href="#6-1-缓存层级：静态页-→-CDN-→-Redis" class="headerlink" title="6.1 缓存层级：静态页 → CDN → Redis"></a>6.1 缓存层级：静态页 → CDN → Redis</h3><pre class="mermaid">flowchart LR
+    U["用户"] --> S["静态页（商品详情纯静态化）&lt;br/>请求不到后端"]
+    U --> C["CDN（边缘节点）"]
+    C --> R["Redis（商品信息缓存）"]
+    R --> A["应用"]</pre>
+
+<ul>
+<li>商品详情页秒杀前完全静态化，部署到 CDN——<strong>这部分流量和你的后端毫无关系</strong>；</li>
+<li>秒杀页面的动态数据（库存数字、倒计时）走 Redis；</li>
+<li>应用层查询全部命中缓存，DB 只承担「订单落库」。</li>
+</ul>
+<h3 id="6-2-热点-key：缓存击穿的防护"><a href="#6-2-热点-key：缓存击穿的防护" class="headerlink" title="6.2 热点 key：缓存击穿的防护"></a>6.2 热点 key：缓存击穿的防护</h3><p>秒杀就 1 个 SKU，**所有用户查同一个 key <code>sku:1001</code>**——这就是热点 key 的极端形态：</p>
+<table>
+<thead>
+<tr>
+<th>风险</th>
+<th>场景</th>
+<th>方案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>击穿</td>
+<td>缓存过期瞬间，请求全打 DB</td>
+<td>互斥锁重建缓存（只让一个线程回源）</td>
+</tr>
+<tr>
+<td>打爆</td>
+<td>单 key 承载全部读流量</td>
+<td>热点 key 复制（<code>sku:1001:0</code>~&#96;sku:1001:9&#96; 十个副本，请求分散）</td>
+</tr>
+<tr>
+<td>雪崩</td>
+<td>大量 key 同时过期</td>
+<td>过期时间加随机值</td>
+</tr>
+</tbody></table>
+<p><strong>因果链</strong>：秒杀是「单一热点」的最坏情况——所有读流量打同一个 key，这个 key 就是整个系统的单点。<strong>热点 key 复制（读副本）把单 key 变 10 个 key，Redis 集群里分散到不同分片，每个分片只扛 1&#x2F;10 流量</strong>——Redis 深度解析里 HotKey 治理在秒杀场景是「开闸瞬间」的生存问题，不是优化问题。</p>
+<h3 id="6-3-库存数字的展示与真实扣减分离"><a href="#6-3-库存数字的展示与真实扣减分离" class="headerlink" title="6.3 库存数字的展示与真实扣减分离"></a>6.3 库存数字的展示与真实扣减分离</h3><p><strong>展示层库存（Redis 直接读，可 1 秒更新一次）≠ 扣减库存（Lua 原子操作）</strong>——用户看到「还有 300 件」只是展示数字，实际扣减永远走 Lua。<strong>两个 key 分离，展示挂了不影响扣减，这是「读路径与写路径分离」的第二个实例</strong>（第一个是 §2.2）。</p>
+<h2 id="7-全链路走查：一个用户从点击到收货"><a href="#7-全链路走查：一个用户从点击到收货" class="headerlink" title="7. 全链路走查：一个用户从点击到收货"></a>7. 全链路走查：一个用户从点击到收货</h2><h3 id="7-1-时序图：成功路径"><a href="#7-1-时序图：成功路径" class="headerlink" title="7.1 时序图：成功路径"></a>7.1 时序图：成功路径</h3><pre class="mermaid">sequenceDiagram
+    participant U as 用户
+    participant G as 网关
+    participant A as 秒杀应用
+    participant R as Redis
+    participant M as RocketMQ
+    participant D as 订单消费者
+    participant DB as MySQL
+    U->>G: 1. 点「立即抢购」
+    G->>G: 2. 令牌桶限流（总量）
+    G->>A: 3. 通过（或返回「手慢了」）
+    A->>R: 4. SETNX 用户防重
+    R-->>A: 5. 未抢过 → 放行
+    A->>R: 6. Lua 原子扣库存
+    R-->>A: 7. 成功
+    A->>M: 8. 发下单消息
+    A-->>U: 9. 返回「排队中」
+    M->>D: 10. 消费订单消息
+    D->>DB: 11. 插入订单（唯一索引兜底）
+    D->>DB: 12. 成功后回写状态</pre>
+
+<p><strong>每一步失败的兜底</strong>：3 失败 → 用户看到「手慢了」（快速失败，不占资源）；5 失败 → 「已抢过」；7 失败 → 「已售罄」；11 失败（重复订单被唯一索引拦）→ 静默跳过并回补 Redis 库存。</p>
+<h3 id="7-2-对账：预扣与落库的差额回收"><a href="#7-2-对账：预扣与落库的差额回收" class="headerlink" title="7.2 对账：预扣与落库的差额回收"></a>7.2 对账：预扣与落库的差额回收</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">定时任务（每 5 分钟）：</span><br><span class="line">  Redis 预扣数（DECRBY 累计） vs MySQL 订单数</span><br><span class="line">  差额 &gt; 0 → 有预扣未落库（消息丢失/落库失败）→ 回补 Redis 库存 + 告警</span><br></pre></td></tr></table></figure>
+
+<p><strong>这是「先占坑后处理」方案的安全网</strong>——§2.2 的承诺在这里兑现：最终一致性不是靠运气，是靠对账任务兜底。</p>
+<h2 id="8-面试应答：从方法论到方案的完整话术"><a href="#8-面试应答：从方法论到方案的完整话术" class="headerlink" title="8. 面试应答：从方法论到方案的完整话术"></a>8. 面试应答：从方法论到方案的完整话术</h2><h3 id="8-1-五段式答题结构（对应用方法论篇框架）"><a href="#8-1-五段式答题结构（对应用方法论篇框架）" class="headerlink" title="8.1 五段式答题结构（对应用方法论篇框架）"></a>8.1 五段式答题结构（对应用方法论篇框架）</h3><table>
+<thead>
+<tr>
+<th>段</th>
+<th>内容</th>
+<th>方法论对应</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1. 澄清</td>
+<td>问规模、SKU 数、一致性要求（§1.1）</td>
+<td>问题拆解</td>
+</tr>
+<tr>
+<td>2. 找热点</td>
+<td>读可缓存，扣减是唯一并发写热点（§1.2）</td>
+<td>全链路找瓶颈</td>
+</tr>
+<tr>
+<td>3. 方案</td>
+<td>限流（令牌桶）→ 缓存（静态页&#x2F;CDN）→ 防超卖（Lua）→ 削峰（MQ）→ 落库（唯一索引）</td>
+<td>高性能设计</td>
+</tr>
+<tr>
+<td>4. 兜底</td>
+<td>降级（关非核心）、对账（差额回收）、熔断（Redis 挂了降级为纯 DB 卖）</td>
+<td>高可用设计</td>
+</tr>
+<tr>
+<td>5. 权衡</td>
+<td>同步 vs 异步的体验代价、排队 vs 拒绝</td>
+<td>每个选型的代价</td>
+</tr>
+</tbody></table>
+<h3 id="8-2-必被追问的五个深挖题"><a href="#8-2-必被追问的五个深挖题" class="headerlink" title="8.2 必被追问的五个深挖题"></a>8.2 必被追问的五个深挖题</h3><table>
+<thead>
+<tr>
+<th>追问</th>
+<th>答案要点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Redis 挂了怎么办？</td>
+<td>降级：Redis 预扣不可用时直接走 DB 乐观锁扣减（<code>UPDATE WHERE n&gt;0</code>），QPS 掉到千级但正确性保住——<strong>降级预案必须写在方案里</strong></td>
+</tr>
+<tr>
+<td>库存和订单不一致？</td>
+<td>对账任务：Redis 预扣数 vs DB 订单数，差额回补 + 告警（§7.2）</td>
+</tr>
+<tr>
+<td>怎么防止重复下单？</td>
+<td>三层：Redis SETNX 防重 → DB 唯一索引 → 消费者幂等</td>
+</tr>
+<tr>
+<td>MQ 消息丢了？</td>
+<td>同步发送 + 重试 + 集群，落库失败对账兜底（§5.2）</td>
+</tr>
+<tr>
+<td>为什么不用数据库扣？</td>
+<td>锁竞争是硬上限：悲观锁串行化，乐观锁每单一次 DB 往返——Redis 单线程原子性是免费的</td>
+</tr>
+<tr>
+<td>秒杀前预加载库存到 Redis？</td>
+<td>活动开始前 1 小时把库存 SET 进 Redis，活动结束清理——Redis 数据与 DB 库存的一致性靠活动编排保证</td>
+</tr>
+</tbody></table>
+<h3 id="8-3-和普通购物车系统的区别一句话版"><a href="#8-3-和普通购物车系统的区别一句话版" class="headerlink" title="8.3 和普通购物车系统的区别一句话版"></a>8.3 和普通购物车系统的区别一句话版</h3><p>「购物车系统是读多写少、一致性要求一般；秒杀是<strong>读多写少但写极度集中且要求严格一致</strong>——所以缓存要扛读、Lua 要保写原子、MQ 要削峰、对账要兜底，每一层都是为『1 个 SKU 的库存正确性』服务。」</p>
+<h2 id="9-总结"><a href="#9-总结" class="headerlink" title="9. 总结"></a>9. 总结</h2><h3 id="9-1-面试速答表"><a href="#9-1-面试速答表" class="headerlink" title="9.1 面试速答表"></a>9.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>秒杀系统的核心难点？</td>
+<td>海量读（缓存解决）+ 集中写（原子化解决）+ 瞬时峰（削峰解决）</td>
+</tr>
+<tr>
+<td>怎么防超卖？</td>
+<td>Redis + Lua 原子扣减：单线程执行保证「检查+扣减」不可分割</td>
+</tr>
+<tr>
+<td>为什么用 Redis 不用 DB？</td>
+<td>DB 锁竞争是硬上限；Redis 单线程给免费原子性，10 万 QPS 无压力</td>
+</tr>
+<tr>
+<td>限流选什么算法？</td>
+<td>令牌桶：允许开闸瞬间的桶内突发，又不让系统被打爆</td>
+</tr>
+<tr>
+<td>分布式限流怎么保证总量？</td>
+<td>Redis 分布式限流（Lua 原子），单机内存限流乘 N 会超</td>
+</tr>
+<tr>
+<td>用户重复下单？</td>
+<td>Redis SETNX 防重 + DB 唯一索引兜底 + 消费者幂等，三层</td>
+</tr>
+<tr>
+<td>Redis 挂了怎么办？</td>
+<td>降级为 DB 乐观锁扣减，正确性保住、吞吐下降</td>
+</tr>
+<tr>
+<td>预扣了库存没落库？</td>
+<td>对账任务：预扣数与订单数比对，差额回补库存</td>
+</tr>
+<tr>
+<td>削峰和直接拒绝怎么选？</td>
+<td>库存充足排队有意义；库存极少直接拒绝更快</td>
+</tr>
+</tbody></table>
+<h3 id="9-2-实战避坑表"><a href="#9-2-实战避坑表" class="headerlink" title="9.2 实战避坑表"></a>9.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>超卖</td>
+<td>检查与扣减分开执行</td>
+<td>Redis Lua 原子扣减（§4.2）</td>
+</tr>
+<tr>
+<td>开闸瞬间网关被打爆</td>
+<td>限流放太深</td>
+<td>网关层最先限流（§3.2）</td>
+</tr>
+<tr>
+<td>单 key 热点打爆 Redis</td>
+<td>所有读打同一个 key</td>
+<td>热点 key 复制 + 互斥锁重建（§6.2）</td>
+</tr>
+<tr>
+<td>用户重复下单</td>
+<td>只做了 Redis 防重</td>
+<td>DB 唯一索引兜底（§4.3）</td>
+</tr>
+<tr>
+<td>库存对不上</td>
+<td>预扣与落库时序差</td>
+<td>对账任务 + 告警（§7.2）</td>
+</tr>
+<tr>
+<td>缓存雪崩</td>
+<td>key 同时过期</td>
+<td>过期时间加随机值（§6.2）</td>
+</tr>
+</tbody></table>
+<h3 id="9-3-工具速查表"><a href="#9-3-工具速查表" class="headerlink" title="9.3 工具速查表"></a>9.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具&#x2F;命令</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>redis-cli SETNX/GET/DECRBY</code></td>
+<td>防重与库存操作</td>
+</tr>
+<tr>
+<td>Lua 脚本（EVAL&#x2F;EVALSHA）</td>
+<td>原子扣减</td>
+</tr>
+<tr>
+<td><code>redis-benchmark</code></td>
+<td>并发压测 Redis 吞吐</td>
+</tr>
+<tr>
+<td>JMeter</td>
+<td>全链路压测</td>
+</tr>
+<tr>
+<td>RocketMQ 控制台</td>
+<td>查看队列积压（削峰是否生效）</td>
+</tr>
+<tr>
+<td>Nginx <code>limit_req</code></td>
+<td>网关层令牌桶限流</td>
+</tr>
+</tbody></table>
+<h3 id="9-4-复盘：这道题教会你的通用能力"><a href="#9-4-复盘：这道题教会你的通用能力" class="headerlink" title="9.4 复盘：这道题教会你的通用能力"></a>9.4 复盘：这道题教会你的通用能力</h3><p>秒杀题的真正价值不是记住秒杀方案，而是它<strong>强迫你把六个孤立知识点串成一条决策链</strong>：</p>
+<p><strong>限流（怎么放进来）→ 缓存（读怎么扛）→ Lua（写怎么对）→ MQ（峰怎么削）→ 分库分表（库怎么拆）→ 降级对账（挂了怎么办）</strong></p>
+<p><strong>下一篇预告</strong>：系统设计方法论 + 秒杀案例已经覆盖「高性能 + 高可用 + 限流熔断」主线，下一篇进入《数据结构与算法》系列——从复杂度分析开始，把算法题的「度量衡」建立起来，补上全站唯一缺失的核心技能。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/aa1ba544.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/aa1ba544.html" class="post-title-link" itemprop="url">内存管理：虚拟内存与分页</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-08-12 22:00:00" itemprop="dateCreated datePublished" datetime="2026-08-12T22:00:00+08:00">2026-08-12</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/" itemprop="url" rel="index"><span itemprop="name">操作系统</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>3.9k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>14 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <p><strong>虚拟内存（virtual memory）是操作系统给每个进程提供的「独立、连续、看似无限」的内存假象</strong>：进程以为自己独占整个地址空间，实际数据散落在物理内存各页上，由内核统一映射。它是进程隔离的地基，也是 JVM 内存问题（堆外泄漏、容器被杀、OOM）的总根源。本文讲三件事：地址空间怎么组织、虚拟地址怎么翻译成物理地址、内存不够了会发生什么——并对照 Redis RDB 快照、大页、容器内存限制这些真实技术，看它们怎么建立在本节的机制上。</p>
+<blockquote>
+<p><strong>系列地图（操作系统）</strong>：① 进程与线程（执行单元与调度）→ ② <strong>内存管理（本文：地址空间与物理内存）</strong> → ③ 文件系统与磁盘 IO（数据落盘）→ ④ IO 模型（等待数据的方式）→ ⑤ Linux 资源排查实战（工具收拢）。本文的页缓存是 ③ 的读写地基（页表项指向它），本文的缺页与换页是 ④ 之前「一切等待」的物理背景。</p>
+</blockquote>
+<h2 id="1-虚拟内存：给每个进程一座孤岛"><a href="#1-虚拟内存：给每个进程一座孤岛" class="headerlink" title="1. 虚拟内存：给每个进程一座孤岛"></a>1. 虚拟内存：给每个进程一座孤岛</h2><h3 id="1-1-为什么需要虚拟内存"><a href="#1-1-为什么需要虚拟内存" class="headerlink" title="1.1 为什么需要虚拟内存"></a>1.1 为什么需要虚拟内存</h3><p>没有虚拟内存的时代（实模式），程序直接访问物理地址：两个程序必须约好各占哪段，一个野指针就能改掉别的程序的数据。虚拟内存一次性解决三件事：</p>
+<table>
+<thead>
+<tr>
+<th>问题</th>
+<th>虚拟内存的解法</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>隔离</td>
+<td>每个进程有自己的地址空间，A 进程地址 0x1000 和 B 进程地址 0x1000 是两页不同的物理内存</td>
+</tr>
+<tr>
+<td>连续性</td>
+<td>物理内存碎片化没关系，虚拟地址连续、映射到哪都行</td>
+</tr>
+<tr>
+<td>按需加载</td>
+<td>程序 100MB，先只映射用到的几页——未访问的代码和数据可以一直留在磁盘上</td>
+</tr>
+</tbody></table>
+<p><strong>地址空间是「地址的集合」，不是「内存的集合」</strong>——进程里看到的一大片地址，大部分没有对应的物理页，一访问就缺页（第 2 节讲）。</p>
+<h3 id="1-2-地址空间布局"><a href="#1-2-地址空间布局" class="headerlink" title="1.2 地址空间布局"></a>1.2 地址空间布局</h3><p>x86-64 下用户空间是低位的 128TB（内核占高 128TB）。从低到高：</p>
+<pre class="mermaid">flowchart TD
+    subgraph Low["Low address (0x0)"]
+        TEXT["Text (code) segment"]
+        DATA["Data / BSS&lt;br/>initialized &amp; uninitialized globals"]
+        HEAP["Heap&lt;br/>grows upward (brk / mmap)"]
+    end
+    subgraph High["High address (0x7fff...)"]
+        STACK["Stack&lt;br/>grows downward"]
+        ENV["Environment &amp; argv&lt;br/>+ vdso"]
+    end
+    HEAP --- GAP["Huge unmapped gap&lt;br/>(accessed = segfault)"]
+    GAP --- STACK</pre>
+
+<p>要点：<strong>堆向上长、栈向下长，中间是巨大的未映射空洞</strong>——<code>new</code> 的对象在堆，局部变量和调用帧在栈，两者相撞叫栈溢出或堆溢出。地址空间底部有随机化（ASLR），每次启动程序布局都变，防攻击者猜地址。</p>
+<h3 id="1-3-动手验证：看-JVM-的真实地址空间"><a href="#1-3-动手验证：看-JVM-的真实地址空间" class="headerlink" title="1.3 动手验证：看 JVM 的真实地址空间"></a>1.3 动手验证：看 JVM 的真实地址空间</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">pmap -x &lt;jvm_pid&gt;          <span class="comment"># 进程虚拟内存地图：地址、大小、RSS、映射名</span></span><br><span class="line"><span class="built_in">cat</span> /proc/&lt;jvm_pid&gt;/maps   <span class="comment"># 更原始的版本</span></span><br><span class="line">ps -eo pid,vsz,rss,cmd     <span class="comment"># VSZ=虚拟内存总量，RSS=实际驻留物理内存</span></span><br></pre></td></tr></table></figure>
+
+<p>看一个 <code>-Xmx2g</code> 的 Java 进程，<code>pmap</code> 输出的规律：</p>
+<table>
+<thead>
+<tr>
+<th>映射</th>
+<th>是什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>[heap]</code> 或大块 <code>[anon]</code></td>
+<td>JVM 堆（Java 8+ 用匿名 mmap 分配，不叫 heap）</td>
+</tr>
+<tr>
+<td><code>[stack]</code></td>
+<td>主线程栈</td>
+</tr>
+<tr>
+<td><code>[anon]</code> 小块堆叠</td>
+<td>每个线程的栈（-Xss，默认 1MB 虚拟）、Metaspace、JIT code cache</td>
+</tr>
+<tr>
+<td><code>libjvm.so</code> 等</td>
+<td>JVM 本体、依赖库</td>
+</tr>
+</tbody></table>
+<p><strong>对照 <code>ps</code> 的 VSZ 和 RSS</strong>：<code>-Xmx2g</code> 的进程 VSZ 常有 4-5GB（预留的地址空间），RSS 才是真占用的物理内存——内存监控看 RSS，别被 VSZ 吓到；反之容器内存限制看的是 RSS，<code>-Xmx</code> 设太大不代表 RSS 一定大，但 RSS 会超过 <code>-Xmx</code>（堆外还有东西，第 4 节展开）。</p>
+<h2 id="2-分页与地址转换"><a href="#2-分页与地址转换" class="headerlink" title="2. 分页与地址转换"></a>2. 分页与地址转换</h2><h3 id="2-1-页表：地址翻译的字典"><a href="#2-1-页表：地址翻译的字典" class="headerlink" title="2.1 页表：地址翻译的字典"></a>2.1 页表：地址翻译的字典</h3><p>物理内存按 <strong>4KB 一页</strong>切成页帧；每个进程维护一张<strong>页表</strong>，记录「虚拟页号 → 物理页帧号」。进程切换时换页表——这就是第 1 篇说的「进程切换比线程切换贵」的根源。</p>
+<p>问题：进程地址空间 128TB，一张扁平页表要 128TB&#x2F;4KB &#x3D; 340 亿条记录，装不下。解法是<strong>多级页表</strong>（x86-64 四级）：只有用到的地址区间才在低层分配表项，未映射区间不占内存。</p>
+<table>
+<thead>
+<tr>
+<th>层级</th>
+<th>名称</th>
+<th>每项覆盖</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>L4</td>
+<td>PML4（页目录指针的指针）</td>
+<td>512GB</td>
+</tr>
+<tr>
+<td>L3</td>
+<td>PDPT（页目录指针）</td>
+<td>1GB</td>
+</tr>
+<tr>
+<td>L2</td>
+<td>PD（页目录）</td>
+<td>2MB</td>
+</tr>
+<tr>
+<td>L1</td>
+<td>PT（页表）</td>
+<td>4KB</td>
+</tr>
+</tbody></table>
+<p>一个 4KB 页的转换要查 4 级表（4 次内存访问），所以必须有缓存——<strong>TLB（Translation Lookaside Buffer）</strong>，CPU 内置的页表缓存。命中就免掉 4 次访问，未命中才走完整路径。</p>
+<p><strong>深挖：大页（HugePages）就是从页表结构里长出来的优化</strong>。页越大，页表条目越少、TLB 命中率越高：2MB 大页把 4KB 页的条目数缩 512 倍。ES、MySQL 这类内存大户在生产上常开内核 <code>vm.nr_hugepages</code> + JVM 的 <code>-XX:+UseLargePages</code>——代价是内存按大页粒度预留、分配更粗放，配置错反而浪费。理解了页表与 TLB，这个参数的来龙去脉就清楚了。</p>
+<h3 id="2-2-转换流程与缺页"><a href="#2-2-转换流程与缺页" class="headerlink" title="2.2 转换流程与缺页"></a>2.2 转换流程与缺页</h3><pre class="mermaid">flowchart TD
+    CPU["CPU issues virtual address"] --> TLB{"TLB hit?"}
+    TLB -- Yes --> PHYS["Physical address, done"]
+    TLB -- No --> WALK["Walk 4-level page table (4 memory accesses)"]
+    WALK --> PRESENT{"PTE present?"}
+    PRESENT -- Yes --> CACHE["Fill TLB, done"]
+    PRESENT -- No --> FAULT["Page fault (trap to kernel)"]
+    FAULT --> MINOR{"Page already in RAM?&lt;br/>(page cache / lazy alloc / COW)"}
+    MINOR -- Yes --> FIX["Build PTE, return to user&lt;br/>minor fault (~1µs)"]
+    MINOR -- No --> IO["Read page from disk (swap / file)&lt;br/>major fault (ms level)"]
+    IO --> FIX</pre>
+
+<p>缺页分两种，代价差三个数量级：</p>
+<table>
+<thead>
+<tr>
+<th>类型</th>
+<th>触发</th>
+<th>代价</th>
+<th>常见来源</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>minor fault</td>
+<td>页已在物理内存，只是页表项没建</td>
+<td>微秒级</td>
+<td>JVM 启动、首次 new 对象、fork 写时拷贝</td>
+</tr>
+<tr>
+<td>major fault</td>
+<td>页要<strong>从磁盘读</strong></td>
+<td>毫秒级</td>
+<td>冷数据首次访问、swap 换回、内存映射文件</td>
+</tr>
+</tbody></table>
+<p><strong>JVM 启动慢的本质是海量 minor fault</strong>：<code>-Xms</code> 设小、启动后再扩堆，每次扩容都要建页表项；生产建议 <code>-Xms = -Xmx</code>，一次到位，既省 minor fault 也避免堆抖动（老生常谈，根因在这里）。</p>
+<p><strong>深挖：写时拷贝（COW）与 Redis RDB 快照</strong>。<code>fork()</code> 不复制父进程的内存，而是把页表项标为只读、父子共享；子进程一写才复制那一页（触发 minor fault）。Redis 的 RDB 持久化就是这么拍的：fork 出子进程，子进程把共享内存顺序写进文件，主进程照常服务——写时复制保证子进程看到的是「fork 那一刻」的一致数据。<strong>所以 RDB 既不阻塞服务、又能拍到一致快照，靠的全是 COW</strong>。</p>
+<p>代价与坑（大实例 Redis 的必修课）：</p>
+<table>
+<thead>
+<tr>
+<th>现象</th>
+<th>根因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>fork 瞬间卡顿几十到几百 ms</td>
+<td>fork 要复制整个页表（条目数 &#x3D; 内存&#x2F;4KB）</td>
+<td>观察 <code>INFO persistence</code> 的 <code>last_fork_usec</code></td>
+</tr>
+<tr>
+<td>快照期间内存翻倍风险</td>
+<td>写多时 COW 复制页多</td>
+<td>内存至少留出数据集 2 倍的余量</td>
+</tr>
+<tr>
+<td>频繁 RDB 拖垮服务</td>
+<td>每次 fork 的页表复制 + COW 高峰</td>
+<td>大实例降 RDB 频率，换主从全量同步</td>
+</tr>
+</tbody></table>
+<p>Java 侧同样受 COW 影响：<code>-Xms = -Xmx</code> 的另一层收益是减少启动后的堆扩缩——每次扩堆重建页表、GC 频繁触碰页，都是 minor fault 的代价。</p>
+<h3 id="2-3-页面置换：内存不够了踢谁出去"><a href="#2-3-页面置换：内存不够了踢谁出去" class="headerlink" title="2.3 页面置换：内存不够了踢谁出去"></a>2.3 页面置换：内存不够了踢谁出去</h3><p>物理页不够时，要把一些页换出（写回磁盘或丢弃）。置换算法：</p>
+<table>
+<thead>
+<tr>
+<th>算法</th>
+<th>思路</th>
+<th>问题</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>FIFO</td>
+<td>先进来先踢</td>
+<td>可能踢掉正热的页（Belady 异常）</td>
+</tr>
+<tr>
+<td>LRU</td>
+<td>最久没用的先踢</td>
+<td>理想但不现实（每页维护访问时间成本太高）</td>
+</tr>
+<tr>
+<td>时钟&#x2F;第二次机会</td>
+<td>FIFO + 访问位，被访问过的页放行一轮</td>
+<td>工程上的近似 LRU</td>
+</tr>
+</tbody></table>
+<p>Linux 用<strong>双链表近似 LRU</strong>（active&#x2F;inactive 两条 LRU 链表，页在链表间升降），配合内存水位线（<code>/proc/sys/vm/watermark</code> 相关）决定何时开始回收。Java 视角不用记细节，记住结论：<strong>页面置换对应用不可见，但「频繁换页」是性能灾难</strong>（见 2.4 的观测方法）。</p>
+<h3 id="2-4-动手验证：观测缺页与页缓存"><a href="#2-4-动手验证：观测缺页与页缓存" class="headerlink" title="2.4 动手验证：观测缺页与页缓存"></a>2.4 动手验证：观测缺页与页缓存</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">ps -o minflt,majflt,cmd -p &lt;pid&gt;      <span class="comment"># 累计 minor/major fault（只增不减）</span></span><br><span class="line"><span class="keyword">time</span> -v &lt;命令&gt;                        <span class="comment"># 报告运行时的 major page faults</span></span><br><span class="line">vmstat 1                              <span class="comment"># si/so：每秒换入/换出页数（swap 活动）</span></span><br></pre></td></tr></table></figure>
+
+<p>页缓存实验（感受「第二次读很快」）：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">dd</span> <span class="keyword">if</span>=/dev/zero of=/tmp/1g.bin bs=1M count=1024   <span class="comment"># 造一个 1GB 文件</span></span><br><span class="line"><span class="built_in">dd</span> <span class="keyword">if</span>=/tmp/1g.bin of=/dev/null bs=1M              <span class="comment"># 第一次读：从磁盘，几秒</span></span><br><span class="line"><span class="built_in">dd</span> <span class="keyword">if</span>=/tmp/1g.bin of=/dev/null bs=1M              <span class="comment"># 第二次读：全在 page cache，亚秒级</span></span><br><span class="line">free -h                                           <span class="comment"># 观察 buff/cache 列的变化</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>判定标准</strong>：<code>vmstat 1</code> 里 si&#x2F;so 长期非零 &#x3D; swap 在频繁换页，性能必崩（容器里这是配置事故，见 3.4）；<code>time -v</code> 的 major faults 很大 &#x3D; 冷启动加载太多数据，考虑预热（应用启动时主动 touch 关键数据）。</p>
+<h2 id="3-内存分配与回收"><a href="#3-内存分配与回收" class="headerlink" title="3. 内存分配与回收"></a>3. 内存分配与回收</h2><h3 id="3-1-malloc-的两个来源：brk-与-mmap"><a href="#3-1-malloc-的两个来源：brk-与-mmap" class="headerlink" title="3.1 malloc 的两个来源：brk 与 mmap"></a>3.1 malloc 的两个来源：brk 与 mmap</h3><p>进程向内核要内存只有两条路：</p>
+<table>
+<thead>
+<tr>
+<th>途径</th>
+<th>机制</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>brk</code></td>
+<td>移动堆顶指针，扩展&#x2F;收缩堆</td>
+<td>小分配（malloc 默认），快</td>
+</tr>
+<tr>
+<td><code>mmap</code>（匿名）</td>
+<td>直接映射一段新地址空间</td>
+<td>大分配（&gt;128KB），用完立刻可释放</td>
+</tr>
+</tbody></table>
+<p>malloc 的策略：小块走 brk 堆（复用、碎片由 malloc 自己管），大块走 mmap（还给内核干脆）。JVM 的堆就是一次大匿名 mmap 拿下来的，<code>-Xms/-Xmx</code> 控制这段区域。</p>
+<h3 id="3-2-内核侧：伙伴系统与-slab"><a href="#3-2-内核侧：伙伴系统与-slab" class="headerlink" title="3.2 内核侧：伙伴系统与 slab"></a>3.2 内核侧：伙伴系统与 slab</h3><p>内核把物理页切块管理：<strong>伙伴系统</strong>按 2 的幂次维护空闲页（要 3 页给 4 页、要 5 页给 8 页），<strong>slab</strong> 为频繁创建的小对象（task_struct、inode）建专属缓存。这两层对应用透明，但解释了「内存碎片」和「内核内存占用」的来源——容器里 <code>free</code> 的 used 包含了内核 slab，排查内存高时可 <code>cat /proc/meminfo | grep Slab</code>。</p>
+<h3 id="3-3-回收与-swap"><a href="#3-3-回收与-swap" class="headerlink" title="3.3 回收与 swap"></a>3.3 回收与 swap</h3><p>物理内存吃紧时按顺序回收：<strong>页缓存</strong>（干净页直接丢，脏页先回写）→ <strong>匿名页换出到 swap</strong>。注意 swap 是「匿名页（堆、栈）的磁盘后备」，页缓存不需要 swap——<code>free -h</code> 里 Swap 列全 0 只说明没换出过匿名页。</p>
+<p>容器时代（K8s）的共识是<strong>节点禁用 swap</strong>：换页延迟毫秒级，对服务不可接受，K8s 也默认要求 <code>swapoff</code>。Java 应用在 swap 环境下 GC 停顿会被放大（GC 要访问的页被换出去了）。</p>
+<h3 id="3-4-动手验证：free-的正确读法"><a href="#3-4-动手验证：free-的正确读法" class="headerlink" title="3.4 动手验证：free 的正确读法"></a>3.4 动手验证：free 的正确读法</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">free -h</span><br><span class="line">swapon --show          <span class="comment"># 没有输出 = swap 已禁用（K8s 节点必须这样）</span></span><br><span class="line"><span class="built_in">cat</span> /proc/meminfo | grep -E <span class="string">&#x27;Slab|Mapped|SwapTotal&#x27;</span></span><br></pre></td></tr></table></figure>
+
+<p><code>free -h</code> 输出解读：<code>used</code> 里含 Slab 等内核占用；<code>buff/cache</code> 是页缓存（可随时丢弃，不是泄漏，<strong>别因为 cache 高就慌</strong>）；看真实可用内存用 <code>available</code> 列（缓存可回收部分算进去）。线上「内存不足」告警，先看 <code>available</code> 而不是 <code>free</code>。</p>
+<h2 id="4-OOM：从-JVM-到内核"><a href="#4-OOM：从-JVM-到内核" class="headerlink" title="4. OOM：从 JVM 到内核"></a>4. OOM：从 JVM 到内核</h2><h3 id="4-1-JVM-内存全景：堆只是冰山一角"><a href="#4-1-JVM-内存全景：堆只是冰山一角" class="headerlink" title="4.1 JVM 内存全景：堆只是冰山一角"></a>4.1 JVM 内存全景：堆只是冰山一角</h3><p><code>-Xmx</code> 只是 JVM 堆上限，进程的 RSS 由五块组成：</p>
+<table>
+<thead>
+<tr>
+<th>组成</th>
+<th>控制参数</th>
+<th>典型值</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>堆</td>
+<td><code>-Xmx</code></td>
+<td>按业务</td>
+</tr>
+<tr>
+<td>Metaspace</td>
+<td><code>-XX:MaxMetaspaceSize</code></td>
+<td>默认无上限，类太多会涨到几百 MB</td>
+</tr>
+<tr>
+<td>线程栈</td>
+<td><code>-Xss</code>（默认 1MB 虚拟）</td>
+<td>1000 线程 ≈ 1GB 虚拟内存</td>
+</tr>
+<tr>
+<td>直接内存</td>
+<td><code>-XX:MaxDirectMemorySize</code>（默认 &#x3D; 堆大小）</td>
+<td>Netty&#x2F;BufferPool 场景</td>
+</tr>
+<tr>
+<td>JIT code cache + GC 结构</td>
+<td><code>-XX:ReservedCodeCacheSize</code> 等</td>
+<td>200MB 上下</td>
+</tr>
+</tbody></table>
+<p>所以 <code>-Xmx1g</code> 的进程 RSS 到 1.5g 是正常的；<strong>容器里只设 <code>-Xmx</code> 不管堆外，就是「被 OOM Killer 杀」的经典剧本</strong>——正确姿势是 <code>-XX:MaxRAMPercentage=75</code> 之类按容器内存百分比给堆。</p>
+<h3 id="4-2-判定链路：谁杀了我的进程"><a href="#4-2-判定链路：谁杀了我的进程" class="headerlink" title="4.2 判定链路：谁杀了我的进程"></a>4.2 判定链路：谁杀了我的进程</h3><pre class="mermaid">flowchart TD
+    ALLOC["App requests memory (malloc / mmap)"] --> OVER{"overcommit allowed?"}
+    OVER -- No --> FAIL["malloc returns NULL&lt;br/>(rare, overcommit_memory=2)"]
+    OVER -- Yes --> CG{"cgroup memory limit hit?"}
+    CG -- Yes --> RECLAIM{"Reclaim succeeded?&lt;br/>(cache drop / swap)"}
+    RECLAIM -- No --> KILL["OOM Killer picks victim by oom_score&lt;br/>and SIGKILLs it"]
+    CG -- No --> OK["Allocation succeeds"]</pre>
+
+<p>三层机制：<strong>overcommit</strong>（内核敢不敢超量承诺虚拟内存，Linux 默认启发式）→ <strong>cgroup 限制</strong>（容器内存上限，K8s <code>limits.memory</code>）→ <strong>OOM Killer</strong>（真不够时按 <code>oom_score</code> 选杀，占内存越大、存活越短、<code>oom_score_adj</code> 越高的先死——容器里的进程 <code>oom_score_adj</code> 会被调高，这就是「容器里 JVM 先被杀」的原因之一）。</p>
+<h3 id="4-3-动手验证：找到被杀现场"><a href="#4-3-动手验证：找到被杀现场" class="headerlink" title="4.3 动手验证：找到被杀现场"></a>4.3 动手验证：找到被杀现场</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">dmesg | grep -i -E <span class="string">&#x27;killed process|oom&#x27;</span>          <span class="comment"># 内核日志里的行凶记录</span></span><br><span class="line">journalctl -k | grep -i <span class="string">&#x27;killed process&#x27;</span>          <span class="comment"># 有 systemd 时</span></span><br><span class="line"><span class="built_in">cat</span> /proc/&lt;pid&gt;/oom_score                          <span class="comment"># 进程当前被选中概率（0-1000）</span></span><br></pre></td></tr></table></figure>
+
+<p>真实输出长这样（dmesg）：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">java invoked oom-killer: gfp_mask=0x..., order=0, oom_score_adj=1000</span><br><span class="line">Killed process 12345 (java), total-vm:4194304kB, anon-rss:1572864kB</span><br></pre></td></tr></table></figure>
+
+<p>容器限内存实验（有 Docker 可试）：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">docker run --memory=512m --<span class="built_in">rm</span> openjdk:17 \</span><br><span class="line">  java -XX:+PrintFlagsFinal -version 2&gt;/dev/null | grep MaxRAMPercentage</span><br><span class="line"><span class="comment"># 默认 MaxRAMPercentage=25：只有 128MB 堆——堆外照样杀</span></span><br></pre></td></tr></table></figure>
+
+<p>直接内存泄漏复现（Netty&#x2F;自研 BufferPool 的老坑）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 循环分配 DirectByteBuffer 不释放：报 OutOfMemoryError: Direct buffer memory</span></span><br><span class="line"><span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; <span class="number">10_000_000</span>; i++) &#123;</span><br><span class="line">    ByteBuffer.allocateDirect(<span class="number">1024</span> * <span class="number">1024</span>);  <span class="comment">// 1MB 堆外</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>排查链路</strong>：进程被杀 → 先看 dmesg 确认是谁（OOM Killer 还是容器健康检查）→ <code>free -h</code> 看宿主机 vs 容器内 → RSS 超出部分拆解（堆 + Metaspace + 直接内存 + 线程栈）→ 堆内就调 <code>-Xmx</code>&#x2F;排查泄漏，堆外就查 DirectByteBuffer&#x2F;线程数。</p>
+<h2 id="5-总结与避坑清单"><a href="#5-总结与避坑清单" class="headerlink" title="5. 总结与避坑清单"></a>5. 总结与避坑清单</h2><h3 id="5-1-面试速答表"><a href="#5-1-面试速答表" class="headerlink" title="5.1 面试速答表"></a>5.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>虚拟内存解决了什么问题？</td>
+<td>隔离（进程地址独立）、连续（碎片无所谓）、按需加载（没访问的页不占物理内存）</td>
+</tr>
+<tr>
+<td>为什么用多级页表？</td>
+<td>扁平页表 128TB 空间要 340 亿条记录；多级只给用到的区间建表项</td>
+</tr>
+<tr>
+<td>TLB 是什么？</td>
+<td>页表项的 CPU 缓存，命中免掉 4 次内存访问</td>
+</tr>
+<tr>
+<td>minor&#x2F;major fault 区别？</td>
+<td>minor 页已在内存只差建表项（微秒级）；major 要从磁盘读（毫秒级）</td>
+</tr>
+<tr>
+<td>JVM 为什么内存监控要盯 RSS 不是 VSZ？</td>
+<td>VSZ 是地址空间承诺，RSS 才是物理驻留；堆外（Metaspace&#x2F;直接内存&#x2F;线程栈）都会撑大 RSS</td>
+</tr>
+<tr>
+<td>容器里 JVM 为什么老被 OOM 杀？</td>
+<td>只设 -Xmx 不管堆外 + 容器进程 oom_score_adj 高；用 -XX:MaxRAMPercentage 按容器内存给堆</td>
+</tr>
+</tbody></table>
+<h3 id="5-2-实战避坑清单"><a href="#5-2-实战避坑清单" class="headerlink" title="5.2 实战避坑清单"></a>5.2 实战避坑清单</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>容器内 Java 进程无日志消失</td>
+<td>OOM Killer 按 cgroup 限制选杀</td>
+<td>dmesg 找记录；-XX:MaxRAMPercentage&#x3D;75；查堆外内存</td>
+</tr>
+<tr>
+<td>服务启动后 RSS 缓慢上涨直到被杀</td>
+<td>直接内存泄漏（Netty ByteBuf 未回收）</td>
+<td>盯 <code>jcmd &lt;pid&gt; VM.native_memory summary</code>；MaxDirectMemorySize 设上限</td>
+</tr>
+<tr>
+<td>堆没满、GC 正常但内存告警</td>
+<td>Metaspace 或线程数爆炸</td>
+<td>jstat 看 Metaspace；pstree 数线程，-Xss 按需调</td>
+</tr>
+<tr>
+<td>突然性能雪崩，si&#x2F;so 非零</td>
+<td>swap 开了且在换页</td>
+<td>节点 swapoff；JVM 加 -Xms&#x3D;-Xmx 减抖动</td>
+</tr>
+<tr>
+<td>free 显示 used 高、free 列低</td>
+<td>大概率是页缓存，不是泄漏</td>
+<td>看 available 列；别清缓存，缓存本来就是用来用的</td>
+</tr>
+</tbody></table>
+<h3 id="5-3-工具速查表"><a href="#5-3-工具速查表" class="headerlink" title="5.3 工具速查表"></a>5.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>对应本节概念</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>pmap -x &lt;pid&gt;</code></td>
+<td>进程地址空间地图</td>
+<td>1. 地址空间布局</td>
+</tr>
+<tr>
+<td><code>ps -eo pid,vsz,rss</code></td>
+<td>虚拟 vs 物理占用</td>
+<td>1. 虚拟内存</td>
+</tr>
+<tr>
+<td><code>vmstat 1</code>（si&#x2F;so）</td>
+<td>swap 换页活动</td>
+<td>2. 缺页、3. 回收</td>
+</tr>
+<tr>
+<td><code>time -v &lt;cmd&gt;</code></td>
+<td>major fault 计数</td>
+<td>2. 缺页</td>
+</tr>
+<tr>
+<td><code>free -h</code> &#x2F; <code>/proc/meminfo</code></td>
+<td>页缓存、slab、swap</td>
+<td>3. 回收</td>
+</tr>
+<tr>
+<td><code>dmesg | grep -i killed</code></td>
+<td>OOM Killer 记录</td>
+<td>4. OOM 链路</td>
+</tr>
+<tr>
+<td><code>jcmd &lt;pid&gt; VM.native_memory</code></td>
+<td>JVM 堆外明细</td>
+<td>4. JVM 内存全景</td>
+</tr>
+</tbody></table>
+<p>四个收获：<strong>地址空间是承诺、RSS 是现实</strong>；缺页是「懒」的代价（minor 微秒、major 毫秒）；内存回收的顺序是页缓存 → swap → 杀进程；JVM 的 OOM 从来不只是 <code>-Xmx</code> 的事。</p>
+<p>实操建议：</p>
+<ol>
+<li>容器里 JVM 一律 <code>-XX:MaxRAMPercentage=75</code> + <code>-Xms=-Xmx</code>，先保住别被杀。</li>
+<li>进程被杀先查 <code>dmesg</code>，别猜——是 OOM Killer 还是健康检查，处理方向完全不同。</li>
+<li>用 <code>jcmd &lt;pid&gt; VM.native_memory summary</code>（需 <code>-XX:NativeMemoryTracking=summary</code>）定期对账堆外内存，直接内存泄漏能在 RSS 崩之前发现。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告</strong>：地址空间里的「页缓存」是文件读写的加速层，脏页回写与 fsync 决定了「write 返回 ≠ 落盘」——第 3 篇《文件系统与磁盘 IO》讲 inode、页缓存与磁盘延迟，以及 MySQL&#x2F;ES&#x2F;Kafka 的刷盘策略怎么在取舍。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/7d52b3c4.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/7d52b3c4.html" class="post-title-link" itemprop="url">进程与线程：从模型到调度</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-08-12 21:00:00" itemprop="dateCreated datePublished" datetime="2026-08-12T21:00:00+08:00">2026-08-12</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/" itemprop="url" rel="index"><span itemprop="name">操作系统</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>4.9k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>18 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <p><strong>进程（process）是正在运行的程序实例</strong>：程序是磁盘上的静态代码，进程是它被加载进内存后的一套完整运行环境。同一个程序可以同时跑出多个进程——开两个 IDE 窗口就是两个进程。本文回答三个问题：进程&#x2F;线程&#x2F;协程到底是什么、CPU 怎么把时间分给它们、切换到底贵在哪——并对照你天天用的技术（线程池大小、虚拟线程、容器 PID 1、Go 的 goroutine），看这些设计怎么从本文的机制里长出来。</p>
+<blockquote>
+<p><strong>系列地图（操作系统）</strong>：① <strong>进程与线程（本文：执行单元与调度）</strong> → ② 内存管理（地址空间与物理内存）→ ③ 文件系统与磁盘 IO（数据落盘）→ ④ IO 模型（等待数据的方式）→ ⑤ Linux 资源排查实战（工具收拢）。本文的切换成本是 ④ 里「BIO 为什么不行」的根因，本文的栈内存是 ② 里「线程多了为什么 OOM」的依据。</p>
+</blockquote>
+<h2 id="1-进程模型：正在运行的程序"><a href="#1-进程模型：正在运行的程序" class="headerlink" title="1. 进程模型：正在运行的程序"></a>1. 进程模型：正在运行的程序</h2><h3 id="1-1-程序的四个组成部分"><a href="#1-1-程序的四个组成部分" class="headerlink" title="1.1 程序的四个组成部分"></a>1.1 程序的四个组成部分</h3><p>一个进程由四部分构成：</p>
+<table>
+<thead>
+<tr>
+<th>组成</th>
+<th>内容</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>程序代码</td>
+<td>指令序列</td>
+<td>只读段，可共享（同一程序多进程共享代码段）</td>
+</tr>
+<tr>
+<td>地址空间</td>
+<td>虚拟内存布局</td>
+<td>代码段、数据段、堆、栈</td>
+</tr>
+<tr>
+<td>运行状态</td>
+<td>寄存器、程序计数器</td>
+<td>中断&#x2F;切换时用于保存现场</td>
+</tr>
+<tr>
+<td>系统资源</td>
+<td>文件描述符、信号、IPC</td>
+<td>打开的文件、管道、socket</td>
+</tr>
+</tbody></table>
+<p>内核用<strong>进程控制块（PCB，Process Control Block）</strong>统一管理进程的一切，Linux 里叫 <code>task_struct</code>：PID、状态、寄存器快照、内存映射、打开的文件表、CPU 使用统计……可以把它理解为进程在操作系统里的「档案袋」。</p>
+<pre class="mermaid">flowchart TD
+    PCB["Process Control Block&lt;br/>(task_struct)"] --> ID["PID / PPID"]
+    PCB --> STATE["Process state&lt;br/>R / S / D / Z / T"]
+    PCB --> REGS["Register file &amp; PC&lt;br/>(context save area)"]
+    PCB --> MEM["Memory mapping&lt;br/>code / data / heap / stack"]
+    PCB --> FILES["Open file descriptors"]
+    PCB --> STAT["CPU time &amp; scheduling info"]
+    PCB --> IPC["Signals / semaphores / pipes"]</pre>
+
+<p>注意 PCB 存在<strong>内核内存</strong>里，用户程序访问不到——这是第 4 节要讲「分态」的原因之一。</p>
+<h3 id="1-2-生命周期：五个状态"><a href="#1-2-生命周期：五个状态" class="headerlink" title="1.2 生命周期：五个状态"></a>1.2 生命周期：五个状态</h3><p>进程一生在几个状态间迁移，<code>ps</code> 输出的 S 列就是当前状态：</p>
+<pre class="mermaid">stateDiagram-v2
+    [*] --> New: fork()
+    New --> Ready: accepted by scheduler
+    Ready --> Running: schedule
+    Running --> Ready: time slice expired
+    Running --> Blocked: I/O wait
+    Blocked --> Ready: I/O complete
+    Running --> Zombie: exit()
+    Zombie --> [*]: reaped by parent (wait)</pre>
+
+<table>
+<thead>
+<tr>
+<th>状态</th>
+<th>含义</th>
+<th>ps 标识</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>就绪（Ready）</td>
+<td>一切就绪，只等 CPU</td>
+<td><code>R</code></td>
+</tr>
+<tr>
+<td>运行（Running）</td>
+<td>正在 CPU 上执行</td>
+<td><code>R</code></td>
+</tr>
+<tr>
+<td>阻塞（Blocked）</td>
+<td>等 I&#x2F;O 或锁</td>
+<td><code>S</code>（可中断睡眠）&#x2F; <code>D</code>（不可中断）</td>
+</tr>
+<tr>
+<td>僵尸（Zombie）</td>
+<td>已退出、等父进程回收</td>
+<td><code>Z</code></td>
+</tr>
+<tr>
+<td>孤儿（Orphan）</td>
+<td>父进程先死，被 1 号进程收养</td>
+<td>无专门标识</td>
+</tr>
+</tbody></table>
+<p><strong>僵尸进程是「已退出但还没被父进程 <code>wait()</code> 回收」的进程</strong>：不占 CPU 不占内存（PCB 还占着），但 PID 不释放，多了会耗尽 PID 上限。父进程用 <code>wait()</code>&#x2F;<code>waitpid()</code> 收尸，Java 里对应的就是 <code>Process.waitFor()</code>。父进程先死了怎么办？孤儿进程由 1 号进程（init&#x2F;systemd）自动收养回收——所以孤儿不可怕，僵尸要防。</p>
+<p>Java 里反而不容易造出僵尸——JDK 的 Process 内部有 reaper 线程自动 <code>waitpid</code> 回收子进程。真正常见的坑是「<strong>起了子进程但没人读它的输出流</strong>」：子进程写满管道缓冲区（64KB）后永久阻塞，表现为整个流程卡死（1.3 有实验）。僵尸进程更多出现在 C&#x2F;Shell 场景（1.3 给造法）。</p>
+<h3 id="1-3-动手验证：用-ps-观察进程状态"><a href="#1-3-动手验证：用-ps-观察进程状态" class="headerlink" title="1.3 动手验证：用 ps 观察进程状态"></a>1.3 动手验证：用 ps 观察进程状态</h3><p>实操命令：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">ps -eo pid,ppid,<span class="built_in">stat</span>,cmd | <span class="built_in">head</span> -20          <span class="comment"># 全量进程 + 状态列</span></span><br><span class="line">ps -eo pid,ppid,<span class="built_in">stat</span>,cmd | grep -i defunct   <span class="comment"># 找出所有僵尸进程</span></span><br><span class="line">top -p &lt;pid&gt;                                 <span class="comment"># 单进程视图，S 列即状态</span></span><br></pre></td></tr></table></figure>
+
+<p>STAT 列对照：<code>R</code>（运行&#x2F;就绪）、<code>S</code>（可中断睡眠，最常见——等 I&#x2F;O、等锁）、<code>D</code>（不可中断睡眠，多在等磁盘）、<code>Z</code>（僵尸）。多进程部署的 Java 应用（如 Elasticsearch 的 JVM + 运维子进程）用 <code>ps --ppid &lt;父pid&gt;</code> 按父子过滤，一眼看到它起了哪些子进程。</p>
+<p>想亲手造一个僵尸进程，三行 C 足够（需要 gcc）：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;unistd.h&gt;</span></span></span><br><span class="line"><span class="type">int</span> <span class="title function_">main</span><span class="params">()</span> &#123; <span class="keyword">if</span> (fork() == <span class="number">0</span>) &#123; _exit(<span class="number">0</span>); &#125; sleep(<span class="number">60</span>); <span class="keyword">return</span> <span class="number">0</span>; &#125;</span><br></pre></td></tr></table></figure>
+
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">gcc -o zombie zombie.c &amp;&amp; ./zombie &amp;   <span class="comment"># 子进程已退出，父进程睡眠不回收</span></span><br><span class="line">ps -eo pid,ppid,<span class="built_in">stat</span>,cmd | grep Z      <span class="comment"># 能看到一个 Z 状态</span></span><br></pre></td></tr></table></figure>
+
+<p>再复现 Java 侧的「卡死」版本——子进程狂输出、父进程不读流，管道缓冲区写满后子进程永久阻塞：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">Process</span> <span class="variable">p</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ProcessBuilder</span>(<span class="string">&quot;sh&quot;</span>, <span class="string">&quot;-c&quot;</span>, <span class="string">&quot;while true; do echo x; done&quot;</span>).start();</span><br><span class="line"><span class="comment">// 不调用 p.getInputStream().read()：子进程写满 64KB 管道缓冲后永久卡住</span></span><br><span class="line">p.waitFor(); <span class="comment">// 永远等不到，日志卡在这一行</span></span><br></pre></td></tr></table></figure>
+
+<p>此时 <code>ps -eo pid,stat,cmd | grep &lt;子进程名&gt;</code> 看到的是 <code>S</code>（阻塞在写管道）而不是 <code>Z</code>。修法是起一个线程消费输出流，或 <code>p.getInputStream().readAllBytes()</code>（对无限输出的进程慎用，会积压内存）。</p>
+<p><strong>容器里的僵尸问题</strong>（K8s 排查常客）：pod 的 PID 1 如果不回收子进程（不调用 <code>waitpid</code>），子进程退出就变僵尸且<strong>没有 init 来收养</strong>——因为容器里没有 systemd，PID 1 就是你的应用。K8s 官方推荐用 <code>tini</code>&#x2F;<code>init</code> 镜像做 PID 1（自带 reaping + 转发信号），Java 应用直接以 <code>java</code> 做 PID 1 反而相对安全（JVM 的 reaper 线程会回收自己启动的子进程）；真正积僵尸的是 shell 做入口镜像、或 C 程序 fork 的场景。排查命令不变：<code>ps -eo pid,ppid,stat,cmd | grep -i defunct</code>——pod 里看到 Z 残留，先查入口是不是裸 shell。</p>
+<h2 id="2-线程：进程内的执行流"><a href="#2-线程：进程内的执行流" class="headerlink" title="2. 线程：进程内的执行流"></a>2. 线程：进程内的执行流</h2><p><strong>线程（thread）是 CPU 调度的最小单位，进程是资源分配的最小单位</strong>。一个进程可以有多个线程：共享进程的地址空间和文件描述符，各自独立持有栈和寄存器。</p>
+<table>
+<thead>
+<tr>
+<th>共享（进程级）</th>
+<th>独占（线程级）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>代码段、数据段</td>
+<td>栈（调用现场）</td>
+</tr>
+<tr>
+<td>堆（new 出来的对象）</td>
+<td>寄存器</td>
+</tr>
+<tr>
+<td>文件描述符</td>
+<td>线程局部存储（TLS）</td>
+</tr>
+<tr>
+<td>信号处理、全局变量</td>
+<td>调度上下文（PC、SP）</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart LR
+    subgraph Process[Process address space]
+        CODE["Code &amp; data"] --- HEAP["Heap"]
+        FILES["File descriptors"]
+    end
+    subgraph T1["Thread 1"]
+        S1["Stack &amp; registers"]
+    end
+    subgraph T2["Thread 2"]
+        S2["Stack &amp; registers"]
+    end
+    CODE --- T1
+    CODE --- T2
+    HEAP --- T1
+    HEAP --- T2
+    FILES --- T1
+    FILES --- T2</pre>
+
+<h3 id="2-1-三种线程模型"><a href="#2-1-三种线程模型" class="headerlink" title="2.1 三种线程模型"></a>2.1 三种线程模型</h3><table>
+<thead>
+<tr>
+<th>模型</th>
+<th>调度在哪</th>
+<th>代表</th>
+<th>特点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1:1 内核线程</td>
+<td>内核</td>
+<td>Linux pthread、Java 平台线程</td>
+<td>内核原生支持，但每个线程都占内核资源</td>
+</tr>
+<tr>
+<td>M:N 用户线程</td>
+<td>用户态库</td>
+<td>Java 早期绿色线程（已废弃）</td>
+<td>灵活但调度映射复杂，难调优</td>
+</tr>
+<tr>
+<td>协程&#x2F;虚拟线程</td>
+<td>用户态 + JVM</td>
+<td>Go goroutine、Java 虚拟线程</td>
+<td>栈上调度，阻塞不占内核线程，百万级并发</td>
+</tr>
+</tbody></table>
+<p><strong>Java 平台线程是 1:1 内核线程</strong>——每 new 一个 <code>Thread</code> 就创建一个内核线程，所以线程数量上不去；<strong>Java 虚拟线程（JDK 21 正式版）是 JVM 用户态调度的协程</strong>：线程数可以到几十万，阻塞 I&#x2F;O 时让出底层载体线程（carrier thread），这就是「百万并发」的来源。</p>
+<p><strong>对照 Go 的 goroutine</strong>（面试常被连起来问）：Go 的 GMP 模型和虚拟线程同构——G（goroutine）&#x3D; 虚拟线程，M（machine）&#x3D; 载体线程，P（processor）&#x3D; 调度器配额。G 在 channel&#x2F;syscall 上阻塞时让出 M，M 挂上别的 G 继续跑；Go 不区分「平台线程&#x2F;虚拟线程」，所有 goroutine 默认都在这个模型里。区别在阻塞边界：<strong>Java 虚拟线程遇到 synchronized 会 pin 住载体线程（JDK 21 已基本修复），Go 没有这个历史包袱</strong>——所以「Go 天然高并发」的底层原因，就是它从语言诞生起就建在协程模型上。</p>
+<h3 id="2-2-为什么线程比进程轻"><a href="#2-2-为什么线程比进程轻" class="headerlink" title="2.2 为什么线程比进程轻"></a>2.2 为什么线程比进程轻</h3><p>创建进程要分配&#x2F;复制地址空间（fork 走写时拷贝），创建线程只是多一个栈和一份调度上下文；切换进程要换页表（TLB 全部失效重载），切换线程共享同一地址空间，只换栈指针和寄存器。一句话：<strong>线程省掉了「换地址空间」这个最贵的步骤</strong>。</p>
+<h3 id="2-3-动手验证：看-JVM-里的线程"><a href="#2-3-动手验证：看-JVM-里的线程" class="headerlink" title="2.3 动手验证：看 JVM 里的线程"></a>2.3 动手验证：看 JVM 里的线程</h3><p><code>top -Hp &lt;jvm_pid&gt;</code> 按线程查看（PID 列实际是 TID）；<code>jstack &lt;pid&gt;</code> 输出每个 Java 线程的栈，状态列能直接对上内核状态：</p>
+<table>
+<thead>
+<tr>
+<th>jstack 状态</th>
+<th>内核状态</th>
+<th>典型场景</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>RUNNABLE</td>
+<td>R</td>
+<td>正在计算；I&#x2F;O 轮询（epoll 等待）也算 RUNNABLE</td>
+</tr>
+<tr>
+<td>TIMED_WAITING（sleep&#x2F;park）</td>
+<td>S</td>
+<td><code>Thread.sleep</code>、<code>LockSupport.parkNanos</code></td>
+</tr>
+<tr>
+<td>WAITING（park）</td>
+<td>S</td>
+<td>等 <code>join</code>、condition 的 <code>await</code></td>
+</tr>
+<tr>
+<td>BLOCKED</td>
+<td>S</td>
+<td>等 <code>synchronized</code> 监视器锁</td>
+</tr>
+</tbody></table>
+<p><strong>一个常见误判</strong>：<code>top</code> 看 Java 进程 CPU 高，<code>top -Hp</code> 发现只有少数 TID 在忙——说明瓶颈在锁竞争或单线程阻塞，线程池开再大也没用，要先看 jstack 找锁。</p>
+<p>虚拟线程的并发上限实验（JDK 21+）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 平台线程：5 万在默认 ulimit 下大概率 OOM 或撞线程数限制（默认栈 1MB）</span></span><br><span class="line"><span class="keyword">try</span> (<span class="type">var</span> <span class="variable">ex</span> <span class="operator">=</span> Executors.newFixedThreadPool(<span class="number">50_000</span>)) &#123; &#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 虚拟线程：10 万轻松——栈按需分配、休眠时释放，不占内核线程</span></span><br><span class="line"><span class="keyword">try</span> (<span class="type">var</span> <span class="variable">ex</span> <span class="operator">=</span> Executors.newVirtualThreadPerTaskExecutor()) &#123;</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; <span class="number">100_000</span>; i++) &#123;</span><br><span class="line">        ex.submit(() -&gt; &#123; Thread.sleep(<span class="number">1000</span>); <span class="keyword">return</span> <span class="literal">null</span>; &#125;);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>同样「10 万个线程睡 1 秒」：平台线程先撞上限，虚拟线程几秒内起完、内存低一个数量级——这就是 1:1 内核线程模型和协程模型的分水岭，也是高并发网关（Netty 连接层 + 虚拟线程业务层）新架构的底气。</p>
+<h2 id="3-调度：CPU-时间怎么分"><a href="#3-调度：CPU-时间怎么分" class="headerlink" title="3. 调度：CPU 时间怎么分"></a>3. 调度：CPU 时间怎么分</h2><p><strong>调度器（scheduler）负责从就绪任务里选一个上 CPU</strong>。单核机器上「同时运行」其实是时间片轮流，调度器决定谁先、谁多、谁被饿死。</p>
+<h3 id="3-1-调度算法演进"><a href="#3-1-调度算法演进" class="headerlink" title="3.1 调度算法演进"></a>3.1 调度算法演进</h3><table>
+<thead>
+<tr>
+<th>算法</th>
+<th>思路</th>
+<th>优点</th>
+<th>缺点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>FCFS 先来先服务</td>
+<td>按到达顺序</td>
+<td>简单、公平</td>
+<td>长任务堵住短任务（护航效应）</td>
+</tr>
+<tr>
+<td>SJF 最短作业优先</td>
+<td>先跑最短的</td>
+<td>平均等待最小</td>
+<td>需预知运行时间，长任务饿死</td>
+</tr>
+<tr>
+<td>RR 时间片轮转</td>
+<td>固定时间片轮换</td>
+<td>响应快</td>
+<td>时间片大小难定：太大退化成 FCFS，太小切换开销爆炸</td>
+</tr>
+<tr>
+<td>优先级调度</td>
+<td>高优先级先跑</td>
+<td>满足交互需求</td>
+<td>低优先级饿死，需老化机制</td>
+</tr>
+<tr>
+<td>MLFQ 多级反馈队列</td>
+<td>多级队列 + 动态升降级</td>
+<td>兼顾交互与吞吐</td>
+<td>参数多，难调</td>
+</tr>
+<tr>
+<td>CFS 完全公平（Linux）</td>
+<td>按 vruntime 红黑树取最小</td>
+<td>公平、O(log n)</td>
+<td>不是硬实时</td>
+</tr>
+</tbody></table>
+<h3 id="3-2-Linux-CFS：把公平量化成-vruntime"><a href="#3-2-Linux-CFS：把公平量化成-vruntime" class="headerlink" title="3.2 Linux CFS：把公平量化成 vruntime"></a>3.2 Linux CFS：把公平量化成 vruntime</h3><p>Linux 默认调度器 CFS（Completely Fair Scheduler）把「公平」量化成 <strong>vruntime（虚拟运行时间）</strong>：每个进程按权重累积 vruntime，<strong>谁 vruntime 最小谁上 CPU</strong>。就绪队列用红黑树按 vruntime 排序，取最左节点 O(log n)。权重由 nice 值决定：nice 越大权重越小、vruntime 涨得越快——nice 0 的进程比 nice 19 的「值钱」得多。</p>
+<pre class="mermaid">flowchart TD
+    A["CPU tick / new task arrives"] --> B["Compute vruntime for each runnable task"]
+    B --> C["Pick task with min vruntime&lt;br/>(leftmost in red-black tree)"]
+    C --> D["Run for time slice"]
+    D --> E{"Preempted or&lt;br/>slice expired?"}
+    E -- No --> D
+    E -- Yes --> A</pre>
+
+<p>一个反直觉但重要的点：<strong>CFS 是「按比例分」而不是「轮流分」</strong>——睡眠（I&#x2F;O 等待）期间 vruntime 不涨，所以 IO 密集进程醒来后天然排前面，响应快；CPU 密集进程也不会被饿死，只是分到的比例低。</p>
+<h3 id="3-3-上下文切换：切换到底贵在哪"><a href="#3-3-上下文切换：切换到底贵在哪" class="headerlink" title="3.3 上下文切换：切换到底贵在哪"></a>3.3 上下文切换：切换到底贵在哪</h3><p><strong>上下文切换（context switch）是把 CPU 从当前任务切到另一个任务的完整过程</strong>，发生在时间片耗尽、任务主动让出（I&#x2F;O、锁等待）或中断时。</p>
+<table>
+<thead>
+<tr>
+<th>切换类型</th>
+<th>成本量级</th>
+<th>拆解</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>进程切换</td>
+<td>1-10 µs</td>
+<td>保存&#x2F;恢复寄存器 + 切换页表（TLB 全失效）+ 内核态进出</td>
+</tr>
+<tr>
+<td>线程切换</td>
+<td>0.5-2 µs</td>
+<td>同进程：只换寄存器快照和栈，不碰页表</td>
+</tr>
+<tr>
+<td>系统调用</td>
+<td>0.1-1 µs</td>
+<td>只进出内核态，不换任务</td>
+</tr>
+</tbody></table>
+<p>所以<strong>线程数量远超 CPU 核数时，大量时间花在切换而不是干活上</strong>——这就是「线程池核心线程数 ≈ CPU 核数（CPU 密集）或 ×(1+IO 等待&#x2F;计算比)（IO 密集）」的底层依据。</p>
+<p>真实场景：压测 TPS 上不去，<code>vmstat 1</code> 里 <code>cs</code>（context switch）列每秒几十万——线程池 300 线程跑 8 核机器，大半时间在切线程。缩到 40 线程后 TPS 反而翻倍。排查命令：<code>pidstat -w 1</code> 看自愿&#x2F;非自愿切换，<code>/proc/&lt;pid&gt;/status</code> 里的 <code>voluntary_ctxt_switches</code> 字段。</p>
+<h3 id="3-4-动手验证：调优先级、测切换开销"><a href="#3-4-动手验证：调优先级、测切换开销" class="headerlink" title="3.4 动手验证：调优先级、测切换开销"></a>3.4 动手验证：调优先级、测切换开销</h3><p>调整 nice 值改调度权重（范围 -20 ~ 19，普通用户只能调大，调小需要 root）：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">nice</span> -n -5 java -jar app.jar          <span class="comment"># 以更高优先级启动</span></span><br><span class="line">renice -n -5 -p $(pgrep java)         <span class="comment"># 运行中调整，top 的 NI 列会变</span></span><br></pre></td></tr></table></figure>
+
+<p>低延迟服务（如网关）把自身进程 nice 调高、把批处理任务（日志压缩、报表）nice 调低，让 CFS 把时间片多分给前者——「按 vruntime 分时间」在生产里的直接用法。</p>
+<p>上下文切换开销实测（Linux）：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">vmstat 1          <span class="comment"># cs 列：每秒上下文切换次数</span></span><br><span class="line">pidstat -w 1      <span class="comment"># 自愿（cswch）与非自愿（nvcswch）切换分开看</span></span><br></pre></td></tr></table></figure>
+
+<p>真实复盘案例：某服务 8 核机器，线程池 300 线程，TPS 卡在 4000 上不去；<code>vmstat 1</code> 显示 <code>cs</code> 每秒 30 万+，<code>pidstat -w</code> 显示每个 worker 每秒上万次非自愿切换（时间片被抢）。线程池缩到 64 后 <code>cs</code> 降到 5 万，TPS 升到 9000。排查链路固定为：<code>vmstat 1</code> 看 cs → <code>top -Hp</code> 确认线程数 → 调线程池 → 复测 cs 与 TPS。</p>
+<p><strong>判定标准</strong>：cs 超过「核数 × 2 万&#x2F;秒」（8 核约 16 万）就要警惕切换占比过高；<code>vmstat</code> 里 <code>%sy</code>（内核态时间）占比异常高，也常是切换或 syscall 过多的信号。</p>
+<h2 id="4-用户态与内核态：系统调用的代价"><a href="#4-用户态与内核态：系统调用的代价" class="headerlink" title="4. 用户态与内核态：系统调用的代价"></a>4. 用户态与内核态：系统调用的代价</h2><p><strong>用户态（user mode）与内核态（kernel mode）是 CPU 的两种特权级别</strong>：内核态能执行特权指令（访问硬件、改页表），用户态不行。用户程序想动硬件，必须通过<strong>系统调用（syscall）</strong>请内核代劳。分态的目的是安全和隔离：你写的代码不能直接改别人的内存、不能直接写硬盘。</p>
+<h3 id="4-1-系统调用链路"><a href="#4-1-系统调用链路" class="headerlink" title="4.1 系统调用链路"></a>4.1 系统调用链路</h3><p>Java 里一次文件读取，底层链路是这样的：</p>
+<pre class="mermaid">sequenceDiagram
+    participant Java as Java (user mode)
+    participant Libc as glibc (user mode)
+    participant Kernel as Kernel (kernel mode)
+    participant Disk as Disk / Page Cache
+    Java->>Libc: FileInputStream.read()
+    Libc->>Kernel: syscall read(fd, buf, len)
+    Kernel->>Disk: page cache lookup / device I/O
+    Disk-->>Kernel: data
+    Kernel-->>Libc: copy to user buffer, return len
+    Libc-->>Java: bytes</pre>
+
+<p>每发一次 syscall 就有一次用户态↔内核态切换。<strong>态切换本身不重（亚微秒级），重的是它打断 CPU 流水线、每次都要校验参数和权限</strong>。由此推出两个工程结论：</p>
+<ul>
+<li>读 1 字节和读 4KB 都是 1 次 <code>read</code> syscall——<strong>缓冲（<code>BufferedInputStream</code>）的意义就在这里</strong>：把 N 次小 syscall 合并成一次大的；</li>
+<li>高性能框架都在「少 syscall」上做文章：批量读写、mmap、sendfile 零拷贝（一次 syscall 在内核态内完成磁盘→socket 拷贝，详见操作系统系列的 IO 模型篇）。</li>
+</ul>
+<h3 id="4-2-两种模式的对照"><a href="#4-2-两种模式的对照" class="headerlink" title="4.2 两种模式的对照"></a>4.2 两种模式的对照</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>用户态</th>
+<th>内核态</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>权限</td>
+<td>受限指令集</td>
+<td>特权指令（I&#x2F;O、内存管理、中断）</td>
+</tr>
+<tr>
+<td>谁在跑</td>
+<td>业务代码、JVM</td>
+<td>内核代码、驱动</td>
+</tr>
+<tr>
+<td>进入方式</td>
+<td>正常执行</td>
+<td>系统调用 &#x2F; 中断 &#x2F; 异常</td>
+</tr>
+<tr>
+<td>崩溃影响</td>
+<td>只崩自己的进程</td>
+<td>可能崩整个系统</td>
+</tr>
+</tbody></table>
+<h3 id="4-3-动手验证：strace-数一数系统调用"><a href="#4-3-动手验证：strace-数一数系统调用" class="headerlink" title="4.3 动手验证：strace 数一数系统调用"></a>4.3 动手验证：strace 数一数系统调用</h3><p><code>strace</code> 是系统调用追踪器，Java 程序同样适用（macOS 用 <code>dtruss</code> 替代，生产环境以 Linux 为准）：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">strace -c java -version                       <span class="comment"># 统计 syscall 类型与次数</span></span><br><span class="line">strace -p &lt;jvm_pid&gt; -f -e trace=<span class="built_in">read</span>,write    <span class="comment"># 附加运行中的 JVM，只看读写</span></span><br></pre></td></tr></table></figure>
+
+<p>输出里 <code>openat</code>&#x2F;<code>read</code>&#x2F;<code>write</code>&#x2F;<code>futex</code> 占绝大多数——<code>futex</code> 对应锁（线程等待&#x2F;唤醒），<code>read</code>&#x2F;<code>write</code> 对应 IO。观察点：<strong>一次业务操作触发的 syscall 数量</strong>——数量级压不下来，调 JVM 参数都是隔靴搔痒。</p>
+<p>缓冲读 vs 非缓冲读，同样的「读 10MB 文件」：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 方式一：FileInputStream 逐字节读 → 1000 万次 read syscall，秒级</span></span><br><span class="line"><span class="keyword">try</span> (<span class="type">var</span> <span class="variable">in</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">FileInputStream</span>(<span class="string">&quot;data.bin&quot;</span>)) &#123;</span><br><span class="line">    <span class="keyword">while</span> (in.read() != -<span class="number">1</span>) &#123; &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 方式二：BufferedInputStream 逐字节读 → 底层每次填满 8KB 缓冲，约 1300 次 read</span></span><br><span class="line"><span class="keyword">try</span> (<span class="type">var</span> <span class="variable">in</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">BufferedInputStream</span>(<span class="keyword">new</span> <span class="title class_">FileInputStream</span>(<span class="string">&quot;data.bin&quot;</span>))) &#123;</span><br><span class="line">    <span class="keyword">while</span> (in.read() != -<span class="number">1</span>) &#123; &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>实测方式一耗时是方式二的百倍以上（每次 syscall 都要进出内核态、校验参数、拷贝一字节）；<code>strace -c</code> 下方式一的 <code>read</code> 计数约 1000 万，方式二约 1300。生产排查时 IO 路径慢，先找「小读小写」——把 N 次小 IO 合并成一次大 IO，收益立竿见影。</p>
+<h2 id="5-总结与避坑清单"><a href="#5-总结与避坑清单" class="headerlink" title="5. 总结与避坑清单"></a>5. 总结与避坑清单</h2><h3 id="5-1-面试速答表"><a href="#5-1-面试速答表" class="headerlink" title="5.1 面试速答表"></a>5.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>进程和线程的区别？</td>
+<td>进程是资源分配单位，线程是调度单位；线程共享进程的地址空间和文件描述符，各自独立栈和寄存器</td>
+</tr>
+<tr>
+<td>为什么线程比进程轻？</td>
+<td>创建省了地址空间复制（写时拷贝），切换省了页表刷新（TLB）</td>
+</tr>
+<tr>
+<td>线程切换开销多大？</td>
+<td>微秒级：寄存器 + 栈 + 内核态进出；进程切换还多一次页表切换</td>
+</tr>
+<tr>
+<td>协程和线程的区别？</td>
+<td>协程在用户态调度，不依赖内核，创建&#x2F;切换成本低一个数量级，适合 IO 密集</td>
+</tr>
+<tr>
+<td>Java 线程是哪种模型？</td>
+<td>平台线程 1:1 内核线程；虚拟线程（JDK 21）是 JVM 调度的协程</td>
+</tr>
+<tr>
+<td>什么是僵尸进程？</td>
+<td>已退出但父进程没 wait() 回收，PCB 未释放；孤儿进程由 init 收养，僵尸必须防</td>
+</tr>
+</tbody></table>
+<h3 id="5-2-实战避坑清单"><a href="#5-2-实战避坑清单" class="headerlink" title="5.2 实战避坑清单"></a>5.2 实战避坑清单</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>TPS 上不去，vmstat 的 cs 每秒几十万</td>
+<td>线程过多，大量时间花在上下文切换</td>
+<td>按核数与 IO 密集度收缩线程池；新项目优先虚拟线程</td>
+</tr>
+<tr>
+<td>起了子进程后主流程卡死</td>
+<td>没人读子进程输出流，管道缓冲写满（64KB）后子进程阻塞</td>
+<td>起线程消费输出流；用完 waitFor() 并关闭流</td>
+</tr>
+<tr>
+<td>内存充足但 new Thread 报 OOM</td>
+<td>进程线程数 &#x2F; 虚拟内存受限（<code>ulimit -u</code>）</td>
+<td>检查 ulimit；或换虚拟线程</td>
+</tr>
+<tr>
+<td>线程池开满 2000 线程响应反而更差</td>
+<td>切换开销 &gt; 并发收益</td>
+<td>线程数 ≈ CPU 核数 × (1 + IO 等待占比 &#x2F; CPU 占比)</td>
+</tr>
+</tbody></table>
+<h3 id="5-3-工具速查表"><a href="#5-3-工具速查表" class="headerlink" title="5.3 工具速查表"></a>5.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>对应本节概念</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>ps -eo pid,ppid,stat,cmd</code></td>
+<td>进程状态、父子关系、僵尸</td>
+<td>1. 进程模型</td>
+</tr>
+<tr>
+<td><code>top -Hp &lt;pid&gt;</code></td>
+<td>每个线程的 CPU 占用</td>
+<td>2. 线程、3. 调度</td>
+</tr>
+<tr>
+<td><code>jstack &lt;pid&gt;</code></td>
+<td>Java 线程栈与状态</td>
+<td>2. 线程（映射内核状态）</td>
+</tr>
+<tr>
+<td><code>vmstat 1</code> &#x2F; <code>pidstat -w 1</code></td>
+<td>每秒切换次数 &#x2F; 自愿·非自愿切换</td>
+<td>3. 上下文切换</td>
+</tr>
+<tr>
+<td><code>nice</code> &#x2F; <code>renice</code></td>
+<td>调度权重（top 的 NI 列）</td>
+<td>3. CFS 权重</td>
+</tr>
+<tr>
+<td><code>strace -c</code></td>
+<td>syscall 类型与次数</td>
+<td>4. 用户态&#x2F;内核态</td>
+</tr>
+</tbody></table>
+<p>三个收获：<strong>进程管资源、线程管执行、调度管时间</strong>；切换成本从大到小是 进程切换 &gt; 线程切换 &gt; 系统调用；Java 的并发问题最终都能映射到这几层上——线程池大小、虚拟线程选型、进程卡死排查，根因都在本节讲的内核机制里，排查工具见上表。</p>
+<p>实操建议：</p>
+<ol>
+<li>压测先看 <code>vmstat 1</code> 的 <code>cs</code> 列，切换率异常高先缩线程池，不要先加并发。</li>
+<li>用了 <code>Runtime.exec()</code> &#x2F; <code>ProcessBuilder</code> 一定 <code>waitFor()</code> + 关流，防僵尸进程。</li>
+<li>新项目 IO 密集型并发优先评估虚拟线程（JDK 21+），平台线程留给 CPU 密集和需要可控栈的场景。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告</strong>：线程的「栈内存」在进程里只是地址空间的一角——第 2 篇《内存管理：虚拟内存与分页》讲地址空间怎么组织、虚拟地址怎么翻译成物理地址、以及容器里 JVM 被 OOM 杀的完整链路。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -779,1937 +2488,8 @@
 
 
 
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/4354e479.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="知行栈">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | 知行栈">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/4354e479.html" class="post-title-link" itemprop="url">MySQL 事务原理与实践</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-
-      <time title="Created: 2026-08-12 20:00:00" itemprop="dateCreated datePublished" datetime="2026-08-12T20:00:00+08:00">2026-08-12</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">In</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/" itemprop="url" rel="index"><span itemprop="name">数据存储</span></a>
-        </span>
-    </span>
-
-  
-    <span class="post-meta-break"></span>
-    <span class="post-meta-item" title="Word count in article">
-      <span class="post-meta-item-icon">
-        <i class="far fa-file-word"></i>
-      </span>
-      <span class="post-meta-item-text">Word count in article: </span>
-      <span>5.5k</span>
-    </span>
-    <span class="post-meta-item" title="Reading time">
-      <span class="post-meta-item-icon">
-        <i class="far fa-clock"></i>
-      </span>
-      <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>20 mins.</span>
-    </span>
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <p>事务（Transaction）是一组数据库操作的最小执行单元：要么全部提交生效，要么全部回滚，不允许只执行一半。它解决的是「多步操作的一致性」问题——转账时扣钱成功、加钱失败，账就对不上了。</p>
-<p>本文把事务拆成三层讲：<strong>目标</strong>（ACID）、<strong>机制</strong>（隔离级别、MVCC、行锁）、<strong>实战</strong>（事务边界控制、死锁排查、Spring 事务的坑）。基础概念在《MySQL 原理与优化》第 5 章有概览，本篇每个概念都展开到「可复现的实验」和「真实项目里的坑」。读完你应能自己复现三种并发问题、看懂死锁报告、修掉 Spring 事务失效。</p>
-<h2 id="1-事务是什么：ACID-与它的实现机制"><a href="#1-事务是什么：ACID-与它的实现机制" class="headerlink" title="1. 事务是什么：ACID 与它的实现机制"></a>1. 事务是什么：ACID 与它的实现机制</h2><h3 id="1-1-ACID-四特性：目标与实现机制（面试核心考点）"><a href="#1-1-ACID-四特性：目标与实现机制（面试核心考点）" class="headerlink" title="1.1 ACID 四特性：目标与实现机制（面试核心考点）"></a>1.1 ACID 四特性：目标与实现机制（面试核心考点）</h3><table>
-<thead>
-<tr>
-<th>特性</th>
-<th>一句话定义</th>
-<th>靠什么实现</th>
-<th>损坏的后果</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>原子性（Atomicity）</td>
-<td>一组操作要么全成功、要么全回滚</td>
-<td>undo log</td>
-<td>转账只扣了钱，账目错乱</td>
-</tr>
-<tr>
-<td>一致性（Consistency）</td>
-<td>事务前后数据满足完整性约束</td>
-<td>应用代码 + 数据库约束</td>
-<td>余额为负、外键断裂</td>
-</tr>
-<tr>
-<td>隔离性（Isolation）</td>
-<td>事务之间互不可见、互不干扰</td>
-<td>锁 + MVCC</td>
-<td>并发读写出错</td>
-</tr>
-<tr>
-<td>持久性（Durability）</td>
-<td>提交后修改永久保存，崩溃不丢</td>
-<td>redo log（WAL）</td>
-<td>提交了的数据丢失</td>
-</tr>
-</tbody></table>
-<p><strong>一致性是目标，其余三个是实现手段</strong>——原子性、隔离性、持久性都是为了最终保证「数据始终一致」。面试答到这一层比背定义得分高。</p>
-<h3 id="1-2-只有-InnoDB-支持事务"><a href="#1-2-只有-InnoDB-支持事务" class="headerlink" title="1.2 只有 InnoDB 支持事务"></a>1.2 只有 InnoDB 支持事务</h3><p>事务是存储引擎层的能力，不是 Server 层的。</p>
-<table>
-<thead>
-<tr>
-<th>引擎</th>
-<th>事务</th>
-<th>行锁</th>
-<th>崩溃恢复</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>InnoDB</td>
-<td>支持</td>
-<td>支持</td>
-<td>redo log 重放</td>
-</tr>
-<tr>
-<td>MyISAM</td>
-<td><strong>不支持</strong></td>
-<td>仅表锁</td>
-<td>无，重启可能丢数据</td>
-</tr>
-</tbody></table>
-<p>业务表必须用 InnoDB。MyISAM 下 <code>START TRANSACTION</code> 照写不报错，但两条 UPDATE 之间插电重启，第一条照样生效——回滚根本不存在。</p>
-<h2 id="2-事务的控制方式：autocommit-与隐式提交陷阱"><a href="#2-事务的控制方式：autocommit-与隐式提交陷阱" class="headerlink" title="2. 事务的控制方式：autocommit 与隐式提交陷阱"></a>2. 事务的控制方式：autocommit 与隐式提交陷阱</h2><h3 id="2-1-autocommit-与显式事务"><a href="#2-1-autocommit-与显式事务" class="headerlink" title="2.1 autocommit 与显式事务"></a>2.1 autocommit 与显式事务</h3><p>MySQL 默认 <code>autocommit = 1</code>：每条 DML 语句自动开启并提交一个事务。所以「MySQL 怎么开事务」的答案分两种：</p>
-<table>
-<thead>
-<tr>
-<th>方式</th>
-<th>写法</th>
-<th>适用场景</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>自动提交</td>
-<td>什么都不写，每条 DML 独立成事务</td>
-<td>单条 INSERT&#x2F;UPDATE</td>
-</tr>
-<tr>
-<td>显式事务</td>
-<td><code>START TRANSACTION</code> &#x2F; <code>BEGIN</code>，最后 <code>COMMIT</code> &#x2F; <code>ROLLBACK</code></td>
-<td>多步操作必须原子</td>
-</tr>
-</tbody></table>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">START</span> TRANSACTION;                          <span class="comment">-- 事务开始</span></span><br><span class="line"><span class="keyword">UPDATE</span> account <span class="keyword">SET</span> balance <span class="operator">=</span> balance <span class="operator">-</span> <span class="number">100</span> <span class="keyword">WHERE</span> id <span class="operator">=</span> <span class="number">1</span>;</span><br><span class="line"><span class="keyword">UPDATE</span> account <span class="keyword">SET</span> balance <span class="operator">=</span> balance <span class="operator">+</span> <span class="number">100</span> <span class="keyword">WHERE</span> id <span class="operator">=</span> <span class="number">2</span>;</span><br><span class="line"><span class="keyword">COMMIT</span>;                                     <span class="comment">-- 或 ROLLBACK;</span></span><br></pre></td></tr></table></figure>
-
-<p><code>START TRANSACTION</code> 本身有个隐藏行为：执行它会<strong>先隐式提交当前事务</strong>（见 2.3），所以显式事务前别带着上一个未提交的事务。</p>
-<h3 id="2-2-JDBC-手写一个转账事务"><a href="#2-2-JDBC-手写一个转账事务" class="headerlink" title="2.2 JDBC 手写一个转账事务"></a>2.2 JDBC 手写一个转账事务</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 转账：两个 update 要么都成功，要么都不生效</span></span><br><span class="line"><span class="keyword">try</span> (<span class="type">Connection</span> <span class="variable">conn</span> <span class="operator">=</span> dataSource.getConnection()) &#123;</span><br><span class="line">    conn.setAutoCommit(<span class="literal">false</span>); <span class="comment">// 关键：关闭自动提交，事务边界交给代码</span></span><br><span class="line">    <span class="keyword">try</span> (<span class="type">PreparedStatement</span> <span class="variable">ps</span> <span class="operator">=</span> conn.prepareStatement(</span><br><span class="line">            <span class="string">&quot;UPDATE account SET balance = balance - 100 WHERE id = ?&quot;</span>)) &#123;</span><br><span class="line">        ps.setInt(<span class="number">1</span>, <span class="number">1</span>);</span><br><span class="line">        ps.executeUpdate();</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">try</span> (<span class="type">PreparedStatement</span> <span class="variable">ps</span> <span class="operator">=</span> conn.prepareStatement(</span><br><span class="line">            <span class="string">&quot;UPDATE account SET balance = balance + 100 WHERE id = ?&quot;</span>)) &#123;</span><br><span class="line">        ps.setInt(<span class="number">1</span>, <span class="number">2</span>);</span><br><span class="line">        ps.executeUpdate();</span><br><span class="line">    &#125;</span><br><span class="line">    conn.commit();   <span class="comment">// 两笔都成功，一次性提交</span></span><br><span class="line">&#125; <span class="keyword">catch</span> (Exception e) &#123;</span><br><span class="line">    conn.rollback(); <span class="comment">// 任一笔失败，全部回滚</span></span><br><span class="line">    <span class="keyword">throw</span> e;         <span class="comment">// 失败向上抛，别吞异常</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>对照 Java 的思维：<code>commit/rollback</code> 就像方法返回值和异常——<code>commit</code> 是正常返回，<code>rollback</code> 是异常兜底。事务边界必须包住所有需要原子的步骤，多包一个远程调用就是多锁一秒。</p>
-<h3 id="2-3-隐式提交陷阱：哪些语句会偷偷提交事务（实战重点）"><a href="#2-3-隐式提交陷阱：哪些语句会偷偷提交事务（实战重点）" class="headerlink" title="2.3 隐式提交陷阱：哪些语句会偷偷提交事务（实战重点）"></a>2.3 隐式提交陷阱：哪些语句会偷偷提交事务（实战重点）</h3><p>以下语句执行前，MySQL 会<strong>先隐式提交当前事务</strong>，然后才执行语句本身：</p>
-<table>
-<thead>
-<tr>
-<th>语句类别</th>
-<th>具体例子</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>DDL</td>
-<td><code>CREATE</code> &#x2F; <code>ALTER</code> &#x2F; <code>DROP</code> &#x2F; <code>TRUNCATE</code> &#x2F; <code>RENAME</code></td>
-</tr>
-<tr>
-<td>权限与账号</td>
-<td><code>GRANT</code> &#x2F; <code>REVOKE</code> &#x2F; <code>SET PASSWORD</code></td>
-</tr>
-<tr>
-<td>表与数据管理</td>
-<td><code>LOCK TABLES</code> &#x2F; <code>UNLOCK TABLES</code> &#x2F; <code>LOAD DATA</code></td>
-</tr>
-<tr>
-<td>其他</td>
-<td><code>START TRANSACTION</code> 本身、<code>FLUSH</code>、<code>ANALYZE TABLE</code></td>
-</tr>
-</tbody></table>
-<p>实际踩过的坑：事务里先 UPDATE 了一批数据，中途执行 <code>CREATE INDEX</code>（DDL），前面的 UPDATE <strong>已经被悄悄提交</strong>。后续逻辑抛异常回滚，只回滚了索引之后的变更，数据只改了一半。</p>
-<p><strong>口诀</strong>：事务里只放 DML 和 SELECT，DDL 是隐式提交的雷。</p>
-<h3 id="2-4-回滚也是有成本的"><a href="#2-4-回滚也是有成本的" class="headerlink" title="2.4 回滚也是有成本的"></a>2.4 回滚也是有成本的</h3><p>回滚靠 undo log 实现，不是「把数据原样恢复」这么便宜：</p>
-<ul>
-<li><strong>insert undo log</strong>：插入产生的，事务提交后立刻删除；</li>
-<li><strong>update undo log</strong>：更新&#x2F;删除产生的，还要给其他事务做快照读，事务提交后不能马上删，由后台 <strong>purge 线程</strong>在确认没有事务再用时才清理。</li>
-</ul>
-<p>所以「回滚一个 100 万行的 UPDATE」实际要反向执行 100 万次补偿，还要让出 purge 空间——<strong>大事务的回滚和提交一样慢</strong>。这也是长事务危害的根源之一（见 8.1）。</p>
-<h2 id="3-隔离级别：从定义到亲手复现"><a href="#3-隔离级别：从定义到亲手复现" class="headerlink" title="3. 隔离级别：从定义到亲手复现"></a>3. 隔离级别：从定义到亲手复现</h2><h3 id="3-1-三个并发问题（面试核心考点）"><a href="#3-1-三个并发问题（面试核心考点）" class="headerlink" title="3.1 三个并发问题（面试核心考点）"></a>3.1 三个并发问题（面试核心考点）</h3><table>
-<thead>
-<tr>
-<th>并发问题</th>
-<th>英文</th>
-<th>现象</th>
-<th>一句话记忆</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>脏读</td>
-<td>Dirty Read</td>
-<td>读到其他事务<strong>尚未提交</strong>的修改</td>
-<td>读到了不存在的未来</td>
-</tr>
-<tr>
-<td>不可重复读</td>
-<td>Non-Repeatable Read</td>
-<td>同一查询两次结果，<strong>同一行内容</strong>变了</td>
-<td>同行被改，两次读不一致</td>
-</tr>
-<tr>
-<td>幻读</td>
-<td>Phantom Read</td>
-<td>同一查询两次结果，<strong>行数</strong>变了</td>
-<td>多了或少了行</td>
-</tr>
-</tbody></table>
-<p>注意区分不可重复读和幻读的考察点：前者是<strong>同一条记录</strong>被改，后者是<strong>结果集增删行</strong>。面试常考这个区分。</p>
-<h3 id="3-2-四级隔离级别"><a href="#3-2-四级隔离级别" class="headerlink" title="3.2 四级隔离级别"></a>3.2 四级隔离级别</h3><table>
-<thead>
-<tr>
-<th>隔离级别</th>
-<th>脏读</th>
-<th>不可重复读</th>
-<th>幻读</th>
-<th>特点</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>read uncommitted</td>
-<td>可能</td>
-<td>可能</td>
-<td>可能</td>
-<td>不隔离，几乎不用</td>
-</tr>
-<tr>
-<td>read committed</td>
-<td>不可能</td>
-<td>可能</td>
-<td>可能</td>
-<td>每个 SQL 一个快照</td>
-</tr>
-<tr>
-<td>repeatable read</td>
-<td>不可能</td>
-<td>不可能</td>
-<td>基本杜绝</td>
-<td><strong>MySQL 默认</strong></td>
-</tr>
-<tr>
-<td>serializable</td>
-<td>不可能</td>
-<td>不可能</td>
-<td>不可能</td>
-<td>所有读变当前读，并发最低</td>
-</tr>
-</tbody></table>
-<p><strong>口诀</strong>：隔离级别从低到高，防的问题从少到多，并发度从高到低。</p>
-<h3 id="3-3-实验一：脏读（read-uncommitted-专属）"><a href="#3-3-实验一：脏读（read-uncommitted-专属）" class="headerlink" title="3.3 实验一：脏读（read uncommitted 专属）"></a>3.3 实验一：脏读（read uncommitted 专属）</h3><p>开两个会话，都设成 <code>READ UNCOMMITTED</code>：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">-- 会话 A</span><br><span class="line">mysql&gt; SET SESSION TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;</span><br><span class="line">mysql&gt; START TRANSACTION;</span><br><span class="line">mysql&gt; UPDATE account SET balance = balance - 100 WHERE id = 1; -- 未提交</span><br></pre></td></tr></table></figure>
-
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">-- 会话 B（同样 READ UNCOMMITTED）</span><br><span class="line">mysql&gt; SELECT balance FROM account WHERE id = 1;</span><br><span class="line">+---------+</span><br><span class="line">|     900 |   -- 读到 A 未提交的修改 → 脏读</span><br></pre></td></tr></table></figure>
-
-<p>此时 A 执行 <code>ROLLBACK</code>，B 之前读到的 900 就是「从未存在过的数据」。RC 及以上级别为什么不会有脏读？因为读之前先看「事务是否已提交」，未提交的一律不可见——这就是 4.3 的 ReadView 干的事。</p>
-<h3 id="3-4-实验二：不可重复读（read-committed-专属）"><a href="#3-4-实验二：不可重复读（read-committed-专属）" class="headerlink" title="3.4 实验二：不可重复读（read committed 专属）"></a>3.4 实验二：不可重复读（read committed 专属）</h3><p>两个会话都设成 <code>READ COMMITTED</code>：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">-- 会话 A</span><br><span class="line">mysql&gt; SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;</span><br><span class="line">mysql&gt; START TRANSACTION;</span><br><span class="line">mysql&gt; SELECT balance FROM account WHERE id = 1;</span><br><span class="line">+---------+</span><br><span class="line">|    1000 |   -- 第一次读到 1000</span><br></pre></td></tr></table></figure>
-
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">-- 会话 B：把 id=1 的余额改了并提交</span><br><span class="line">mysql&gt; UPDATE account SET balance = balance - 100 WHERE id = 1;</span><br><span class="line">mysql&gt; COMMIT;</span><br></pre></td></tr></table></figure>
-
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">-- 会话 A 再查一次</span><br><span class="line">mysql&gt; SELECT balance FROM account WHERE id = 1;</span><br><span class="line">+---------+</span><br><span class="line">|     900 |   -- 第二次读到 900 → 同一事务内两次读不一致</span><br></pre></td></tr></table></figure>
-
-<p>RC 下脏读被解决，但每次 SELECT 都重新生成快照，其他事务提交后就「看见新版本」，于是不可重复读。要治这个，得让整个事务用同一份快照——RR。</p>
-<h3 id="3-5-实验三：幻读（InnoDB-RR-下的残留场景）"><a href="#3-5-实验三：幻读（InnoDB-RR-下的残留场景）" class="headerlink" title="3.5 实验三：幻读（InnoDB RR 下的残留场景）"></a>3.5 实验三：幻读（InnoDB RR 下的残留场景）</h3><p>RR 下快照读是同一份快照，两次 SELECT 结果必然一致；但<strong>先快照读、后当前读</strong>的混合场景，幻读仍然存在。表 <code>t</code> 里 <code>id</code> 为 20、30：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">-- 会话 A：RR 级别</span><br><span class="line">mysql&gt; START TRANSACTION;</span><br><span class="line">mysql&gt; SELECT * FROM t WHERE id &gt;= 20;   -- 快照读：看到 20、30，同时生成 ReadView</span><br><span class="line">+----+</span><br><span class="line">| 20 |</span><br><span class="line">| 30 |</span><br></pre></td></tr></table></figure>
-
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">-- 会话 B：插入新行并提交</span><br><span class="line">mysql&gt; INSERT INTO t VALUES (25);</span><br><span class="line">mysql&gt; COMMIT;</span><br></pre></td></tr></table></figure>
-
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">-- 会话 A 继续</span><br><span class="line">mysql&gt; SELECT * FROM t WHERE id &gt;= 20;          -- 快照读：还是 20、30（快照一致，不幻读）</span><br><span class="line">mysql&gt; SELECT * FROM t WHERE id &gt;= 20 FOR UPDATE; -- 当前读：读到 20、25、30 → 幻读！</span><br><span class="line">+----+</span><br><span class="line">| 20 |</span><br><span class="line">| 25 |</span><br><span class="line">| 30 |</span><br></pre></td></tr></table></figure>
-
-<p>为什么当前读会看到 25？快照读走 ReadView（看不到 B 的新行），当前读读的是<strong>最新已提交版本</strong>（不认 ReadView），于是 25 现身。这也是面试常考的「InnoDB RR 下幻读到底有没有」的完整答案：快照读没有、当前读单独用没有（间隙锁兜底，见第 5 章）、<strong>混合场景有残留</strong>。</p>
-<h3 id="3-6-实验结论表"><a href="#3-6-实验结论表" class="headerlink" title="3.6 实验结论表"></a>3.6 实验结论表</h3><table>
-<thead>
-<tr>
-<th>场景</th>
-<th>read uncommitted</th>
-<th>read committed</th>
-<th>repeatable read（InnoDB）</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>脏读</td>
-<td>会</td>
-<td>不会</td>
-<td>不会</td>
-</tr>
-<tr>
-<td>不可重复读</td>
-<td>会</td>
-<td>会</td>
-<td>不会（快照一致）</td>
-</tr>
-<tr>
-<td>幻读</td>
-<td>会</td>
-<td>会</td>
-<td>快照读不会；快照读+当前读混合会</td>
-</tr>
-</tbody></table>
-<p><strong>延伸考点</strong>：为什么 MySQL 默认 RR，而 Oracle 默认 RC？历史原因是主从复制基于 binlog 的 statement 格式，RC 下并发写顺序可能与 binlog 记录不一致，导致主从不一致；RR 靠间隙锁保证写顺序稳定。现在 binlog 默认 row 格式，理论上可切 RC（不少大厂为并发切到 RC）——面试答出「历史原因 + row 格式下可切」就是满分。</p>
-<h2 id="4-MVCC-原理：版本链-ReadView"><a href="#4-MVCC-原理：版本链-ReadView" class="headerlink" title="4. MVCC 原理：版本链 + ReadView"></a>4. MVCC 原理：版本链 + ReadView</h2><h3 id="4-1-MVCC-定义"><a href="#4-1-MVCC-定义" class="headerlink" title="4.1 MVCC 定义"></a>4.1 MVCC 定义</h3><p>MVCC（Multi-Version Concurrency Control，多版本并发控制）让「读」不阻塞「写」、「写」不阻塞「读」——读写互不等待。做法：修改数据时<strong>不覆盖旧值</strong>，而是写入新版本，读事务从版本链里挑一个对自己可见的版本。</p>
-<p>对照 Java 思维：类似 <code>CopyOnWriteArrayList</code>——写线程改到新副本，读线程永远拿到一份稳定快照。快照读（普通 SELECT）因此不加锁，这是 MySQL 高并发读的根基。</p>
-<h3 id="4-2-隐藏列与-undo-log-版本链"><a href="#4-2-隐藏列与-undo-log-版本链" class="headerlink" title="4.2 隐藏列与 undo log 版本链"></a>4.2 隐藏列与 undo log 版本链</h3><p>InnoDB 给每行记录额外维护三个隐藏列：</p>
-<table>
-<thead>
-<tr>
-<th>隐藏列</th>
-<th>作用</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>DB_ROW_ID</code></td>
-<td>表没有主键时生成的自增 id（有主键则用主键定位）</td>
-</tr>
-<tr>
-<td><code>DB_TRX_ID</code></td>
-<td>最近一次修改该行的事务 id</td>
-</tr>
-<tr>
-<td><code>DB_ROLL_PTR</code></td>
-<td>指向 undo log 中上一版本的回滚指针</td>
-</tr>
-</tbody></table>
-<p>每次 UPDATE 不直接覆盖：旧值写进 undo log，行的 <code>DB_TRX_ID</code> 更新为当前事务，<code>DB_ROLL_PTR</code> 指向旧版本，于是同一行存在多个历史版本，串成一条链：</p>
-<pre class="mermaid">flowchart LR
-    V3["V3: trx=60, balance=800"] --> V2["V2: trx=40, balance=900"]
-    V2 --> V1["V1: trx=30, balance=1000"]
-    V1 --> N1["NULL"]</pre>
-
-<p>版本链头部（V3）是最新版本。任何事务做快照读，都从头部开始沿链找「对自己可见」的版本——判断标准就是 ReadView。</p>
-<h3 id="4-3-ReadView：谁能看到哪个版本（面试核心考点）"><a href="#4-3-ReadView：谁能看到哪个版本（面试核心考点）" class="headerlink" title="4.3 ReadView：谁能看到哪个版本（面试核心考点）"></a>4.3 ReadView：谁能看到哪个版本（面试核心考点）</h3><p>事务做快照读时生成一个 ReadView（读视图），记录生成时刻的并发状态：</p>
-<table>
-<thead>
-<tr>
-<th>字段</th>
-<th>含义</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>creator_trx_id</code></td>
-<td>创建 ReadView 的事务 id</td>
-</tr>
-<tr>
-<td><code>m_ids</code></td>
-<td>生成时刻所有<strong>活跃（未提交）</strong>事务 id 列表</td>
-</tr>
-<tr>
-<td><code>min_trx_id</code></td>
-<td>活跃事务中的最小 id</td>
-</tr>
-<tr>
-<td><code>max_trx_id</code></td>
-<td>下一个要分配的事务 id（即当前最大 id + 1）</td>
-</tr>
-</tbody></table>
-<p>可见性判断对版本链上的每个版本依次进行：</p>
-<pre class="mermaid">flowchart TD
-    A["Snapshot read creates ReadView"] --> B["Check version chain head's trx_id"]
-    B --> C{"trx_id &lt; min_trx_id ?"}
-    C -- "Yes" --> V1["Visible: committed before this view"]
-    C -- "No" --> D{"trx_id >= max_trx_id ?"}
-    D -- "Yes" --> I1["Invisible: created after this view"]
-    D -- "No" --> E{"trx_id in m_ids (still active) ?"}
-    E -- "Yes" --> I2["Invisible: uncommitted"]
-    E -- "No" --> V2["Visible: committed between min and max"]
-    I1 --> F{"Previous version exists ?"}
-    I2 --> F
-    F -- "Yes" --> B
-    F -- "No" --> N1["Not visible / record not exists"]</pre>
-
-<p>一句话概括规则：<strong>事务开始时还没提交的版本不可见，已经提交的版本可见</strong>。找不到可见版本就沿 <code>DB_ROLL_PTR</code> 往旧版本走，走到链尾都没有则这条记录对该事务「不存在」。</p>
-<h3 id="4-4-RC-与-RR-的差别只有一句话"><a href="#4-4-RC-与-RR-的差别只有一句话" class="headerlink" title="4.4 RC 与 RR 的差别只有一句话"></a>4.4 RC 与 RR 的差别只有一句话</h3><table>
-<thead>
-<tr>
-<th>隔离级别</th>
-<th>ReadView 生成时机</th>
-<th>效果</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>read committed</td>
-<td><strong>每次 SELECT</strong> 都新建</td>
-<td>能看到两次 SELECT 之间新提交的版本 → 不可重复读</td>
-</tr>
-<tr>
-<td>repeatable read</td>
-<td><strong>事务中第一次 SELECT</strong> 时创建，之后复用</td>
-<td>整个事务看同一份快照 → 不可重复读被解决</td>
-</tr>
-</tbody></table>
-<p><strong>一句话串起 MVCC</strong>：undo log 提供多版本，ReadView 决定哪些版本可见，锁兜底当前读（下一章）。RC 与 RR 的差别只是 ReadView 的生成时机——这一句话就够答大部分 MVCC 面试题。</p>
-<h2 id="5-当前读与行锁：幻读为什么被消除"><a href="#5-当前读与行锁：幻读为什么被消除" class="headerlink" title="5. 当前读与行锁：幻读为什么被消除"></a>5. 当前读与行锁：幻读为什么被消除</h2><h3 id="5-1-快照读-vs-当前读"><a href="#5-1-快照读-vs-当前读" class="headerlink" title="5.1 快照读 vs 当前读"></a>5.1 快照读 vs 当前读</h3><p>MVCC 只管快照读；要改数据、要拿最新值，就得走当前读。</p>
-<table>
-<thead>
-<tr>
-<th>特性</th>
-<th>快照读（一致性非锁定读）</th>
-<th>当前读</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>读的数据</td>
-<td>历史快照版本</td>
-<td>最新已提交版本</td>
-</tr>
-<tr>
-<td>加锁</td>
-<td>不加锁</td>
-<td>加锁（共享锁 &#x2F; 排他锁）</td>
-</tr>
-<tr>
-<td>并发性</td>
-<td>高，读写互不阻塞</td>
-<td>低，可能阻塞</td>
-</tr>
-<tr>
-<td>触发语句</td>
-<td>普通 <code>SELECT</code></td>
-<td><code>SELECT ... FOR UPDATE</code>、<code>UPDATE</code>、<code>DELETE</code>、<code>INSERT</code></td>
-</tr>
-</tbody></table>
-<h3 id="5-2-三种行锁：记录锁、间隙锁、临键锁"><a href="#5-2-三种行锁：记录锁、间隙锁、临键锁" class="headerlink" title="5.2 三种行锁：记录锁、间隙锁、临键锁"></a>5.2 三种行锁：记录锁、间隙锁、临键锁</h3><table>
-<thead>
-<tr>
-<th>锁</th>
-<th>锁定的范围</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>记录锁（Record Lock）</td>
-<td>单条索引记录</td>
-<td>最基础的行锁</td>
-</tr>
-<tr>
-<td>间隙锁（Gap Lock）</td>
-<td>开区间 <code>(a, b)</code></td>
-<td>锁住「记录之间的空隙」，防插入</td>
-</tr>
-<tr>
-<td>临键锁（Next-Key Lock）</td>
-<td>左开右闭 <code>(a, b]</code></td>
-<td>记录锁 + 间隙锁的组合，<strong>RR 级别当前读的默认锁</strong></td>
-</tr>
-</tbody></table>
-<p>两个前提必须记住：行锁是加在<strong>索引记录</strong>上的，<code>WHERE</code> 条件没走索引时锁会退化成表级（所有记录都锁）；间隙锁只在 <strong>RR 级别</strong>下生效，RC 级别没有间隙锁。</p>
-<h3 id="5-3-临键锁如何挡住幻读"><a href="#5-3-临键锁如何挡住幻读" class="headerlink" title="5.3 临键锁如何挡住幻读"></a>5.3 临键锁如何挡住幻读</h3><p>回到 3.5 的场景：如果 A 先做<strong>当前读</strong>（<code>FOR UPDATE</code>），InnoDB 会锁住命中的记录和两侧的间隙，B 的新行根本插不进来：</p>
-<pre class="mermaid">sequenceDiagram
-    participant A as Transaction A (RR)
-    participant B as Transaction B
-    participant I as InnoDB
-    A->>I: SELECT * FROM t WHERE id >= 20 FOR UPDATE
-    I-->>A: Locks rows 20,30 + gaps (20,30) (30,+inf)
-    B->>I: INSERT INTO t VALUES (25)
-    I-->>B: Blocked: waiting for gap lock
-    Note over A: COMMIT
-    I-->>B: Gap lock released, INSERT continues</pre>
-
-<p>所以 InnoDB 的 RR 下：<strong>快照读靠 MVCC 看不到新行，当前读靠临键锁插不进新行</strong>——两个方向都堵死了，标准意义上的幻读被消除。这也是为什么 MySQL 敢把 RR 设为默认级别。</p>
-<h3 id="5-4-残留幻读：什么时候还能发生"><a href="#5-4-残留幻读：什么时候还能发生" class="headerlink" title="5.4 残留幻读：什么时候还能发生"></a>5.4 残留幻读：什么时候还能发生</h3><p>3.5 的实验就是残留场景，成因梳理：</p>
-<table>
-<thead>
-<tr>
-<th>场景</th>
-<th>走什么路径</th>
-<th>结果</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>先快照读，再快照读</td>
-<td>复用同一个 ReadView</td>
-<td>一致，不幻读</td>
-</tr>
-<tr>
-<td>先当前读，再插入</td>
-<td>间隙锁把口堵死</td>
-<td>不幻读</td>
-</tr>
-<tr>
-<td><strong>先快照读，后当前读</strong></td>
-<td>当前读不看 ReadView，读最新已提交</td>
-<td><strong>幻读残留</strong></td>
-</tr>
-</tbody></table>
-<p><strong>残留幻读一句话</strong>：只有「先快照读、后当前读」的混合边界才看得到新行。生产代码里同一事务内先 SELECT 再 FOR UPDATE 的场景（典型的「查询-再更新」逻辑）要留意这一点。</p>
-<h2 id="6-死锁：成因、复现与排查（实战重点）"><a href="#6-死锁：成因、复现与排查（实战重点）" class="headerlink" title="6. 死锁：成因、复现与排查（实战重点）"></a>6. 死锁：成因、复现与排查（实战重点）</h2><h3 id="6-1-死锁的产生条件"><a href="#6-1-死锁的产生条件" class="headerlink" title="6.1 死锁的产生条件"></a>6.1 死锁的产生条件</h3><p>死锁（Deadlock）指两个以上事务互相持有对方需要的锁，谁也不放手。产生需要同时满足四个条件：</p>
-<table>
-<thead>
-<tr>
-<th>条件</th>
-<th>含义</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>互斥</td>
-<td>同一资源同时只能被一个事务持有</td>
-</tr>
-<tr>
-<td>持有并等待</td>
-<td>拿着自己的锁，还等别人的锁</td>
-</tr>
-<tr>
-<td>不可剥夺</td>
-<td>锁只能由持有者主动释放</td>
-</tr>
-<tr>
-<td>循环等待</td>
-<td>A 等 B、B 等 A，形成环</td>
-</tr>
-</tbody></table>
-<p>InnoDB 默认开启死锁检测（<code>innodb_deadlock_detect = ON</code>），检测到环后<strong>主动回滚一个事务</strong>（通常回滚 undo log 量小的一方），报错 <code>ERROR 1213 (40001)</code>；没开检测则等 <code>innodb_lock_wait_timeout</code>（默认 50 秒）超时。</p>
-<h3 id="6-2-亲手复现一个死锁"><a href="#6-2-亲手复现一个死锁" class="headerlink" title="6.2 亲手复现一个死锁"></a>6.2 亲手复现一个死锁</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">-- 会话 A                     -- 会话 B</span><br><span class="line">START TRANSACTION;           START TRANSACTION;</span><br><span class="line">UPDATE t SET v=v+1 WHERE id=1;   -- A 持有 id=1 的锁</span><br><span class="line">                             UPDATE t SET v=v+1 WHERE id=2;   -- B 持有 id=2 的锁</span><br><span class="line">UPDATE t SET v=v+1 WHERE id=2;   -- A 等 B 释放 id=2，阻塞…</span><br><span class="line">                             UPDATE t SET v=v+1 WHERE id=1;   -- B 等 A 释放 id=1</span><br><span class="line">-- A 收到报错：               -- 死锁环形成，InnoDB 回滚 B 的事务</span><br><span class="line">ERROR 1213 (40001): Deadlock found when trying to get lock; try restarting transaction</span><br></pre></td></tr></table></figure>
-
-<p>注意：两条 UPDATE 语句的<strong>加锁顺序不一致</strong>是死锁最常见的根因。上面 A 是 1→2，B 是 2→1，环就形成了。</p>
-<h3 id="6-3-排查：SHOW-ENGINE-INNODB-STATUS"><a href="#6-3-排查：SHOW-ENGINE-INNODB-STATUS" class="headerlink" title="6.3 排查：SHOW ENGINE INNODB STATUS"></a>6.3 排查：SHOW ENGINE INNODB STATUS</h3><p>死锁发生现场（<code>SHOW ENGINE INNODB STATUS\G</code> 的 <code>LATEST DETECTED DEADLOCK</code> 段落）会记录完整链路：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">------------------------</span><br><span class="line">LATEST DETECTED DEADLOCK</span><br><span class="line">------------------------</span><br><span class="line">*** (1) TRANSACTION:            -- 事务一：谁发起的、执行了什么语句</span><br><span class="line">TRANSACTION 4611, ACTIVE 3 sec updating or deleting</span><br><span class="line">mysql tables in use 1, locked 1</span><br><span class="line">*** (1) WAITING FOR THIS LOCK TO BE GRANTED:   -- 事务一在等哪个锁</span><br><span class="line">RECORD LOCKS space id 26 page no 4 n bits 80 index PRIMARY of table `db1`.`t`</span><br><span class="line">*** (2) TRANSACTION:</span><br><span class="line">TRANSACTION 4612, ACTIVE 2 sec updating or deleting</span><br><span class="line">*** (2) HOLDS THE LOCK(S):      -- 事务二拿着哪个锁</span><br><span class="line">RECORD LOCKS space id 26 page no 4 n bits 80 index PRIMARY of table `db1`.`t`</span><br><span class="line">*** WE ROLL BACK TRANSACTION (2)  -- InnoDB 回滚了谁</span><br></pre></td></tr></table></figure>
-
-<p>排查时重点看三块：<strong>两个事务各执行了什么 SQL、各自 HOLDS&#x2F;WAITS 哪把锁、回滚了哪个</strong>。生产环境死锁不致命（重试即可），致命的是锁等待堆积——那种要到 <code>innodb_lock_wait_timeout</code> 才炸，表现为大量超时和连接池打满。</p>
-<h3 id="6-4-预防与处理"><a href="#6-4-预防与处理" class="headerlink" title="6.4 预防与处理"></a>6.4 预防与处理</h3><table>
-<thead>
-<tr>
-<th>手段</th>
-<th>做法</th>
-<th>针对</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>统一加锁顺序</td>
-<td>多表&#x2F;多行更新按同一顺序（如按 id 排序）</td>
-<td>循环等待</td>
-</tr>
-<tr>
-<td>缩小事务</td>
-<td>事务里只放必要的 SQL，不调 RPC</td>
-<td>持有锁的时间</td>
-</tr>
-<tr>
-<td>走索引</td>
-<td>让行锁真正锁行，避免退化锁全表</td>
-<td>锁的范围</td>
-</tr>
-<tr>
-<td>死锁重试</td>
-<td>捕获 1213&#x2F;超时异常，业务上重试 2-3 次</td>
-<td>死锁不可完全避免，要兜底</td>
-</tr>
-</tbody></table>
-<p><strong>防死锁口诀</strong>：统一顺序、短事务、快失败、要重试。死锁在并发系统里是常态，代码层面必须容忍重试，不能把它当「不该发生」的 bug 挂了整个请求。</p>
-<h2 id="7-事务边界与-Spring-事务实战"><a href="#7-事务边界与-Spring-事务实战" class="headerlink" title="7. 事务边界与 Spring 事务实战"></a>7. 事务边界与 Spring 事务实战</h2><h3 id="7-1-长事务的危害"><a href="#7-1-长事务的危害" class="headerlink" title="7.1 长事务的危害"></a>7.1 长事务的危害</h3><table>
-<thead>
-<tr>
-<th>危害</th>
-<th>机制</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>阻塞并发</td>
-<td>行锁&#x2F;间隙锁持有过久，其他事务排队等锁，甚至等满 <code>innodb_lock_wait_timeout</code></td>
-</tr>
-<tr>
-<td>undo 膨胀</td>
-<td>update undo log 无法被 purge，磁盘占用暴涨，回滚更慢</td>
-</tr>
-<tr>
-<td>主从延迟</td>
-<td>大事务的 binlog 一次性回放到从库，从库延迟尖峰</td>
-</tr>
-<tr>
-<td>连接占用</td>
-<td>一个事务独占一个连接，长事务挤压连接池，池子被打满</td>
-</tr>
-</tbody></table>
-<p>典型案：凌晨定时任务把 100 万行批量 UPDATE 放进一个事务，主库提交后从库回放了十几分钟——这就是大事务最常见的生产事故。</p>
-<h3 id="7-2-Transactional-失效的五个场景"><a href="#7-2-Transactional-失效的五个场景" class="headerlink" title="7.2 @Transactional 失效的五个场景"></a>7.2 @Transactional 失效的五个场景</h3><table>
-<thead>
-<tr>
-<th>场景</th>
-<th>原因</th>
-<th>处理</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>同类自调用</td>
-<td><code>this.method()</code> 绕过代理，注解不生效</td>
-<td>注入自身代理 &#x2F; 拆到别的 bean</td>
-</tr>
-<tr>
-<td>非 public 方法</td>
-<td>Spring 代理只能拦截 public 方法</td>
-<td>改成 public</td>
-</tr>
-<tr>
-<td>异常被 catch 吞掉</td>
-<td>事务感知不到异常，只能提交</td>
-<td>抛出异常，或手动回滚</td>
-</tr>
-<tr>
-<td>checked 异常</td>
-<td>默认只回滚 <code>RuntimeException</code> 和 <code>Error</code></td>
-<td><code>rollbackFor = Exception.class</code></td>
-</tr>
-<tr>
-<td>多线程调用</td>
-<td>新线程连接了另一个事务&#x2F;无事务</td>
-<td>事务无法跨线程，改设计</td>
-</tr>
-</tbody></table>
-<h3 id="7-3-最高频的坑：自调用"><a href="#7-3-最高频的坑：自调用" class="headerlink" title="7.3 最高频的坑：自调用"></a>7.3 最高频的坑：自调用</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Service</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">OrderService</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">createOrderWithLock</span><span class="params">(Order order)</span> &#123;</span><br><span class="line">        <span class="built_in">this</span>.createOrder(order); <span class="comment">// ❌ 自调用，绕过代理，@Transactional 不生效</span></span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Transactional</span></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">createOrder</span><span class="params">(Order order)</span> &#123;</span><br><span class="line">        <span class="comment">// 扣库存、写订单、记账……</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><code>@Transactional</code> 是靠 Spring 生成代理对象实现的，<code>this.createOrder()</code> 直接调目标方法，代理拦截不到。修复方式：</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Service</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">OrderService</span> &#123;</span><br><span class="line">    <span class="meta">@Autowired</span></span><br><span class="line">    <span class="keyword">private</span> OrderService self; <span class="comment">// 注入的是代理对象</span></span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">createOrderWithLock</span><span class="params">(Order order)</span> &#123;</span><br><span class="line">        self.createOrder(order); <span class="comment">// ✅ 走代理，事务生效</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>要么拆一个独立的 Bean 承载 <code>@Transactional</code> 方法，要么用 <code>AopContext.currentProxy()</code>（需开启 <code>exposeProxy</code>）。面试常问的「@Transactional 为什么失效」，答案第一句就是自调用。</p>
-<h3 id="7-4-传播行为速查"><a href="#7-4-传播行为速查" class="headerlink" title="7.4 传播行为速查"></a>7.4 传播行为速查</h3><table>
-<thead>
-<tr>
-<th>传播行为</th>
-<th>行为</th>
-<th>典型场景</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>REQUIRED（默认）</td>
-<td>有事务则加入，没有则新建</td>
-<td>业务方法</td>
-</tr>
-<tr>
-<td>REQUIRES_NEW</td>
-<td>挂起当前事务，新建独立事务</td>
-<td>日志、审计，必须独立提交</td>
-</tr>
-<tr>
-<td>NESTED</td>
-<td>嵌套事务（Savepoint 实现），内层回滚不影响外层</td>
-<td>局部可回滚的步骤</td>
-</tr>
-<tr>
-<td>SUPPORTS</td>
-<td>有则加入，没有则以非事务执行</td>
-<td>只读辅助方法</td>
-</tr>
-<tr>
-<td>NOT_SUPPORTED</td>
-<td>挂起当前事务，以非事务执行</td>
-<td>不需要事务的耗时操作</td>
-</tr>
-<tr>
-<td>MANDATORY</td>
-<td>必须已有事务，否则抛异常</td>
-<td>禁止裸调用的内部方法</td>
-</tr>
-<tr>
-<td>NEVER</td>
-<td>必须没有事务，否则抛异常</td>
-<td>校验类方法</td>
-</tr>
-</tbody></table>
-<p>注意 REQUIRES_NEW 和 NESTED 的区别：REQUIRES_NEW 是<strong>挂起外层、另开连接</strong>，外层回滚不影响内层已提交的部分；NESTED 靠 Savepoint 嵌套，内层回滚不影响外层，但外层回滚会连内层一起回滚。日志落库用 REQUIRES_NEW，业务局部回滚用 NESTED。</p>
-<h3 id="7-5-事务与连接池"><a href="#7-5-事务与连接池" class="headerlink" title="7.5 事务与连接池"></a>7.5 事务与连接池</h3><p>一个事务从开启到提交始终<strong>独占一个连接</strong>，理解这一点能解释很多现象：</p>
-<ul>
-<li><code>@Transactional</code> 方法进入时从池里拿连接，方法返回才归还——方法里调外部 RPC，等于把连接锁住等网络；</li>
-<li>REQUIRES_NEW 需要第二个连接，池子只剩一个空闲时会发生「自己等自己」的连接饥饿；</li>
-<li>只读方法别挂事务，挂事务白占一个连接和一份锁。</li>
-</ul>
-<p><strong>事务编程口诀</strong>：边界最小化、传播要匹配、异常要抛出、连接要短占。</p>
-<h2 id="8-总结与避坑清单"><a href="#8-总结与避坑清单" class="headerlink" title="8. 总结与避坑清单"></a>8. 总结与避坑清单</h2><h3 id="8-1-本文收获"><a href="#8-1-本文收获" class="headerlink" title="8.1 本文收获"></a>8.1 本文收获</h3><ul>
-<li><strong>目标</strong>：ACID 四个特性中一致性是目标，原子性&#x2F;隔离性&#x2F;持久性是实现手段，分别依赖 undo log、锁 + MVCC、redo log；</li>
-<li><strong>机制</strong>：隔离级别决定 ReadView 的生成时机（RC 每次 SELECT 新建、RR 事务首次 SELECT 创建后复用）；undo log 版本链 + ReadView 构成 MVCC；快照读不加锁，当前读靠临键锁，两者配合让 RR 基本杜绝幻读，但「先快照读后当前读」的混合场景有残留；</li>
-<li><strong>实战</strong>：隐式提交语句、长事务、死锁、@Transactional 失效——每一条都对应真实生产事故，建议对照 8.2 清单自查。</li>
-</ul>
-<h3 id="8-2-避坑清单"><a href="#8-2-避坑清单" class="headerlink" title="8.2 避坑清单"></a>8.2 避坑清单</h3><table>
-<thead>
-<tr>
-<th>场景</th>
-<th>建议做法</th>
-<th>理由</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>转账等多步写</td>
-<td>显式事务，提交&#x2F;回滚放在 try-catch 两端</td>
-<td>原子性</td>
-</tr>
-<tr>
-<td>事务内查询</td>
-<td>能快照读就普通 SELECT，需要最新才 <code>FOR UPDATE</code></td>
-<td>少拿锁</td>
-</tr>
-<tr>
-<td>大批量更新</td>
-<td>分批提交（每批几百到几千条）</td>
-<td>避免长事务</td>
-</tr>
-<tr>
-<td>死锁</td>
-<td>统一加锁顺序 + 捕获 1213 重试 2-3 次</td>
-<td>死锁是常态，要兜底</td>
-</tr>
-<tr>
-<td>事务内</td>
-<td>不调 RPC、不做耗时 IO</td>
-<td>缩短持锁时间</td>
-</tr>
-<tr>
-<td>只读查询</td>
-<td>不挂事务（或 SUPPORTS + readOnly）</td>
-<td>省连接、省锁</td>
-</tr>
-<tr>
-<td>扣减类并发写</td>
-<td>条件更新 <code>UPDATE ... SET stock = stock - 1 WHERE stock &gt; 0</code></td>
-<td>原子更新，防超卖</td>
-</tr>
-<tr>
-<td>DDL</td>
-<td>永远不要在业务事务中间执行</td>
-<td>隐式提交</td>
-</tr>
-</tbody></table>
-<p><strong>最后一句</strong>：事务不是「加个注解就行」的黑盒——隔离级别决定你看到什么，锁决定别人能不能改，边界决定你占资源多久。把这三层想清楚，事务相关的面试题和线上事故都能少一半。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/2059e11.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="知行栈">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | 知行栈">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/2059e11.html" class="post-title-link" itemprop="url">Redis 缓存淘汰策略解析</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-
-      <time title="Created: 2026-08-12 00:26:03" itemprop="dateCreated datePublished" datetime="2026-08-12T00:26:03+08:00">2026-08-12</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">In</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/" itemprop="url" rel="index"><span itemprop="name">数据存储</span></a>
-        </span>
-    </span>
-
-  
-    <span class="post-meta-break"></span>
-    <span class="post-meta-item" title="Word count in article">
-      <span class="post-meta-item-icon">
-        <i class="far fa-file-word"></i>
-      </span>
-      <span class="post-meta-item-text">Word count in article: </span>
-      <span>3.5k</span>
-    </span>
-    <span class="post-meta-item" title="Reading time">
-      <span class="post-meta-item-icon">
-        <i class="far fa-clock"></i>
-      </span>
-      <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>13 mins.</span>
-    </span>
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <p><strong>内存淘汰（memory eviction）</strong> 是 Redis 在内存写满时，按配置的策略删除一部分 key 来腾出空间的机制。它是缓存场景的最后一层保险：不配置，Redis 会被系统 OOM Killer 直接杀进程。本文讲透三件事：maxmemory 怎么配、8 种策略怎么选、近似 LRU 和 LFU 的实现差异在哪。</p>
-<h2 id="1-为什么内存必须设上限"><a href="#1-为什么内存必须设上限" class="headerlink" title="1. 为什么内存必须设上限"></a>1. 为什么内存必须设上限</h2><h3 id="1-1-maxmemory：Redis-的内存天花板"><a href="#1-1-maxmemory：Redis-的内存天花板" class="headerlink" title="1.1 maxmemory：Redis 的内存天花板"></a>1.1 maxmemory：Redis 的内存天花板</h3><p>Redis 是一个<strong>基于内存的键值数据库</strong>，数据主要放在内存里，读写是微秒到亚毫秒级。内存是稀缺资源，所以必须给 Redis 划一条内存上限（<code>maxmemory</code>），超过上限后的写入会触发<strong>内存淘汰（memory eviction）</strong>——按策略删除一部分 key，腾出空间继续写入。</p>
-<p>不设 maxmemory 的后果：Redis 吃满机器内存后，OS 的 OOM Killer 会直接 kill 掉 redis-server 进程（类比 Java 应用 <code>-Xmx</code> 设太大、堆外内存失控被容器 OOM kill），主从全部挂掉，未落盘数据全部丢失。生产环境这是第一优先级配置。</p>
-<table>
-<thead>
-<tr>
-<th>类比</th>
-<th>Java 应用</th>
-<th>Redis</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>内存上限</td>
-<td><code>-Xmx</code> &#x2F; 容器 limit</td>
-<td><code>maxmemory</code></td>
-</tr>
-<tr>
-<td>超限行为</td>
-<td>抛 OOM 异常（可捕获）</td>
-<td>按策略淘汰 key，或拒绝写入</td>
-</tr>
-<tr>
-<td>失控后果</td>
-<td>被容器 OOM kill</td>
-<td>被系统 OOM Killer 杀进程</td>
-</tr>
-</tbody></table>
-<h3 id="1-2-配置方式与生效检查"><a href="#1-2-配置方式与生效检查" class="headerlink" title="1.2 配置方式与生效检查"></a>1.2 配置方式与生效检查</h3><p>redis.conf 配置：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"># 内存上限，单位支持 kb / mb / gb，如 100mb / 1gb</span><br><span class="line">maxmemory 512mb</span><br><span class="line"></span><br><span class="line"># 淘汰策略，默认 noeviction（写满拒绝写入）</span><br><span class="line">maxmemory-policy allkeys-lru</span><br><span class="line"></span><br><span class="line"># 采样数：LRU/LFU 淘汰时的候选 key 数量，默认 5</span><br><span class="line">maxmemory-samples 5</span><br></pre></td></tr></table></figure>
-
-<p>运行时修改不需要重启：</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">redis-cli config get maxmemory</span><br><span class="line">redis-cli config <span class="built_in">set</span> maxmemory-policy allkeys-lfu</span><br><span class="line">redis-cli config rewrite   <span class="comment"># 持久化回配置文件</span></span><br></pre></td></tr></table></figure>
-
-<p>用 Java（Jedis）检查同样方便：</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">try</span> (<span class="type">Jedis</span> <span class="variable">jedis</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">Jedis</span>(<span class="string">&quot;127.0.0.1&quot;</span>, <span class="number">6379</span>)) &#123;</span><br><span class="line">    System.out.println(<span class="string">&quot;maxmemory = &quot;</span> + jedis.configGet(<span class="string">&quot;maxmemory&quot;</span>));</span><br><span class="line">    System.out.println(<span class="string">&quot;policy    = &quot;</span> + jedis.configGet(<span class="string">&quot;maxmemory-policy&quot;</span>));</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<h3 id="1-3-内存去哪了：used-memory-口径"><a href="#1-3-内存去哪了：used-memory-口径" class="headerlink" title="1.3 内存去哪了：used_memory 口径"></a>1.3 内存去哪了：used_memory 口径</h3><p><code>INFO memory</code> 里需要关注几个指标：</p>
-<table>
-<thead>
-<tr>
-<th>指标</th>
-<th>含义</th>
-<th>关注点</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>used_memory</code></td>
-<td>实际占用内存（含碎片）</td>
-<td>与 maxmemory 对比，接近即触发淘汰</td>
-</tr>
-<tr>
-<td><code>used_memory_human</code></td>
-<td>人类可读版本</td>
-<td>快速目检</td>
-</tr>
-<tr>
-<td><code>maxmemory_policy</code></td>
-<td>当前淘汰策略</td>
-<td>确认配置生效</td>
-</tr>
-<tr>
-<td><code>mem_fragmentation_ratio</code></td>
-<td>内存碎片率</td>
-<td>长期 &gt;1.5 且伴随频繁淘汰，说明碎片严重</td>
-</tr>
-</tbody></table>
-<p>注意：<strong>已过期但还没被删掉的 key 依然占用内存并计入 used_memory</strong>。惰性删除与主动清理都有延迟，所以内存紧张时可能”提前”触发淘汰——这也是后面 volatile 策略坑的根源之一。</p>
-<h2 id="2-读写路径上，淘汰发生在哪一步"><a href="#2-读写路径上，淘汰发生在哪一步" class="headerlink" title="2. 读写路径上，淘汰发生在哪一步"></a>2. 读写路径上，淘汰发生在哪一步</h2><p>整体架构看这张图：写入命令进入后先过 <code>maxmemory</code> 检查，命中的策略决定是淘汰、写入还是报错；过期 key 由惰性删除和主动清理两条线回收。</p>
-<p><img src="/../../assets/database/Redis%20%E7%BC%93%E5%AD%98%E6%B7%98%E6%B1%B0%E7%AD%96%E7%95%A5%E8%A7%A3%E6%9E%90/redis-memory-architecture.png" alt="Redis 内存管理层架构：maxmemory 边界、键空间、过期字典与淘汰池">（图片待补）</p>
-<h3 id="2-1-完整链路"><a href="#2-1-完整链路" class="headerlink" title="2.1 完整链路"></a>2.1 完整链路</h3><pre class="mermaid">flowchart TD
-    subgraph READ[Read Path]
-        A[Client GET key] --> B{Key exists?}
-        B -- Yes --> C[Return value, cache hit]
-        B -- No --> D[Query MySQL, write back]
-    end
-    subgraph WRITE[Write Path]
-        E[Client SET / LPUSH / HSET ...] --> F{used_memory > maxmemory?}
-        F -- No --> G[Execute write directly]
-        F -- Yes --> H{Policy = noeviction?}
-        H -- Yes --> I[Return error&lt;br/>OOM command not allowed]
-        H -- No --> J[Sample N keys, pick victim by policy]
-        J --> K[Evict victim, free memory]
-        K --> G
-    end</pre>
-
-<p>两个要点：</p>
-<ul>
-<li><strong>读请求（GET）永不触发淘汰</strong>。淘汰只发生在写路径，且在命令执行之前检查。</li>
-<li>检查带冗余缓冲（slop），避免 used_memory 在边界抖动时反复触发淘汰。</li>
-</ul>
-<h3 id="2-2-淘汰-vs-过期删除：两条腿走路"><a href="#2-2-淘汰-vs-过期删除：两条腿走路" class="headerlink" title="2.2 淘汰 vs 过期删除：两条腿走路"></a>2.2 淘汰 vs 过期删除：两条腿走路</h3><ul>
-<li><strong>过期删除</strong>：针对设置了 TTL 的 key，到点删除。惰性删除（访问时发现过期顺手删）+ 主动清理（每 100ms 随机抽 20 个带 TTL 的 key，过期占比超 25% 就继续抽）。</li>
-<li><strong>内存淘汰</strong>：针对内存写满，与 TTL 无关，纯粹按策略选 key 逐出。</li>
-</ul>
-<pre class="mermaid">flowchart LR
-    subgraph Lazy[Lazy Deletion]
-        L1[Access expired key] --> L2[Delete and return nil]
-    end
-    subgraph Active[Active Expire Cycle]
-        A1[Every 100ms] --> A2[Sample 20 keys with TTL]
-        A2 --> A3{Expired ratio > 25%?}
-        A3 -- Yes --> A2
-        A3 -- No --> A4[Sleep]
-    end
-    subgraph Eviction[Memory Eviction]
-        E1[used_memory > maxmemory] --> E2[Evict by maxmemory-policy]
-    end</pre>
-
-
-
-<h3 id="2-3-noeviction-的报错形态"><a href="#2-3-noeviction-的报错形态" class="headerlink" title="2.3 noeviction 的报错形态"></a>2.3 noeviction 的报错形态</h3><p><code>maxmemory-policy noeviction</code> 时写满，Redis 直接拒绝写入：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">(error) OOM command not allowed when used memory &gt; &#x27;maxmemory&#x27;.</span><br></pre></td></tr></table></figure>
-
-<p>这个错误在 Java 侧会抛 <code>JedisDataException</code>，代码不处理就是一批 500。所以<strong>缓存场景默认不要用 noeviction</strong>，它只适合消息队列、计数器这类”写失败可以重试”的场景。</p>
-<h2 id="3-八种淘汰策略全景"><a href="#3-八种淘汰策略全景" class="headerlink" title="3. 八种淘汰策略全景"></a>3. 八种淘汰策略全景</h2><h3 id="3-1-速查表（面试核心考点）"><a href="#3-1-速查表（面试核心考点）" class="headerlink" title="3.1 速查表（面试核心考点）"></a>3.1 速查表（面试核心考点）</h3><table>
-<thead>
-<tr>
-<th>策略</th>
-<th>作用范围</th>
-<th>淘汰依据</th>
-<th>引入版本</th>
-<th>典型场景</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>noeviction</code></td>
-<td>全部 key</td>
-<td>不淘汰，写满报错</td>
-<td>一直</td>
-<td>队列、计数器等写失败可重试</td>
-</tr>
-<tr>
-<td><code>allkeys-lru</code></td>
-<td>全部 key</td>
-<td>最近最少使用</td>
-<td>一直</td>
-<td>通用缓存，最常用</td>
-</tr>
-<tr>
-<td><code>volatile-lru</code></td>
-<td>带 TTL 的 key</td>
-<td>最近最少使用</td>
-<td>一直</td>
-<td>缓存带过期 + 少量长驻 key</td>
-</tr>
-<tr>
-<td><code>allkeys-random</code></td>
-<td>全部 key</td>
-<td>随机</td>
-<td>一直</td>
-<td>key 可重建、淘汰成本均等</td>
-</tr>
-<tr>
-<td><code>volatile-random</code></td>
-<td>带 TTL 的 key</td>
-<td>随机</td>
-<td>一直</td>
-<td>会话 token 类</td>
-</tr>
-<tr>
-<td><code>volatile-ttl</code></td>
-<td>带 TTL 的 key</td>
-<td>剩余 TTL 最短</td>
-<td>一直</td>
-<td>数据有明确时效</td>
-</tr>
-<tr>
-<td><code>allkeys-lfu</code></td>
-<td>全部 key</td>
-<td>访问频次最低</td>
-<td>4.0</td>
-<td>长尾热点</td>
-</tr>
-<tr>
-<td><code>volatile-lfu</code></td>
-<td>带 TTL 的 key</td>
-<td>访问频次最低</td>
-<td>4.0</td>
-<td>带 TTL 的长尾热点</td>
-</tr>
-</tbody></table>
-<p>命名规律：前缀 <code>allkeys-</code> 管全部 key，<code>volatile-</code> 只管带过期时间的 key；后缀 <code>-lru</code> 看最近访问、<code>-lfu</code> 看访问频次、<code>-random</code> 随机、<code>-ttl</code> 看剩余寿命。</p>
-<h3 id="3-2-volatile-的隐藏降级"><a href="#3-2-volatile-的隐藏降级" class="headerlink" title="3.2 volatile-* 的隐藏降级"></a>3.2 volatile-* 的隐藏降级</h3><p><code>volatile-*</code> 系列有个大坑：<strong>如果带 TTL 的 key 一个都没有（或没有可淘汰的），行为退化成 noeviction——写满直接报错</strong>。</p>
-<p>真实场景：某天排查发现缓存全部写不进去，配置明明是 <code>volatile-lru</code>，查下来是业务方刚把 key 的 TTL 全去掉了。结果整个 Redis 变只读，线上炸了才反应过来。</p>
-<p><strong>口诀：volatile 系列依赖 TTL，TTL 没设，策略就失效。</strong></p>
-<h3 id="3-3-allkeys-与-volatile-怎么选"><a href="#3-3-allkeys-与-volatile-怎么选" class="headerlink" title="3.3 allkeys 与 volatile 怎么选"></a>3.3 allkeys 与 volatile 怎么选</h3><p>核心区别一句话：<em><em>allkeys-</em> 保护的是”内存不超限”，volatile-</em> 保护的是”带 TTL 的 key 优先存活”**。如果缓存数据和不过期数据混用同一个实例（比如有人把配置、统计也塞 Redis），必须用 volatile-*，否则淘汰可能把不该删的业务数据删掉。</p>
-<h2 id="4-近似-LRU：用采样换精度"><a href="#4-近似-LRU：用采样换精度" class="headerlink" title="4. 近似 LRU：用采样换精度"></a>4. 近似 LRU：用采样换精度</h2><h3 id="4-1-为什么不做严格-LRU"><a href="#4-1-为什么不做严格-LRU" class="headerlink" title="4.1 为什么不做严格 LRU"></a>4.1 为什么不做严格 LRU</h3><p>严格 LRU 需要维护双向链表，每次访问把节点移到队首，每个 key 额外占两个指针的开销。Redis 的 key 数量以百万计，这个成本不可接受；链表在 RDB 持久化、主从复制时也会引入额外复杂度。所以 Redis 选择<strong>近似 LRU（approximate LRU）</strong>：只记录”上次访问时间”，淘汰时抽样比较。</p>
-<h3 id="4-2-数据结构：RedisObject-的-24bit-时钟"><a href="#4-2-数据结构：RedisObject-的-24bit-时钟" class="headerlink" title="4.2 数据结构：RedisObject 的 24bit 时钟"></a>4.2 数据结构：RedisObject 的 24bit 时钟</h3><p>每个 value 对象（RedisObject）里有一个 24bit 的 <code>lru</code> 字段：</p>
-<ul>
-<li><strong>LRU 模式</strong>：存上次访问时间（秒级时钟 <code>LRU_CLOCK</code>，约 194 天轮回一次）。</li>
-<li><strong>LFU 模式</strong>：拆成 16bit 时间 + 8bit 频次计数器（第 5 节讲）。</li>
-</ul>
-<p>每次 key 被访问（GET&#x2F;SET 等），<code>lru</code> 字段刷新为当前时钟。</p>
-<h3 id="4-3-淘汰算法：采样取最老"><a href="#4-3-淘汰算法：采样取最老" class="headerlink" title="4.3 淘汰算法：采样取最老"></a>4.3 淘汰算法：采样取最老</h3><pre class="mermaid">flowchart LR
-    subgraph Space[Key space]
-        K1[key1 lru=100]
-        K2[key2 lru=50]
-        K3[key3 lru=200]
-        K4[key4 lru=180]
-        K5[key5 lru=90]
-    end
-    S[Random sample N=5] --> V[Pick key with oldest lru&lt;br/>--> key2]
-    V --> E[Evict key2]
-    style K2 fill:#f9d0c4</pre>
-
-<ol>
-<li>从键空间随机取 N 个 key（N &#x3D; <code>maxmemory-samples</code>，默认 5）。</li>
-<li>在 N 个里挑 <code>lru</code> 最小（最久没访问）的淘汰。</li>
-<li>淘汰后内存还不够，重复该过程。</li>
-</ol>
-<p>采样数越大越接近严格 LRU，但每次淘汰的 CPU 成本越高。Redis 5.0 起引入<strong>淘汰池（eviction pool）</strong>：上一轮采样过的候选 key 保留在池中，下一轮优先从池里挑，跨轮次累积样本，近似精度进一步提升（6.0 对池大小做了动态调整）。</p>
-<h3 id="4-4-参数与效果"><a href="#4-4-参数与效果" class="headerlink" title="4.4 参数与效果"></a>4.4 参数与效果</h3><table>
-<thead>
-<tr>
-<th>maxmemory-samples</th>
-<th>与严格 LRU 的差距</th>
-<th>淘汰耗时</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>3</td>
-<td>明显有差距</td>
-<td>最低</td>
-</tr>
-<tr>
-<td>5（默认）</td>
-<td>约 90% 以上的效果</td>
-<td>低</td>
-</tr>
-<tr>
-<td>10</td>
-<td>几乎无差别</td>
-<td>中</td>
-</tr>
-</tbody></table>
-<p>注意 <code>maxmemory-samples</code> <strong>不支持 CONFIG SET 在线修改</strong>，属于重启生效的配置项，改之前先看运维窗口。</p>
-<h2 id="5-LFU：频次才是真相"><a href="#5-LFU：频次才是真相" class="headerlink" title="5. LFU：频次才是真相"></a>5. LFU：频次才是真相</h2><h3 id="5-1-LRU-的致命场景"><a href="#5-1-LRU-的致命场景" class="headerlink" title="5.1 LRU 的致命场景"></a>5.1 LRU 的致命场景</h3><p>LRU 只看”最近访问”，不看”访问了多少次”。一次突发热点（秒杀、新闻爆点）就能让一批 key 变成”最近访问”，随后把真正长期高热的 key 挤掉——等热点过去，缓存里全是没人再看的 key。</p>
-<p>这个痛点 Java 开发者也不陌生：Caffeine 的 W-TinyLFU 淘汰算法就是针对 LRU 对”长尾热点”命中率差才诞生的，思路同源。</p>
-<p><img src="/../../assets/database/Redis%20%E7%BC%93%E5%AD%98%E6%B7%98%E6%B1%B0%E7%AD%96%E7%95%A5%E8%A7%A3%E6%9E%90/lru-vs-lfu-compare.png" alt="近似 LRU 与 LFU 的淘汰效果对比：突发流量下 LFU 能保住长期热点">（图片待补）</p>
-<h3 id="5-2-同一个字段，两种读法"><a href="#5-2-同一个字段，两种读法" class="headerlink" title="5.2 同一个字段，两种读法"></a>5.2 同一个字段，两种读法</h3><p>Redis 4.0 起，LFU 模式下 24bit 的 <code>lru</code> 字段被拆成两部分：</p>
-<table>
-<thead>
-<tr>
-<th>位段</th>
-<th>名称</th>
-<th>含义</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>高 16bit</td>
-<td><code>ldt</code>（last decrement time）</td>
-<td>上次衰减时间的分钟级时钟</td>
-</tr>
-<tr>
-<td>低 8bit</td>
-<td><code>logc</code>（logistic counter）</td>
-<td>对数计数器，0~255</td>
-</tr>
-</tbody></table>
-<p>8bit 只能记 255 次访问，不够用，所以用<strong>对数计数器（logistic counter）</strong>：访问次数越多，计数器增长越慢——用概率递增代替每次访问 +1。</p>
-<h3 id="5-3-概率递增：怎么在-8bit-里表达百万次访问"><a href="#5-3-概率递增：怎么在-8bit-里表达百万次访问" class="headerlink" title="5.3 概率递增：怎么在 8bit 里表达百万次访问"></a>5.3 概率递增：怎么在 8bit 里表达百万次访问</h3><p>Redis 源码 <code>LFULogIncr</code> 的核心逻辑，翻译成 Java 就是：</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/**</span></span><br><span class="line"><span class="comment"> * 模拟 Redis LFU 的 8bit 对数计数器。</span></span><br><span class="line"><span class="comment"> * counter 越大，递增概率 p 越小，增长越慢（对数增长）。</span></span><br><span class="line"><span class="comment"> */</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">LfuCounter</span> &#123;</span><br><span class="line">    <span class="keyword">private</span> <span class="type">int</span> counter;            <span class="comment">// logc，0 ~ 255</span></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> <span class="type">int</span> logFactor;    <span class="comment">// 对应 lfu-log-factor，默认 10</span></span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">hit</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">if</span> (counter == <span class="number">255</span>) <span class="keyword">return</span>;              <span class="comment">// 封顶</span></span><br><span class="line">        <span class="type">double</span> <span class="variable">base</span> <span class="operator">=</span> Math.max(<span class="number">0</span>, counter - <span class="number">5</span>);  <span class="comment">// LFU_INIT_VAL = 5</span></span><br><span class="line">        <span class="type">double</span> <span class="variable">p</span> <span class="operator">=</span> <span class="number">1.0</span> / (base * logFactor + <span class="number">1</span>);</span><br><span class="line">        <span class="keyword">if</span> (Math.random() &lt; p) counter++;        <span class="comment">// 概率递增</span></span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="type">int</span> <span class="title function_">value</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> counter;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>前 5 次访问（<code>base=0</code>，p&#x3D;1）必增；越往后 p 越小。最终 255 的计数器可以代表几十万到百万级的真实访问量。</p>
-<h3 id="5-4-衰减：避免”曾经热过”的-key-霸占缓存"><a href="#5-4-衰减：避免”曾经热过”的-key-霸占缓存" class="headerlink" title="5.4 衰减：避免”曾经热过”的 key 霸占缓存"></a>5.4 衰减：避免”曾经热过”的 key 霸占缓存</h3><p>LFU 只有递增没有衰减，一个 key 早年火过一次就会一直霸占缓存（访问量早已回落也不淘汰）。所以 <code>ldt</code> 出场：每隔 <code>lfu-decay-time</code> 分钟（默认 1），<code>logc</code> 减半，让热度随时间冷却，冷门但持续访问的 key 才有机会浮现。</p>
-<table>
-<thead>
-<tr>
-<th>参数</th>
-<th>默认值</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>lfu-log-factor</code></td>
-<td>10</td>
-<td>计数器增长速度。越大增长越慢、能表达更大的访问量；越小越容易被高访问 key 快速顶到 255</td>
-</tr>
-<tr>
-<td><code>lfu-decay-time</code></td>
-<td>1</td>
-<td>计数器减半的间隔（分钟），0 表示不衰减</td>
-</tr>
-</tbody></table>
-<p><code>lfu-log-factor</code> 不同取值下，计数器到达某值需要的真实访问次数（Redis 官方文档数据）：</p>
-<table>
-<thead>
-<tr>
-<th>factor</th>
-<th>100 次</th>
-<th>1000 次</th>
-<th>10 万次</th>
-<th>100 万次</th>
-<th>1000 万次</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>0</td>
-<td>104</td>
-<td>255</td>
-<td>255</td>
-<td>255</td>
-<td>255</td>
-</tr>
-<tr>
-<td>1</td>
-<td>18</td>
-<td>49</td>
-<td>255</td>
-<td>255</td>
-<td>255</td>
-</tr>
-<tr>
-<td>10（默认）</td>
-<td>10</td>
-<td>18</td>
-<td>142</td>
-<td>255</td>
-<td>255</td>
-</tr>
-<tr>
-<td>100</td>
-<td>8</td>
-<td>11</td>
-<td>49</td>
-<td>143</td>
-<td>255</td>
-</tr>
-</tbody></table>
-<p>高频热点 key 容易顶到 255——所有 key 都是 255 就分不出高下，这时调大 factor 拉开差距。</p>
-<h3 id="5-5-观测与排查"><a href="#5-5-观测与排查" class="headerlink" title="5.5 观测与排查"></a>5.5 观测与排查</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 查看某个 key 的访问频次（必须先启用 LFU 策略）</span></span><br><span class="line">redis-cli config <span class="built_in">set</span> maxmemory-policy allkeys-lfu</span><br><span class="line">redis-cli object freq hot:user:1001</span><br><span class="line"></span><br><span class="line"><span class="comment"># 扫描全库输出热点 key 清单（同样是 LFU 前置）</span></span><br><span class="line">redis-cli --hotkeys</span><br></pre></td></tr></table></figure>
-
-<h2 id="6-实战选型：项目里到底配什么"><a href="#6-实战选型：项目里到底配什么" class="headerlink" title="6. 实战选型：项目里到底配什么"></a>6. 实战选型：项目里到底配什么</h2><h3 id="6-1-决策表"><a href="#6-1-决策表" class="headerlink" title="6.1 决策表"></a>6.1 决策表</h3><table>
-<thead>
-<tr>
-<th>业务形态</th>
-<th>推荐策略</th>
-<th>理由</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>通用缓存（读多写少、key 同质化）</td>
-<td><code>allkeys-lru</code></td>
-<td>简单可靠，80% 的场景首选</td>
-</tr>
-<tr>
-<td>部分 key 长期高频（榜单、用户画像）</td>
-<td><code>allkeys-lfu</code></td>
-<td>长尾热点命中率更高</td>
-</tr>
-<tr>
-<td>全部 key 带 TTL、生命周期短（验证码、会话）</td>
-<td><code>volatile-lru</code> &#x2F; <code>volatile-ttl</code></td>
-<td>只淘汰缓存，不碰长驻数据</td>
-</tr>
-<tr>
-<td>缓存与持久数据混用同一实例</td>
-<td><code>volatile-lru</code></td>
-<td>保护不过期数据不被淘汰</td>
-</tr>
-<tr>
-<td>key 均可重建、淘汰成本均等</td>
-<td><code>allkeys-random</code></td>
-<td>淘汰开销最小</td>
-</tr>
-<tr>
-<td>数据不能丢，写失败要立刻感知</td>
-<td><code>noeviction</code></td>
-<td>用异常暴露容量问题</td>
-</tr>
-</tbody></table>
-<p><strong>选型口诀：没把握就 allkeys-lru；有长尾热点换 allkeys-lfu；混用持久数据必须 volatile。</strong></p>
-<h3 id="6-2-三个真实场景"><a href="#6-2-三个真实场景" class="headerlink" title="6.2 三个真实场景"></a>6.2 三个真实场景</h3><ul>
-<li><strong>登录 token（TTL 短、无差别）</strong>：<code>volatile-random</code> 即可，谁被淘汰无所谓，反正过期快。</li>
-<li><strong>电商秒杀（短时突发热点）</strong>：用 <code>allkeys-lru</code>。LFU 会把秒杀 key 的计数器顶到高位，热点过后长期霸占缓存，反而有害。</li>
-<li><strong>用户画像&#x2F;推荐位（长期频次差异大）</strong>：<code>allkeys-lfu</code>，避免一波流量把常驻热 key 挤掉。</li>
-</ul>
-<h3 id="6-3-验证：用数据说话"><a href="#6-3-验证：用数据说话" class="headerlink" title="6.3 验证：用数据说话"></a>6.3 验证：用数据说话</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 观察淘汰量：持续增长说明容量吃紧或策略不匹配</span></span><br><span class="line">redis-cli info stats | grep evicted_keys</span><br><span class="line"></span><br><span class="line"><span class="comment"># 内存全景</span></span><br><span class="line">redis-cli info memory | grep -E <span class="string">&quot;used_memory|maxmemory|fragmentation&quot;</span></span><br></pre></td></tr></table></figure>
-
-<p>上线后观察两天：<code>evicted_keys</code> 平稳且被淘汰的都是冷 key，说明策略选对了；如果出现热 key 被淘汰（业务告警）或 <code>evicted_keys</code> 陡增，先扩 <code>maxmemory</code>，再考虑换策略。</p>
-<h3 id="6-4-避坑清单（面试也常问）"><a href="#6-4-避坑清单（面试也常问）" class="headerlink" title="6.4 避坑清单（面试也常问）"></a>6.4 避坑清单（面试也常问）</h3><table>
-<thead>
-<tr>
-<th>症状</th>
-<th>原因</th>
-<th>处理</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>缓存写满后大量写入报 OOM</td>
-<td>策略是 <code>noeviction</code>，或 <code>volatile-*</code> 但 key 没带 TTL</td>
-<td>换成 <code>allkeys-lru</code>，或给 key 补 TTL</td>
-</tr>
-<tr>
-<td>突发流量后热 key 命中率骤降</td>
-<td>LRU 被”一波流”污染</td>
-<td>评估换 <code>allkeys-lfu</code></td>
-</tr>
-<tr>
-<td>写入延迟毛刺明显</td>
-<td>每次写前都要先淘汰，可能多轮采样删除</td>
-<td>提高 maxmemory 余量，或写操作错峰</td>
-</tr>
-<tr>
-<td>主从行为不一致</td>
-<td>淘汰只在主节点触发</td>
-<td>正常现象，从库同步主库数据；不要只在从库配不同策略</td>
-</tr>
-<tr>
-<td>内存碎片率长期偏高</td>
-<td>频繁淘汰 + 大 key 释放</td>
-<td>开启 <code>activedefrag</code>，或检查内存分配策略</td>
-</tr>
-</tbody></table>
-<h2 id="7-总结与实操建议"><a href="#7-总结与实操建议" class="headerlink" title="7. 总结与实操建议"></a>7. 总结与实操建议</h2><p>三个收获：淘汰只发生在写路径、<code>volatile-*</code> 依赖 TTL 且可能静默降级、LRU 看”最近” LFU 看”频次”，两者的实现都是近似方案（采样 + 概率计数）。</p>
-<p>实操建议按优先级：</p>
-<ol>
-<li>**先设 <code>maxmemory</code>**，这是 Redis 生产环境的第一道保险，没有上限，策略都是空谈。</li>
-<li><strong>默认 <code>allkeys-lru</code> 起步</strong>，出问题再换，不要一上来就 LFU——LFU 有 <code>lfu-log-factor</code> 和 <code>lfu-decay-time</code> 两个参数要调。</li>
-<li>**缓存与存储数据混用的实例必须用 <code>volatile-*</code>**。</li>
-<li><strong>上线后盯 <code>evicted_keys</code> 和命中率</strong>，策略选对的标准是”被淘汰的都是冷 key”。</li>
-</ol>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/629ad3df.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="知行栈">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | 知行栈">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/629ad3df.html" class="post-title-link" itemprop="url">MySQL 索引原理与实践</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-
-      <time title="Created: 2026-08-11 23:55:00" itemprop="dateCreated datePublished" datetime="2026-08-11T23:55:00+08:00">2026-08-11</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">In</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/" itemprop="url" rel="index"><span itemprop="name">后端开发</span></a>
-        </span>
-          , 
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/" itemprop="url" rel="index"><span itemprop="name">数据存储</span></a>
-        </span>
-          , 
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/MySQL/" itemprop="url" rel="index"><span itemprop="name">MySQL</span></a>
-        </span>
-    </span>
-
-  
-    <span class="post-meta-break"></span>
-    <span class="post-meta-item" title="Word count in article">
-      <span class="post-meta-item-icon">
-        <i class="far fa-file-word"></i>
-      </span>
-      <span class="post-meta-item-text">Word count in article: </span>
-      <span>7.5k</span>
-    </span>
-    <span class="post-meta-item" title="Reading time">
-      <span class="post-meta-item-icon">
-        <i class="far fa-clock"></i>
-      </span>
-      <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>27 mins.</span>
-    </span>
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <blockquote>
-<p>本文是《<a href="/post/32511a71.html">MySQL 原理与优化</a>》的<strong>索引专题深挖篇</strong>，把该文第 2 章”索引”展开成完整知识体系：B+ 树的底层结构为什么长这样、聚簇索引与非聚簇索引的本质区别、以及日常建索引时真正管用的实践要点。索引是 MySQL 面试的必考区，也是 1-3 年 Java 后端从”会写 SQL”到”会优化 SQL”的分水岭——多表 join 能写出来是基本功，慢 SQL 能自己建索引治好才是进阶。</p>
-<p>本文按”为什么需要索引 → B+ 树底层结构 → 聚簇与非聚簇 → 联合索引与最左前缀 → EXPLAIN 与索引失效 → 建索引实践”六章组织，每章末尾给结论，第 7 章是高频面试速答。全文默认讨论 InnoDB 引擎 + MySQL 5.7&#x2F;8.0。</p>
-</blockquote>
-<h2 id="1-为什么需要索引"><a href="#1-为什么需要索引" class="headerlink" title="1. 为什么需要索引"></a>1. 为什么需要索引</h2><h3 id="1-1-没有索引的查询：全表扫描"><a href="#1-1-没有索引的查询：全表扫描" class="headerlink" title="1.1 没有索引的查询：全表扫描"></a>1.1 没有索引的查询：全表扫描</h3><p>MySQL 的数据以<strong>页</strong>为单位存在磁盘上（默认 16 KB&#x2F;页，<code>innodb_page_size</code>）。一张 1000 万行的表，数据占几千个页。没有索引时，查询只能从第一页扫到最后一页，逐行判断条件——这就是<strong>全表扫描</strong>，复杂度 O(n)，一次查询就是几千次磁盘 IO。</p>
-<p>几个关键数字，记住它们才能理解索引的价值：</p>
-<table>
-<thead>
-<tr>
-<th>存储&#x2F;操作</th>
-<th>延迟量级</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>内存访问</td>
-<td>约 100 ns</td>
-</tr>
-<tr>
-<td>SSD 随机读</td>
-<td>约 0.1 ms</td>
-</tr>
-<tr>
-<td>HDD 随机读</td>
-<td>约 10 ms</td>
-</tr>
-<tr>
-<td>一次磁盘 IO（读一页）</td>
-<td>机械盘毫秒级，SSD 亚毫秒级</td>
-</tr>
-</tbody></table>
-<p>一次全表扫描 &#x3D; 数千次这样的随机 IO。而索引的目标，是把”扫几千页”变成”读 2~3 个页”。</p>
-<h3 id="1-2-索引的本质：一张有序的”目录”"><a href="#1-2-索引的本质：一张有序的”目录”" class="headerlink" title="1.2 索引的本质：一张有序的”目录”"></a>1.2 索引的本质：一张有序的”目录”</h3><p>索引本质上是一份<strong>独立于表数据、按键排序的目录结构</strong>，类似新华字典的拼音检字表：</p>
-<ul>
-<li>没有检字表：从第 1 页翻到第 900 页找”栈”字；</li>
-<li>有检字表：先定位”zhan”在拼音表的哪个区间，再翻到对应正文页。</li>
-</ul>
-<p>数据库索引同理：先在索引里用<strong>二分查找</strong>定位到目标键，再顺着指针拿到数据所在页。查找次数从 O(n) 降到 O(log n)，而且是<strong>页级</strong>的 log n——这正是 B+ 树多叉设计的用武之地（见第 2 章）。</p>
-<p>当然索引不是免费的午餐，它有两个代价：</p>
-<ul>
-<li><strong>空间</strong>：每个索引都是一份额外的有序结构，占用磁盘与 Buffer Pool 内存；</li>
-<li><strong>写放大</strong>：每次 INSERT&#x2F;UPDATE&#x2F;DELETE 都要同步维护索引，索引越多，写入越慢（详见 6.3）。</li>
-</ul>
-<h3 id="1-3-为什么偏偏是-B-树"><a href="#1-3-为什么偏偏是-B-树" class="headerlink" title="1.3 为什么偏偏是 B+ 树"></a>1.3 为什么偏偏是 B+ 树</h3><p>工程师拿到”有序目录”的需求，天然会想到几类候选结构。逐一排除：</p>
-<table>
-<thead>
-<tr>
-<th>候选结构</th>
-<th>等值查找</th>
-<th>范围查询</th>
-<th>磁盘友好度</th>
-<th>结论</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>哈希表</td>
-<td>O(1)，最快</td>
-<td>不支持（无序）</td>
-<td>一般</td>
-<td>InnoDB 仅在内存中用自适应哈希索引加速热点页，不做持久化索引</td>
-</tr>
-<tr>
-<td>二叉查找树&#x2F;AVL&#x2F;红黑树</td>
-<td>O(log n)</td>
-<td>需要中序遍历</td>
-<td>差</td>
-<td>树高 log₂n，10 亿数据约 30 层 &#x3D; 30 次磁盘 IO；且平衡调整频繁</td>
-</tr>
-<tr>
-<td>B 树</td>
-<td>O(log n)</td>
-<td>需要回溯父节点</td>
-<td>中</td>
-<td>所有节点都存数据，单页装下的键少，树偏高（对比见 2.5）</td>
-</tr>
-<tr>
-<td>跳表</td>
-<td>O(log n)</td>
-<td>好（内存中）</td>
-<td>差</td>
-<td>链式结构对磁盘页对齐不友好，Redis 的 ZSet 用在内存场景</td>
-</tr>
-<tr>
-<td><strong>B+ 树</strong></td>
-<td>O(log n)</td>
-<td>好（叶子链表顺序扫）</td>
-<td><strong>最好</strong></td>
-<td><strong>InnoDB 的选择</strong></td>
-</tr>
-</tbody></table>
-<p><strong>结论</strong>：等值、范围、磁盘 IO、写入稳定性四者权衡下来，B+ 树是磁盘数据库索引的最优解。为什么这么说，第 2 章把它的底层结构拆开看。</p>
-<h2 id="2-B-树索引的底层结构"><a href="#2-B-树索引的底层结构" class="headerlink" title="2. B+ 树索引的底层结构"></a>2. B+ 树索引的底层结构</h2><h3 id="2-1-先理解磁盘-IO-模型：页、树高、IO-次数"><a href="#2-1-先理解磁盘-IO-模型：页、树高、IO-次数" class="headerlink" title="2.1 先理解磁盘 IO 模型：页、树高、IO 次数"></a>2.1 先理解磁盘 IO 模型：页、树高、IO 次数</h3><p>InnoDB 的索引和数据都以页为单位读写，一次磁盘 IO 至少读一个页。所以<strong>一次索引查找的磁盘 IO 次数 ≈ 树的层数</strong>。层数就是 B+ 树的设计核心：把树做得越矮，查询就越快。</p>
-<p>B+ 树的层数由”每个页能装多少键”决定，这个数字叫<strong>分支因子</strong>。以 8 字节的 BIGINT 主键 + 6 字节页指针为例，一条索引记录约 14 字节：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">每页可存键数 ≈ 16 KB ÷ 14 B ≈ 1170 条</span><br></pre></td></tr></table></figure>
-
-<p>也就是说，一个非叶子页能带 1170 个孩子。树的容量是几何级数增长的：</p>
-<table>
-<thead>
-<tr>
-<th>层数</th>
-<th>可支撑数据量（按叶子页 15 行&#x2F;页估算）</th>
-<th>实际 IO 次数</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>2 层</td>
-<td>1170 × 15 ≈ 1.7 万行</td>
-<td>1 次</td>
-</tr>
-<tr>
-<td>3 层</td>
-<td>1170 × 1170 × 15 ≈ 2000 万行</td>
-<td>2 次</td>
-</tr>
-<tr>
-<td>4 层</td>
-<td>百亿行</td>
-<td>3 次</td>
-</tr>
-</tbody></table>
-<p>注意 IO 次数比层数少 1：<strong>根页常驻 Buffer Pool 内存</strong>，不需要读磁盘。所以 1000 万行的表按主键查，真实磁盘 IO 只要 2 次。这就是”3 层 B+ 树支撑千万级数据”这句话的来历。</p>
-<h3 id="2-2-B-树长什么样"><a href="#2-2-B-树长什么样" class="headerlink" title="2.2 B+ 树长什么样"></a>2.2 B+ 树长什么样</h3><figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">         内部节点（非叶子）：只存&quot;键 + 指向子页的指针&quot;，不存数据</span><br><span class="line">                 [ 21 ]        [ 45 ]        [ 79 ]</span><br><span class="line">                /      \      /       \      /      \</span><br><span class="line">        ┌───────┘        └───┘         └────┘        └───────┐</span><br><span class="line">        ↓                    ↓                  ↓</span><br><span class="line">  叶子节点页              叶子节点页           叶子节点页</span><br><span class="line">[1|2|5|8|11|15]  &lt;───&gt;  [21|23|28|34|40]  &lt;───&gt;  [45|49|56|...]</span><br><span class="line">   数据或主键值            数据或主键值          数据或主键值</span><br><span class="line">     ●────────────────────●────────────────────●─────────</span><br><span class="line">       叶子节点之间用链表串联（InnoDB 中为双向链表）</span><br></pre></td></tr></table></figure>
-
-<p>两个核心设计：</p>
-<ul>
-<li><strong>内部节点只存键 + 指针</strong>。一个页能装下 1170 个键，整棵树被压得很矮——这是 B+ 树 vs B 树最大的区别（2.5 详述）；</li>
-<li><strong>所有数据都在叶子节点</strong>，叶子之间用链表串联。范围查询找到起点后，沿链表顺序往下读即可，天然支持顺序扫描。</li>
-</ul>
-<h3 id="2-3-页内二分查找"><a href="#2-3-页内二分查找" class="headerlink" title="2.3 页内二分查找"></a>2.3 页内二分查找</h3><p>B+ 树的查找分两个阶段：<strong>沿树逐层下探</strong>（每次读一页），<strong>在页内二分查找</strong>（内存操作）。</p>
-<p>以 <code>WHERE id = 45</code> 为例，完整路径：</p>
-<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">第 1 次 IO（根页，常驻内存）: 在 [21, 45, 79] 中二分 → 45 在第二个区间 → 取 45 的左指针</span><br><span class="line">第 2 次 IO（中间页）:          页内记录是 [23, 28, 34, 40, 45, ...] → 二分命中 45</span><br><span class="line">第 3 次 IO（叶子页）:          找到完整行数据（聚簇索引）或主键值（二级索引，见第 3 章）</span><br></pre></td></tr></table></figure>
-
-<p>页内记录按键有序，二分查找是纯内存操作，代价可忽略。整条链路的主导成本只有那 2 次磁盘 IO。</p>
-<h3 id="2-4-插入与页分裂"><a href="#2-4-插入与页分裂" class="headerlink" title="2.4 插入与页分裂"></a>2.4 插入与页分裂</h3><p>B+ 树的插入规则很简单：找到应插入的叶子页，放进去；<strong>页满了就分裂成两页，并把新的最小键上提到父节点</strong>（父节点可能继续分裂，向上递归）。</p>
-<p>页分裂的代价很大——要写两个新页、改父节点，可能连锁向上分裂。所以<strong>插入顺序直接决定索引的健康度</strong>：</p>
-<ul>
-<li><strong>顺序插入（自增主键）</strong>：永远追加在最右叶子页，只有这一个页反复分裂，代价最小，叶子页空间利用率接近 100%；</li>
-<li><strong>乱序插入（UUID 主键）</strong>：随机落在任意页，页频繁分裂，分裂后两页都只装一半数据——<strong>空间利用率跌到约 50%，索引膨胀一倍，还会产生大量碎片</strong>。</li>
-</ul>
-<p>这一条直接导出了第 3 章的结论：主键不要用 UUID。</p>
-<h3 id="2-5-B-树-vs-B-树：好在哪里"><a href="#2-5-B-树-vs-B-树：好在哪里" class="headerlink" title="2.5 B+ 树 vs B 树：好在哪里"></a>2.5 B+ 树 vs B 树：好在哪里</h3><table>
-<thead>
-<tr>
-<th>对比维度</th>
-<th>B 树</th>
-<th>B+ 树</th>
-<th>对磁盘数据库意味着什么</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>数据存储位置</td>
-<td>所有节点都存数据</td>
-<td>只有叶子节点存数据</td>
-<td>B+ 树单页能装更多键，树更矮，IO 更少</td>
-</tr>
-<tr>
-<td>单页键容量</td>
-<td>少（每条记录 14B+行数据）</td>
-<td>多（纯键 + 指针）</td>
-<td>同样 2000 万行，B 树要多 1~2 层</td>
-</tr>
-<tr>
-<td>范围查询</td>
-<td>要回溯父节点、中序遍历</td>
-<td>叶子链表顺序扫描</td>
-<td><code>id &gt; 100</code> 的效率高一个量级</td>
-</tr>
-<tr>
-<td>全表扫描</td>
-<td>需要遍历整棵树</td>
-<td>直接扫叶子链表，近似顺序读</td>
-<td>顺序 IO 比随机 IO 快几个数量级</td>
-</tr>
-<tr>
-<td>写放大</td>
-<td>中间节点存数据，更新频繁</td>
-<td>内部节点纯指针，结构稳定</td>
-<td>支持更高并发写入</td>
-</tr>
-</tbody></table>
-<p><strong>本节小结</strong>：B+ 树用”非叶子纯索引 → 高分支因子 → 矮树”换来更少的磁盘 IO；用”叶子链表”换来高效的范围查询和顺序读。这两个特性叠加，就是 InnoDB 把它选为默认索引结构的全部理由。</p>
-<h2 id="3-聚簇索引与非聚簇索引"><a href="#3-聚簇索引与非聚簇索引" class="headerlink" title="3. 聚簇索引与非聚簇索引"></a>3. 聚簇索引与非聚簇索引</h2><h3 id="3-1-聚簇索引：数据就是索引"><a href="#3-1-聚簇索引：数据就是索引" class="headerlink" title="3.1 聚簇索引：数据就是索引"></a>3.1 聚簇索引：数据就是索引</h3><p><strong>聚簇索引（Clustered Index，InnoDB 中即主键索引）的叶子节点直接存完整行数据</strong>。也就是说，InnoDB 的表数据本身就是一棵 B+ 树——数据物理上按键有序组织，这叫<strong>索引组织表（Index-Organized Table）</strong>。</p>
-<p>每个表<strong>只能有一个</strong>聚簇索引，由 InnoDB 按以下优先级自动决定：</p>
-<ol>
-<li>显式定义的<strong>主键</strong>；</li>
-<li>如果没有主键，取<strong>第一个非空 UNIQUE 索引</strong>；</li>
-<li>都没有，InnoDB 自动生成一个<strong>隐藏的 6 字节 ROWID</strong> 作为聚簇索引（表结构设计缺陷，见 3.5）。</li>
-</ol>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">CREATE TABLE</span> t_user (</span><br><span class="line">    id   <span class="type">BIGINT</span> <span class="keyword">PRIMARY KEY</span> AUTO_INCREMENT,   <span class="comment">-- 聚簇索引</span></span><br><span class="line">    name <span class="type">VARCHAR</span>(<span class="number">32</span>),</span><br><span class="line">    age  <span class="type">INT</span></span><br><span class="line">);</span><br><span class="line"><span class="comment">-- 主键查找：一次叶子命中直接拿到整行，无需任何额外步骤</span></span><br><span class="line"><span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> t_user <span class="keyword">WHERE</span> id <span class="operator">=</span> <span class="number">100</span>;</span><br></pre></td></tr></table></figure>
-
-<p>聚簇索引叶子页里除了业务列，还藏着 InnoDB 的隐藏列（<code>trx_id</code> 事务 ID、<code>roll_pointer</code> 回滚指针），MVCC 的版本链就挂在它们上面——这是《MySQL 原理与优化》事务章节的内容，此处不展开。</p>
-<h3 id="3-2-非聚簇索引（二级索引）：列值-主键"><a href="#3-2-非聚簇索引（二级索引）：列值-主键" class="headerlink" title="3.2 非聚簇索引（二级索引）：列值 + 主键"></a>3.2 非聚簇索引（二级索引）：列值 + 主键</h3><p><strong>二级索引（Secondary Index，又称非聚簇索引&#x2F;辅助索引）的叶子节点只存两样东西：索引列的值 + 主键值</strong>。</p>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">ALTER TABLE</span> t_user <span class="keyword">ADD</span> INDEX idx_name (name);</span><br><span class="line"><span class="comment">-- 索引内容示意（按 name 排序）：</span></span><br><span class="line"><span class="comment">--   (&#x27;alice&#x27;, 3)  (&#x27;bob&#x27;, 8)  (&#x27;charlie&#x27;, 12)  ...</span></span><br></pre></td></tr></table></figure>
-
-<p>一个关键细节（面试常考）：<strong>InnoDB 二级索引叶子存的是主键值，而不是行指针</strong>（MyISAM 的索引叶子存的是行指针&#x2F;文件偏移）。为什么？因为聚簇索引里数据页分裂、移动是常态，如果二级索引存指针，每次数据挪动都要回写所有二级索引；而主键值永远不变。代价是：<strong>主键越长，每个二级索引越大</strong>——这是 3.5 主键要短的核心原因。</p>
-<p>一张表可以建多个二级索引，它们与数据的物理顺序无关，各自独立。</p>
-<h3 id="3-3-两种索引对比"><a href="#3-3-两种索引对比" class="headerlink" title="3.3 两种索引对比"></a>3.3 两种索引对比</h3><table>
-<thead>
-<tr>
-<th>维度</th>
-<th>聚簇索引（主键索引）</th>
-<th>二级索引（非聚簇索引）</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>叶子节点内容</td>
-<td>完整行数据</td>
-<td>索引列值 + 主键值</td>
-</tr>
-<tr>
-<td>每表数量</td>
-<td>只能有 1 个</td>
-<td>可以有多个</td>
-</tr>
-<tr>
-<td>与数据关系</td>
-<td>数据即索引，物理顺序 &#x3D; 主键序</td>
-<td>独立结构，与物理顺序无关</td>
-</tr>
-<tr>
-<td>查找路径</td>
-<td>命中叶子即拿到整行</td>
-<td>命中叶子只拿到主键，可能需要回表</td>
-</tr>
-<tr>
-<td>创建方式</td>
-<td>主键自动生成</td>
-<td><code>CREATE INDEX</code> 显式创建</td>
-</tr>
-<tr>
-<td>主键值变化</td>
-<td>—</td>
-<td>所有二级索引需要跟着改</td>
-</tr>
-</tbody></table>
-<h3 id="3-4-回表与覆盖索引"><a href="#3-4-回表与覆盖索引" class="headerlink" title="3.4 回表与覆盖索引"></a>3.4 回表与覆盖索引</h3><p>回表是这两个概念之间的”差价”，一句话定义：<strong>二级索引只存”列值 + 主键”，当查询需要的字段不在索引里时，只能拿主键再到聚簇索引查一遍完整行，这次”回头”就是回表</strong>。</p>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 表 t_user：id 主键，idx_name(name)</span></span><br><span class="line"><span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> t_user <span class="keyword">WHERE</span> name <span class="operator">=</span> <span class="string">&#x27;alice&#x27;</span>;</span><br><span class="line"><span class="comment">-- 执行路径：</span></span><br><span class="line"><span class="comment">--   1) 走 idx_name，二分定位到 (&#x27;alice&#x27;, 3)</span></span><br><span class="line"><span class="comment">--   2) 拿到主键 3，回聚簇索引查 id=3 的完整行</span></span><br></pre></td></tr></table></figure>
-
-<p>每次回表都是一次聚簇索引查找（约 1~2 次磁盘 IO）。如果命中了 100 行，就是 100 次回表——这就是大范围查询慢的真相。</p>
-<p><strong>覆盖索引</strong>：查询所需的列<strong>全部包含在索引中</strong>，无需回表。它不是一个新索引类型，而是一种”索引刚好够用”的状态：</p>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 查询只需要 name 和 id（主键），而 idx_name 里恰好都有</span></span><br><span class="line"><span class="keyword">SELECT</span> id, name <span class="keyword">FROM</span> t_user <span class="keyword">WHERE</span> name <span class="operator">=</span> <span class="string">&#x27;alice&#x27;</span>;</span><br><span class="line"><span class="comment">-- Extra: Using index（即覆盖索引命中，无回表）</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> t_user <span class="keyword">WHERE</span> name <span class="operator">=</span> <span class="string">&#x27;alice&#x27;</span>;</span><br><span class="line"><span class="comment">-- Extra: NULL / Using where（需要回表）</span></span><br></pre></td></tr></table></figure>
-
-<p>注意二级索引天然包含主键，所以”查 id + 查索引列”这类查询几乎总是可以做成覆盖索引。设计实践里，<strong>用空间换回表</strong>是有性价比的（见 6.2 覆盖性原则）。</p>
-<h3 id="3-5-主键怎么选：自增-vs-UUID-vs-业务主键"><a href="#3-5-主键怎么选：自增-vs-UUID-vs-业务主键" class="headerlink" title="3.5 主键怎么选：自增 vs UUID vs 业务主键"></a>3.5 主键怎么选：自增 vs UUID vs 业务主键</h3><p>结合 2.4 的页分裂和 3.2 的”叶子存主键”，主键选择可以一次性推出来：</p>
-<table>
-<thead>
-<tr>
-<th>候选</th>
-<th>插入顺序性</th>
-<th>索引膨胀</th>
-<th>结论</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>BIGINT 自增</td>
-<td>顺序插入，无页分裂</td>
-<td>8 字节，二级索引最小</td>
-<td><strong>首选</strong></td>
-</tr>
-<tr>
-<td>雪花 ID（BIGINT）</td>
-<td>基本有序，可接受</td>
-<td>8 字节</td>
-<td>分布式场景首选</td>
-</tr>
-<tr>
-<td>UUID（36 字符串&#x2F;16B binary）</td>
-<td>完全乱序，页分裂频繁，碎片多</td>
-<td>大，且乱序会加剧膨胀</td>
-<td>避免</td>
-</tr>
-<tr>
-<td>业务主键（如 18 位身份证号）</td>
-<td>视业务而定</td>
-<td>长字符串，所有二级索引跟着变大</td>
-<td>避免，用唯一索引约束替代</td>
-</tr>
-</tbody></table>
-<p><strong>实践结论</strong>：</p>
-<ul>
-<li>主键用<strong>无业务含义的 BIGINT 自增</strong>（单机）或雪花 ID（分布式），一列定生死：乱序、过长都是慢性病，上线后很难改；</li>
-<li>业务上的唯一性（身份证号、手机号、订单号）用 <strong>UNIQUE 索引</strong>约束，而不是塞进主键；</li>
-<li>主键与唯一索引的语义区别：主键不能为 NULL，唯一索引允许 NULL（且多个 NULL 不冲突）。</li>
-</ul>
-<p><strong>本节小结</strong>：聚簇索引 &#x3D; 整张表的数据本体；二级索引 &#x3D; “索引列 + 主键”的副本。两者之间的差价是回表，覆盖索引是抹平差价的手段；而主键的选择（顺序、长度）决定所有二级索引的生死。</p>
-<h2 id="4-联合索引与最左前缀"><a href="#4-联合索引与最左前缀" class="headerlink" title="4. 联合索引与最左前缀"></a>4. 联合索引与最左前缀</h2><h3 id="4-1-联合索引的内部排序"><a href="#4-1-联合索引的内部排序" class="headerlink" title="4.1 联合索引的内部排序"></a>4.1 联合索引的内部排序</h3><p>联合索引 <code>(a, b, c)</code> 底层就是一棵 B+ 树，只是排序规则变成了<strong>先按 a 排，a 相同再按 b 排，b 相同再按 c 排</strong>：</p>
-<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">(a=1,b=2)  (a=1,b=5)  (a=1,b=5,c=9)  (a=2,b=1)  (a=2,b=3)  ...</span><br><span class="line">└─── 先看 a ───┘  └──────── 再看 b ────────┘  └── 再看 c ──┘</span><br></pre></td></tr></table></figure>
-
-<p>这个”字典序”就是最左前缀原则的全部来源：<strong>索引能用来定位的条件，必须是从最左列开始的一段连续前缀</strong>。因为索引里的顺序是”先 a 后 b 后 c”，只给 b 的值，索引无法知道去哪一区间找。</p>
-<h3 id="4-2-最左前缀：哪些查询能用上-a-b-c"><a href="#4-2-最左前缀：哪些查询能用上-a-b-c" class="headerlink" title="4.2 最左前缀：哪些查询能用上 (a, b, c)"></a>4.2 最左前缀：哪些查询能用上 <code>(a, b, c)</code></h3><table>
-<thead>
-<tr>
-<th>查询条件</th>
-<th>能用到的索引部分</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>a = 1</code></td>
-<td>a</td>
-<td>完整使用</td>
-</tr>
-<tr>
-<td><code>a = 1 AND b = 2</code></td>
-<td>a + b</td>
-<td>完整使用</td>
-</tr>
-<tr>
-<td><code>a = 1 AND b = 2 AND c = 3</code></td>
-<td>a + b + c</td>
-<td>完整使用</td>
-</tr>
-<tr>
-<td><code>b = 2</code></td>
-<td>无</td>
-<td>缺最左列 a，索引失效（全表扫描或索引全扫）</td>
-</tr>
-<tr>
-<td><code>a = 1 AND c = 3</code></td>
-<td>只用 a</td>
-<td>跳过 b，c 无法用于索引定位（5.6+ 可被索引下推部分挽回，见 4.3）</td>
-</tr>
-<tr>
-<td><code>b = 2 AND a = 1</code></td>
-<td>a + b</td>
-<td>优化器会重排等值条件，等价于 <code>a=1 AND b=2</code></td>
-</tr>
-</tbody></table>
-<p>两个补充规则：</p>
-<ul>
-<li><strong>等值条件顺序无关</strong>：优化器会自动把等值条件按索引列序重排，所以 <code>b=2 AND a=1</code> 和 <code>a=1 AND b=2</code> 效果一样；</li>
-<li><strong>范围条件后面的列”断链”<strong>：<code>a &gt; 1 AND b = 2</code> 中，a 用于索引定位，但 b 无法用于定位——索引定位只能在第一个范围条件上停止（b&#x3D;2 只能退化为索引层过滤，8.0 前回表后过滤，8.0 中可被 ICP 拦截，见 4.3）。所以</strong>等值列放前面、范围列放后面</strong>是联合索引设计的铁律（见 6.2）。</li>
-</ul>
-<h3 id="4-3-索引下推（ICP）：把过滤提前到索引层"><a href="#4-3-索引下推（ICP）：把过滤提前到索引层" class="headerlink" title="4.3 索引下推（ICP）：把过滤提前到索引层"></a>4.3 索引下推（ICP）：把过滤提前到索引层</h3><p>MySQL 5.6 引入的索引下推（Index Condition Pushdown），解决的是”联合索引部分失效”场景下的回表浪费：</p>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 联合索引 (name, age)，注意 age 也恰好是索引列</span></span><br><span class="line"><span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> t_user <span class="keyword">WHERE</span> name <span class="keyword">LIKE</span> <span class="string">&#x27;张%&#x27;</span> <span class="keyword">AND</span> age <span class="operator">=</span> <span class="number">30</span>;</span><br></pre></td></tr></table></figure>
-
-<ul>
-<li><strong>5.6 之前</strong>：引擎层把 <code>name LIKE &#39;张%&#39;</code> 命中的所有记录（含 <code>age != 30</code> 的）<strong>全部回表</strong>，由 Server 层过滤 <code>age = 30</code>——假设命中 1 万条，就回表 1 万次；</li>
-<li><strong>5.6 之后（ICP）</strong>：引擎层在**遍历二级索引时直接判断 <code>age = 30</code>**，只把满足条件的行回表——假设只剩 50 条，就回表 50 次。</li>
-</ul>
-<p>执行计划里看到 <code>Extra: Using index condition</code> 即命中 ICP。注意前提：过滤条件里的列（这里的 age）必须是索引列。</p>
-<h3 id="4-4-索引与排序：ORDER-BY-免排序"><a href="#4-4-索引与排序：ORDER-BY-免排序" class="headerlink" title="4.4 索引与排序：ORDER BY 免排序"></a>4.4 索引与排序：ORDER BY 免排序</h3><p>B+ 树的叶子天然有序，所以<strong>只要排序字段是联合索引的一个连续前缀，ORDER BY 就能直接按索引顺序取数据，省掉 filesort</strong>（内存&#x2F;磁盘排序，代价很高）：</p>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 联合索引 (a, b, c)</span></span><br><span class="line"><span class="keyword">WHERE</span> a <span class="operator">=</span> <span class="number">1</span> <span class="keyword">ORDER</span> <span class="keyword">BY</span> b      <span class="comment">-- 能用：a 等值确定前缀，b 天然有序 → 免排序</span></span><br><span class="line"><span class="keyword">ORDER</span> <span class="keyword">BY</span> a, b               <span class="comment">-- 能用：整体就是索引序</span></span><br><span class="line"><span class="keyword">WHERE</span> a <span class="operator">=</span> <span class="number">1</span> <span class="keyword">ORDER</span> <span class="keyword">BY</span> b <span class="keyword">DESC</span> <span class="comment">-- 能用：反向扫描（8.0 之前需注意混合升降序不行）</span></span><br><span class="line"><span class="keyword">ORDER</span> <span class="keyword">BY</span> a <span class="keyword">DESC</span>, b <span class="keyword">ASC</span>      <span class="comment">-- 8.0 之前不行（需 filesort）；8.0 建降序索引后可以</span></span><br><span class="line"><span class="keyword">ORDER</span> <span class="keyword">BY</span> b                  <span class="comment">-- 不行：缺最左列 a，索引序不等于 b 的序</span></span><br></pre></td></tr></table></figure>
-
-<p>看到 <code>Extra: Using filesort</code> 就要警惕——它通常意味着一次额外的排序开销，优先考虑把排序列放进索引（或调整索引列序）。</p>
-<p><strong>本节小结</strong>：联合索引 &#x3D; 一棵按”字典序”排序的树；最左前缀是它的使用规则，等值前置、范围后置是它的设计规则；ICP 在索引层提前过滤，覆盖索引&#x2F;索引序消灭回表与 filesort——这四个机制全部围绕”减少聚簇索引访问”服务。</p>
-<h2 id="5-EXPLAIN-与索引失效排查"><a href="#5-EXPLAIN-与索引失效排查" class="headerlink" title="5. EXPLAIN 与索引失效排查"></a>5. EXPLAIN 与索引失效排查</h2><h3 id="5-1-EXPLAIN-速查"><a href="#5-1-EXPLAIN-速查" class="headerlink" title="5.1 EXPLAIN 速查"></a>5.1 EXPLAIN 速查</h3><p>慢 SQL 排查的第一动作永远是 <code>EXPLAIN SELECT ...</code>。重点看五个字段：</p>
-<table>
-<thead>
-<tr>
-<th>字段</th>
-<th>含义</th>
-<th>怎么看</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>type</code></td>
-<td>访问类型，从好到坏：<code>system</code> &gt; <code>const</code> &gt; <code>eq_ref</code> &gt; <code>ref</code> &gt; <code>range</code> &gt; <code>index</code> &gt; <code>ALL</code></td>
-<td><code>ALL</code>（全表扫描）和 <code>index</code>（全索引扫描）是优化信号</td>
-</tr>
-<tr>
-<td><code>key</code></td>
-<td>实际用到的索引</td>
-<td><code>NULL</code> 说明没用索引</td>
-</tr>
-<tr>
-<td><code>key_len</code></td>
-<td>索引实际用到的字节数</td>
-<td>比设计值短，说明只用了部分前缀（列没吃满）</td>
-</tr>
-<tr>
-<td><code>rows</code></td>
-<td>估算扫描行数</td>
-<td>越大越慢，与实际返回行数差距过大说明统计不准</td>
-</tr>
-<tr>
-<td><code>Extra</code></td>
-<td>附加信息</td>
-<td>见下表</td>
-</tr>
-</tbody></table>
-<p><code>Extra</code> 常见取值：</p>
-<table>
-<thead>
-<tr>
-<th>Extra 取值</th>
-<th>含义</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>Using index</code></td>
-<td>覆盖索引，无回表（好）</td>
-</tr>
-<tr>
-<td><code>Using index condition</code></td>
-<td>索引下推生效（好）</td>
-</tr>
-<tr>
-<td><code>Using where</code></td>
-<td>存储引擎返回后 Server 层过滤（可能回表）</td>
-</tr>
-<tr>
-<td><code>Using filesort</code></td>
-<td>需要额外排序（差）</td>
-</tr>
-<tr>
-<td><code>Using temporary</code></td>
-<td>需要临时表（差，常见于 GROUP BY 没用上索引）</td>
-</tr>
-</tbody></table>
-<p><code>key_len</code> 计算示例（面试手算题）：utf8mb4 字符集下 <code>VARCHAR(32)</code> 可空列，<code>32 × 4 + 2（变长长度字节）+ 1（NULL 标记）= 131</code> 字节。联合索引 <code>(a, b)</code> 的 key_len 只等于 a 的长度，说明 b 没用上。</p>
-<h3 id="5-2-索引失效场景清单"><a href="#5-2-索引失效场景清单" class="headerlink" title="5.2 索引失效场景清单"></a>5.2 索引失效场景清单</h3><table>
-<thead>
-<tr>
-<th>场景</th>
-<th>示例</th>
-<th>原因与正解</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>对索引列做函数&#x2F;运算</td>
-<td><code>WHERE DATE(create_time) = &#39;2026-08-01&#39;</code></td>
-<td>索引存的是列原值，无法按函数结果定位。正解：<code>create_time &gt;= &#39;2026-08-01&#39; AND create_time &lt; &#39;2026-08-02&#39;</code>，或 8.0 函数索引</td>
-</tr>
-<tr>
-<td>隐式类型转换</td>
-<td>字符串列 <code>WHERE phone = 13800000000</code>（数值）</td>
-<td>列上发生类型转换，见 5.3</td>
-</tr>
-<tr>
-<td><code>LIKE &#39;%xx&#39;</code> 前导模糊</td>
-<td><code>WHERE name LIKE &#39;%张&#39;</code></td>
-<td>无法确定扫描起点。<code>张%</code> 可以走 range</td>
-</tr>
-<tr>
-<td><code>OR</code> 连接非索引列</td>
-<td><code>WHERE name = &#39;a&#39; OR age &gt; 30</code>（age 无索引）</td>
-<td>优化器无法保证只走 name 索引。正解：拆两条 SQL 或给 age 建索引</td>
-</tr>
-<tr>
-<td>违反最左前缀</td>
-<td>联合索引 <code>(a,b,c)</code> 查 <code>WHERE b = 2</code></td>
-<td>见 4.2</td>
-</tr>
-<tr>
-<td>范围条件断链</td>
-<td><code>WHERE a &gt; 1 AND b = 2</code></td>
-<td>b 无法用于定位，只能过滤（等值列放前，见 4.2）</td>
-</tr>
-<tr>
-<td><code>NOT IN</code> &#x2F; <code>!=</code> &#x2F; <code>NOT LIKE</code></td>
-<td><code>WHERE status != 1</code></td>
-<td><strong>非绝对失效</strong>：返回比例高时优化器主动选全表扫描，比例低时可能走 range，取决于统计信息</td>
-</tr>
-<tr>
-<td>数据量过小</td>
-<td>几千行的表</td>
-<td>优化器认为全表扫描更快（扫描几个页 vs 走索引还要回表），是合理决策，不是 bug</td>
-</tr>
-</tbody></table>
-<p>两个常见误解要澄清：</p>
-<ul>
-<li><strong><code>IS NULL</code> 走不走索引？</strong> 走。InnoDB 二级索引允许存 NULL，<code>IS NULL</code> 是 ref 级别的索引查找；</li>
-<li><strong><code>!=</code> 一定失效？</strong> 不一定。它是优化器基于成本的选择，与数据分布有关——用 <code>EXPLAIN</code> 验证而不是背结论。</li>
-</ul>
-<h3 id="5-3-隐式类型转换：最容易踩的坑"><a href="#5-3-隐式类型转换：最容易踩的坑" class="headerlink" title="5.3 隐式类型转换：最容易踩的坑"></a>5.3 隐式类型转换：最容易踩的坑</h3><p>MySQL 的规则：<strong>字符串列与数值比较时，字符串被转换为数值</strong>——转换发生在<strong>列</strong>上，索引失效；数值列与字符串比较时，字符串被转成数值，列不受影响，索引可用。</p>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- phone 是 VARCHAR 列：</span></span><br><span class="line"><span class="keyword">WHERE</span> phone <span class="operator">=</span> <span class="number">13800000000</span>;   <span class="comment">-- 等效于 CAST(phone AS 数字)，列上做转换 → 索引失效</span></span><br><span class="line"><span class="keyword">WHERE</span> phone <span class="operator">=</span> <span class="string">&#x27;13800000000&#x27;</span>; <span class="comment">-- 字符串比较，索引可用 ✓</span></span><br><span class="line"></span><br><span class="line"><span class="comment">-- id 是 BIGINT 列：</span></span><br><span class="line"><span class="keyword">WHERE</span> id <span class="operator">=</span> <span class="string">&#x27;100&#x27;</span>;            <span class="comment">-- 字符串转数字，列不受影响，索引可用 ✓</span></span><br></pre></td></tr></table></figure>
-
-<p><strong>实践规则</strong>：Java 里用 MyBatis&#x2F;JPA 传参时，<code>phone</code> 这类字符串字段传参类型必须和列类型一致（DTO 里是 <code>String</code>），否则会掉进这个坑且线上很难发现。排查技巧：<code>EXPLAIN</code> 里 <code>key</code> 为 NULL 但条件明明有索引，先检查类型。</p>
-<h3 id="5-4-优化器选错索引"><a href="#5-4-优化器选错索引" class="headerlink" title="5.4 优化器选错索引"></a>5.4 优化器选错索引</h3><p>优化器基于<strong>统计信息</strong>（采样估算行数）选索引，统计不准确时可能选错：</p>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">ANALYZE <span class="keyword">TABLE</span> t_user;                  <span class="comment">-- 更新统计信息（最常见解法）</span></span><br><span class="line">EXPLAIN <span class="keyword">SELECT</span> ...;                    <span class="comment">-- 复看执行计划</span></span><br><span class="line"><span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> t_user FORCE INDEX (idx); <span class="comment">-- 强制指定（最后手段，表结构/数据变化后可能失效，慎用）</span></span><br></pre></td></tr></table></figure>
-
-<p>统计信息与真实分布差太远、或者优化器对”回表成本”的估算有误时，选错就发生了。另外 8.0 可以用 <code>EXPLAIN ANALYZE</code> 拿到实际执行耗时，比看估算 rows 更可靠。</p>
-<p><strong>本节小结</strong>：看 <code>type</code> 是否 ALL、<code>key</code> 是否 NULL、<code>Extra</code> 是否有 filesort&#x2F;temporary 三个信号；失效排查按”函数&#x2F;运算 → 隐式转换 → LIKE → OR → 最左前缀 → 范围断链”的顺序过一遍；选错索引先 <code>ANALYZE TABLE</code>，<code>FORCE INDEX</code> 是最后手段。</p>
-<h2 id="6-日常建索引的实践要点"><a href="#6-日常建索引的实践要点" class="headerlink" title="6. 日常建索引的实践要点"></a>6. 日常建索引的实践要点</h2><h3 id="6-1-建索引的决策流程"><a href="#6-1-建索引的决策流程" class="headerlink" title="6.1 建索引的决策流程"></a>6.1 建索引的决策流程</h3><p>不要”凭感觉建索引”，按下面的流程走：</p>
-<ol>
-<li><strong>定位慢 SQL</strong>：开启慢查询日志（<code>long_query_time = 1</code>，或阈值按业务调），或用 <code>performance_schema</code>&#x2F;监控平台捞 Top SQL；</li>
-<li><strong>EXPLAIN 分析</strong>：确认是不是全表扫描（<code>type = ALL</code>）、有没有 filesort、rows 是否过大；</li>
-<li><strong>设计索引</strong>：把 SQL 的 <code>WHERE</code> 等值列、<code>JOIN</code> 关联列、<code>ORDER BY</code> 排序列、<code>GROUP BY</code> 列列出来，按 6.2 的规则排成联合索引；</li>
-<li><strong>验证</strong>：<code>EXPLAIN</code> 对比建索引前后的 <code>type</code>、<code>rows</code>、<code>Extra</code>，确认覆盖到查询；</li>
-<li><strong>上线观察</strong>：索引对写放大有代价，上线后观察慢日志和写入延迟，确认收益 &gt; 成本。</li>
-</ol>
-<h3 id="6-2-选列与排序的四个原则"><a href="#6-2-选列与排序的四个原则" class="headerlink" title="6.2 选列与排序的四个原则"></a>6.2 选列与排序的四个原则</h3><p><strong>① 区分度优先</strong>：索引的价值在于”过滤”，区分度低的列（性别、状态位）单独建索引收益极低——过滤完还是半张表。用 <code>SHOW INDEX FROM t</code> 看 <code>Cardinality</code>（估算基数），基数&#x2F;总行数越大越好。区分度低的列适合放在联合索引<strong>靠后的位置</strong>做等值过滤（见③）。</p>
-<p><strong>② 等值列在前，范围&#x2F;排序列在后</strong>：等值条件（<code>=</code>）能精确确定扫描区间，范围条件（<code>&gt;</code>、<code>BETWEEN</code>、<code>LIKE &#39;x%&#39;</code>）会让后面的列断链。排序&#x2F;分组列放在最后，顺便免掉 filesort（4.4）。</p>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 经典场景：用户订单页&quot;查某用户最近订单&quot;</span></span><br><span class="line"><span class="comment">-- WHERE user_id = ? ORDER BY created_at DESC</span></span><br><span class="line"><span class="comment">-- 联合索引 (user_id, created_at)：user_id 等值定位，created_at 天然有序免排序 ✓</span></span><br><span class="line"><span class="keyword">CREATE</span> INDEX idx_user_time <span class="keyword">ON</span> t_order (user_id, created_at);</span><br></pre></td></tr></table></figure>
-
-<p><strong>③ 尽量让查询覆盖</strong>：查询只返回索引列的列时，把高频 SELECT 的列塞进索引尾部队列，用空间换回表。典型：列表页查 <code>(id, name, status)</code>，就建 <code>(name, status)</code> 或让联合索引带上它们。</p>
-<p><strong>④ 先查后建，宁缺毋滥</strong>：没有慢 SQL 就没有索引需求；小表（万行以内）全表扫描只有几个页的 IO，索引的收益可以忽略，别为”仪式感”建索引。</p>
-<h3 id="6-3-索引的成本：为什么不能建太多"><a href="#6-3-索引的成本：为什么不能建太多" class="headerlink" title="6.3 索引的成本：为什么不能建太多"></a>6.3 索引的成本：为什么不能建太多</h3><p>每个索引都是<strong>一份独立的排序副本</strong>，代价具体到数字：</p>
-<ul>
-<li><strong>写放大</strong>：一条 INSERT 要写 1 份聚簇索引 + N 份二级索引；UPDATE 修改了索引列，对应索引也要改；DELETE 同理。索引从 3 个加到 8 个，写入开销接近翻倍；</li>
-<li><strong>空间</strong>：每加一个索引，就是表数据的 20%~100% 的额外存储（取决于列宽），同时挤占 Buffer Pool 内存，降低缓存命中率；</li>
-<li><strong>唯一索引更贵</strong>：插入前要立即判断唯一性，无法利用 change buffer 的延迟合并（普通二级索引可以）。</li>
-</ul>
-<p><strong>量化建议</strong>：单表索引控制在 <strong>5~6 个以内</strong>，能用联合索引覆盖的查询就不要拆成多个单列索引。</p>
-<h3 id="6-4-冗余索引与维护"><a href="#6-4-冗余索引与维护" class="headerlink" title="6.4 冗余索引与维护"></a>6.4 冗余索引与维护</h3><ul>
-<li><strong>联合索引吞并单列索引</strong>：有 <code>(a, b)</code> 就没必要保留单列 <code>(a)</code>——前者完全覆盖后者的能力。但 <code>(b, a)</code> 与 <code>(a, b)</code> 是两种不同结构，别删错；</li>
-<li><strong>8.0 的 <code>INVISIBLE</code> 索引</strong>：拿不准要不要删的索引，先 <code>ALTER TABLE ... ALTER INDEX idx INVISIBLE</code> 无痛隐藏，观察一段时间没有报错再 DROP，比直接删安全得多；</li>
-<li><strong>索引碎片</strong>：页分裂会留下碎片。<code>SHOW TABLE STATUS LIKE &#39;t_order&#39;</code> 看 <code>Data_free</code>，碎片明显时 <code>OPTIMIZE TABLE t_order</code> 重建表（注意锁表时间，选业务低峰）；</li>
-<li><strong>前缀索引</strong>：超长字符串（URL、邮箱）建 <code>url(20)</code> 前缀索引，但会损失区分度，且<strong>无法用于覆盖索引和 ORDER BY</strong>——权衡后使用；</li>
-<li><strong>8.0 函数索引</strong>：<code>CREATE INDEX idx_date ON t ( (DATE(create_time)) )</code>，专门兜底”函数查询”场景，但优先还是改写 SQL。</li>
-</ul>
-<h3 id="6-5-三个典型业务场景"><a href="#6-5-三个典型业务场景" class="headerlink" title="6.5 三个典型业务场景"></a>6.5 三个典型业务场景</h3><figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 场景一：登录防重。账号唯一索引 + 防重插入</span></span><br><span class="line"><span class="keyword">CREATE</span> <span class="keyword">UNIQUE</span> INDEX uk_phone <span class="keyword">ON</span> t_user (phone);</span><br><span class="line"><span class="keyword">INSERT INTO</span> t_user (phone) <span class="keyword">VALUES</span> (<span class="string">&#x27;13800000000&#x27;</span>)</span><br><span class="line">    <span class="keyword">ON</span> DUPLICATE KEY <span class="keyword">UPDATE</span> phone <span class="operator">=</span> phone;  <span class="comment">-- 或用 INSERT IGNORE</span></span><br><span class="line"></span><br><span class="line"><span class="comment">-- 场景二：订单列表（状态 + 时间范围过滤 + 分页）</span></span><br><span class="line"><span class="comment">-- WHERE status = 1 AND created_at &gt; ? ORDER BY created_at LIMIT 20</span></span><br><span class="line"><span class="keyword">CREATE</span> INDEX idx_status_time <span class="keyword">ON</span> t_order (status, created_at);</span><br><span class="line"><span class="comment">-- 注意 status 区分度低，放前面做等值过滤合理；若 status 只有两三个值，</span></span><br><span class="line"><span class="comment">-- 且该 SQL 返回行数占比高，可考虑只用 (created_at) 让索引层过滤范围</span></span><br><span class="line"></span><br><span class="line"><span class="comment">-- 场景三：深分页（LIMIT 100000, 10 前 10 万行全部回表）</span></span><br><span class="line"><span class="comment">-- 延迟关联：先用覆盖索引取出 id，再回表拿整行</span></span><br><span class="line"><span class="keyword">SELECT</span> t.<span class="operator">*</span> <span class="keyword">FROM</span> t_order t</span><br><span class="line"><span class="keyword">JOIN</span> (<span class="keyword">SELECT</span> id <span class="keyword">FROM</span> t_order <span class="keyword">ORDER</span> <span class="keyword">BY</span> created_at LIMIT <span class="number">100000</span>, <span class="number">10</span>) tmp</span><br><span class="line">  <span class="keyword">ON</span> t.id <span class="operator">=</span> tmp.id;</span><br></pre></td></tr></table></figure>
-
-<h3 id="6-6-常用命令清单"><a href="#6-6-常用命令清单" class="headerlink" title="6.6 常用命令清单"></a>6.6 常用命令清单</h3><figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">SHOW</span> INDEX <span class="keyword">FROM</span> t_user;                    <span class="comment">-- 看索引与 Cardinality</span></span><br><span class="line"><span class="keyword">SHOW</span> <span class="keyword">CREATE TABLE</span> t_user;                  <span class="comment">-- 看完整建表语句</span></span><br><span class="line">EXPLAIN <span class="keyword">SELECT</span> ...;                        <span class="comment">-- 看执行计划</span></span><br><span class="line">ANALYZE <span class="keyword">TABLE</span> t_user;                      <span class="comment">-- 更新统计信息</span></span><br><span class="line">OPTIMIZE <span class="keyword">TABLE</span> t_user;                     <span class="comment">-- 重建表、回收碎片（业务低峰）</span></span><br><span class="line"><span class="keyword">SET</span> <span class="keyword">GLOBAL</span> slow_query_log <span class="operator">=</span> <span class="keyword">ON</span>;            <span class="comment">-- 开启慢查询日志</span></span><br><span class="line">EXPLAIN ANALYZE <span class="keyword">SELECT</span> ...;                <span class="comment">-- 8.0：返回实际执行耗时</span></span><br></pre></td></tr></table></figure>
-
-<p><strong>本节小结</strong>：建索引 &#x3D; 先有慢 SQL 证据，再按”等值列在前、范围&#x2F;排序列在后、高频查询尽量覆盖、区分度决定值不值得”四原则设计联合索引；同时记住每条索引的写放大和空间成本，5~6 个是常见上限；冗余索引、碎片、隐式转换是上线后最常补的课。</p>
-<h2 id="7-面试高频题速答（1-3-年档）"><a href="#7-面试高频题速答（1-3-年档）" class="headerlink" title="7. 面试高频题速答（1-3 年档）"></a>7. 面试高频题速答（1-3 年档）</h2><table>
-<thead>
-<tr>
-<th>问题</th>
-<th>速答</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>为什么 InnoDB 用 B+ 树而不是 B 树？</td>
-<td>内部节点不存数据 → 单页键多 → 树矮 IO 少；叶子链表 → 范围查询和顺序扫描高效；写放大更小</td>
-</tr>
-<tr>
-<td>聚簇索引和非聚簇索引的区别？</td>
-<td>聚簇叶子存整行、每表一个、决定物理顺序；二级索引叶子存”列值 + 主键”、可多个、与物理顺序无关</td>
-</tr>
-<tr>
-<td>为什么二级索引存主键而不是行指针？</td>
-<td>数据页移动&#x2F;分裂时主键不变，避免级联更新所有二级索引；代价是主键越长索引越大</td>
-</tr>
-<tr>
-<td>什么是回表和覆盖索引？</td>
-<td>二级索引缺字段时拿主键回头查聚簇索引叫回表；查询列全在索引里则无需回表（Extra: Using index）</td>
-</tr>
-<tr>
-<td>联合索引 <code>(a,b,c)</code>，<code>WHERE b=1 AND c=2</code> 能用吗？</td>
-<td>不能定位，最左列缺失；只能全索引扫描，8.0 下可被 ICP 在索引层过滤</td>
-</tr>
-<tr>
-<td>索引下推解决什么问题？</td>
-<td>让二级索引遍历时直接过滤部分失效的索引列，减少回表次数（Extra: Using index condition）</td>
-</tr>
-<tr>
-<td>什么场景索引会失效？</td>
-<td>函数&#x2F;运算、隐式类型转换、<code>LIKE &#39;%x&#39;</code>、OR 非索引列、违反最左前缀、范围后断链</td>
-</tr>
-<tr>
-<td>自增主键 vs UUID？</td>
-<td>自增顺序插入无页分裂、索引小；UUID 乱序导致页分裂、碎片、空间利用率掉到 50% 附近</td>
-</tr>
-<tr>
-<td>索引是不是越多越好？</td>
-<td>不是。每个索引都是写放大 + 空间成本，单表 5~6 个为常见上限，用联合索引替代多个单列索引</td>
-</tr>
-<tr>
-<td>唯一索引和普通索引怎么选？</td>
-<td>需要业务防重&#x2F;唯一约束用唯一索引；否则用普通索引（可走 change buffer，写入更便宜）</td>
-</tr>
-</tbody></table>
-<h2 id="8-总结"><a href="#8-总结" class="headerlink" title="8. 总结"></a>8. 总结</h2><p>一条主线串起全文：<strong>B+ 树用”矮树 + 叶子链表”把磁盘 IO 次数从 O(n) 压到 O(层数)<strong>；</strong>聚簇索引就是表数据本体，二级索引是”列 + 主键”的副本，回表是两者之间的差价</strong>；<strong>联合索引按字典序组织，最左前缀决定能用不能用，等值前置决定用得好不好</strong>；<strong>EXPLAIN 的 type&#x2F;key&#x2F;Extra 三件套 + 隐式转换、函数、LIKE 这些失效清单，是排查慢 SQL 的标准动作</strong>；最后落到实践：先慢日志，后 EXPLAIN，再按”区分度、列序、覆盖、成本”四原则建索引。</p>
-<p>索引优化是 MySQL 学习中性价比最高的投入——它不需要改代码，不需要扩机器，一条 <code>CREATE INDEX</code> 常常把慢 SQL 从秒级降到毫秒级。但这张”免费的优化券”也有规则：建错了（冗余、过度）会拖垮写入，建歪了（列序、类型）等于没建。</p>
-<p>延伸阅读（按学习顺序）：</p>
-<ul>
-<li><a href="/post/32511a71.html">MySQL 原理与优化</a>：架构、事务、锁、MVCC 的完整体系，索引的上位知识；</li>
-<li><a href="/post/mysql-ha-2025.html">MySQL 高可用与分库分表实战</a>：单机撑不住之后的扩展方案，索引设计在其中依然有效；</li>
-<li><a href="/docs/nav/mysql-nav.html">MySQL 导航</a>：本文在”后端能力链”中的定位与推荐学习顺序；</li>
-<li>缓存互补：<a href="/post/bae4ff13.html">Redis 深度解析</a>：索引救不了的读瓶颈，交给缓存。</li>
-</ul>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
   <nav class="pagination">
-    <a class="extend prev" rel="prev" title="Previous page" aria-label="Previous page" href="/home/page/5/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/home/">1</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/5/">5</a><span class="page-number current">6</span><a class="page-number" href="/home/page/7/">7</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/21/">21</a><a class="extend next" rel="next" title="Next page" aria-label="Next page" href="/home/page/7/"><i class="fa fa-angle-right"></i></a>
+    <a class="extend prev" rel="prev" title="Previous page" aria-label="Previous page" href="/home/page/5/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/home/">1</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/5/">5</a><span class="page-number current">6</span><a class="page-number" href="/home/page/7/">7</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/22/">22</a><a class="extend next" rel="next" title="Next page" aria-label="Next page" href="/home/page/7/"><i class="fa fa-angle-right"></i></a>
   </nav>
 
 </div>
@@ -2732,14 +2512,14 @@
       <i class="fa fa-chart-line"></i>
     </span>
       <span>Word count total: </span>
-    <span title="Word count total">579k</span>
+    <span title="Word count total">595k</span>
   </span>
   <span class="post-meta-item">
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
       <span>Reading time total &asymp;</span>
-    <span title="Reading time total">35:04</span>
+    <span title="Reading time total">36:05</span>
   </span>
 </div>
   <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
