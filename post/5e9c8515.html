@@ -27,7 +27,7 @@
 <meta property="og:description" content="Zeus-Doc 性能压测报告 版本：1.0.0 ｜ 更新日期：2026-07-31 ｜ 数据性质：除特别说明外均为合理模拟数据 相关文档：《01-系统架构》｜《04-线程与锁分析》｜《07-部署运维》   一、压测环境说明1.1 机器配置   角色 规格 数量 说明    压测机 8C 16G 1 JMeter Master，独立部署避免互相干扰   应用服务器 8C 16G 3 K8s Pod">
 <meta property="og:locale" content="en_US">
 <meta property="article:published_time" content="2026-08-06T15:56:08.000Z">
-<meta property="article:modified_time" content="2026-08-13T16:10:03.576Z">
+<meta property="article:modified_time" content="2026-08-14T13:18:23.465Z">
 <meta name="twitter:card" content="summary">
 
 
@@ -1452,10 +1452,10 @@
     title "接口性能象限分布（模拟数据）"
     x-axis "低 TPS" --> "高 TPS"
     y-axis "高 RT" --> "低 RT"
-    quadrant-1 ["高性能低吞吐", "需扩容"]
-    quadrant-2 ["性能差", "需优化"]
-    quadrant-3 ["低负载", "空闲"]
-    quadrant-4 ["高性能高吞吐", "最佳"]
+    quadrant-1 "高性能低吞吐（需扩容）"
+    quadrant-2 "性能差（需优化）"
+    quadrant-3 "低负载（空闲）"
+    quadrant-4 "高性能高吞吐（最佳）"
     "文件上传": [0.18, 0.30]
     "文档保存": [0.32, 0.55]
     "全文搜索": [0.40, 0.65]
@@ -1464,6 +1464,9 @@
     "审计写入": [0.92, 0.95]</pre>
 
 <p><strong>分析：</strong> 文档详情&#x2F;列表&#x2F;审计写入落在”高性能高吞吐”象限；文件上传因 MinIO IO 重，落在”性能差”象限，后续可改为异步签名直传减负。</p>
+<blockquote>
+<p>注：quadrantChart 的象限标签语法是 <code>quadrant-1 &quot;文本&quot;</code>（不带方括号），旧版文档的 <code>quadrant-1 [&quot;a&quot;, &quot;b&quot;]</code> 数组写法在 mermaid 11.x 会解析失败。</p>
+</blockquote>
 <hr>
 <h2 id="附E、线程池隔离对比（补充章节）"><a href="#附E、线程池隔离对比（补充章节）" class="headerlink" title="附E、线程池隔离对比（补充章节）"></a>附E、线程池隔离对比（补充章节）</h2><blockquote>
 <p>说明：本附录与正文第四节「四、串行 vs CompletableFuture 并行 RT 对比」互补，场景&#x2F;数据不同（正文聚焦 RT 对比，本附录聚焦线程池隔离方案对比）。</p>
@@ -1508,14 +1511,18 @@
 <p>模拟数据。共用线程池时，导出任务的 3s 阻塞导致线程被占满，<code>doc-executor</code> 的保存任务排队，触发 <code>AbortPolicy</code> 抛异常，错误率飙升。</p>
 </blockquote>
 <h3 id="E-2-故障隔离效果对比"><a href="#E-2-故障隔离效果对比" class="headerlink" title="E.2 故障隔离效果对比"></a>E.2 故障隔离效果对比</h3><pre class="mermaid">xychart-beta
-    title "线程池隔离 vs 共用 TPS 对比（模拟数据）"
+    title "共用线程池 TPS（模拟数据）"
     x-axis ["文档保存", "审计写入", "搜索同步"]
     y-axis "TPS" 0 --> 9500
-    bar [980, 980, 0]
+    bar [980, 980, 0]</pre>
+
+<pre class="mermaid">xychart-beta
+    title "4 线程池隔离 TPS（模拟数据）"
+    x-axis ["文档保存", "审计写入", "搜索同步"]
+    y-axis "TPS" 0 --> 9500
     bar [1820, 8800, 0]</pre>
 
-<p>（蓝柱&#x3D;共用线程池，橙柱&#x3D;隔离线程池）</p>
-<p><strong>结论：</strong> 隔离后核心写 TPS 提升 86%，审计 TPS 提升 9 倍。隔离是线程池设计的核心原则（<code>ThreadPoolConfig.java:23-27</code> 注释）。</p>
+<p><strong>结论：</strong> 隔离后核心写 TPS 提升 86%（980→1820），审计 TPS 提升 9 倍（980→8800）。隔离是线程池设计的核心原则（<code>ThreadPoolConfig.java:23-27</code> 注释）。</p>
 <h3 id="E-3-拒绝策略选择"><a href="#E-3-拒绝策略选择" class="headerlink" title="E.3 拒绝策略选择"></a>E.3 拒绝策略选择</h3><table>
 <thead>
 <tr>
@@ -1686,7 +1693,7 @@
       <i class="fa fa-coffee"></i>
     </span>
       <span>Reading time total &asymp;</span>
-    <span title="Reading time total">36:05</span>
+    <span title="Reading time total">36:03</span>
   </span>
 </div>
   <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>

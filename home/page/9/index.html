@@ -2596,14 +2596,14 @@
         <i class="far fa-file-word"></i>
       </span>
       <span class="post-meta-item-text">Word count in article: </span>
-      <span>5.8k</span>
+      <span>5.5k</span>
     </span>
     <span class="post-meta-item" title="Reading time">
       <span class="post-meta-item-icon">
         <i class="far fa-clock"></i>
       </span>
       <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>21 mins.</span>
+      <span>20 mins.</span>
     </span>
 </div>
 
@@ -2904,14 +2904,19 @@
 </tr>
 </thead>
 <tbody><tr>
-<td>事务</td>
-<td>强 ACID，InnoDB 行锁</td>
-<td>4.0+ 多文档事务性能差</td>
+<td>事务能力</td>
+<td>InnoDB 强 ACID、行锁，原生 XA</td>
+<td>4.0+ 多文档事务性能差、限制多</td>
 </tr>
 <tr>
-<td>生态</td>
-<td>DBA 成熟、运维成本低</td>
-<td>适合 schema-free 场景</td>
+<td>业务匹配</td>
+<td>元数据强关系（doc↔user↔share↔audit）需多表 Join 与外键约束</td>
+<td>适合 schema-free 场景；正文 JSON 字段用 MySQL JSON 类型即可承载</td>
+</tr>
+<tr>
+<td>分库分表</td>
+<td>ShardingSphere-JDBC 在 JDBC 层透明路由</td>
+<td>内置分片，但跨片事务与 Join 弱</td>
 </tr>
 <tr>
 <td>一致性</td>
@@ -2919,12 +2924,12 @@
 <td>最终一致为主</td>
 </tr>
 <tr>
-<td>分片</td>
-<td>ShardingSphere-JDBC 透明路由</td>
-<td>内置 sharding 但运维黑盒</td>
+<td>团队熟悉度</td>
+<td>DBA 成熟，主从&#x2F;备份&#x2F;监控&#x2F;慢查询工具链完善</td>
+<td>内存控制、分片平衡需额外投入</td>
 </tr>
 </tbody></table>
-<p><strong>结论</strong>：文档元数据、审计、回收站需强事务保证（删除走 TCC 跨库），MySQL 更稳妥。文档正文虽是「大文本」，但正文存储于 Redis&#x2F;MinIO 缓存层，DB 只存元数据 + 摘要，MySQL 完全胜任。MongoDB 在 schema 多变场景更优，本项目 schema 稳定，故不选。</p>
+<p><strong>结论：</strong> 文档元数据、审计、回收站需强事务保证（删除走 TCC 跨库），且核心数据有强关系约束（多表 Join），ShardingSphere 在 JDBC 层做分片对应用透明（<code>application-sharding.yml</code> 配置即可路由），团队掌握度高，因此选 MySQL。文档正文（Quill Delta JSON）以 TEXT 列存储，必要时可下沉到对象存储，DB 只存元数据 + 摘要，MySQL 完全胜任。MongoDB 在 schema 多变场景更优，本项目 schema 稳定，故不选。</p>
 <h3 id="6-2-为什么选-MinIO-而非-FastDFS"><a href="#6-2-为什么选-MinIO-而非-FastDFS" class="headerlink" title="6.2 为什么选 MinIO 而非 FastDFS"></a>6.2 为什么选 MinIO 而非 FastDFS</h3><table>
 <thead>
 <tr>
@@ -2934,91 +2939,13 @@
 </tr>
 </thead>
 <tbody><tr>
-<td>协议</td>
-<td>标准 S3 API</td>
-<td>私有协议</td>
-</tr>
-<tr>
-<td>运维</td>
-<td>单二进制、K8s 友好</td>
-<td>Tracker&#x2F;Storage 双角色复杂</td>
-</tr>
-<tr>
-<td>生态</td>
-<td>SDK 丰富、SDK 兼容 AWS</td>
-<td>文档少、社区萎缩</td>
-</tr>
-<tr>
-<td>高可用</td>
-<td>纠删码 Erasure Coding</td>
-<td>主备复制</td>
-</tr>
-<tr>
-<td>活跃度</td>
-<td>持续更新（8.5.11）</td>
-<td>维护停滞</td>
-</tr>
-</tbody></table>
-<p><strong>结论</strong>：MinIO 提供 S3 兼容 API，未来可无缝迁移至 OSS&#x2F;S3；FastDFS 社区活跃度低且无 K8s 原生支持。MinIO 纠删码以 50% 冗余实现高可用，性价比优于三副本。</p>
-<h3 id="6-3-为什么选-Tomcat（而非-Undertow-Netty-HTTP）"><a href="#6-3-为什么选-Tomcat（而非-Undertow-Netty-HTTP）" class="headerlink" title="6.3 为什么选 Tomcat（而非 Undertow&#x2F;Netty HTTP）"></a>6.3 为什么选 Tomcat（而非 Undertow&#x2F;Netty HTTP）</h3><ul>
-<li><strong>协同服务已用 Netty</strong>：collab 服务长连接用 Netty，HTTP 接入层用 Tomcat 避免技术栈分裂。</li>
-<li><strong>生态成熟</strong>：jstack&#x2F;arthas&#x2F;GC 调优经验沉淀多，<code>max-threads/max-connections/accept-count</code> 三参数模型清晰（见 <code>application.yml</code> 第 3-11 行）。</li>
-<li><strong>压测拐点可控</strong>：见《03-性能压测报告》，max-threads&#x3D;200 时 TPS 拐点出现，调到 500 边际收益递减。</li>
-<li>Undertow 内存更省但调参黑盒，Netty 自建 HTTP 栈开发成本高，权衡后选 Tomcat。</li>
-</ul>
-<h3 id="6-4-关键中间件版本对齐（pom-xml-第-36-61-行）"><a href="#6-4-关键中间件版本对齐（pom-xml-第-36-61-行）" class="headerlink" title="6.4 关键中间件版本对齐（pom.xml 第 36-61 行）"></a>6.4 关键中间件版本对齐（pom.xml 第 36-61 行）</h3><p>Spring Cloud Alibaba 2023.0.1.0 与 Spring Boot 3.2.5 &#x2F; Spring Cloud 2023.0.1 严格对齐（2023.x 线），JDK 17。Seata 2.0.0 支持 TCC 增强，ShardingSphere 5.4.1 支持 INTERVAL 分表算法。</p>
-<hr>
-<h3 id="选型理由补充（为什么排除-MongoDB-FastDFS-Undertow）（并入自历史版本）"><a href="#选型理由补充（为什么排除-MongoDB-FastDFS-Undertow）（并入自历史版本）" class="headerlink" title="选型理由补充（为什么排除 MongoDB&#x2F;FastDFS&#x2F;Undertow）（并入自历史版本）"></a>选型理由补充（为什么排除 MongoDB&#x2F;FastDFS&#x2F;Undertow）（并入自历史版本）</h3><h3 id="6-5-主存储：MySQL-8-0-而非-MongoDB"><a href="#6-5-主存储：MySQL-8-0-而非-MongoDB" class="headerlink" title="6.5 主存储：MySQL 8.0 而非 MongoDB"></a>6.5 主存储：MySQL 8.0 而非 MongoDB</h3><table>
-<thead>
-<tr>
-<th>决策维度</th>
-<th>MySQL 8.0（采用）</th>
-<th>MongoDB</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>团队熟悉度</td>
-<td>高，DBA&#x2F;运维链路成熟</td>
-<td>中等，需重建排障体系</td>
-</tr>
-<tr>
-<td>事务能力</td>
-<td>InnoDB 强一致性事务，原生 XA</td>
-<td>4.0+ 多文档事务性能损耗大、限制多</td>
-</tr>
-<tr>
-<td>分库分表生态</td>
-<td>ShardingSphere-JDBC 深度实践，JDBC 层透明路由</td>
-<td>自带分片，但跨片事务与 Join 弱</td>
-</tr>
-<tr>
-<td>业务匹配</td>
-<td>文档元数据强关系（doc↔user↔share↔audit），需多表 Join 与外键约束</td>
-<td>文档正文 JSON 字段可由 MySQL JSON 类型承载</td>
-</tr>
-<tr>
-<td>运维成本</td>
-<td>主从&#x2F;备份&#x2F;监控&#x2F;慢查询工具链完善</td>
-<td>内存控制、分片平衡需额外投入</td>
-</tr>
-</tbody></table>
-<p><strong>结论：</strong> 文档元数据、分享链接、审计日志等核心数据有强一致性和关系约束需求，ShardingSphere 在 JDBC 层做分片对应用透明（<code>application-sharding.yml</code> 配置即可路由），团队掌握度高，因此选 MySQL 作为主存储。文档正文（Quill Delta JSON）以 TEXT 列存储，必要时可下沉到对象存储。</p>
-<h3 id="6-6-对象存储：MinIO-而非-FastDFS"><a href="#6-6-对象存储：MinIO-而非-FastDFS" class="headerlink" title="6.6 对象存储：MinIO 而非 FastDFS"></a>6.6 对象存储：MinIO 而非 FastDFS</h3><table>
-<thead>
-<tr>
-<th>决策维度</th>
-<th>MinIO（采用）</th>
-<th>FastDFS</th>
-</tr>
-</thead>
-<tbody><tr>
 <td>协议标准</td>
-<td>原生 S3 兼容，SDK 生态丰富</td>
+<td>原生 S3 兼容，SDK 生态丰富，可无缝迁移 OSS&#x2F;S3</td>
 <td>私有协议，SDK 封闭</td>
 </tr>
 <tr>
 <td>部署运维</td>
-<td>单二进制、轻量、容器友好</td>
+<td>单二进制、轻量、K8s 友好</td>
 <td>Tracker&#x2F;Storage 双角色，部署复杂</td>
 </tr>
 <tr>
@@ -3027,24 +2954,24 @@
 <td>需自实现 token 机制</td>
 </tr>
 <tr>
-<td>生态兼容</td>
-<td>与 Spring&#x2F;AWS SDK&#x2F;avectl 无缝</td>
-<td>需专用客户端</td>
+<td>高可用</td>
+<td>纠删码 Erasure Coding，50% 冗余即可</td>
+<td>主备复制，组间同步机制较弱</td>
 </tr>
 <tr>
-<td>高可用</td>
-<td>纠删码 + 多副本，跨机房易扩展</td>
-<td>组间同步机制较弱</td>
+<td>活跃度</td>
+<td>持续更新（8.5.11）</td>
+<td>社区萎缩、维护停滞</td>
 </tr>
 </tbody></table>
-<p><strong>结论：</strong> 文件服务需要”前端直传 + 签名 URL + 分片上传”能力，MinIO 的 S3 兼容性让这些能力开箱即用，且部署轻量、与 Spring 生态集成度高。<code>ZeroCopyStorage</code>（<code>zeus-doc-service-file/.../minio/ZeroCopyStorage.java</code>）通过 <code>FileChannel.transferFrom</code> 调用 Linux sendfile 实现分片零拷贝合并，与 MinIO 配合良好。</p>
-<h3 id="6-7-Web-容器：Tomcat-而非-Undertow-Netty（HTTP-服务）"><a href="#6-7-Web-容器：Tomcat-而非-Undertow-Netty（HTTP-服务）" class="headerlink" title="6.7 Web 容器：Tomcat 而非 Undertow&#x2F;Netty（HTTP 服务）"></a>6.7 Web 容器：Tomcat 而非 Undertow&#x2F;Netty（HTTP 服务）</h3><table>
+<p><strong>结论：</strong> 文件服务需要「前端直传 + 签名 URL + 分片上传」能力，MinIO 的 S3 兼容性让这些能力开箱即用，未来可无缝迁移 OSS&#x2F;S3。<code>ZeroCopyStorage</code>（<code>zeus-doc-service-file/.../minio/ZeroCopyStorage.java</code>）通过 <code>FileChannel.transferFrom</code> 调用 Linux sendfile 实现分片零拷贝合并，与 MinIO 配合良好。纠删码以 50% 冗余实现高可用，性价比优于三副本。</p>
+<h3 id="6-3-为什么选-Tomcat（而非-Undertow-Netty-HTTP）"><a href="#6-3-为什么选-Tomcat（而非-Undertow-Netty-HTTP）" class="headerlink" title="6.3 为什么选 Tomcat（而非 Undertow&#x2F;Netty HTTP）"></a>6.3 为什么选 Tomcat（而非 Undertow&#x2F;Netty HTTP）</h3><table>
 <thead>
 <tr>
-<th>决策维度</th>
-<th>Tomcat（采用）</th>
+<th>维度</th>
+<th>Tomcat</th>
 <th>Undertow</th>
-<th>Netty（裸）</th>
+<th>Netty（裸 HTTP）</th>
 </tr>
 </thead>
 <tbody><tr>
@@ -3054,25 +2981,27 @@
 <td>需自行实现 HTTP 协议栈</td>
 </tr>
 <tr>
-<td>调优深度</td>
-<td><code>max-threads/max-connections/accept-count</code> 三参数模型清晰，社区文档丰富</td>
-<td>参数少但调优经验稀缺</td>
+<td>调优模型</td>
+<td><code>max-threads/max-connections/accept-count</code> 三参数清晰（<code>application.yml:3-11</code>）</td>
+<td>参数少但调参黑盒、经验稀缺</td>
 <td>完全自定义，开发成本高</td>
 </tr>
 <tr>
 <td>监控诊断</td>
-<td>内置 <code>Processor</code>&#x2F;<code>RequestProcessor</code> JMX 指标完善</td>
+<td>Processor 等 JMX 指标完善，jstack&#x2F;arthas 经验沉淀多</td>
 <td>指标偏少</td>
 <td>需自建监控</td>
 </tr>
 <tr>
 <td>业务匹配</td>
-<td>文档服务为典型”请求-响应”短连接业务，Tomcat NIO 完全胜任</td>
+<td>请求-响应短连接业务完全胜任；压测 max-threads&#x3D;200 出现 TPS 拐点，调到 500 边际收益递减</td>
 <td>性能略优但收益有限</td>
-<td>适合长连接（已用于协同服务）</td>
+<td>适合长连接（协同服务已用）</td>
 </tr>
 </tbody></table>
-<p><strong>结论：</strong> 文档&#x2F;搜索&#x2F;审计等 HTTP 服务用 Tomcat（Spring Boot 默认），协同服务用 Netty 处理 WebSocket 长连接，各取所长。Tomcat 调优空间充分，详见 <code>application.yml:3-11</code>（<code>max-threads=200, max-connections=10000, accept-count=100</code>）及性能压测报告。</p>
+<p><strong>结论：</strong> 文档&#x2F;搜索&#x2F;审计等 HTTP 服务用 Tomcat（Spring Boot 默认，配置见 <code>application.yml:3-11</code>），协同服务用 Netty 处理 WebSocket 长连接，各取所长、避免技术栈分裂。Tomcat 调优模型清晰、压测拐点可控（见《03-性能压测报告》）；Undertow 内存更省但调参黑盒，Netty 自建 HTTP 栈开发成本高，权衡后选 Tomcat。</p>
+<h3 id="6-4-关键中间件版本对齐（pom-xml-第-36-61-行）"><a href="#6-4-关键中间件版本对齐（pom-xml-第-36-61-行）" class="headerlink" title="6.4 关键中间件版本对齐（pom.xml 第 36-61 行）"></a>6.4 关键中间件版本对齐（pom.xml 第 36-61 行）</h3><p>Spring Cloud Alibaba 2023.0.1.0 与 Spring Boot 3.2.5 &#x2F; Spring Cloud 2023.0.1 严格对齐（2023.x 线），JDK 17。Seata 2.0.0 支持 TCC 增强，ShardingSphere 5.4.1 支持 INTERVAL 分表算法。</p>
+<hr>
 <h2 id="七、数据流转全景"><a href="#七、数据流转全景" class="headerlink" title="七、数据流转全景"></a>七、数据流转全景</h2><h3 id="7-1-文档创建主链路"><a href="#7-1-文档创建主链路" class="headerlink" title="7.1 文档创建主链路"></a>7.1 文档创建主链路</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">用户 → Gateway(JWT鉴权) → doc-service.createDoc</span><br><span class="line">  → DocMapper.insert(MySQL) → 写 Caffeine L1 + Redis L2</span><br><span class="line">  → 投递 MQ 消息(doc.created) → search-service 消费建 ES 索引</span><br><span class="line">  → audit-service 异步记录审计日志</span><br><span class="line">  → 返回 docId</span><br></pre></td></tr></table></figure>
 
 <h3 id="7-2-协同编辑链路"><a href="#7-2-协同编辑链路" class="headerlink" title="7.2 协同编辑链路"></a>7.2 协同编辑链路</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">用户A 编辑 → collab WebSocket → OtMergeEngine.applyClientEdit(serverText, base, client)</span><br><span class="line">  → patch 合并 → 广播增量 diff 给其他端 → 异步落 doc_history 分片表</span><br></pre></td></tr></table></figure>
@@ -4556,7 +4485,7 @@
       <i class="fa fa-coffee"></i>
     </span>
       <span>Reading time total &asymp;</span>
-    <span title="Reading time total">36:05</span>
+    <span title="Reading time total">36:03</span>
   </span>
 </div>
   <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
