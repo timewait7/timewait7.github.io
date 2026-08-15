@@ -1112,14 +1112,14 @@
         <i class="far fa-file-word"></i>
       </span>
       <span class="post-meta-item-text">Word count in article: </span>
-      <span>4.1k</span>
+      <span>6.2k</span>
     </span>
     <span class="post-meta-item" title="Reading time">
       <span class="post-meta-item-icon">
         <i class="far fa-clock"></i>
       </span>
       <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>15 mins.</span>
+      <span>23 mins.</span>
     </span>
 </div>
 
@@ -1130,7 +1130,7 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <p><strong>IO 模型决定「数据没就绪时，你的线程在干什么」</strong>：阻塞模型让线程干等，非阻塞模型让线程反复问，多路复用让内核一次告诉你「谁好了」，异步模型让内核干完再叫你。本文串起三件事：五种模型的取舍、epoll 为什么是标准答案、以及 Java 侧（BIO&#x2F;NIO&#x2F;Netty&#x2F;虚拟线程）分别落在哪个模型上——并全程对照 Redis、nginx、Netty 这些你天天用的技术，看它们各自的线程模型怎么从本文的机制里长出来。</p>
+          <p><strong>IO 模型决定「数据没就绪时，你的线程在干什么」</strong>：阻塞模型让线程干等，非阻塞模型让线程反复问，多路复用让内核一次告诉你「谁好了」，异步模型让内核干完再叫你。本文串起三件事：五种模型的取舍、epoll 为什么是标准答案、以及 Java 侧（BIO&#x2F;NIO&#x2F;Netty&#x2F;虚拟线程）分别落在哪个模型上——并全程对照 Redis、nginx、Netty、Tomcat 这些你天天用的技术，看它们各自的线程模型怎么从本文的机制里长出来。</p>
 <blockquote>
 <p><strong>系列地图（操作系统）</strong>：① 进程与线程（执行单元与调度）→ ② 内存管理（地址空间与物理内存）→ ③ 文件系统与磁盘 IO（数据落盘）→ ④ <strong>IO 模型（本文：等待数据的方式）</strong> → ⑤ Linux 资源排查实战（前四篇工具收拢）。本文是前四篇的汇合点：阻塞线程的成本来自 ① 的切换开销与 ② 的栈内存，零拷贝数据路径来自 ③ 的页缓存。</p>
 </blockquote>
@@ -1335,9 +1335,107 @@
     Sched->>Carrier: unpark, resume VT</pre>
 
 <p>对比：Netty 是「异步写法 + 多路复用」，虚拟线程是「阻塞写法 + JVM 替你多路复用」。<strong>都能扛高并发，选型取决于团队更熟哪种风格</strong>——虚拟线程省掉了回调状态机，但线程调度与锁竞争的可控性不如显式 Reactor。</p>
-<h3 id="3-4-动手验证：连接数与线程数的对照"><a href="#3-4-动手验证：连接数与线程数的对照" class="headerlink" title="3.4 动手验证：连接数与线程数的对照"></a>3.4 动手验证：连接数与线程数的对照</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">ss -lnt                          <span class="comment"># 本机所有监听与已建连接（State/Recv-Q/Send-Q）</span></span><br><span class="line">ss -s                            <span class="comment"># 连接统计：total、estab、timewait</span></span><br><span class="line"><span class="built_in">ulimit</span> -n                        <span class="comment"># 当前进程 fd 上限（每连接 ≈ 2 fd）</span></span><br><span class="line">lsof -p &lt;pid&gt; | grep -c TCP      <span class="comment"># 某进程实际连接数</span></span><br></pre></td></tr></table></figure>
+<h3 id="3-4-Tomcat-的线程模型：又一个-Reactor-变体（实战重点）"><a href="#3-4-Tomcat-的线程模型：又一个-Reactor-变体（实战重点）" class="headerlink" title="3.4 Tomcat 的线程模型：又一个 Reactor 变体（实战重点）"></a>3.4 Tomcat 的线程模型：又一个 Reactor 变体（实战重点）</h3><p><strong>Tomcat 的 Connector（连接器）是独立于 Servlet 引擎的 IO 层</strong>，负责 socket 的建立与读写——从 8.5 起它默认跑在 NIO 上，是 Reactor 家族的第三个成员。但它的线程模型和 Netty 有本质区别，先看连接器演进：</p>
+<table>
+<thead>
+<tr>
+<th>Tomcat 版本</th>
+<th>默认连接器</th>
+<th>底层</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>8.0 及以前</td>
+<td>BIO（Java IO）</td>
+<td>阻塞 IO，每连接一线程</td>
+<td>8.5.0 起移除（官方迁移指南）</td>
+</tr>
+<tr>
+<td>8.5 &#x2F; 9 &#x2F; 10</td>
+<td>NIO</td>
+<td>多路复用（Selector）</td>
+<td>默认协议 HTTP&#x2F;1.1</td>
+</tr>
+<tr>
+<td>8.0+（可选）</td>
+<td>NIO2</td>
+<td>JDK AIO</td>
+<td>一直非默认，Linux 上无收益（§4.2）</td>
+</tr>
+<tr>
+<td>8.5+（可选）</td>
+<td>APR&#x2F;native</td>
+<td>本地库 OpenSSL</td>
+<td>Tomcat 9 起并入 NIO 的 OpenSSL 形态</td>
+</tr>
+<tr>
+<td>10.1.10+ &#x2F; 11</td>
+<td>虚拟线程执行器</td>
+<td>JDK 21 虚拟线程</td>
+<td>10.1 需显式配置，11 起默认</td>
+</tr>
+</tbody></table>
+<p>为什么 BIO 在 8.5 被移除：连接数一上来，「每连接一线程」的账就崩了（§1.2 的 C10K 算账），而 NIO 只需两个专职线程就能服务全部连接。Tomcat 的 NIO 线程模型是三段式：</p>
+<pre class="mermaid">flowchart TD
+    CLIENT["Clients"] -->|"new connection"| ACC["Acceptor (x1)&lt;br/>blocking accept() loop"]
+    ACC -->|"register fd"| POLLER["Poller (Linux x1)&lt;br/>epoll_wait loop, pollTime 2ms"]
+    POLLER -->|"ready event as task"| POOL["Worker thread pool&lt;br/>maxThreads=200 (default)"]
+    POOL -->|"executes servlet request"| APP["Business logic"]</pre>
+
+<p>三个角色各干一件事（默认值均出自官方文档）：</p>
+<ol>
+<li><strong>acceptor</strong>（默认 1 个线程）：死循环 <code>accept()</code>，收到新连接注册给 poller——对应 Netty 的 boss。</li>
+<li><strong>poller</strong>（Linux 默认 1 个线程）：<code>epoll_wait</code> 循环（pollTime 默认 2000 微秒），就绪事件封装成任务丢进线程池——对应 Netty 的 worker 职责。</li>
+<li><strong>worker 线程池</strong>（maxThreads 默认 200，minSpareThreads 默认 10）：真正执行 Servlet 业务。</li>
+</ol>
+<p>poller 与 Netty worker 的分工差异，是两者线程模型的分水岭：</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>Netty</th>
+<th>Tomcat</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>连接分配</td>
+<td>连接绑定单个 EventLoop，同一连接永远同一线程</td>
+<td>每次请求从池里临时抓线程，无绑定</td>
+</tr>
+<tr>
+<td>线程数</td>
+<td>boss 1 + worker 核数×2</td>
+<td>acceptor 1 + poller 1 + 线程池 200</td>
+</tr>
+<tr>
+<td>免锁依据</td>
+<td>绑定 → 单线程串行 → 天然无锁</td>
+<td>请求间无共享状态 → 无锁</td>
+</tr>
+<tr>
+<td>适配场景</td>
+<td>长连接、协议帧（RPC &#x2F; 网关 &#x2F; IM）</td>
+<td>短请求、HTTP 语义（Servlet 每请求一线程模型）</td>
+</tr>
+<tr>
+<td>线程打满后果</td>
+<td>一个 EventLoop 卡住，几百连接一起等</td>
+<td>池满，新请求排队或拒连</td>
+</tr>
+</tbody></table>
+<p><strong>深挖：为什么 Tomcat 用「池」而 Netty 用「绑定」？</strong> 机制差异是连接有没有状态——HTTP 请求之间无关联，Servlet 规范要求「一个请求在一个线程里从头执行到尾」，Tomcat 只需临时分配，用池；Netty 面向长连接协议开发，连接上挂着编解码器、半包缓冲等状态，必须钉死在一个线程上才能免锁，用绑定。<strong>生产后果</strong>：压测 1 万连接打进 Tomcat，真正干活的始终 ≤200 个线程，其余连接在排队——先等 worker 线程（池满），再等操作系统队列（acceptCount 默认 100，官方文档），队列也满就被内核直接拒连。所以压测里大量 <code>Connection reset</code>，第一嫌疑是 maxConnections（默认 8192，官方文档）和 acceptCount 这两个数，不是应用崩了。这正是一开始 C10K 结论的镜像：<strong>BIO 是线程&#x3D;连接，Tomcat 是线程&#x3D;并发请求（上限 200），连接再多也不长线程</strong>——收益是线程数可控，代价是请求排队。</p>
+<p>另外，§3.3 的虚拟线程在 Tomcat 有官方落点：10.1.10+ 提供 <code>StandardVirtualThreadExecutor</code>（JDK 21+），把 worker 换成虚拟线程后「一请求一虚拟线程」，maxThreads 不再是硬天花板；Tomcat 11 起默认启用（发布公告）。「阻塞写法 + 容器帮你多路复用」在 web 容器里落了地。细节上，Tomcat poller 的 Selector 默认 LT 语义（事件没处理完下次继续报），和 Netty 的取向一致——防漏事件优先（§2.3）。</p>
+<h3 id="3-5-动手验证：连接数与线程数的对照"><a href="#3-5-动手验证：连接数与线程数的对照" class="headerlink" title="3.5 动手验证：连接数与线程数的对照"></a>3.5 动手验证：连接数与线程数的对照</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">ss -lnt                          <span class="comment"># 本机所有监听与已建连接（State/Recv-Q/Send-Q）</span></span><br><span class="line">ss -s                            <span class="comment"># 连接统计：total、estab、timewait</span></span><br><span class="line"><span class="built_in">ulimit</span> -n                        <span class="comment"># 当前进程 fd 上限（每连接 ≈ 2 fd）</span></span><br><span class="line">lsof -p &lt;pid&gt; | grep -c TCP      <span class="comment"># 某进程实际连接数</span></span><br></pre></td></tr></table></figure>
 
 <p>对照实验：BIO 服务器 1000 连接 &#x3D; 1000+ 线程（<code>pstree -p &lt;pid&gt;</code> 数）；NIO&#x2F;Netty 服务器 1000 连接 &#x3D; 几个线程。<strong>线程数、连接数、fd 数三者的数量关系，就是 IO 模型在进程里的实锤</strong>。</p>
+<p>再对 Tomcat（任意本地 Spring Boot 应用，内置就是 Tomcat）做一次线程解剖：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">jps | grep -iE <span class="string">&#x27;boot|jar&#x27;</span>        <span class="comment"># 找应用 pid</span></span><br><span class="line">jstack &lt;pid&gt; | grep -oE <span class="string">&#x27;http-nio-[0-9]+-(Acceptor|Poller|exec)-[0-9]+&#x27;</span> | <span class="built_in">sort</span> | <span class="built_in">uniq</span> -c</span><br><span class="line">ab -n 20000 -c 500 http://localhost:8080/   <span class="comment"># 压测（macOS：brew install apachebench）</span></span><br></pre></td></tr></table></figure>
+
+<ul>
+<li><strong>预期观察点</strong>：<code>Acceptor</code> 1 个、<code>Poller</code> 1 个（Linux 默认）、<code>exec-N</code> 线程随并发增减且 ≤ maxThreads（默认 200）。</li>
+<li><strong>判定标准</strong>：默认配置压测 Failed&#x3D;0；把 <code>server.tomcat.threads.max=50</code>（Spring Boot 配置）改小重压，Failed 显著上升、exec 线程封顶在 50——<strong>线程池上限就是 Tomcat 吞吐的天花板，而连接数可以远大于 50</strong>。</li>
+</ul>
 <h2 id="4-Java-侧实践：BIO-NIO-AIO-怎么选"><a href="#4-Java-侧实践：BIO-NIO-AIO-怎么选" class="headerlink" title="4. Java 侧实践：BIO&#x2F;NIO&#x2F;AIO 怎么选"></a>4. Java 侧实践：BIO&#x2F;NIO&#x2F;AIO 怎么选</h2><h3 id="4-1-三种形态对照"><a href="#4-1-三种形态对照" class="headerlink" title="4.1 三种形态对照"></a>4.1 三种形态对照</h3><table>
 <thead>
 <tr>
@@ -1377,8 +1475,48 @@
 <td>阻塞风格，最简单</td>
 </tr>
 </tbody></table>
-<p><strong>AIO 的坑</strong>：Linux 上 JDK 的 AIO 底层还是多路复用模拟，没有真异步 IO 的收益，Netty 直接不用 AIO。<strong>真异步（io_uring）的 Java 生态</strong>还在追赶（Netty 有 io_uring 移植、Loom 的 Poller），生产主力仍是 NIO 系。</p>
-<h3 id="4-2-选型结论"><a href="#4-2-选型结论" class="headerlink" title="4.2 选型结论"></a>4.2 选型结论</h3><table>
+<p><strong>AIO 的坑在 4.2 深挖</strong>：Linux 上 JDK 的 AIO 底层还是多路复用模拟，没有真异步 IO 的收益，Netty 直接不用 AIO。</p>
+<h3 id="4-2-深挖：AIO-的真相——IOCP-与-Linux-的尴尬"><a href="#4-2-深挖：AIO-的真相——IOCP-与-Linux-的尴尬" class="headerlink" title="4.2 深挖：AIO 的真相——IOCP 与 Linux 的尴尬"></a>4.2 深挖：AIO 的真相——IOCP 与 Linux 的尴尬</h3><p><strong>AIO（异步 IO，JDK 7 的 NIO.2 异步通道）是「提交请求立即返回，内核完成后再回调」</strong>——回到 §1.4 的定义：多路复用是「内核替你等」，异步是「内核替你干」。这一节看「替你干」在三个平台上的三种真相：</p>
+<table>
+<thead>
+<tr>
+<th>实现</th>
+<th>真异步？</th>
+<th>机制</th>
+<th>现状</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Windows IOCP</td>
+<td>是</td>
+<td>完成端口：内核完成 IO 后投递完成包，线程池取出回调</td>
+<td>JDK AIO 在 Windows 的底层实现</td>
+</tr>
+<tr>
+<td>Linux JDK AIO</td>
+<td>否</td>
+<td>epoll 多路复用 + JDK 内部线程池模拟</td>
+<td>Netty 官方 wiki 明说不用 AIO</td>
+</tr>
+<tr>
+<td>Linux io_uring</td>
+<td>是</td>
+<td>内核完成队列（SQ&#x2F;CQ 环形队列，5.1+）</td>
+<td>Netty 有 incubator 移植，生产未普及</td>
+</tr>
+</tbody></table>
+<p><strong>深挖：JDK 在 Linux 上的 AIO 是「多路复用 + 线程池」披了一层回调的壳</strong>（源码 <code>UnixAsynchronousChannelProvider</code> 走事件循环）。等于你自己写 NIO 再包回调，性能不比 NIO 好，还把线程的控制权交了出去——这正是 Netty 不用 AIO 的理由：Linux 上无性能收益（官方 wiki），且 AIO 回调跑在 JDK 内部线程池上，和 Netty「回调必须绑定 EventLoop」的线程模型冲突。IOCP 是真异步，因为 Windows 内核为此设计了完整的完成端口机制；Linux 内核直到 5.1 才有 io_uring 提供真异步，但它和 JDK AIO 的 API 不兼容，Java 生态还在追赶（netty-incubator-transport-native-io_uring）。</p>
+<p><strong>生产结论</strong>：Linux 上的 Java 高并发网络服务，多路复用（NIO &#x2F; Netty）仍是主线；AIO 的价值在 Windows 场景和文件 IO（<code>AsynchronousFileChannel</code>），不在 Linux 网络 IO——这也是 Tomcat 的 NIO2 连接器始终非默认（§3.4 表）的底层原因。</p>
+<h4 id="动手验证：strace-拆穿-Linux-上的-AIO"><a href="#动手验证：strace-拆穿-Linux-上的-AIO" class="headerlink" title="动手验证：strace 拆穿 Linux 上的 AIO"></a>动手验证：strace 拆穿 Linux 上的 AIO</h4><p>写一个最小的 AIO echo 服务器，用 strace 看它到底调了什么系统调用：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// AioEchoServer.java：基于 AsynchronousServerSocketChannel 的最小 echo 服务器</span></span><br><span class="line"><span class="keyword">import</span> java.net.InetSocketAddress;</span><br><span class="line"><span class="keyword">import</span> java.nio.ByteBuffer;</span><br><span class="line"><span class="keyword">import</span> java.nio.channels.*;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">AioEchoServer</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> <span class="keyword">throws</span> Exception &#123;</span><br><span class="line">        <span class="type">AsynchronousServerSocketChannel</span> <span class="variable">server</span> <span class="operator">=</span> AsynchronousServerSocketChannel.open()</span><br><span class="line">                .bind(<span class="keyword">new</span> <span class="title class_">InetSocketAddress</span>(<span class="number">8080</span>));</span><br><span class="line">        server.accept(<span class="literal">null</span>, <span class="keyword">new</span> <span class="title class_">CompletionHandler</span>&lt;AsynchronousSocketChannel, Void&gt;() &#123;</span><br><span class="line">            <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">completed</span><span class="params">(AsynchronousSocketChannel ch, Void a)</span> &#123;</span><br><span class="line">                server.accept(<span class="literal">null</span>, <span class="built_in">this</span>);                 <span class="comment">// 立即继续接受下一个连接</span></span><br><span class="line">                <span class="type">ByteBuffer</span> <span class="variable">buf</span> <span class="operator">=</span> ByteBuffer.allocate(<span class="number">1024</span>);</span><br><span class="line">                ch.read(buf, buf, <span class="keyword">new</span> <span class="title class_">CompletionHandler</span>&lt;Integer, ByteBuffer&gt;() &#123;</span><br><span class="line">                    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">completed</span><span class="params">(Integer n, ByteBuffer b)</span> &#123;</span><br><span class="line">                        b.flip();</span><br><span class="line">                        ch.write(b, <span class="literal">null</span>, <span class="literal">null</span>);           <span class="comment">// 回显（真实场景需处理写完成回调）</span></span><br><span class="line">                    &#125;</span><br><span class="line">                    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">failed</span><span class="params">(Throwable e, ByteBuffer b)</span> &#123; &#125;</span><br><span class="line">                &#125;);</span><br><span class="line">            &#125;</span><br><span class="line">            <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">failed</span><span class="params">(Throwable e, Void a)</span> &#123; &#125;</span><br><span class="line">        &#125;);</span><br><span class="line">        Thread.sleep(Long.MAX_VALUE);                      <span class="comment">// 保持进程存活</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">strace -f -e trace=epoll_create,epoll_ctl,epoll_wait,io_uring_enter,io_submit \</span><br><span class="line">  java AioEchoServer &amp;</span><br><span class="line"><span class="built_in">sleep</span> 2; <span class="built_in">echo</span> hello | nc 127.0.0.1 8080; <span class="built_in">sleep</span> 1; pkill -f AioEchoServer</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li><strong>预期观察点</strong>：输出里是 <code>epoll_create / epoll_ctl / epoll_wait</code> 循环，没有任何 <code>io_submit</code> &#x2F; <code>io_uring_enter</code>。</li>
+<li><strong>判定标准</strong>：看到 <code>epoll_wait</code> 即证明 Linux 上 JDK AIO 是多路复用模拟——「异步」名不副实，性能天花板和自写 NIO 相同。</li>
+</ul>
+<h3 id="4-3-选型结论"><a href="#4-3-选型结论" class="headerlink" title="4.3 选型结论"></a>4.3 选型结论</h3><table>
 <thead>
 <tr>
 <th>场景</th>
@@ -1402,7 +1540,7 @@
 <td>NIO 裸写（极少）</td>
 </tr>
 </tbody></table>
-<h3 id="4-3-动手验证：复现-Too-many-open-files"><a href="#4-3-动手验证：复现-Too-many-open-files" class="headerlink" title="4.3 动手验证：复现 Too many open files"></a>4.3 动手验证：复现 Too many open files</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">ulimit</span> -n 64                      <span class="comment"># 把 fd 配额压到 64</span></span><br><span class="line"><span class="comment"># 跑一个 BIO 服务器（每连接一线程），循环 accept 不关闭连接</span></span><br><span class="line"><span class="comment"># 到第 60 个左右报 java.net.SocketException: Too many open files</span></span><br></pre></td></tr></table></figure>
+<h3 id="4-4-动手验证：复现-Too-many-open-files"><a href="#4-4-动手验证：复现-Too-many-open-files" class="headerlink" title="4.4 动手验证：复现 Too many open files"></a>4.4 动手验证：复现 Too many open files</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">ulimit</span> -n 64                      <span class="comment"># 把 fd 配额压到 64</span></span><br><span class="line"><span class="comment"># 跑一个 BIO 服务器（每连接一线程），循环 accept 不关闭连接</span></span><br><span class="line"><span class="comment"># 到第 60 个左右报 java.net.SocketException: Too many open files</span></span><br></pre></td></tr></table></figure>
 
 <p>这个报错的完整链路：连接数 × 每连接 fd（socket + 管道）&gt; nofile → accept 失败 → 服务半残。**生产上所有高并发进程的启动脚本里都要有 <code>ulimit -n 65535</code> 或 systemd 的 <code>LimitNOFILE</code>**——漏了它，压测第一波流量就能干崩服务。</p>
 <h2 id="5-总结与避坑清单"><a href="#5-总结与避坑清单" class="headerlink" title="5. 总结与避坑清单"></a>5. 总结与避坑清单</h2><h3 id="5-1-面试速答表"><a href="#5-1-面试速答表" class="headerlink" title="5.1 面试速答表"></a>5.1 面试速答表</h3><table>
@@ -1435,6 +1573,26 @@
 <tr>
 <td>10 万连接怎么实现？</td>
 <td>多路复用（1 线程管 N 连接）+ 调大 nofile + 调大端口范围（ip_local_port_range）</td>
+</tr>
+<tr>
+<td>Tomcat 的连接器默认是什么？</td>
+<td>8.5 起默认 NIO（BIO 已移除）；acceptor 1 + poller 1（Linux）+ worker 线程池 200</td>
+</tr>
+<tr>
+<td>Tomcat 压测大量 Connection reset？</td>
+<td>连接数超 maxConnections（默认 8192）或操作系统队列超 acceptCount（默认 100），内核拒连</td>
+</tr>
+<tr>
+<td>Tomcat 和 Netty 线程模型差别？</td>
+<td>Tomcat 池化（每次请求临时抓线程，无状态免锁）；Netty 绑定（连接钉死一个 EventLoop，串行免锁）</td>
+</tr>
+<tr>
+<td>AIO 和 NIO 的区别？</td>
+<td>NIO 内核替你等（就绪后你读）；AIO 内核替你干（完成再回调）；Linux 上 JDK AIO 是 epoll 模拟</td>
+</tr>
+<tr>
+<td>Netty 为什么不用 AIO？</td>
+<td>Linux 上 JDK AIO &#x3D; 多路复用 + 线程池模拟，无性能收益，且回调线程不可控（官方 wiki）</td>
 </tr>
 </tbody></table>
 <h3 id="5-2-实战避坑清单"><a href="#5-2-实战避坑清单" class="headerlink" title="5.2 实战避坑清单"></a>5.2 实战避坑清单</h3><table>
@@ -1470,6 +1628,21 @@
 <td>select 的 FD_SETSIZE 硬上限</td>
 <td>换 poll&#x2F;epoll（或 Netty）</td>
 </tr>
+<tr>
+<td>Tomcat 高并发大量 Connection reset &#x2F; 超时</td>
+<td>maxConnections（8192）、acceptCount（100）、maxThreads（200）默认值被压穿</td>
+<td><code>ss -lnt</code> 对照连接数；调大三参数，或 10.1+&#x2F;JDK 21 换虚拟线程执行器</td>
+</tr>
+<tr>
+<td>Tomcat exec 线程数堆到上限且请求排队</td>
+<td>maxThreads 设得太大，切线程成本吃掉 CPU（第 1 篇）</td>
+<td>调回合理值；优化业务耗时；换虚拟线程让池上限失去意义</td>
+</tr>
+<tr>
+<td>用 AsynchronousSocketChannel 性能反而不如 NIO</td>
+<td>Linux 上 JDK AIO 是 epoll 模拟</td>
+<td>换 NIO&#x2F;Netty；AIO 只在 Windows（IOCP）和文件 IO 有价值</td>
+</tr>
 </tbody></table>
 <h3 id="5-3-工具速查表"><a href="#5-3-工具速查表" class="headerlink" title="5.3 工具速查表"></a>5.3 工具速查表</h3><table>
 <thead>
@@ -1504,13 +1677,29 @@
 <td>线程数（对照连接数）</td>
 <td>3. 线程模型</td>
 </tr>
+<tr>
+<td><code>jstack &lt;pid&gt; | grep http-nio</code></td>
+<td>Tomcat acceptor&#x2F;poller&#x2F;exec 线程名与数量</td>
+<td>3.4 Tomcat 线程模型（exec ≤ maxThreads）</td>
+</tr>
+<tr>
+<td><code>ab -n 20000 -c 500</code></td>
+<td>压测失败率与延迟</td>
+<td>3.4 连接上限与线程池天花板</td>
+</tr>
+<tr>
+<td><code>strace -f -e trace=epoll_wait</code></td>
+<td>Linux 上「异步」是不是真的</td>
+<td>4.2 AIO 模拟验证</td>
+</tr>
 </tbody></table>
-<p>四个收获：<strong>IO 模型本质是「谁在等数据」的分配问题</strong>；epoll 的快是「注册与等待分离」的快；线程模型解决「等到了之后谁来处理」；Java 的 BIO&#x2F;NIO&#x2F;虚拟线程是同一套内核机制的三副面孔。</p>
+<p>五个收获：<strong>IO 模型本质是「谁在等数据」的分配问题</strong>；epoll 的快是「注册与等待分离」的快；线程模型解决「等到了之后谁来处理」（Netty 绑定、Tomcat 池化、Redis 单线程是三份答案）；AIO 的「内核替你干」在 Linux 上名不副实；Java 的 BIO&#x2F;NIO&#x2F;虚拟线程是同一套内核机制的三副面孔。</p>
 <p>实操建议：</p>
 <ol>
 <li>高并发服务上线前检查三件事：<code>ulimit -n</code>、<code>ip_local_port_range</code>、监听端口 backlog（<code>ss -lnt</code> 看 Send-Q 溢出）。</li>
 <li>用了 Netty&#x2F;自研 NIO，先立规矩：IO 线程零阻塞操作，所有耗时逻辑必须出线程池。</li>
 <li>新项目 IO 密集业务直接评估虚拟线程，连接管理交给框架（Netty&#x2F;RPC 框架），两套并存不冲突。</li>
+<li>Tomcat 上线前核对三参数：maxThreads、maxConnections、acceptCount（压测 Connection reset 先查它们）；JDK 21 + Tomcat 10.1 直接评估 <code>StandardVirtualThreadExecutor</code>。</li>
 </ol>
 <hr>
 <p><strong>下一篇预告（操作系统系列收官）</strong>：本文的线程、连接、fd 全部是排查对象——第 5 篇《Linux 资源排查实战》把前四篇的工具（ps&#x2F;jstack&#x2F;vmstat&#x2F;iostat&#x2F;strace&#x2F;ss）收拢成 CPU、内存、IO 三类故障的定位流程，用真实案例走一遍「症状 → 工具 → 根因 → 处理」的完整链路。</p>
@@ -2044,14 +2233,14 @@
       <i class="fa fa-chart-line"></i>
     </span>
       <span>Word count total: </span>
-    <span title="Word count total">595k</span>
+    <span title="Word count total">597k</span>
   </span>
   <span class="post-meta-item">
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
       <span>Reading time total &asymp;</span>
-    <span title="Reading time total">36:03</span>
+    <span title="Reading time total">36:11</span>
   </span>
 </div>
   <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
