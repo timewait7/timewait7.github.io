@@ -189,7 +189,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">86</span>
+          <span class="site-state-item-count">88</span>
           <span class="site-state-item-name">posts</span>
         </a>
       </div>
@@ -244,6 +244,1034 @@
     </div>
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/redis-cluster-2025.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/redis-cluster-2025.html" class="post-title-link" itemprop="url">Redis 集群与高可用实战：主从、哨兵与 Cluster</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-08-13 19:00:00" itemprop="dateCreated datePublished" datetime="2026-08-13T19:00:00+08:00">2026-08-13</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/" itemprop="url" rel="index"><span itemprop="name">数据存储</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>3.1k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>11 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <p><strong>单机 Redis 能用，但「扛不住」时只有两个问题：机器挂了怎么办（高可用），数据量大了怎么办（扩容）——分别对应哨兵和 Cluster。</strong> 本文按「单机 → 主从 → 哨兵 → Cluster」的演进线讲透：主从为什么选异步复制、哨兵怎么避免误判（主观下线 vs 客观下线）、Cluster 槽位怎么路由与迁移、以及脑裂在 Redis 里怎么发生。读完你能独立搭出一套哨兵集群，并能在面试中画出主从切换的完整时序。</p>
+<blockquote>
+<p>联动：本文是 <a href="/post/bae4ff13.html">Redis 深度解析</a>（数据结构&#x2F;持久化&#x2F;缓存设计）的高可用续篇；主从复制与 <a href="/post/mysql-ha-2025.html">MySQL 高可用</a> 的主从是同一思路；哨兵选举与 <a href="/post/zookeeper-2025.html">ZooKeeper 原理与实践</a> 的选主机制呼应；脑裂防护与 <a href="/post/es-deep-2025.html">ES 原理深挖</a> 的 minimum_master_nodes 是同一个「过半」思想。</p>
+</blockquote>
+<h2 id="1-定位：演进线就是面试线"><a href="#1-定位：演进线就是面试线" class="headerlink" title="1. 定位：演进线就是面试线"></a>1. 定位：演进线就是面试线</h2><p>Redis 高可用是一个<strong>「一步步加组件」的演进过程</strong>，每个阶段解决一个问题、引入一个新概念：</p>
+<table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>解决什么</th>
+<th>关键机制</th>
+<th>代价&#x2F;限制</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>单机</td>
+<td>基本可用</td>
+<td>无</td>
+<td>单点故障、容量单机上限</td>
+</tr>
+<tr>
+<td><strong>主从</strong></td>
+<td>数据冗余 + 读扩展</td>
+<td>异步复制</td>
+<td>主挂需人工切换</td>
+</tr>
+<tr>
+<td><strong>哨兵</strong></td>
+<td>自动故障转移</td>
+<td>监控 + 选举</td>
+<td>仍是单主写（写不扩容）</td>
+</tr>
+<tr>
+<td><strong>Cluster</strong></td>
+<td>自动分片扩容</td>
+<td>槽位路由</td>
+<td>跨槽多键操作受限</td>
+</tr>
+</tbody></table>
+<p><strong>因果链：主从解决「数据不丢」和「读扛不住」→ 但切换要人工 → 哨兵自动化 → 但写仍是单点 → Cluster 分片让写也能扩容</strong>。<strong>面试答 Redis 高可用，按这条演进线讲，逻辑自动闭环</strong>。</p>
+<h2 id="2-主从复制：异步复制的真相"><a href="#2-主从复制：异步复制的真相" class="headerlink" title="2. 主从复制：异步复制的真相"></a>2. 主从复制：异步复制的真相</h2><h3 id="2-1-复制流程"><a href="#2-1-复制流程" class="headerlink" title="2.1 复制流程"></a>2.1 复制流程</h3><pre class="mermaid">sequenceDiagram
+    participant S as 从节点
+    participant M as 主节点
+    S->>M: 1. 建立连接，请求同步
+    M->>S: 2. 全量同步（RDB 快照 + 缓冲）
+    S->>S: 3. 载入 RDB，应用缓冲增量
+    Note over M,S: 此后：M 每写一条就异步推给 S（增量同步）</pre>
+
+<table>
+<thead>
+<tr>
+<th>机制</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>全量同步</td>
+<td>首次&#x2F;断连太久：主节点生成 RDB 快照传输</td>
+</tr>
+<tr>
+<td>增量同步</td>
+<td>断连短暂：repl_backlog 缓冲补发</td>
+</tr>
+<tr>
+<td>复制偏移量</td>
+<td>主从各自维护 offset，比对差异</td>
+</tr>
+</tbody></table>
+<h3 id="2-2-为什么默认异步复制（面试核心）"><a href="#2-2-为什么默认异步复制（面试核心）" class="headerlink" title="2.2 为什么默认异步复制（面试核心）"></a>2.2 为什么默认异步复制（面试核心）</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>异步复制</th>
+<th>同步复制（WAIT 命令可选）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>主节点写延迟</td>
+<td>无（写完就返回）</td>
+<td>等从节点确认</td>
+</tr>
+<tr>
+<td>一致性</td>
+<td><strong>弱一致</strong>（从节点可能短暂落后）</td>
+<td>强</td>
+</tr>
+<tr>
+<td>故障窗口</td>
+<td>主挂瞬间，未复制的数据丢失</td>
+<td>不丢（但主也写不快）</td>
+</tr>
+<tr>
+<td>生产选择</td>
+<td><strong>默认</strong>（性能优先）</td>
+<td>严格不丢数据的场景（罕见）</td>
+</tr>
+</tbody></table>
+<p><strong>因果链</strong>：Redis 定位是缓存&#x2F;高速存储，<strong>性能优先于强一致</strong>——所以默认异步。<strong>「主节点挂了丢几秒数据」是异步复制的已知代价，用「哨兵秒级切换 + 业务容忍短暂不一致」接受它</strong>（这与 <a href="/post/mysql-ha-2025.html">MySQL 半同步</a> 的选择逻辑对比着看：MySQL 数据价值高所以有半同步选项，Redis 缓存容忍丢）。</p>
+<h3 id="2-3-动手验证：主从复制与主挂现场"><a href="#2-3-动手验证：主从复制与主挂现场" class="headerlink" title="2.3 动手验证：主从复制与主挂现场"></a>2.3 动手验证：主从复制与主挂现场</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 三个容器：主 + 两从</span></span><br><span class="line">docker run -d --name redis-master -p 6379:6379 redis:7 redis-server --appendonly <span class="built_in">yes</span></span><br><span class="line">docker run -d --name redis-slave1 -p 6380:6379 redis:7 redis-server --slaveof 127.0.0.1 6379</span><br><span class="line">docker run -d --name redis-slave2 -p 6381:6379 redis:7 redis-server --slaveof 127.0.0.1 6379</span><br><span class="line"></span><br><span class="line">redis-cli -p 6379 SET k v</span><br><span class="line">redis-cli -p 6380 GET k        <span class="comment"># 从节点能读到（异步复制完成）</span></span><br><span class="line">redis-cli -p 6380 INFO replication   <span class="comment"># role:slave, master_link_status:up</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 主挂掉：从节点仍能读，但停止接受写</span></span><br><span class="line">docker stop redis-master</span><br><span class="line">redis-cli -p 6380 SET k2 v2    <span class="comment"># → 只读错误（从节点不自动升主！）</span></span><br></pre></td></tr></table></figure>
+
+<p>观察点：主挂后从节点<strong>只读拒绝写入</strong>——「主从不做自动切换，必须靠哨兵」的现场证据。判定标准：亲手确认「主从只解决读扩展与冗余，故障转移需要哨兵」，这是理解为什么需要哨兵的第一课。</p>
+<h2 id="3-哨兵：自动故障转移"><a href="#3-哨兵：自动故障转移" class="headerlink" title="3. 哨兵：自动故障转移"></a>3. 哨兵：自动故障转移</h2><h3 id="3-1-三个哨兵能力-主观-客观下线"><a href="#3-1-三个哨兵能力-主观-客观下线" class="headerlink" title="3.1 三个哨兵能力 + 主观&#x2F;客观下线"></a>3.1 三个哨兵能力 + 主观&#x2F;客观下线</h3><table>
+<thead>
+<tr>
+<th>能力</th>
+<th>机制</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>监控</strong></td>
+<td>每秒 PING 主从节点，检查存活</td>
+</tr>
+<tr>
+<td><strong>通知</strong></td>
+<td>主节点变化通知客户端</td>
+</tr>
+<tr>
+<td><strong>自动故障转移</strong></td>
+<td>主挂了：选举新主 → 通知其他从切换主</td>
+</tr>
+</tbody></table>
+<p><strong>下线判定两级</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>判定</th>
+<th>条件</th>
+<th>动作</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>主观下线（sdown）</strong></td>
+<td>单哨兵发现主节点超时（<code>down-after-milliseconds</code>）</td>
+<td>标记 sdown，<strong>开始投票</strong></td>
+</tr>
+<tr>
+<td><strong>客观下线（odown）</strong></td>
+<td>多数哨兵（quorum）都认为挂了</td>
+<td>触发故障转移</td>
+</tr>
+</tbody></table>
+<p><strong>因果链：单哨兵可能误判（网络抖动）→ 必须多数派确认才真切换 → quorum 防误判</strong>。这与 ES 脑裂防护、ZooKeeper 选主是<strong>同一个「过半」思想</strong>（<a href="/post/es-deep-2025.html">ES 原理深挖</a> 已讲过 minimum_master_nodes&#x3D;N&#x2F;2+1）。</p>
+<h3 id="3-2-故障转移的完整时序（面试必画）"><a href="#3-2-故障转移的完整时序（面试必画）" class="headerlink" title="3.2 故障转移的完整时序（面试必画）"></a>3.2 故障转移的完整时序（面试必画）</h3><pre class="mermaid">sequenceDiagram
+    participant S1 as 哨兵1
+    participant S2 as 哨兵2
+    participant S3 as 哨兵3
+    participant A as 主节点
+    participant B as 从节点B
+    S1->>S1: A 超时 → 主观下线
+    S1->>S2: 投票：A 挂了？
+    S1->>S3: 投票：A 挂了？
+    S2-->>S1: 同意
+    S3-->>S1: 同意（达到 quorum=2）
+    S1->>S1: A 客观下线 → 触发故障转移
+    S1->>B: 选 B 为新主（slaveof no one）
+    S2->>B: 其他从节点重定向到 B
+    Note over S1: 客户端感知新主地址（Sentinel 客户端订阅通知）</pre>
+
+<p><strong>选举规则</strong>（面试加分）：新主选择优先级 &#x3D; <strong>复制偏移量最大（数据最新）→ 优先级 → runId 最小</strong>——<strong>「数据最新者优先」防止选举后丢数据</strong>。</p>
+<h3 id="3-3-动手验证：模拟主挂自动切换"><a href="#3-3-动手验证：模拟主挂自动切换" class="headerlink" title="3.3 动手验证：模拟主挂自动切换"></a>3.3 动手验证：模拟主挂自动切换</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 起三个哨兵（sentinel.conf 指向主节点）</span></span><br><span class="line"><span class="keyword">for</span> i <span class="keyword">in</span> 1 2 3; <span class="keyword">do</span> docker run -d --name sentinel<span class="variable">$i</span> -p 2638<span class="variable">$i</span>:26379 redis:7 \</span><br><span class="line">  redis-sentinel /path/sentinel.conf; <span class="keyword">done</span></span><br><span class="line"><span class="comment"># sentinel.conf 核心两行：</span></span><br><span class="line"><span class="comment">#   sentinel monitor mymaster 127.0.0.1 6379 2   （quorum=2）</span></span><br><span class="line"><span class="comment">#   sentinel down-after-milliseconds mymaster 5000</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 杀主节点，观察切换</span></span><br><span class="line">docker stop redis-master</span><br><span class="line"><span class="built_in">sleep</span> 10</span><br><span class="line">redis-cli -p 26381 -c SENTINEL get-master-addr-by-name mymaster</span><br><span class="line"><span class="comment"># → 返回新主地址（从节点 B 已升主）</span></span><br></pre></td></tr></table></figure>
+
+<p>观察点：主节点停止后 5-10 秒内，<code>get-master-addr-by-name</code> 返回的不再是 6379——<strong>故障转移自动完成，无需人工</strong>。判定标准：亲手复现「主挂 → 哨兵自动选新主」，理解「哨兵把人工切换变成了自动化」。</p>
+<h3 id="3-4-哨兵的两大坑：脑裂与误切换"><a href="#3-4-哨兵的两大坑：脑裂与误切换" class="headerlink" title="3.4 哨兵的两大坑：脑裂与误切换"></a>3.4 哨兵的两大坑：脑裂与误切换</h3><table>
+<thead>
+<tr>
+<th>坑</th>
+<th>场景</th>
+<th>后果</th>
+<th>防护</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>脑裂</strong></td>
+<td>主节点网络分区（假死），哨兵选新主；老主恢复后两个主并存</td>
+<td>客户端写入分裂，老主数据丢失</td>
+<td><code>min-replicas-to-write</code>：主节点写前要求至少 N 个从节点可达，否则拒写</td>
+</tr>
+<tr>
+<td>误切换</td>
+<td>单哨兵抖动误判（quorum&#x3D;1）</td>
+<td>不必要切换、短暂不可写</td>
+<td>quorum ≥2 且哨兵数 ≥3（奇数）</td>
+</tr>
+</tbody></table>
+<p><strong>因果链：脑裂的根源是「老主不知道自己已被判死刑」——用 <code>min-replicas-to-write</code> 让老主在失去多数从节点时自动拒写</strong>，「宁可拒绝写入也不接受分裂」与 <a href="/post/dist-tx-2025.html">分布式事务</a> 的「牺牲可用性保一致性」同理。<strong>面试答 Redis 脑裂：min-replicas-to-write + 说明「老主被分区时拒写，恢复后数据不丢」</strong>。</p>
+<h2 id="4-Cluster：分片让写也能扩容"><a href="#4-Cluster：分片让写也能扩容" class="headerlink" title="4. Cluster：分片让写也能扩容"></a>4. Cluster：分片让写也能扩容</h2><h3 id="4-1-槽位路由：16384-个槽"><a href="#4-1-槽位路由：16384-个槽" class="headerlink" title="4.1 槽位路由：16384 个槽"></a>4.1 槽位路由：16384 个槽</h3><p><strong>Cluster 把 key 空间切成 16384 个槽（slot），每个节点负责一段槽</strong>：</p>
+<pre class="mermaid">flowchart LR
+    K["key"] --> H["CRC16(key) % 16384"] --> S["槽号"]
+    S --> N1["节点A: 槽 0-5460"]
+    S --> N2["节点B: 槽 5461-10922"]
+    S --> N3["节点C: 槽 10923-16383"]</pre>
+
+<table>
+<thead>
+<tr>
+<th>机制</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>路由</td>
+<td>客户端算 CRC16 找槽，槽→节点映射表（或经代理）</td>
+</tr>
+<tr>
+<td>重定向</td>
+<td>请求打到错误节点 → <code>MOVED</code>&#x2F;<code>ASK</code> 错误告知正确节点</td>
+</tr>
+<tr>
+<td>槽迁移</td>
+<td>扩容&#x2F;缩容时槽从旧节点搬到新节点（在线）</td>
+</tr>
+<tr>
+<td>副本</td>
+<td>每个节点可有从节点，主挂自动升（类哨兵，内置）</td>
+</tr>
+</tbody></table>
+<h3 id="4-2-Cluster-的限制与应对"><a href="#4-2-Cluster-的限制与应对" class="headerlink" title="4.2 Cluster 的限制与应对"></a>4.2 Cluster 的限制与应对</h3><table>
+<thead>
+<tr>
+<th>限制</th>
+<th>原因</th>
+<th>应对</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>多 key 操作受限</td>
+<td>不同 key 在不同槽&#x2F;节点</td>
+<td><strong>哈希标签（hash tag）</strong>：<code>&#123;user:1&#125;:cart</code> 强制同槽</td>
+</tr>
+<tr>
+<td>跨槽事务</td>
+<td>同上</td>
+<td>hash tag 或应用层补偿</td>
+</tr>
+<tr>
+<td>批量命令受限</td>
+<td>mget 跨节点</td>
+<td>hash tag &#x2F; 客户端分片聚合</td>
+</tr>
+</tbody></table>
+<p><strong>因果链：分片的代价是「数据分散」→ 关联数据必须「强制同槽」（hash tag）</strong>——面试答 Cluster 的坑，先说「多 key 操作受槽位限制」，再补「用 hash tag 让关联 key 同槽」就是完整答案。</p>
+<h3 id="4-3-动手验证：起一个三主三从-Cluster"><a href="#4-3-动手验证：起一个三主三从-Cluster" class="headerlink" title="4.3 动手验证：起一个三主三从 Cluster"></a>4.3 动手验证：起一个三主三从 Cluster</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 官方工具起 6 节点集群（3 主 + 3 从）</span></span><br><span class="line"><span class="keyword">for</span> p <span class="keyword">in</span> 7000 7001 7002 7003 7004 7005; <span class="keyword">do</span></span><br><span class="line">  <span class="built_in">mkdir</span> -p /tmp/redis-<span class="variable">$p</span></span><br><span class="line">  <span class="built_in">cat</span> &gt; /tmp/redis-<span class="variable">$p</span>/redis.conf &lt;&lt;<span class="string">EOF</span></span><br><span class="line"><span class="string">port $p</span></span><br><span class="line"><span class="string">cluster-enabled yes</span></span><br><span class="line"><span class="string">cluster-config-file nodes.conf</span></span><br><span class="line"><span class="string">cluster-node-timeout 5000</span></span><br><span class="line"><span class="string">appendonly yes</span></span><br><span class="line"><span class="string">EOF</span></span><br><span class="line">  docker run -d --name redis-<span class="variable">$p</span> -p <span class="variable">$p</span>:<span class="variable">$p</span> -v /tmp/redis-<span class="variable">$p</span>:/data redis:7 \</span><br><span class="line">    redis-server /data/redis.conf</span><br><span class="line"><span class="keyword">done</span></span><br><span class="line"><span class="comment"># 创建集群（--cluster-replicas 1 = 每主 1 从）</span></span><br><span class="line">redis-cli --cluster create 127.0.0.1:7000 127.0.0.1:7001 127.0.0.1:7002 \</span><br><span class="line">  127.0.0.1:7003 127.0.0.1:7004 127.0.0.1:7005 --cluster-replicas 1</span><br><span class="line"></span><br><span class="line"><span class="comment"># 集群模式读写（-c 自动跟随重定向）</span></span><br><span class="line">redis-cli -c -p 7000 SET user:1:cart <span class="string">&quot;x&quot;</span>    <span class="comment"># 自动路由到对应槽节点</span></span><br><span class="line">redis-cli -c -p 7000 CLUSTER SLOTS            <span class="comment"># 看槽位分布</span></span><br></pre></td></tr></table></figure>
+
+<p>观察点：<code>CLUSTER SLOTS</code> 显示 16384 个槽分成 3 段；<code>-c</code> 模式下 SET 自动完成路由与重定向。判定标准：亲手确认「Cluster 按槽路由、客户端无需知道槽映射」——<strong>扩容只迁移槽，不用改客户端（配合代理&#x2F;客户端集群感知）</strong>。</p>
+<h2 id="5-面试应答：Redis-高可用五连问"><a href="#5-面试应答：Redis-高可用五连问" class="headerlink" title="5. 面试应答：Redis 高可用五连问"></a>5. 面试应答：Redis 高可用五连问</h2><h3 id="5-1-完整话术"><a href="#5-1-完整话术" class="headerlink" title="5.1 完整话术"></a>5.1 完整话术</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>回答要点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>主从复制怎么工作？</td>
+<td>全量 RDB + 增量 backlog；默认异步（性能优先，容忍短暂落后）</td>
+</tr>
+<tr>
+<td>为什么异步？</td>
+<td>同步写要等从节点确认，延迟高；Redis 缓存语义接受弱一致</td>
+</tr>
+<tr>
+<td>哨兵怎么防误判？</td>
+<td>主观下线（单哨兵）→ 投票多数派 → 客观下线才切换；quorum ≥2、哨兵奇数</td>
+</tr>
+<tr>
+<td>新主怎么选？</td>
+<td>复制偏移量最大（数据最新）→ 优先级 → runId</td>
+</tr>
+<tr>
+<td>Redis 脑裂怎么防？</td>
+<td>min-replicas-to-write：老主失去多数从节点时拒写</td>
+</tr>
+<tr>
+<td>Cluster 怎么路由？</td>
+<td>CRC16(key) % 16384 定槽；MOVED&#x2F;ASK 重定向；hash tag 让关联 key 同槽</td>
+</tr>
+<tr>
+<td>什么时候用 Cluster？</td>
+<td>数据量超单机内存或写吞吐不够；否则哨兵够用</td>
+</tr>
+</tbody></table>
+<h3 id="5-2-深挖：与-MySQL-高可用的对照（跨篇联动）"><a href="#5-2-深挖：与-MySQL-高可用的对照（跨篇联动）" class="headerlink" title="5.2 深挖：与 MySQL 高可用的对照（跨篇联动）"></a>5.2 深挖：与 MySQL 高可用的对照（跨篇联动）</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>MySQL</th>
+<th>Redis</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>复制</td>
+<td>binlog 异步&#x2F;半同步（<a href="/post/mysql-ha-2025.html">MySQL 高可用</a>）</td>
+<td>RDB&#x2F;backlog 异步</td>
+</tr>
+<tr>
+<td>自动切换</td>
+<td>MHA&#x2F;Orchestrator</td>
+<td>哨兵</td>
+</tr>
+<tr>
+<td>脑裂防护</td>
+<td>半同步 + 仲裁</td>
+<td>min-replicas-to-write</td>
+</tr>
+<tr>
+<td>扩容</td>
+<td>分库分表（人工）</td>
+<td>Cluster 槽迁移（在线）</td>
+</tr>
+<tr>
+<td>数据价值</td>
+<td>高（强一致优先）</td>
+<td>缓存&#x2F;高速（性能优先）</td>
+</tr>
+</tbody></table>
+<p><strong>一句话：MySQL 与 Redis 的高可用是同构的——复制 → 自动切换 → 脑裂防护，三件套一样，差别只在「一致性 vs 性能」的权重不同</strong>。跨库对照是面试差异化亮点：<strong>「MySQL 选半同步因为数据贵，Redis 选异步因为要快，但脑裂防护思想完全一致」</strong>。</p>
+<h2 id="6-总结"><a href="#6-总结" class="headerlink" title="6. 总结"></a>6. 总结</h2><h3 id="6-1-面试速答表"><a href="#6-1-面试速答表" class="headerlink" title="6.1 面试速答表"></a>6.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>主从解决什么？</td>
+<td>数据冗余 + 读扩展；写仍是单点，主挂需切换</td>
+</tr>
+<tr>
+<td>复制方式？</td>
+<td>全量 RDB + 增量 backlog；默认异步</td>
+</tr>
+<tr>
+<td>哨兵三能力？</td>
+<td>监控、通知、自动故障转移</td>
+</tr>
+<tr>
+<td>sdown&#x2F;odown？</td>
+<td>主观&#x3D;单哨兵判定；客观&#x3D;多数派确认</td>
+</tr>
+<tr>
+<td>新主选举规则？</td>
+<td>偏移量最大 → 优先级 → runId</td>
+</tr>
+<tr>
+<td>脑裂？</td>
+<td>老主假死被分区，恢复后拒写（min-replicas-to-write）</td>
+</tr>
+<tr>
+<td>Cluster 槽位？</td>
+<td>16384 槽，CRC16(key) 路由；MOVED&#x2F;ASK 重定向</td>
+</tr>
+<tr>
+<td>多 key 受限？</td>
+<td>hash tag <code>&#123;key&#125;</code> 强制同槽</td>
+</tr>
+<tr>
+<td>何时用 Cluster？</td>
+<td>容量&#x2F;写吞吐超单机；否则哨兵 + 多从够用</td>
+</tr>
+</tbody></table>
+<h3 id="6-2-实战避坑表"><a href="#6-2-实战避坑表" class="headerlink" title="6.2 实战避坑表"></a>6.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>主挂后丢几秒数据</td>
+<td>异步复制正常窗口</td>
+<td>接受或上 WAIT 同步（牺牲性能）</td>
+</tr>
+<tr>
+<td>从节点只读</td>
+<td>主从不自动升主</td>
+<td>上哨兵</td>
+</tr>
+<tr>
+<td>频繁误切换</td>
+<td>quorum&#x3D;1 单哨兵误判</td>
+<td>quorum≥2、哨兵≥3</td>
+</tr>
+<tr>
+<td>老主恢复后数据分裂</td>
+<td>脑裂</td>
+<td>min-replicas-to-write 拒写</td>
+</tr>
+<tr>
+<td>Cluster 多 key 报错</td>
+<td>key 跨槽</td>
+<td>hash tag 强制同槽</td>
+</tr>
+<tr>
+<td>扩容卡住</td>
+<td>槽迁移中</td>
+<td>监控迁移进度，避免高峰迁移</td>
+</tr>
+<tr>
+<td>复制风暴</td>
+<td>多从同时全量重同步</td>
+<td>主从链式复制&#x2F;控制重连</td>
+</tr>
+</tbody></table>
+<h3 id="6-3-工具速查表"><a href="#6-3-工具速查表" class="headerlink" title="6.3 工具速查表"></a>6.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具&#x2F;命令</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>INFO replication</code></td>
+<td>主从状态&#x2F;偏移量</td>
+</tr>
+<tr>
+<td><code>SENTINEL get-master-addr-by-name</code></td>
+<td>哨兵下查当前主节点</td>
+</tr>
+<tr>
+<td><code>CLUSTER SLOTS</code> &#x2F; <code>CLUSTER NODES</code></td>
+<td>槽位分布与节点状态</td>
+</tr>
+<tr>
+<td><code>redis-cli --cluster create/reshard</code></td>
+<td>集群创建与在线扩容</td>
+</tr>
+<tr>
+<td><code>min-replicas-to-write</code></td>
+<td>脑裂防护核心配置</td>
+</tr>
+<tr>
+<td><code>down-after-milliseconds</code> &#x2F; <code>quorum</code></td>
+<td>哨兵判定参数</td>
+</tr>
+</tbody></table>
+<h3 id="6-4-本篇收尾（P1-完成）"><a href="#6-4-本篇收尾（P1-完成）" class="headerlink" title="6.4 本篇收尾（P1 完成）"></a>6.4 本篇收尾（P1 完成）</h3><p>至此 P1 整改五篇全部完成：<strong>ES 原理深挖 → ES 查询优化 → 分布式事务 → MQ 选型 → Redis 集群</strong>，搜索、一致性、异步、高可用四个方向的深水区全部补齐。P2 还有「缓存一致性实战」「分布式锁与 ID 生成」等主题待填（见各导航页「建设中」表），按需继续。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/mq-select-2025.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/mq-select-2025.html" class="post-title-link" itemprop="url">消息队列选型与核心机制对比</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-08-13 18:00:00" itemprop="dateCreated datePublished" datetime="2026-08-13T18:00:00+08:00">2026-08-13</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E4%B8%AD%E9%97%B4%E4%BB%B6/" itemprop="url" rel="index"><span itemprop="name">中间件</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>3k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>11 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <p><strong>「Kafka、RocketMQ、RabbitMQ 到底选哪个？」——这个问题答不好，是因为顺序搞反了：选型不是选名字，是选「机制」与「场景」的匹配。</strong> 本文先讲透四个核心机制（消息不丢、幂等、顺序、事务消息），再给一张决策树把选型变成套公式：吞吐要多大、延迟要多低、要不要事务消息、团队熟哪个生态。读完你不仅能答「三选一」，还能说清「为什么 Kafka 扛不住强顺序事务、为什么 RabbitMQ 到不了百万级吞吐」——这两个「为什么」才是面试的区分点。</p>
+<blockquote>
+<p>联动：本文是 <a href="/post/688e2513.html">Kafka 原理与实践</a>、<a href="/post/rocketmq-2025.html">RocketMQ 原理与实践</a> 的选型总纲；事务消息与 <a href="/post/dist-tx-2025.html">分布式事务：从 2PC 到 Seata</a> 的本地消息表同源；削峰场景见 <a href="/post/a10bd761.html">秒杀系统设计</a>（MQ 是削峰三件套之一）。</p>
+</blockquote>
+<h2 id="1-定位：MQ-解决什么问题"><a href="#1-定位：MQ-解决什么问题" class="headerlink" title="1. 定位：MQ 解决什么问题"></a>1. 定位：MQ 解决什么问题</h2><table>
+<thead>
+<tr>
+<th>问题</th>
+<th>用 MQ 怎么解</th>
+<th>例子</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>解耦</strong></td>
+<td>下游系统随时加&#x2F;减，上游无感知</td>
+<td>订单系统发消息，短信&#x2F;积分&#x2F;搜索各自订阅</td>
+</tr>
+<tr>
+<td><strong>削峰</strong></td>
+<td>请求先进队列，下游按自己的速率消费</td>
+<td>秒杀 10 万 QPS 进队列，落库 1 万 QPS</td>
+</tr>
+<tr>
+<td><strong>异步</strong></td>
+<td>非核心路径不等响应</td>
+<td>下单后异步发通知，响应从 500ms → 50ms</td>
+</tr>
+</tbody></table>
+<p><strong>因果链</strong>：MQ 的本质是<strong>「缓冲 + 订阅发布」</strong>——缓冲解决削峰（生产者快、消费者慢，中间用队列吸收），订阅发布解决解耦（上游只对 topic 说话，不知道下游是谁）。<strong>面试先答这三个价值，再答选型，顺序不能反</strong>。</p>
+<p><strong>选型的真正前提：先懂「机制」，再谈「选型」</strong>——不知道「不丢消息」靠什么机制保证，选型就是背参数。本文 §2-§5 讲机制，§6 给决策。</p>
+<h2 id="2-三巨头画像：存储模型决定一切"><a href="#2-三巨头画像：存储模型决定一切" class="headerlink" title="2. 三巨头画像：存储模型决定一切"></a>2. 三巨头画像：存储模型决定一切</h2><p><strong>三个 MQ 的一切差异，根源是「消息存哪、怎么组织」</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>Kafka</th>
+<th>RocketMQ</th>
+<th>RabbitMQ</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>存储模型</td>
+<td><strong>分区（Partition）追加日志</strong>，顺序写磁盘</td>
+<td><strong>CommitLog 顺序写</strong>，消费队列是索引</td>
+<td><strong>队列内存&#x2F;磁盘</strong>，按交换机路由</td>
+</tr>
+<tr>
+<td>吞吐</td>
+<td><strong>百万级</strong>（顺序写 + 零拷贝）</td>
+<td>十万级</td>
+<td>万级（单机受队列数限制）</td>
+</tr>
+<tr>
+<td>延迟</td>
+<td>毫秒~秒级（批量攒批）</td>
+<td>毫秒级</td>
+<td>微秒~毫秒级（无攒批）</td>
+</tr>
+<tr>
+<td>消息顺序</td>
+<td><strong>分区内有序</strong>（全局需单分区）</td>
+<td>队列内有序</td>
+<td>单队列有序</td>
+</tr>
+<tr>
+<td>事务消息</td>
+<td>不支持（2.5+ 有试验版）</td>
+<td><strong>原生支持</strong>（半消息+回查）</td>
+<td>弱（插件）</td>
+</tr>
+<tr>
+<td>延迟消息</td>
+<td>不支持</td>
+<td>原生支持（定时层级）</td>
+<td>原生支持</td>
+</tr>
+<tr>
+<td>生态</td>
+<td>日志&#x2F;流处理最强（Flink 对接）</td>
+<td>阿里系电商场景</td>
+<td>AMQP 标准、轻量场景</td>
+</tr>
+</tbody></table>
+<p><strong>记忆锚点一句话</strong>：</p>
+<ul>
+<li><strong>Kafka &#x3D; 日志系统</strong>：顺序写盘 + 批量 &#x3D; 吞吐之王，但「批量」就是「延迟」的代价，且不支持事务消息；</li>
+<li><strong>RocketMQ &#x3D; 电商系统</strong>：为交易场景设计，事务消息、延迟消息、队列有序是原生能力；</li>
+<li><strong>RabbitMQ &#x3D; 消息总线</strong>：AMQP 路由灵活、延迟低，但单机吞吐是万级，集群能力弱。</li>
+</ul>
+<p><strong>面试话术</strong>：先一句话定义「存储模型决定吞吐与能力边界」，再展开三行对比——<strong>「Kafka 分区追加日志所以快，RocketMQ commitlog 所以快且能做事务，RabbitMQ 队列路由所以灵活但慢」</strong>。</p>
+<h2 id="3-核心机制一：消息不丢——三端各守一段"><a href="#3-核心机制一：消息不丢——三端各守一段" class="headerlink" title="3. 核心机制一：消息不丢——三端各守一段"></a>3. 核心机制一：消息不丢——三端各守一段</h2><p><strong>「不丢消息」是三个环节的接力，任何一端漏守都会丢</strong>：</p>
+<pre class="mermaid">flowchart LR
+    P["生产者&lt;br/>ack 机制"] --> B["Broker&lt;br/>持久化"] --> C["消费者&lt;br/>手动 ack"]</pre>
+
+<table>
+<thead>
+<tr>
+<th>环节</th>
+<th>丢法</th>
+<th>守法</th>
+<th>代价</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>生产者→Broker</td>
+<td>发送失败&#x2F;异步发送丢失</td>
+<td><strong>ack 语义</strong>：Kafka <code>acks=all</code>、RocketMQ <code>SYNC_MASTER</code></td>
+<td>吞吐下降（等确认）</td>
+</tr>
+<tr>
+<td>Broker 存储</td>
+<td>机器重启</td>
+<td><strong>持久化</strong>：Kafka 多副本 ISR 同步、RocketMQ 主从同步刷盘</td>
+<td>副本写入开销</td>
+</tr>
+<tr>
+<td>Broker→消费者</td>
+<td>自动 ack 后消费失败</td>
+<td><strong>手动 ack</strong>：处理成功才提交 offset</td>
+<td>可能重复消费（换来不丢）</td>
+</tr>
+</tbody></table>
+<p><strong>因果链核心：不丢与不重是跷跷板</strong>——「处理成功才 ack」保证不丢，但<strong>处理中崩溃 → 消息会被重新投递 → 重复消费</strong>。<strong>结论：MQ 的默认语义是 at-least-once（至少一次），「不丢」靠 ack 守，重复靠消费端幂等兜（§4）</strong>。面试答「怎么不丢消息」必须说全三端 + 一句「代价是可能重复，所以要有幂等」。</p>
+<h2 id="4-核心机制二：重复消费与幂等三法"><a href="#4-核心机制二：重复消费与幂等三法" class="headerlink" title="4. 核心机制二：重复消费与幂等三法"></a>4. 核心机制二：重复消费与幂等三法</h2><p><strong>重复消费是 at-least-once 的必然产物，消费端必须幂等</strong>——三法：</p>
+<table>
+<thead>
+<tr>
+<th>幂等法</th>
+<th>原理</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>唯一键去重</strong></td>
+<td>消息带业务唯一 ID，消费时查&#x2F;写去重表（唯一索引）</td>
+<td>通用首选</td>
+</tr>
+<tr>
+<td><strong>数据库约束</strong></td>
+<td>幂等字段建唯一索引，重复插入直接报错被吞</td>
+<td>落库类消费</td>
+</tr>
+<tr>
+<td><strong>状态机&#x2F;版本号</strong></td>
+<td>处理前校验状态，已处理则跳过</td>
+<td>订单状态流转类</td>
+</tr>
+</tbody></table>
+<p><strong>动手验证：用唯一索引做幂等</strong></p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 消费落库表：业务唯一键 = 订单号 + 事件类型</span></span><br><span class="line"><span class="keyword">CREATE TABLE</span> consume_log (</span><br><span class="line">  biz_id <span class="type">VARCHAR</span>(<span class="number">64</span>) <span class="keyword">NOT NULL</span>,</span><br><span class="line">  event_type <span class="type">VARCHAR</span>(<span class="number">32</span>) <span class="keyword">NOT NULL</span>,</span><br><span class="line">  create_time DATETIME,</span><br><span class="line">  <span class="keyword">PRIMARY KEY</span> (biz_id, event_type)</span><br><span class="line">);</span><br><span class="line"><span class="comment">-- 消费逻辑：先 INSERT 幂等表，成功才执行业务；重复消息 INSERT 主键冲突直接跳过</span></span><br></pre></td></tr></table></figure>
+
+<p>观察点：同一消息投递两次，第二次 INSERT 主键冲突被捕获后直接 return。判定标准：理解「幂等是消费端职责，不是 MQ 职责」——<strong>MQ 只保证 at-least-once，Exactly-once 需要端到端幂等设计</strong>。</p>
+<h2 id="5-核心机制三：顺序消息与事务消息"><a href="#5-核心机制三：顺序消息与事务消息" class="headerlink" title="5. 核心机制三：顺序消息与事务消息"></a>5. 核心机制三：顺序消息与事务消息</h2><h3 id="5-1-顺序消息：分区-队列内有序"><a href="#5-1-顺序消息：分区-队列内有序" class="headerlink" title="5.1 顺序消息：分区&#x2F;队列内有序"></a>5.1 顺序消息：分区&#x2F;队列内有序</h3><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>做法</th>
+<th>代价</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>全局有序</td>
+<td>单分区&#x2F;单队列（吞吐降到单机）</td>
+<td>吞吐损失大，极少用</td>
+</tr>
+<tr>
+<td><strong>分区有序</strong></td>
+<td>同一业务 key 哈希到同一分区（如订单号 → 分区）</td>
+<td>按 key 有序，跨 key 无序</td>
+</tr>
+<tr>
+<td>有序保证</td>
+<td>Kafka：同 key 同分区 + 单消费者线程；RocketMQ：同 key 同队列</td>
+<td>消费端也必须单线程</td>
+</tr>
+</tbody></table>
+<p><strong>因果链</strong>：顺序消息 &#x3D; <strong>「路由同 key 到同分区」+「消费端串行处理」两步缺一不可</strong>——只路由不串行（多线程消费）顺序照样乱。<strong>面试陷阱：很多人只答「同 key 同分区」，漏了「消费端单线程」</strong>，主动补上这句是加分。</p>
+<h3 id="5-2-事务消息：半消息-回查"><a href="#5-2-事务消息：半消息-回查" class="headerlink" title="5.2 事务消息：半消息 + 回查"></a>5.2 事务消息：半消息 + 回查</h3><p><strong>事务消息 &#x3D; 本地事务 + 消息发送的原子性</strong>（与 <a href="/post/dist-tx-2025.html">本地消息表</a> 同思路，但不用业务自己建表）：</p>
+<pre class="mermaid">sequenceDiagram
+    participant P as 生产者
+    participant MQ as MQ
+    participant DB as 业务库
+    P->>MQ: 1. 发送半消息（对消费者不可见）
+    P->>DB: 2. 执行本地事务（写订单）
+    P->>MQ: 3. 提交/回滚半消息
+    MQ-->>P: 4a. 提交 → 消费者可见
+    Note over MQ: 4b. 生产者挂了/超时 → MQ 回查本地事务结果
+    MQ-->>P: 回查（询问本地事务成功没）</pre>
+
+<p><strong>因果链</strong>：<strong>「先发半消息、后提交」把「发消息」和「业务写」变成可对齐的两步</strong>——半消息对消费者不可见，只有本地事务成功后提交才可见；生产者中途挂掉，MQ 通过回查接口（<code>checkLocalTransaction</code>）确认事务结果。<strong>这一机制让 RocketMQ 在「有 MQ 的强一致场景」胜出</strong>（<a href="/post/dist-tx-2025.html">分布式事务选型</a> 的决策树里「有 MQ 且能最终一致」指向它）。</p>
+<h2 id="6-选型决策树"><a href="#6-选型决策树" class="headerlink" title="6. 选型决策树"></a>6. 选型决策树</h2><h3 id="6-1-决策流程"><a href="#6-1-决策流程" class="headerlink" title="6.1 决策流程"></a>6.1 决策流程</h3><pre class="mermaid">flowchart TD
+    Q1{吞吐要求？} -->|百万级/日志流| K[Kafka]
+    Q1 -->|十万级以下| Q2{需要事务消息或延迟消息？}
+    Q2 -->|是| R[RocketMQ]
+    Q2 -->|否| Q3{延迟敏感 + 路由灵活？}
+    Q3 -->|是| RB[RabbitMQ]
+    Q3 -->|否| R2[RocketMQ&lt;br/>Java 生态默认选]</pre>
+
+<h3 id="6-2-决策表"><a href="#6-2-决策表" class="headerlink" title="6.2 决策表"></a>6.2 决策表</h3><table>
+<thead>
+<tr>
+<th>业务特征</th>
+<th>选谁</th>
+<th>理由</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>日志采集 &#x2F; 埋点 &#x2F; 流计算（Flink）</td>
+<td><strong>Kafka</strong></td>
+<td>吞吐之王、分区模型天然支持流处理</td>
+</tr>
+<tr>
+<td>电商订单 &#x2F; 交易链路 &#x2F; 事务消息</td>
+<td><strong>RocketMQ</strong></td>
+<td>事务消息、延迟消息、有序队列原生</td>
+</tr>
+<tr>
+<td>高吞吐 + 强顺序交易（如秒杀库存）</td>
+<td>RocketMQ（Kafka 事务能力弱）</td>
+<td>顺序+事务两者都要时</td>
+</tr>
+<tr>
+<td>内部服务解耦 &#x2F; 轻量异步 &#x2F; 低延迟</td>
+<td><strong>RabbitMQ</strong></td>
+<td>万级吞吐够用、路由灵活、运维简单</td>
+</tr>
+<tr>
+<td>技术栈统一（全 Java 团队）</td>
+<td>RocketMQ</td>
+<td>与 Spring Cloud Alibaba 生态天然整合</td>
+</tr>
+<tr>
+<td>已有大数据平台</td>
+<td>Kafka</td>
+<td>与 Flink&#x2F;Spark&#x2F;ClickHouse 对接最顺</td>
+</tr>
+</tbody></table>
+<p><strong>一句话选型公式：日志&#x2F;流 → Kafka；交易&#x2F;事务 → RocketMQ；轻量解耦 → RabbitMQ；拿不准 → RocketMQ（Java 电商系事实标准）</strong>。</p>
+<h2 id="7-面试应答：MQ-六连问"><a href="#7-面试应答：MQ-六连问" class="headerlink" title="7. 面试应答：MQ 六连问"></a>7. 面试应答：MQ 六连问</h2><h3 id="7-1-完整话术"><a href="#7-1-完整话术" class="headerlink" title="7.1 完整话术"></a>7.1 完整话术</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>回答要点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>为什么用 MQ？</td>
+<td>解耦（订阅发布）、削峰（缓冲）、异步（不等响应）</td>
+</tr>
+<tr>
+<td>怎么选型？</td>
+<td>先定吞吐量级，再对机制：日志流→Kafka，事务&#x2F;延迟→RocketMQ，轻量低延迟→RabbitMQ</td>
+</tr>
+<tr>
+<td>消息丢了怎么办？</td>
+<td>三端接力：producer ack（acks&#x3D;all&#x2F;SYNC_MASTER）、broker 持久化（ISR&#x2F;主从）、consumer 手动 ack</td>
+</tr>
+<tr>
+<td>重复消费怎么办？</td>
+<td>at-least-once 必然重复，消费端幂等：唯一键去重&#x2F;唯一索引&#x2F;状态机</td>
+</tr>
+<tr>
+<td>顺序消息怎么保证？</td>
+<td>同 key 同分区（路由）+ 消费端单线程（串行），两步缺一不可</td>
+</tr>
+<tr>
+<td>事务消息原理？</td>
+<td>半消息对消费者不可见 → 本地事务成功提交 → 失败回滚；超时回查（checkLocalTransaction）</td>
+</tr>
+</tbody></table>
+<h3 id="7-2-深挖：Kafka-为什么做不了事务消息（跨篇联动）"><a href="#7-2-深挖：Kafka-为什么做不了事务消息（跨篇联动）" class="headerlink" title="7.2 深挖：Kafka 为什么做不了事务消息（跨篇联动）"></a>7.2 深挖：Kafka 为什么做不了事务消息（跨篇联动）</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>Kafka</th>
+<th>RocketMQ</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>消费进度</td>
+<td>offset 机制</td>
+<td>消费进度记录</td>
+</tr>
+<tr>
+<td>事务能力</td>
+<td>仅 Producer 端原子性（幂等&#x2F;事务 API 有限）</td>
+<td>半消息+回查完整闭环</td>
+</tr>
+<tr>
+<td>顺序+事务同场景</td>
+<td>单分区牺牲吞吐</td>
+<td>队列内有序+事务消息共存</td>
+</tr>
+<tr>
+<td>典型场景</td>
+<td>日志&#x2F;流&#x2F;数据管道</td>
+<td>交易链路</td>
+</tr>
+</tbody></table>
+<p><strong>一句话：Kafka 的「分区追加日志」模型为吞吐而生，事务需要「先藏后显」的元数据管理（半消息状态），与它的设计目标冲突；RocketMQ 从设计起就是「面向交易」</strong>——所以<strong>秒杀、支付这类「要吞吐又要事务」的场景，选 RocketMQ 而不是 Kafka</strong>（<a href="/post/688e2513.html">Kafka 原理与实践</a> 有分区模型细节）。</p>
+<h2 id="8-总结"><a href="#8-总结" class="headerlink" title="8. 总结"></a>8. 总结</h2><h3 id="8-1-面试速答表"><a href="#8-1-面试速答表" class="headerlink" title="8.1 面试速答表"></a>8.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>MQ 三价值？</td>
+<td>解耦（订阅发布）、削峰（缓冲）、异步（不等响应）</td>
+</tr>
+<tr>
+<td>三选一？</td>
+<td>日志流→Kafka；交易事务→RocketMQ；轻量低延迟→RabbitMQ</td>
+</tr>
+<tr>
+<td>不丢消息？</td>
+<td>三端接力：ack、持久化、手动 ack；代价是可能重复</td>
+</tr>
+<tr>
+<td>重复消费？</td>
+<td>消费端幂等：唯一键去重&#x2F;唯一索引&#x2F;状态机</td>
+</tr>
+<tr>
+<td>顺序消息？</td>
+<td>同 key 同分区 + 消费端单线程，缺一不可</td>
+</tr>
+<tr>
+<td>事务消息？</td>
+<td>半消息先藏 → 本地事务 → 提交可见；挂机回查</td>
+</tr>
+<tr>
+<td>at-least-once 是什么？</td>
+<td>至少一次：不丢但可能重，幂等兜底</td>
+</tr>
+<tr>
+<td>Kafka 为什么吞吐最高？</td>
+<td>分区追加日志顺序写盘 + 批量 + 零拷贝</td>
+</tr>
+</tbody></table>
+<h3 id="8-2-实战避坑表"><a href="#8-2-实战避坑表" class="headerlink" title="8.2 实战避坑表"></a>8.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>消费端收到重复消息</td>
+<td>at-least-once 正常现象</td>
+<td>幂等三法，别怪 MQ</td>
+</tr>
+<tr>
+<td>消息偶尔丢</td>
+<td>自动 ack 后业务失败</td>
+<td>改手动 ack + 重试队列</td>
+</tr>
+<tr>
+<td>顺序乱</td>
+<td>多线程消费 &#x2F; 多分区</td>
+<td>消费端单线程 + 同 key 同分区</td>
+</tr>
+<tr>
+<td>堆积涨到几百万</td>
+<td>消费者处理慢</td>
+<td>扩消费者（注意分区数上限）、批处理</td>
+</tr>
+<tr>
+<td>消息延迟大</td>
+<td>Kafka 攒批参数（linger.ms&#x2F;batch.size）</td>
+<td>调小延迟参数换吞吐</td>
+</tr>
+<tr>
+<td>死信堆积</td>
+<td>消费一直失败</td>
+<td>死信队列 + 告警 + 人工补偿</td>
+</tr>
+</tbody></table>
+<h3 id="8-3-工具速查表"><a href="#8-3-工具速查表" class="headerlink" title="8.3 工具速查表"></a>8.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Kafka CLI（kafka-console-producer&#x2F;consumer）</td>
+<td>消息收发与消费进度验证</td>
+</tr>
+<tr>
+<td><code>kafka-consumer-groups --describe</code></td>
+<td>消费 lag 监控</td>
+</tr>
+<tr>
+<td>RocketMQ 控制台（rocketmq-dashboard）</td>
+<td>topic&#x2F;消费进度&#x2F;死信管理</td>
+</tr>
+<tr>
+<td>RabbitMQ 管理界面</td>
+<td>队列&#x2F;路由&#x2F;连接可视化</td>
+</tr>
+<tr>
+<td>消费端幂等表 + 重试队列</td>
+<td>生产兜底两件套</td>
+</tr>
+</tbody></table>
+<h3 id="8-4-下一篇预告"><a href="#8-4-下一篇预告" class="headerlink" title="8.4 下一篇预告"></a>8.4 下一篇预告</h3><p>MQ 篇解决「异步与解耦的载体」，P1 最后一块拼图《Redis 集群与高可用实战》解决「缓存服务本身怎么不挂」：<strong>主从同步、哨兵自动故障转移、Cluster 分片扩容，从「单机 Redis」升级到「能挂进架构图的高可用缓存层」</strong>——主从为什么要选异步复制、哨兵怎么避免误判、Cluster 槽位迁移时请求怎么处理，部署与原理一次讲清。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -1337,957 +2365,6 @@
 
 
 
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/es-deep-2025.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="知行栈">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | 知行栈">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/es-deep-2025.html" class="post-title-link" itemprop="url">ES 原理深挖：写入链路、分片与集群健康</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-
-      <time title="Created: 2026-08-13 15:00:00" itemprop="dateCreated datePublished" datetime="2026-08-13T15:00:00+08:00">2026-08-13</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">In</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/" itemprop="url" rel="index"><span itemprop="name">数据存储</span></a>
-        </span>
-    </span>
-
-  
-    <span class="post-meta-break"></span>
-    <span class="post-meta-item" title="Word count in article">
-      <span class="post-meta-item-icon">
-        <i class="far fa-file-word"></i>
-      </span>
-      <span class="post-meta-item-text">Word count in article: </span>
-      <span>3.6k</span>
-    </span>
-    <span class="post-meta-item" title="Reading time">
-      <span class="post-meta-item-icon">
-        <i class="far fa-clock"></i>
-      </span>
-      <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>13 mins.</span>
-    </span>
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <p><strong>ES 面试的深水区只有三个问题：为什么说 ES 是「近实时」而不是实时？数据是怎么分布到分片上的？集群黄了红了到底意味着什么？</strong> 入门篇回答了「ES 是什么、为什么搜得快」（倒排索引、分词），本文下潜到写入链路、分片路由、副本一致性、脑裂与集群健康——面试问「ES 写入流程」「分片数怎么定」「脑裂怎么防」的答案全在这。读完你能画出一次写入的完整旅程，并能在集群变黄&#x2F;变红时说出先查什么。</p>
-<blockquote>
-<p>联动：本文是 <a href="/post/d48132d3.html">Elasticsearch 原理与实践</a>（倒排索引&#x2F;分词&#x2F;基本查询）的深挖续篇；写入链路与 <a href="/post/32511a71.html">MySQL 原理与优化</a> 的 redo log&#x2F;WAL 是同一思想的两种实现（先记日志再落盘）；集群选举与 <a href="/post/zookeeper-2025.html">ZooKeeper 原理与实践</a> 的 Zab 协议呼应。</p>
-</blockquote>
-<h2 id="1-定位：这篇深挖什么"><a href="#1-定位：这篇深挖什么" class="headerlink" title="1. 定位：这篇深挖什么"></a>1. 定位：这篇深挖什么</h2><p>入门篇讲了「ES 为什么快」（倒排索引 + 分片并行），本文回答三个「为什么」：</p>
-<table>
-<thead>
-<tr>
-<th>现象</th>
-<th>表层答案</th>
-<th>本文深挖</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>写入后 1 秒内搜不到</td>
-<td>「refresh 间隔 1 秒」</td>
-<td>§2：写入的三段式旅程，为什么必须这样设计</td>
-</tr>
-<tr>
-<td>主分片数建索引后不能改</td>
-<td>「路由固定」</td>
-<td>§3：hash 路由机制，改了就找不到数据</td>
-</tr>
-<tr>
-<td>集群 yellow 还能用</td>
-<td>「有副本没起来」</td>
-<td>§4：三色健康状态的真实含义与处理</td>
-</tr>
-</tbody></table>
-<p><strong>因果链主线</strong>：ES 的所有「奇怪现象」（近实时、分片不可变、yellow 可用）都不是 bug，是<strong>同一组设计权衡</strong>——「内存快、磁盘慢、网络不可靠」三个约束下，用<strong>批量 + 缓冲 + 冗余</strong>换性能与可用性。<strong>面试答 ES 能答到「每个现象背后的权衡」，就从背结论升级到了懂设计</strong>。</p>
-<h2 id="2-写入链路：一次写入的三段式旅程"><a href="#2-写入链路：一次写入的三段式旅程" class="headerlink" title="2. 写入链路：一次写入的三段式旅程"></a>2. 写入链路：一次写入的三段式旅程</h2><h3 id="2-1-全景：refresh-translog-flush"><a href="#2-1-全景：refresh-translog-flush" class="headerlink" title="2.1 全景：refresh &#x2F; translog &#x2F; flush"></a>2.1 全景：refresh &#x2F; translog &#x2F; flush</h3><pre class="mermaid">sequenceDiagram
-    participant C as 客户端
-    participant P as 主分片
-    participant M as 内存 buffer
-    participant T as translog(磁盘)
-    participant S as segment(磁盘)
-    C->>P: 1. 写入请求（POST doc）
-    P->>M: 2. 写入内存 buffer（未可搜）
-    P->>T: 3. 同步写 translog（先记日志！）
-    Note over P: 每 1 秒：buffer → 内存 segment → 刷成可搜（refresh）
-    Note over P: 每 30 秒或 translog 满：flush 落盘 + translog 清空
-    P-->>C: 4. 返回成功（此时数据还没落盘）</pre>
-
-<p><strong>一次写入的完整旅程</strong>：</p>
-<table>
-<thead>
-<tr>
-<th>步骤</th>
-<th>动作</th>
-<th>数据在哪</th>
-<th>可搜？</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>①</td>
-<td>写入内存 buffer</td>
-<td>内存</td>
-<td>❌</td>
-</tr>
-<tr>
-<td>②</td>
-<td>同步写 translog（事务日志）</td>
-<td>磁盘（日志）</td>
-<td>❌</td>
-</tr>
-<tr>
-<td>③</td>
-<td><strong>refresh（默认 1s）</strong>：buffer → 内存 segment，清空 buffer</td>
-<td>内存 segment</td>
-<td>✅</td>
-</tr>
-<tr>
-<td>④</td>
-<td><strong>flush（默认 30s 或 translog 满）</strong>：segment 落盘，清空 translog</td>
-<td>磁盘</td>
-<td>✅</td>
-</tr>
-</tbody></table>
-<p><strong>三个设计要点的因果链</strong>：</p>
-<ol>
-<li><strong>为什么返回成功时数据还没落盘？</strong> —— 批量写入内存是毫秒级，逐条刷磁盘是毫秒级的几十倍。<strong>ES 选择「先回成功、后落盘」，用 translog 兜底崩溃</strong>：机器挂了，重启后从 translog 重放未落盘的数据——<strong>这与 MySQL 的 WAL（先写 redo log 再改数据页）是同一个思想</strong>，先记日志、后落盘，日志是崩溃恢复的承诺。</li>
-<li><strong>为什么 refresh 1 秒才可搜？</strong> —— 磁盘 segment 是<strong>不可变的</strong>（只能新建不能改），每秒把内存 buffer 攒成一个新 segment 批量落内存。<strong>「近实时」不是缺陷，是「批量化换取吞吐」的必然代价</strong>：要实时可搜就得每请求刷一次盘，吞吐直接崩。1 秒的 refresh 是吞吐与实时性的平衡点。</li>
-<li><strong>translog 为什么要 fsync？</strong> —— 默认每次写入 fsync（<code>index.translog.durability: request</code>）保证 translog 真正落盘，此时才返回成功——<strong>「返回成功」的语义 &#x3D; 「translog 已落盘」</strong>，不是「数据已落盘」。</li>
-</ol>
-<h3 id="2-2-动手验证：亲眼看到「近实时」"><a href="#2-2-动手验证：亲眼看到「近实时」" class="headerlink" title="2.2 动手验证：亲眼看到「近实时」"></a>2.2 动手验证：亲眼看到「近实时」</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 起一个单机 ES（Docker）</span></span><br><span class="line">docker run -d -p 9200:9200 -e discovery.type=single-node --name es-test docker.elastic.co/elasticsearch/elasticsearch:8.13.0</span><br><span class="line"><span class="comment"># 8.x 默认安全：生成密码</span></span><br><span class="line">docker <span class="built_in">exec</span> es-test elasticsearch-reset-password -u elastic -i</span><br><span class="line"></span><br><span class="line"><span class="comment"># 写入一条文档</span></span><br><span class="line">curl -X POST <span class="string">&quot;localhost:9200/test/_doc/1&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> \</span><br><span class="line">  -d <span class="string">&#x27;&#123;&quot;title&quot;:&quot;hello world&quot;&#125;&#x27;</span> --user elastic:PASSWORD</span><br><span class="line"><span class="comment"># 立即搜索——可能搜不到！</span></span><br><span class="line">curl <span class="string">&quot;localhost:9200/test/_search?q=title:hello&quot;</span> --user elastic:PASSWORD</span><br><span class="line"><span class="comment"># sleep 1.2 秒再搜——能搜到了</span></span><br><span class="line"><span class="built_in">sleep</span> 1.2 &amp;&amp; curl <span class="string">&quot;localhost:9200/test/_search?q=title:hello&quot;</span> --user elastic:PASSWORD</span><br></pre></td></tr></table></figure>
-
-<p>观察点：紧接写入的搜索 <code>hits.total</code> 可能为 0，1.2 秒后变 1——<strong>refresh 间隔的现场</strong>。判定标准：亲自复现「写入后短暂搜不到、1 秒后能搜到」，理解「近实时」的字面含义。生产意义：<strong>刚写入就要立刻搜到的场景（订单即时查询）必须调 <code>refresh=true</code>（性能换实时）或用「可搜索快照」技术，不能指望默认 1 秒</strong>。</p>
-<h3 id="2-3-深挖：为什么-Lucene-段不可变是好事"><a href="#2-3-深挖：为什么-Lucene-段不可变是好事" class="headerlink" title="2.3 深挖：为什么 Lucene 段不可变是好事"></a>2.3 深挖：为什么 Lucene 段不可变是好事</h3><p>segment 不可变（只能整体新建）看似低效，实际是三个收益的源头：</p>
-<table>
-<thead>
-<tr>
-<th>收益</th>
-<th>机制</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>免锁</td>
-<td>不可变 &#x3D; 无需并发控制，读路径无锁</td>
-</tr>
-<tr>
-<td>缓存友好</td>
-<td>段的词典&#x2F;倒排表可整体缓存，不会失效</td>
-</tr>
-<tr>
-<td>崩溃恢复简单</td>
-<td>已落盘的段永远有效，恢复只重放 translog</td>
-</tr>
-</tbody></table>
-<p><strong>因果链</strong>：不可变 → 免锁 + 可缓存 → 单机查询吞吐高 → 但更新&#x2F;删除是「标记删除」+「新段覆盖」→ 产生段膨胀 → 后台 <strong>merge</strong>（段合并）压缩段数 → 合并是 CPU&#x2F;IO 大户，<strong>大段合并是 ES 性能问题的常见来源</strong>（集群慢先查 merge 指标）。<strong>面试答「ES 的删除是逻辑删除」时，补一句「靠 merge 物理清理」是加分项</strong>。</p>
-<h2 id="3-分片与副本：数据怎么分布"><a href="#3-分片与副本：数据怎么分布" class="headerlink" title="3. 分片与副本：数据怎么分布"></a>3. 分片与副本：数据怎么分布</h2><h3 id="3-1-路由：为什么主分片数不可变"><a href="#3-1-路由：为什么主分片数不可变" class="headerlink" title="3.1 路由：为什么主分片数不可变"></a>3.1 路由：为什么主分片数不可变</h3><p>文档写入哪个分片由 <code>routing = hash(_id) % number_of_shards</code> 决定：</p>
-<pre class="mermaid">flowchart LR
-    A["文档 _id"] --> B["hash(_id)"] --> C["% 主分片数 (3)"] --> D["分片 0 / 1 / 2"]</pre>
-
-<p><strong>因果链</strong>：主分片数一旦确定就不能改，因为<strong>改了取模的分母，同一文档会被路由到不同分片，旧数据全找不到了</strong>。改分片数只能 <code>_reindex</code> 到新索引（重新 hash 全量重建）。<strong>面试必问「分片数怎么定」的完整答案</strong>：</p>
-<table>
-<thead>
-<tr>
-<th>维度</th>
-<th>建议</th>
-<th>依据</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>分片大小</td>
-<td>每分片 20-50GB</td>
-<td>过大 merge 慢、恢复慢；过小分片数爆炸</td>
-</tr>
-<tr>
-<td>分片数量</td>
-<td>总数据量 ÷ 30GB 左右</td>
-<td>平衡并行度与开销</td>
-</tr>
-<tr>
-<td>上限参考</td>
-<td>单节点 ≤3-5 分片</td>
-<td>每个分片有独立文件句柄&#x2F;内存开销</td>
-</tr>
-<tr>
-<td>副本数</td>
-<td>≥1（生产必配）</td>
-<td>无副本 &#x3D; 单点，节点挂了数据就 red</td>
-</tr>
-</tbody></table>
-<p><strong>工程经验</strong>：分片数定少了后期只能 reindex（全量重建，灾难）；定多了浪费资源。<strong>「按数据规模反推分片数」是设计时的核心决策，不是部署后能改的</strong>。</p>
-<h3 id="3-2-副本：读扩展-故障转移"><a href="#3-2-副本：读扩展-故障转移" class="headerlink" title="3.2 副本：读扩展 + 故障转移"></a>3.2 副本：读扩展 + 故障转移</h3><table>
-<thead>
-<tr>
-<th>能力</th>
-<th>机制</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>读扩展</td>
-<td>副本分担读请求</td>
-<td>搜索默认在主+副本间负载均衡</td>
-</tr>
-<tr>
-<td>故障转移</td>
-<td>主挂了副本自动升主</td>
-<td>不需要人工干预</td>
-</tr>
-<tr>
-<td>写入一致性</td>
-<td>主写成功 → 同步副本</td>
-<td><code>wait_for_active_shards</code> 可等副本确认（牺牲延迟换一致）</td>
-</tr>
-</tbody></table>
-<p><strong>副本不是备份，是「可用的读副本」</strong>：副本与主分片数据实时同步，搜索请求可打到任意副本——<strong>副本数 &#x3D; 读吞吐的扩展维度</strong>。<strong>生产配置原则</strong>：副本数 ≥1 是底线（否则单节点故障即 red），读多写少的搜索场景副本数可 &#x3D; 2。</p>
-<h3 id="3-3-动手验证：看分片分布与路由"><a href="#3-3-动手验证：看分片分布与路由" class="headerlink" title="3.3 动手验证：看分片分布与路由"></a>3.3 动手验证：看分片分布与路由</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 创建指定分片的索引（3 主分片 + 1 副本）</span></span><br><span class="line">curl -X PUT <span class="string">&quot;localhost:9200/orders&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> \</span><br><span class="line">  -d <span class="string">&#x27;&#123;&quot;settings&quot;:&#123;&quot;number_of_shards&quot;:3,&quot;number_of_replicas&quot;:1&#125;&#125;&#x27;</span> --user elastic:PASSWORD</span><br><span class="line"><span class="comment"># 看分片分布</span></span><br><span class="line">curl <span class="string">&quot;localhost:9200/_cat/shards/orders?v&quot;</span> --user elastic:PASSWORD</span><br><span class="line"><span class="comment"># 返回 3 个主分片 + 3 个副本，分布在节点上（单节点时副本 unassigned，集群 yellow）</span></span><br></pre></td></tr></table></figure>
-
-<p>观察点：<code>_cat/shards</code> 里主分片 <code>P</code> 与副本 <code>R</code> 的节点分布；单节点时副本显示 <code>UNASSIGNED</code>、集群变 yellow。判定标准：理解「副本必须分布在不同节点才有意义」——<strong>单节点集群配副本是浪费（副本和主在同节点，挂了一起挂）</strong>，这也是「集群为什么 yellow」的第一个答案。</p>
-<h2 id="4-集群健康：三色状态与脑裂"><a href="#4-集群健康：三色状态与脑裂" class="headerlink" title="4. 集群健康：三色状态与脑裂"></a>4. 集群健康：三色状态与脑裂</h2><h3 id="4-1-三色健康的真实含义"><a href="#4-1-三色健康的真实含义" class="headerlink" title="4.1 三色健康的真实含义"></a>4.1 三色健康的真实含义</h3><table>
-<thead>
-<tr>
-<th>颜色</th>
-<th>含义</th>
-<th>还能用吗</th>
-<th>处理</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>green</td>
-<td>主分片+副本全部就绪</td>
-<td>完全正常</td>
-<td>无需处理</td>
-</tr>
-<tr>
-<td>yellow</td>
-<td>主分片都在，<strong>副本缺失</strong>（unassigned）</td>
-<td>能读能写，<strong>但无故障转移能力</strong></td>
-<td>查为什么副本没起来（节点数不足&#x2F;磁盘满&#x2F;网络隔离）</td>
-</tr>
-<tr>
-<td>red</td>
-<td><strong>有主分片缺失</strong></td>
-<td>该分片数据不可用（部分索引不可搜）</td>
-<td>立即处理：恢复节点或 reroute</td>
-</tr>
-</tbody></table>
-<p><strong>因果链</strong>：yellow 不是「小问题」——它意味着「副本没就位，任何主分片所在节点挂掉，数据就永久丢失（除非还有别的副本）」。<strong>生产铁律：集群 yellow 必须当天处理，不能挂着过夜</strong>——常见的黄色原因（单节点配了副本、新节点加入后副本未分配、磁盘水位线导致不分配）排查路径全部在 <code>_cat/allocation</code> 里。</p>
-<h3 id="4-2-脑裂：集群最大的安全风险"><a href="#4-2-脑裂：集群最大的安全风险" class="headerlink" title="4.2 脑裂：集群最大的安全风险"></a>4.2 脑裂：集群最大的安全风险</h3><p><strong>脑裂 &#x3D; 一个集群分裂成两个「各自认为自己是主」的子集群</strong>，两边同时接受写入，数据分裂，集群永久损坏。</p>
-<p><strong>产生条件</strong>（老版本 <code>discovery.zen.minimum_master_nodes</code> 配置不当）：5 节点集群配 <code>minimum_master_nodes=2</code>——网络分区把集群切成 3+2 两半，两边都能选出主节点，各自接受写入 → 恢复后数据冲突，不可修复。</p>
-<p><strong>防护三板斧</strong>：</p>
-<table>
-<thead>
-<tr>
-<th>手段</th>
-<th>机制</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>discovery.zen.minimum_master_nodes = (节点数/2) + 1</code></td>
-<td>选举需要过半数投票，少数派无法选主</td>
-</tr>
-<tr>
-<td>master 节点独立角色</td>
-<td>master-eligible 节点与 data 节点分离，master 不扛数据压力</td>
-</tr>
-<tr>
-<td>8.x 新机制（cluster.auto_shrink_voting_configuration）</td>
-<td>动态调整投票配置，自动规避多数派问题</td>
-</tr>
-</tbody></table>
-<p><strong>因果链</strong>：脑裂的根源是「少数派认为自己合法」——过半数投票规则让少数派选不出主（3 节点集群配 2 票，2+1 分区时 1 票的少数派选不出主）。<strong>面试答「怎么防脑裂」：一句话「minimum_master_nodes 设为过半」+ 一句解释「让少数派选不出主」</strong>，就到位了。</p>
-<h3 id="4-3-动手验证：复现-yellow-与理解-unassigned"><a href="#4-3-动手验证：复现-yellow-与理解-unassigned" class="headerlink" title="4.3 动手验证：复现 yellow 与理解 unassigned"></a>4.3 动手验证：复现 yellow 与理解 unassigned</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 单节点集群配了 1 副本 → 必然是 yellow</span></span><br><span class="line">curl <span class="string">&quot;localhost:9200/_cluster/health?pretty&quot;</span> --user elastic:PASSWORD</span><br><span class="line"><span class="comment"># status: &quot;yellow&quot;（主分片 3 个 ok，副本 3 个 unassigned）</span></span><br><span class="line">curl <span class="string">&quot;localhost:9200/_cat/shards?v&quot;</span> --user elastic:PASSWORD   <span class="comment"># 副本 R 全 UNASSIGNED</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 模拟故障：停掉唯一节点 → red（集群没有可用节点，直接失联）</span></span><br><span class="line">docker stop es-test</span><br></pre></td></tr></table></figure>
-
-<p>观察点：单节点 + 副本 → yellow 且 unassigned 列表齐全；节点全停 → 集群失联。判定标准：能解释「为什么单节点集群配副本是 yellow 而不是 green」——<strong>副本需要另一台节点才就位</strong>，这个「节点不足 → 副本不分配 → yellow」链条是集群健康的第一课。</p>
-<h2 id="5-面试应答：ES-深水区五连问"><a href="#5-面试应答：ES-深水区五连问" class="headerlink" title="5. 面试应答：ES 深水区五连问"></a>5. 面试应答：ES 深水区五连问</h2><h3 id="5-1-完整话术"><a href="#5-1-完整话术" class="headerlink" title="5.1 完整话术"></a>5.1 完整话术</h3><table>
-<thead>
-<tr>
-<th>面试题</th>
-<th>回答要点</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>ES 写入流程？</td>
-<td>内存 buffer（不可搜）→ 同步 translog → 1s refresh 成内存 segment（可搜）→ 30s flush 落盘清 translog；返回成功 &#x3D; translog 落盘</td>
-</tr>
-<tr>
-<td>为什么近实时？</td>
-<td>批量化换取吞吐：逐条刷盘吞吐崩，1s 攒批是平衡点；要实时用 refresh&#x3D;true 换</td>
-</tr>
-<tr>
-<td>主分片数为什么不能改？</td>
-<td>路由 hash % 分片数，改分母数据全找不到；改分片只能 reindex</td>
-</tr>
-<tr>
-<td>分片数怎么定？</td>
-<td>每分片 20-50GB 反推数量；生产副本 ≥1</td>
-</tr>
-<tr>
-<td>集群 yellow 怎么办？</td>
-<td>副本 unassigned：查节点数&#x2F;磁盘水位&#x2F;分配；必须当天处理，无副本 &#x3D; 无故障转移</td>
-</tr>
-<tr>
-<td>脑裂怎么防？</td>
-<td>minimum_master_nodes &#x3D; 过半（N&#x2F;2+1），少数派选不出主</td>
-</tr>
-</tbody></table>
-<h3 id="5-2-深挖：与-MySQL-WAL-的对照（跨篇联动）"><a href="#5-2-深挖：与-MySQL-WAL-的对照（跨篇联动）" class="headerlink" title="5.2 深挖：与 MySQL WAL 的对照（跨篇联动）"></a>5.2 深挖：与 MySQL WAL 的对照（跨篇联动）</h3><table>
-<thead>
-<tr>
-<th>维度</th>
-<th>MySQL</th>
-<th>ES</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>先记日志再落盘</td>
-<td>redo log（WAL）</td>
-<td>translog</td>
-</tr>
-<tr>
-<td>落盘周期</td>
-<td>每次提交（innodb_flush_log_at_trx_commit）</td>
-<td>30s 或 translog 满</td>
-</tr>
-<tr>
-<td>崩溃恢复</td>
-<td>redo log 重放</td>
-<td>translog 重放</td>
-</tr>
-<tr>
-<td>批量写</td>
-<td>group commit</td>
-<td>refresh 攒批</td>
-</tr>
-</tbody></table>
-<p><strong>一句话：ES 的 translog 就是搜索引擎界的 WAL——「先记日志、后落盘、日志兜底崩溃」是数据库与搜索引擎共同的设计底座</strong>（<a href="/post/32511a71.html">MySQL 原理与优化</a> 的 redo log 章节在此复用）。面试被问「ES 和 MySQL 的写入设计有什么共同点」，答出这一层是明显加分。</p>
-<h2 id="6-总结"><a href="#6-总结" class="headerlink" title="6. 总结"></a>6. 总结</h2><h3 id="6-1-面试速答表"><a href="#6-1-面试速答表" class="headerlink" title="6.1 面试速答表"></a>6.1 面试速答表</h3><table>
-<thead>
-<tr>
-<th>面试题</th>
-<th>一句话答案</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>ES 为什么是近实时？</td>
-<td>每秒 refresh 把内存 buffer 批量刷成 segment，逐条刷盘吞吐会崩</td>
-</tr>
-<tr>
-<td>translog 是什么？</td>
-<td>事务日志，先记日志再落盘，崩溃时重放——搜索引擎界的 WAL</td>
-</tr>
-<tr>
-<td>主分片数能改吗？</td>
-<td>不能：路由 hash % 分片数，改了数据找不到；只能 reindex</td>
-</tr>
-<tr>
-<td>分片大小怎么控制？</td>
-<td>每分片 20-50GB，总数据量反推数量；生产副本 ≥1</td>
-</tr>
-<tr>
-<td>yellow 和 red 区别？</td>
-<td>yellow&#x3D;副本缺失（可读写无故障转移）；red&#x3D;主分片缺失（数据不可用）</td>
-</tr>
-<tr>
-<td>脑裂怎么产生的？</td>
-<td>最小主节点数配置不当，网络分区后少数派也选出主，两边同时写</td>
-</tr>
-<tr>
-<td>怎么防脑裂？</td>
-<td>minimum_master_nodes &#x3D; N&#x2F;2+1，少数派选不出主</td>
-</tr>
-</tbody></table>
-<h3 id="6-2-实战避坑表"><a href="#6-2-实战避坑表" class="headerlink" title="6.2 实战避坑表"></a>6.2 实战避坑表</h3><table>
-<thead>
-<tr>
-<th>症状</th>
-<th>原因</th>
-<th>处理</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>写入后搜不到</td>
-<td>默认 1s refresh</td>
-<td>明确需求：能等 1s 则不改；必须实时则 refresh&#x3D;true&#x2F;可搜索快照</td>
-</tr>
-<tr>
-<td>集群长期 yellow</td>
-<td>副本 unassigned（节点不足&#x2F;磁盘水位）</td>
-<td><code>_cat/allocation</code> 定位；加节点或调水位线</td>
-</tr>
-<tr>
-<td>集群突然 red</td>
-<td>节点挂 + 无副本</td>
-<td>恢复节点；无副本的 red 不可自愈，需快照恢复</td>
-</tr>
-<tr>
-<td>改分片数报错</td>
-<td>路由不可变</td>
-<td>新建索引 + <code>_reindex</code></td>
-</tr>
-<tr>
-<td>集群变慢</td>
-<td>大段 merge 在跑</td>
-<td>监控 merge 指标，错峰触发；分片过大</td>
-</tr>
-<tr>
-<td>单节点配副本</td>
-<td>副本永远 unassigned</td>
-<td>单节点集群副本数设 0，或直接上多节点</td>
-</tr>
-</tbody></table>
-<h3 id="6-3-工具速查表"><a href="#6-3-工具速查表" class="headerlink" title="6.3 工具速查表"></a>6.3 工具速查表</h3><table>
-<thead>
-<tr>
-<th>工具&#x2F;API</th>
-<th>用途</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>GET /_cluster/health</code></td>
-<td>三色健康状态</td>
-</tr>
-<tr>
-<td><code>GET /_cat/shards?v</code></td>
-<td>分片分布与 unassigned 定位</td>
-</tr>
-<tr>
-<td><code>GET /_cat/allocation</code></td>
-<td>分片为什么没分配（磁盘水位等）</td>
-</tr>
-<tr>
-<td><code>GET /_cat/indices?v</code></td>
-<td>索引级状态与大小</td>
-</tr>
-<tr>
-<td><code>GET /_nodes/hot_threads</code></td>
-<td>节点 CPU 热点定位</td>
-</tr>
-<tr>
-<td><code>GET /_cluster/pending_tasks</code></td>
-<td>集群级任务堆积</td>
-</tr>
-</tbody></table>
-<h3 id="6-4-下一篇预告"><a href="#6-4-下一篇预告" class="headerlink" title="6.4 下一篇预告"></a>6.4 下一篇预告</h3><p>原理篇回答「数据怎么存、怎么分布、怎么不丢」，下一篇《ES 查询优化与实战》回答「数据怎么查得快、查得准」：深度分页（from+size 为什么 1 万行内、search_after&#x2F;scroll 的正确用法）、聚合原理、以及<strong>MySQL 与 ES 双写一致性</strong>（binlog 订阅 vs 双写 vs 本地消息表）——搜索场景上生产的最后一块拼图。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/71aac160.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="知行栈">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | 知行栈">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/71aac160.html" class="post-title-link" itemprop="url">从零实现智能工单 Agent：MCP+RAG 全流程实战</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-
-      <time title="Created: 2026-08-13 13:00:00" itemprop="dateCreated datePublished" datetime="2026-08-13T13:00:00+08:00">2026-08-13</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">In</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/AI%E5%A4%A7%E6%A8%A1%E5%9E%8B/" itemprop="url" rel="index"><span itemprop="name">AI大模型</span></a>
-        </span>
-    </span>
-
-  
-    <span class="post-meta-break"></span>
-    <span class="post-meta-item" title="Word count in article">
-      <span class="post-meta-item-icon">
-        <i class="far fa-file-word"></i>
-      </span>
-      <span class="post-meta-item-text">Word count in article: </span>
-      <span>5.7k</span>
-    </span>
-    <span class="post-meta-item" title="Reading time">
-      <span class="post-meta-item-icon">
-        <i class="far fa-clock"></i>
-      </span>
-      <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>21 mins.</span>
-    </span>
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <p><strong>智能工单 Agent（ITPA）是一个「把 LLM 接进业务系统」的最小完整样板：接收入口（MCP Server）→ 分类判断（LLM）→ 知识检索（RAG）→ 回复生成（LLM）→ 数据落库（MySQL），一条链覆盖 AI 应用的全部核心模式。</strong> 本项目用 TypeScript 从零实现，读者是懂 Java 后端的开发者——每个技术选型都对照你熟悉的 Java 生态（TypeORM≈JPA、Fastify≈Spring Boot、Pino≈Logback）。读完你能复刻一个可运行的 Agent 服务，并理解 MCP 协议、向量检索、结构化输出的完整工程细节。</p>
-<blockquote>
-<p>联动：本文是 <a href="/post/8e39890e-rev1.html">MCP 开发指南</a> 的完整落地案例（协议从概念到代码）、<a href="/post/rag-2026.html">RAG 原理与实践</a> 的工程实现（Embedding&#x2F;检索&#x2F;阈值）、<a href="/post/llm-api-tool-calling-2026.html">LLM API 与工具调用实战</a> 的实战演练（Function Calling&#x2F;JSON 输出）。姊妹篇：Python 版实现见 <a href="/post/f4198aab.html">ticket-agent-mcp(py)</a>，两版结构约 80% 重叠，按熟悉的技术栈选一篇精读。</p>
-</blockquote>
-<h2 id="1-项目定位：解决什么问题"><a href="#1-项目定位：解决什么问题" class="headerlink" title="1. 项目定位：解决什么问题"></a>1. 项目定位：解决什么问题</h2><h3 id="1-1-真实业务痛点"><a href="#1-1-真实业务痛点" class="headerlink" title="1.1 真实业务痛点"></a>1.1 真实业务痛点</h3><p>典型中大型企业客服场景：<strong>每天 500+ 用户工单，涵盖技术问题、账单疑问、账户申诉、产品咨询、投诉反馈五大类</strong>。纯人工处理带来三个核心痛点：</p>
-<table>
-<thead>
-<tr>
-<th>痛点</th>
-<th>表现</th>
-<th>成本</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>响应速度慢</td>
-<td>平均响应 &gt;2 小时</td>
-<td>用户流失</td>
-</tr>
-<tr>
-<td>人力成本高</td>
-<td>客服团队随工单量线性扩张</td>
-<td>工资 × N</td>
-</tr>
-<tr>
-<td>知识资产难沉淀</td>
-<td>老客服的经验无法复制</td>
-<td>培训周期长</td>
-</tr>
-</tbody></table>
-<p>本项目构建的智能工单 Agent 接入企业现有工单系统，自动完成四件事：</p>
-<ol>
-<li><strong>自动分类</strong>：识别工单属于哪一类问题（LLM + 结构化输出）；</li>
-<li><strong>相似检索</strong>：基于向量相似度检索历史已解决工单与 FAQ（RAG）；</li>
-<li><strong>生成回复</strong>：结合检索结果生成可供人工审批的回复草稿（LLM）；</li>
-<li><strong>落库流转</strong>：写入 MySQL，自动分配优先级与状态（工程化）。</li>
-</ol>
-<p><strong>设计定位</strong>：不是「全自动客服」，而是「人审 AI 草稿」——回复生成后必须人工审批才发出。<strong>这是 AI 应用上生产的第一原则：LLM 输出不可直接面对用户，置信度低时降级给人</strong>。</p>
-<h3 id="1-2-为什么用这个项目练手"><a href="#1-2-为什么用这个项目练手" class="headerlink" title="1.2 为什么用这个项目练手"></a>1.2 为什么用这个项目练手</h3><ul>
-<li><strong>全链路覆盖</strong>：HTTP&#x2F;MCP 接入 → 分类 → 向量检索 → LLM 生成 → 数据库落库，一条完整的「请求-处理-响应」链路；</li>
-<li><strong>AI 原生</strong>：真实调用 OpenAI API，理解 embedding&#x2F;chat 两类核心接口；</li>
-<li><strong>生产级复杂度</strong>：JSON Schema 验证（Zod）、结构化日志（Pino）、连接池、健康检查、容器化——不是玩具项目；</li>
-<li><strong>可演进</strong>：从本地 stdio 模式起步，一行配置切到 HTTP 模式的分布式部署。</li>
-</ul>
-<h2 id="2-技术选型：对照-Java-生态看"><a href="#2-技术选型：对照-Java-生态看" class="headerlink" title="2. 技术选型：对照 Java 生态看"></a>2. 技术选型：对照 Java 生态看</h2><table>
-<thead>
-<tr>
-<th>维度</th>
-<th>选型</th>
-<th>Java 类比</th>
-<th>选型理由</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>语言</td>
-<td>TypeScript 5.x</td>
-<td>Java</td>
-<td>静态类型，类型安全接近 Java</td>
-</tr>
-<tr>
-<td>Runtime</td>
-<td><strong>Bun</strong> 1.x</td>
-<td>JVM</td>
-<td>原生 TS、一体化工具链（包管理&#x2F;测试&#x2F;运行），类似 Maven 但更快</td>
-</tr>
-<tr>
-<td>Web 框架</td>
-<td>Fastify</td>
-<td>Spring Boot</td>
-<td>高性能、内置 JSON Schema 验证、插件架构</td>
-</tr>
-<tr>
-<td>ORM</td>
-<td>TypeORM</td>
-<td>JPA&#x2F;Hibernate</td>
-<td>支持 Active Record 与 Data Mapper</td>
-</tr>
-<tr>
-<td>数据库</td>
-<td>MySQL 8.0</td>
-<td>MySQL</td>
-<td>熟悉；向量用 JSON 列存、应用层算相似度</td>
-</tr>
-<tr>
-<td>MCP SDK</td>
-<td><code>@modelcontextprotocol/sdk</code></td>
-<td>—</td>
-<td>Anthropic 官方 TypeScript SDK</td>
-</tr>
-<tr>
-<td>日志</td>
-<td>Pino</td>
-<td>Logback</td>
-<td>结构化 JSON 日志，性能极高</td>
-</tr>
-<tr>
-<td>验证&#x2F;配置</td>
-<td>Zod + dotenv</td>
-<td>Bean Validation + 配置绑定</td>
-<td>运行时配置校验，启动即失败</td>
-</tr>
-<tr>
-<td>测试</td>
-<td>Bun 内置 + Vitest</td>
-<td>JUnit</td>
-<td>开发测试一体化</td>
-</tr>
-<tr>
-<td>容器化</td>
-<td>Docker + Compose</td>
-<td>Docker</td>
-<td>统一部署</td>
-</tr>
-</tbody></table>
-<p><strong>关键决策一：为什么用 Bun 而不是 Node.js？</strong> Bun 把包管理（<code>bun install</code>≈Maven 依赖）、TS 运行（<code>bun run</code>≈直接运行 Java）、测试（<code>bun test</code>≈JUnit）、打包（<code>bun build</code>≈Maven Shade）整合进一个工具链——<strong>Java 开发者最习惯的「一个工具链搞定一切」体验</strong>。启动 10ms（Node 约 100ms），运行时快 2-4 倍。</p>
-<p><strong>关键决策二：为什么 MySQL 存向量而不是上向量数据库？</strong> 数据量小时（万级工单），MySQL JSON 列 + 应用层余弦相似度完全够用——<strong>少一个基础设施，少一类运维问题</strong>。数据量大或需要 ANN 索引时再迁移 HeatWave&#x2F;单独向量库（<a href="/post/vector-db-2026.html">向量数据库原理与实践</a> 已讲选型）。这是「架构演进而非一步到位」的典型。</p>
-<h2 id="3-架构设计：MCP-协议-分层"><a href="#3-架构设计：MCP-协议-分层" class="headerlink" title="3. 架构设计：MCP 协议 + 分层"></a>3. 架构设计：MCP 协议 + 分层</h2><h3 id="3-1-MCP-协议核心原语"><a href="#3-1-MCP-协议核心原语" class="headerlink" title="3.1 MCP 协议核心原语"></a>3.1 MCP 协议核心原语</h3><p>MCP（Model Context Protocol）是 Anthropic 2024 年 11 月推出的开放标准，统一 AI 应用的「工具使用」方式。三个核心原语：</p>
-<table>
-<thead>
-<tr>
-<th>原语</th>
-<th>类比（Java 视角）</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><strong>Tools</strong></td>
-<td>RPC 远程调用</td>
-<td>可被 AI 调用的函数，有明确输入输出 schema</td>
-</tr>
-<tr>
-<td><strong>Resources</strong></td>
-<td>REST 只读资源</td>
-<td>AI 可按需读取的数据源</td>
-</tr>
-<tr>
-<td><strong>Prompts</strong></td>
-<td>模板引擎</td>
-<td>可复用提示词模板，用户可手动调用</td>
-</tr>
-</tbody></table>
-<p>传输方式两种：<strong>STDIO</strong>（本地进程，Claude Desktop 等桌面客户端用）和 <strong>Streamable HTTP</strong>（远程部署）。本项目实现双模式，<code>MCP_TRANSPORT</code> 环境变量切换。</p>
-<h3 id="3-2-分层架构"><a href="#3-2-分层架构" class="headerlink" title="3.2 分层架构"></a>3.2 分层架构</h3><pre class="mermaid">flowchart TD
-    C["MCP Client 层&lt;br/>Claude Desktop / Cursor / HTTP Client"]
-    C -->|"MCP Protocol&lt;br/>JSON-RPC 2.0 over stdio / HTTP"| S["MCP Server 层&lt;br/>Tools: classify / generate / create&lt;br/>Resources: FAQ / history"]
-    S --> V["服务层&lt;br/>ClassificationService&lt;br/>GenerationService&lt;br/>EmbeddingService / RetrievalService"]
-    V --> R["仓储层（Repository 模式）&lt;br/>TicketRepository / FaqRepository / LogRepository"]
-    R --> DB["MySQL 8.0&lt;br/>tickets / faq / processing_logs"]
-    V --> REDIS["Redis&lt;br/>embedding 缓存 / 会话缓存 / 限流计数"]
-    V --> LLM["OpenAI API&lt;br/>text-embedding-3-small&lt;br/>gpt-4o-mini"]</pre>
-
-<p><strong>每一层只做一件事</strong>：MCP 层管协议、服务层管业务（分类&#x2F;生成&#x2F;检索）、仓储层管数据。<strong>这个分层与 Spring 的 Controller → Service → Repository 是同构的——从 Java 转过来的人看这个结构零成本</strong>。依赖注入用手动构造函数注入（简单可控、便于测试），不引 IoC 容器。</p>
-<h2 id="4-数据模型：三张表支撑整个-Agent"><a href="#4-数据模型：三张表支撑整个-Agent" class="headerlink" title="4. 数据模型：三张表支撑整个 Agent"></a>4. 数据模型：三张表支撑整个 Agent</h2><h3 id="4-1-核心实体"><a href="#4-1-核心实体" class="headerlink" title="4.1 核心实体"></a>4.1 核心实体</h3><p><strong>工单表（tickets）</strong>——Agent 处理的对象，分类&#x2F;优先级&#x2F;状态三枚举 + 向量列：</p>
-<figure class="highlight typescript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// src/entities/Ticket.ts</span></span><br><span class="line"><span class="keyword">import</span> &#123; <span class="title class_">Entity</span>, <span class="title class_">PrimaryGeneratedColumn</span>, <span class="title class_">Column</span>, <span class="title class_">CreateDateColumn</span>, <span class="title class_">UpdateDateColumn</span> &#125; <span class="keyword">from</span> <span class="string">&#x27;typeorm&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="keyword">export</span> <span class="keyword">enum</span> <span class="title class_">TicketCategory</span> &#123;</span><br><span class="line">  <span class="variable constant_">TECHNICAL</span> = <span class="string">&#x27;technical&#x27;</span>, <span class="variable constant_">BILLING</span> = <span class="string">&#x27;billing&#x27;</span>, <span class="variable constant_">ACCOUNT</span> = <span class="string">&#x27;account&#x27;</span>,</span><br><span class="line">  <span class="variable constant_">PRODUCT</span> = <span class="string">&#x27;product&#x27;</span>, <span class="variable constant_">COMPLAINT</span> = <span class="string">&#x27;complaint&#x27;</span>,</span><br><span class="line">&#125;</span><br><span class="line"><span class="keyword">export</span> <span class="keyword">enum</span> <span class="title class_">TicketPriority</span> &#123; <span class="variable constant_">LOW</span> = <span class="string">&#x27;low&#x27;</span>, <span class="variable constant_">NORMAL</span> = <span class="string">&#x27;normal&#x27;</span>, <span class="variable constant_">HIGH</span> = <span class="string">&#x27;high&#x27;</span>, <span class="variable constant_">URGENT</span> = <span class="string">&#x27;urgent&#x27;</span> &#125;</span><br><span class="line"><span class="keyword">export</span> <span class="keyword">enum</span> <span class="title class_">TicketStatus</span> &#123; <span class="variable constant_">PENDING</span> = <span class="string">&#x27;pending&#x27;</span>, <span class="variable constant_">PROCESSING</span> = <span class="string">&#x27;processing&#x27;</span>, <span class="variable constant_">RESOLVED</span> = <span class="string">&#x27;resolved&#x27;</span>, <span class="variable constant_">CLOSED</span> = <span class="string">&#x27;closed&#x27;</span> &#125;</span><br><span class="line"></span><br><span class="line"><span class="meta">@Entity</span>(<span class="string">&#x27;tickets&#x27;</span>)</span><br><span class="line"><span class="keyword">export</span> <span class="keyword">class</span> <span class="title class_">Ticket</span> &#123;</span><br><span class="line">  <span class="meta">@PrimaryGeneratedColumn</span>(<span class="string">&#x27;uuid&#x27;</span>)</span><br><span class="line">  <span class="attr">id</span>: <span class="built_in">string</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(&#123; <span class="attr">length</span>: <span class="number">50</span>, <span class="attr">unique</span>: <span class="literal">true</span> &#125;)</span><br><span class="line">  <span class="attr">ticketNumber</span>: <span class="built_in">string</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(&#123; <span class="attr">length</span>: <span class="number">500</span> &#125;)</span><br><span class="line">  <span class="attr">title</span>: <span class="built_in">string</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(<span class="string">&#x27;text&#x27;</span>)</span><br><span class="line">  <span class="attr">content</span>: <span class="built_in">string</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(&#123; <span class="attr">type</span>: <span class="string">&#x27;enum&#x27;</span>, <span class="attr">enum</span>: <span class="title class_">TicketCategory</span>, <span class="attr">default</span>: <span class="title class_">TicketCategory</span>.<span class="property">TECHNICAL</span> &#125;)</span><br><span class="line">  <span class="attr">category</span>: <span class="title class_">TicketCategory</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(&#123; <span class="attr">type</span>: <span class="string">&#x27;enum&#x27;</span>, <span class="attr">enum</span>: <span class="title class_">TicketPriority</span>, <span class="attr">default</span>: <span class="title class_">TicketPriority</span>.<span class="property">NORMAL</span> &#125;)</span><br><span class="line">  <span class="attr">priority</span>: <span class="title class_">TicketPriority</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(&#123; <span class="attr">type</span>: <span class="string">&#x27;enum&#x27;</span>, <span class="attr">enum</span>: <span class="title class_">TicketStatus</span>, <span class="attr">default</span>: <span class="title class_">TicketStatus</span>.<span class="property">PENDING</span> &#125;)</span><br><span class="line">  <span class="attr">status</span>: <span class="title class_">TicketStatus</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(&#123; <span class="attr">nullable</span>: <span class="literal">true</span> &#125;)</span><br><span class="line">  <span class="attr">userId</span>: <span class="built_in">string</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(&#123; <span class="attr">length</span>: <span class="number">200</span>, <span class="attr">nullable</span>: <span class="literal">true</span> &#125;)</span><br><span class="line">  <span class="attr">userEmail</span>: <span class="built_in">string</span>;</span><br><span class="line"></span><br><span class="line">  <span class="comment">// 向量字段：JSON 列存储（MySQL 暂无原生 vector 支持，应用层算相似度）</span></span><br><span class="line">  <span class="meta">@Column</span>(&#123; <span class="attr">type</span>: <span class="string">&#x27;json&#x27;</span>, <span class="attr">nullable</span>: <span class="literal">true</span> &#125;)</span><br><span class="line">  <span class="attr">embedding</span>: <span class="built_in">number</span>[];</span><br><span class="line"></span><br><span class="line">  <span class="meta">@CreateDateColumn</span>()</span><br><span class="line">  <span class="attr">createdAt</span>: <span class="title class_">Date</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@UpdateDateColumn</span>()</span><br><span class="line">  <span class="attr">updatedAt</span>: <span class="title class_">Date</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(&#123; <span class="attr">nullable</span>: <span class="literal">true</span> &#125;)</span><br><span class="line">  <span class="attr">resolvedAt</span>: <span class="title class_">Date</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(&#123; <span class="attr">nullable</span>: <span class="literal">true</span> &#125;)</span><br><span class="line">  <span class="attr">resolvedBy</span>: <span class="built_in">string</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>FAQ 表（faq）</strong>——RAG 的知识库载体（问题 + 答案 + 向量）：</p>
-<figure class="highlight typescript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// src/entities/Faq.ts</span></span><br><span class="line"><span class="meta">@Entity</span>(<span class="string">&#x27;faq&#x27;</span>)</span><br><span class="line"><span class="keyword">export</span> <span class="keyword">class</span> <span class="title class_">Faq</span> &#123;</span><br><span class="line">  <span class="meta">@PrimaryGeneratedColumn</span>(<span class="string">&#x27;uuid&#x27;</span>)</span><br><span class="line">  <span class="attr">id</span>: <span class="built_in">string</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(<span class="string">&#x27;text&#x27;</span>)</span><br><span class="line">  <span class="attr">question</span>: <span class="built_in">string</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(<span class="string">&#x27;text&#x27;</span>)</span><br><span class="line">  <span class="attr">answer</span>: <span class="built_in">string</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(&#123; <span class="attr">length</span>: <span class="number">50</span>, <span class="attr">nullable</span>: <span class="literal">true</span> &#125;)</span><br><span class="line">  <span class="attr">category</span>: <span class="built_in">string</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(<span class="string">&#x27;simple-array&#x27;</span>, &#123; <span class="attr">nullable</span>: <span class="literal">true</span> &#125;)</span><br><span class="line">  <span class="attr">tags</span>: <span class="built_in">string</span>[];</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(&#123; <span class="attr">type</span>: <span class="string">&#x27;json&#x27;</span>, <span class="attr">nullable</span>: <span class="literal">true</span> &#125;)</span><br><span class="line">  <span class="attr">embedding</span>: <span class="built_in">number</span>[];</span><br><span class="line"></span><br><span class="line">  <span class="meta">@CreateDateColumn</span>()</span><br><span class="line">  <span class="attr">createdAt</span>: <span class="title class_">Date</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@UpdateDateColumn</span>()</span><br><span class="line">  <span class="attr">updatedAt</span>: <span class="title class_">Date</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>处理日志表（processing_logs）</strong>——可观测性：每次 AI 调用（分类&#x2F;生成）的入参、出参、延迟、错误全记录：</p>
-<figure class="highlight typescript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// src/entities/ProcessingLog.ts</span></span><br><span class="line"><span class="meta">@Entity</span>(<span class="string">&#x27;processing_logs&#x27;</span>)</span><br><span class="line"><span class="keyword">export</span> <span class="keyword">class</span> <span class="title class_">ProcessingLog</span> &#123;</span><br><span class="line">  <span class="meta">@PrimaryGeneratedColumn</span>()</span><br><span class="line">  <span class="attr">id</span>: <span class="built_in">number</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(<span class="string">&#x27;uuid&#x27;</span>, &#123; <span class="attr">nullable</span>: <span class="literal">true</span> &#125;)</span><br><span class="line">  <span class="attr">ticketId</span>: <span class="built_in">string</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(&#123; <span class="attr">length</span>: <span class="number">50</span> &#125;)</span><br><span class="line">  <span class="attr">operation</span>: <span class="built_in">string</span>; <span class="comment">// classify, generate, create</span></span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(&#123; <span class="attr">type</span>: <span class="string">&#x27;json&#x27;</span>, <span class="attr">nullable</span>: <span class="literal">true</span> &#125;)</span><br><span class="line">  <span class="attr">requestData</span>: <span class="built_in">any</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(&#123; <span class="attr">type</span>: <span class="string">&#x27;json&#x27;</span>, <span class="attr">nullable</span>: <span class="literal">true</span> &#125;)</span><br><span class="line">  <span class="attr">responseData</span>: <span class="built_in">any</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(&#123; <span class="attr">nullable</span>: <span class="literal">true</span> &#125;)</span><br><span class="line">  <span class="attr">latencyMs</span>: <span class="built_in">number</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(&#123; <span class="attr">type</span>: <span class="string">&#x27;text&#x27;</span>, <span class="attr">nullable</span>: <span class="literal">true</span> &#125;)</span><br><span class="line">  <span class="attr">errorMessage</span>: <span class="built_in">string</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@CreateDateColumn</span>()</span><br><span class="line">  <span class="attr">createdAt</span>: <span class="title class_">Date</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>设计要点</strong>：<code>embedding</code> 用 JSON 列存（1536 维 float 数组 ≈ 6KB&#x2F;行，万级数据可接受）；日志表记录每一次 LLM 调用的入参出参——<strong>这是 AI 应用排障的命脉：LLM 输出不可复现，只有日志能还原当时它看到了什么</strong>。</p>
-<h3 id="4-2-建表-SQL-要点"><a href="#4-2-建表-SQL-要点" class="headerlink" title="4.2 建表 SQL 要点"></a>4.2 建表 SQL 要点</h3><figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">CREATE</span> DATABASE IF <span class="keyword">NOT</span> <span class="keyword">EXISTS</span> ticket_agent <span class="keyword">CHARACTER SET</span> utf8mb4 <span class="keyword">COLLATE</span> utf8mb4_unicode_ci;</span><br><span class="line"></span><br><span class="line"><span class="keyword">CREATE TABLE</span> tickets (</span><br><span class="line">    id <span class="type">CHAR</span>(<span class="number">36</span>) <span class="keyword">PRIMARY KEY</span> <span class="keyword">DEFAULT</span> (UUID()),</span><br><span class="line">    ticket_number <span class="type">VARCHAR</span>(<span class="number">50</span>) <span class="keyword">UNIQUE</span> <span class="keyword">NOT NULL</span>,</span><br><span class="line">    title <span class="type">VARCHAR</span>(<span class="number">500</span>) <span class="keyword">NOT NULL</span>,</span><br><span class="line">    content TEXT <span class="keyword">NOT NULL</span>,</span><br><span class="line">    category ENUM(<span class="string">&#x27;technical&#x27;</span>,<span class="string">&#x27;billing&#x27;</span>,<span class="string">&#x27;account&#x27;</span>,<span class="string">&#x27;product&#x27;</span>,<span class="string">&#x27;complaint&#x27;</span>) <span class="keyword">NOT NULL</span>,</span><br><span class="line">    priority ENUM(<span class="string">&#x27;low&#x27;</span>,<span class="string">&#x27;normal&#x27;</span>,<span class="string">&#x27;high&#x27;</span>,<span class="string">&#x27;urgent&#x27;</span>) <span class="keyword">DEFAULT</span> <span class="string">&#x27;normal&#x27;</span>,</span><br><span class="line">    status ENUM(<span class="string">&#x27;pending&#x27;</span>,<span class="string">&#x27;processing&#x27;</span>,<span class="string">&#x27;resolved&#x27;</span>,<span class="string">&#x27;closed&#x27;</span>) <span class="keyword">DEFAULT</span> <span class="string">&#x27;pending&#x27;</span>,</span><br><span class="line">    user_id <span class="type">VARCHAR</span>(<span class="number">100</span>),</span><br><span class="line">    user_email <span class="type">VARCHAR</span>(<span class="number">200</span>),</span><br><span class="line">    embedding JSON,</span><br><span class="line">    created_at <span class="type">TIMESTAMP</span> <span class="keyword">DEFAULT</span> <span class="built_in">CURRENT_TIMESTAMP</span>,</span><br><span class="line">    updated_at <span class="type">TIMESTAMP</span> <span class="keyword">DEFAULT</span> <span class="built_in">CURRENT_TIMESTAMP</span> <span class="keyword">ON</span> <span class="keyword">UPDATE</span> <span class="built_in">CURRENT_TIMESTAMP</span>,</span><br><span class="line">    INDEX idx_category (category),</span><br><span class="line">    INDEX idx_status (status),</span><br><span class="line">    INDEX idx_created_at (created_at)</span><br><span class="line">);</span><br><span class="line"><span class="comment">-- faq、processing_logs 表结构见源码仓库；faq 加 FULLTEXT INDEX 支持关键词兜底</span></span><br></pre></td></tr></table></figure>
-
-<p><strong>索引策略</strong>：状态&#x2F;分类&#x2F;时间三个高频筛选条件建索引；<strong>向量检索不建索引</strong>（应用层全量算，数据量大时换向量库）。</p>
-<h2 id="5-工程基础：配置、日志、数据源"><a href="#5-工程基础：配置、日志、数据源" class="headerlink" title="5. 工程基础：配置、日志、数据源"></a>5. 工程基础：配置、日志、数据源</h2><h3 id="5-1-配置管理（Zod：启动即校验，配置错不让服务起来）"><a href="#5-1-配置管理（Zod：启动即校验，配置错不让服务起来）" class="headerlink" title="5.1 配置管理（Zod：启动即校验，配置错不让服务起来）"></a>5.1 配置管理（Zod：启动即校验，配置错不让服务起来）</h3><figure class="highlight typescript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// src/config/schema.ts —— Zod schema 定义全部配置</span></span><br><span class="line"><span class="keyword">import</span> &#123; z &#125; <span class="keyword">from</span> <span class="string">&#x27;zod&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="keyword">export</span> <span class="keyword">const</span> configSchema = z.<span class="title function_">object</span>(&#123;</span><br><span class="line">  <span class="attr">NODE_ENV</span>: z.<span class="title function_">enum</span>([<span class="string">&#x27;development&#x27;</span>, <span class="string">&#x27;test&#x27;</span>, <span class="string">&#x27;production&#x27;</span>]).<span class="title function_">default</span>(<span class="string">&#x27;development&#x27;</span>),</span><br><span class="line">  <span class="attr">PORT</span>: z.<span class="property">coerce</span>.<span class="title function_">number</span>().<span class="title function_">default</span>(<span class="number">3000</span>),</span><br><span class="line">  <span class="attr">MCP_TRANSPORT</span>: z.<span class="title function_">enum</span>([<span class="string">&#x27;stdio&#x27;</span>, <span class="string">&#x27;http&#x27;</span>]).<span class="title function_">default</span>(<span class="string">&#x27;stdio&#x27;</span>),</span><br><span class="line">  <span class="attr">MCP_HTTP_HOST</span>: z.<span class="title function_">string</span>().<span class="title function_">default</span>(<span class="string">&#x27;127.0.0.1&#x27;</span>),</span><br><span class="line">  <span class="attr">MCP_HTTP_PORT</span>: z.<span class="property">coerce</span>.<span class="title function_">number</span>().<span class="title function_">default</span>(<span class="number">8080</span>),</span><br><span class="line"></span><br><span class="line">  <span class="attr">DB_HOST</span>: z.<span class="title function_">string</span>().<span class="title function_">default</span>(<span class="string">&#x27;localhost&#x27;</span>),</span><br><span class="line">  <span class="attr">DB_PORT</span>: z.<span class="property">coerce</span>.<span class="title function_">number</span>().<span class="title function_">default</span>(<span class="number">3306</span>),</span><br><span class="line">  <span class="attr">DB_USER</span>: z.<span class="title function_">string</span>().<span class="title function_">default</span>(<span class="string">&#x27;root&#x27;</span>),</span><br><span class="line">  <span class="attr">DB_PASSWORD</span>: z.<span class="title function_">string</span>(),</span><br><span class="line">  <span class="attr">DB_NAME</span>: z.<span class="title function_">string</span>().<span class="title function_">default</span>(<span class="string">&#x27;ticket_agent&#x27;</span>),</span><br><span class="line"></span><br><span class="line">  <span class="attr">REDIS_HOST</span>: z.<span class="title function_">string</span>().<span class="title function_">default</span>(<span class="string">&#x27;localhost&#x27;</span>),</span><br><span class="line">  <span class="attr">REDIS_PORT</span>: z.<span class="property">coerce</span>.<span class="title function_">number</span>().<span class="title function_">default</span>(<span class="number">6379</span>),</span><br><span class="line"></span><br><span class="line">  <span class="attr">OPENAI_API_KEY</span>: z.<span class="title function_">string</span>(),</span><br><span class="line">  <span class="attr">OPENAI_MODEL</span>: z.<span class="title function_">string</span>().<span class="title function_">default</span>(<span class="string">&#x27;gpt-4o-mini&#x27;</span>),</span><br><span class="line">  <span class="attr">EMBEDDING_MODEL</span>: z.<span class="title function_">string</span>().<span class="title function_">default</span>(<span class="string">&#x27;text-embedding-3-small&#x27;</span>),</span><br><span class="line"></span><br><span class="line">  <span class="attr">LOG_LEVEL</span>: z.<span class="title function_">enum</span>([<span class="string">&#x27;trace&#x27;</span>,<span class="string">&#x27;debug&#x27;</span>,<span class="string">&#x27;info&#x27;</span>,<span class="string">&#x27;warn&#x27;</span>,<span class="string">&#x27;error&#x27;</span>,<span class="string">&#x27;fatal&#x27;</span>]).<span class="title function_">default</span>(<span class="string">&#x27;info&#x27;</span>),</span><br><span class="line">  <span class="attr">LOG_PRETTY</span>: z.<span class="property">coerce</span>.<span class="title function_">boolean</span>().<span class="title function_">default</span>(<span class="literal">true</span>),</span><br><span class="line">&#125;);</span><br><span class="line"><span class="keyword">export</span> <span class="keyword">type</span> <span class="title class_">Config</span> = z.<span class="property">infer</span>&lt;<span class="keyword">typeof</span> configSchema&gt;;</span><br></pre></td></tr></table></figure>
-
-<figure class="highlight typescript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// src/config/index.ts —— 按环境加载 .env.&#123;profile&#125; + 校验</span></span><br><span class="line"><span class="keyword">import</span> dotenv <span class="keyword">from</span> <span class="string">&#x27;dotenv&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; configSchema, <span class="keyword">type</span> <span class="title class_">Config</span> &#125; <span class="keyword">from</span> <span class="string">&#x27;./schema&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="keyword">const</span> envFile = <span class="string">`.env.<span class="subst">$&#123;process.env.NODE_ENV || <span class="string">&#x27;development&#x27;</span>&#125;</span>`</span>;</span><br><span class="line">dotenv.<span class="title function_">config</span>(&#123; <span class="attr">path</span>: envFile &#125;);</span><br><span class="line">dotenv.<span class="title function_">config</span>(&#123; <span class="attr">path</span>: <span class="string">&#x27;.env&#x27;</span>, <span class="attr">override</span>: <span class="literal">false</span> &#125;);   <span class="comment">// fallback</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">function</span> <span class="title function_">validateConfig</span>(<span class="params"></span>): <span class="title class_">Config</span> &#123;</span><br><span class="line">  <span class="keyword">try</span> &#123;</span><br><span class="line">    <span class="keyword">return</span> configSchema.<span class="title function_">parse</span>(process.<span class="property">env</span>);</span><br><span class="line">  &#125; <span class="keyword">catch</span> (error) &#123;</span><br><span class="line">    <span class="variable language_">console</span>.<span class="title function_">error</span>(<span class="string">&#x27;Invalid configuration:&#x27;</span>, error);</span><br><span class="line">    process.<span class="title function_">exit</span>(<span class="number">1</span>);                                  <span class="comment">// 配置错 → 启动即失败</span></span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br><span class="line"><span class="keyword">export</span> <span class="keyword">const</span> <span class="attr">config</span>: <span class="title class_">Config</span> = <span class="title function_">validateConfig</span>();</span><br></pre></td></tr></table></figure>
-
-<p><strong>为什么值得学</strong>：Java 的 <code>@ConfigurationProperties</code> + 校验是编译期&#x2F;启动期兜底，Zod 把同一能力带到 TS 运行时——<strong>「错误尽早暴露」是工程化第一原则</strong>：配置缺失让服务启动失败，而不是运行到一半才炸。</p>
-<h3 id="5-2-结构化日志（Pino：排障靠它还原现场）"><a href="#5-2-结构化日志（Pino：排障靠它还原现场）" class="headerlink" title="5.2 结构化日志（Pino：排障靠它还原现场）"></a>5.2 结构化日志（Pino：排障靠它还原现场）</h3><figure class="highlight typescript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// src/lib/logger.ts</span></span><br><span class="line"><span class="keyword">import</span> pino <span class="keyword">from</span> <span class="string">&#x27;pino&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; config &#125; <span class="keyword">from</span> <span class="string">&#x27;../config&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="keyword">export</span> <span class="keyword">const</span> logger = <span class="title function_">pino</span>(&#123;</span><br><span class="line">  <span class="attr">level</span>: config.<span class="property">LOG_LEVEL</span>,</span><br><span class="line">  <span class="attr">transport</span>: config.<span class="property">NODE_ENV</span> === <span class="string">&#x27;development&#x27;</span> &amp;&amp; config.<span class="property">LOG_PRETTY</span></span><br><span class="line">    ? &#123; <span class="attr">target</span>: <span class="string">&#x27;pino-pretty&#x27;</span>, <span class="attr">options</span>: &#123; <span class="attr">colorize</span>: <span class="literal">true</span>, <span class="attr">translateTime</span>: <span class="string">&#x27;SYS:standard&#x27;</span> &#125; &#125;</span><br><span class="line">    : <span class="literal">undefined</span>,                                     <span class="comment">// 生产 = 纯 JSON 行，给日志采集系统</span></span><br><span class="line">  <span class="attr">timestamp</span>: pino.<span class="property">stdTimeFunctions</span>.<span class="property">isoTime</span>,</span><br><span class="line">&#125;);</span><br><span class="line"></span><br><span class="line"><span class="keyword">export</span> <span class="keyword">const</span> <span class="title function_">createLogger</span> = (<span class="params"><span class="attr">name</span>: <span class="built_in">string</span></span>) =&gt; logger.<span class="title function_">child</span>(&#123; <span class="attr">module</span>: name &#125;);</span><br></pre></td></tr></table></figure>
-
-<p><strong>关键点</strong>：开发环境彩色可读、生产环境纯 JSON——<strong>生产日志是给机器读的（采集&#x2F;检索），不是给人读的</strong>。</p>
-<h3 id="5-3-数据源与迁移（TypeORM）"><a href="#5-3-数据源与迁移（TypeORM）" class="headerlink" title="5.3 数据源与迁移（TypeORM）"></a>5.3 数据源与迁移（TypeORM）</h3><figure class="highlight typescript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// src/lib/database.ts</span></span><br><span class="line"><span class="keyword">import</span> <span class="string">&#x27;reflect-metadata&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; <span class="title class_">DataSource</span> &#125; <span class="keyword">from</span> <span class="string">&#x27;typeorm&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; config &#125; <span class="keyword">from</span> <span class="string">&#x27;../config&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="keyword">export</span> <span class="keyword">const</span> <span class="title class_">AppDataSource</span> = <span class="keyword">new</span> <span class="title class_">DataSource</span>(&#123;</span><br><span class="line">  <span class="attr">type</span>: <span class="string">&#x27;mysql&#x27;</span>,</span><br><span class="line">  <span class="attr">host</span>: config.<span class="property">DB_HOST</span>, <span class="attr">port</span>: config.<span class="property">DB_PORT</span>,</span><br><span class="line">  <span class="attr">username</span>: config.<span class="property">DB_USER</span>, <span class="attr">password</span>: config.<span class="property">DB_PASSWORD</span>,</span><br><span class="line">  <span class="attr">database</span>: config.<span class="property">DB_NAME</span>,</span><br><span class="line">  <span class="attr">synchronize</span>: config.<span class="property">NODE_ENV</span> === <span class="string">&#x27;development&#x27;</span>,   <span class="comment">// 仅开发环境自动同步</span></span><br><span class="line">  <span class="attr">entities</span>: [<span class="string">&#x27;src/entities/**/*.ts&#x27;</span>],</span><br><span class="line">  <span class="attr">migrations</span>: [<span class="string">&#x27;migrations/**/*.ts&#x27;</span>],</span><br><span class="line">&#125;);</span><br></pre></td></tr></table></figure>
-
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">bun run typeorm migration:generate ./migrations/InitSchema   <span class="comment"># 生成迁移</span></span><br><span class="line">bun run typeorm migration:run                                <span class="comment"># 执行迁移</span></span><br></pre></td></tr></table></figure>
-
-<p><strong>生产铁律</strong>：<code>synchronize: true</code> 只能出现在开发环境——生产必须走 migration（对应 Java 的 Flyway&#x2F;Liquibase 习惯）。</p>
-<h3 id="5-4-Redis（缓存-限流计数）"><a href="#5-4-Redis（缓存-限流计数）" class="headerlink" title="5.4 Redis（缓存 + 限流计数）"></a>5.4 Redis（缓存 + 限流计数）</h3><figure class="highlight typescript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// src/lib/redis.ts</span></span><br><span class="line"><span class="keyword">import</span> <span class="title class_">Redis</span> <span class="keyword">from</span> <span class="string">&#x27;ioredis&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; config &#125; <span class="keyword">from</span> <span class="string">&#x27;../config&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="keyword">export</span> <span class="keyword">const</span> redis = <span class="keyword">new</span> <span class="title class_">Redis</span>(&#123;</span><br><span class="line">  <span class="attr">host</span>: config.<span class="property">REDIS_HOST</span>, <span class="attr">port</span>: config.<span class="property">REDIS_PORT</span>,</span><br><span class="line">  <span class="attr">password</span>: config.<span class="property">REDIS_PASSWORD</span>,</span><br><span class="line">  <span class="attr">retryStrategy</span>: <span class="function">(<span class="params">times</span>) =&gt;</span> <span class="title class_">Math</span>.<span class="title function_">min</span>(times * <span class="number">50</span>, <span class="number">2000</span>),  <span class="comment">// 指数退避重连</span></span><br><span class="line">&#125;);</span><br></pre></td></tr></table></figure>
-
-<h2 id="6-核心服务层：Agent-的四个大脑"><a href="#6-核心服务层：Agent-的四个大脑" class="headerlink" title="6. 核心服务层：Agent 的四个大脑"></a>6. 核心服务层：Agent 的四个大脑</h2><h3 id="6-1-Embedding-服务：把文本变成向量，带缓存"><a href="#6-1-Embedding-服务：把文本变成向量，带缓存" class="headerlink" title="6.1 Embedding 服务：把文本变成向量，带缓存"></a>6.1 Embedding 服务：把文本变成向量，带缓存</h3><figure class="highlight typescript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// src/services/embedding.ts</span></span><br><span class="line"><span class="keyword">import</span> <span class="title class_">OpenAI</span> <span class="keyword">from</span> <span class="string">&#x27;openai&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; config &#125; <span class="keyword">from</span> <span class="string">&#x27;../config&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; redis &#125; <span class="keyword">from</span> <span class="string">&#x27;../lib/redis&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="keyword">const</span> openai = <span class="keyword">new</span> <span class="title class_">OpenAI</span>(&#123; <span class="attr">apiKey</span>: config.<span class="property">OPENAI_API_KEY</span> &#125;);</span><br><span class="line"></span><br><span class="line"><span class="keyword">export</span> <span class="keyword">class</span> <span class="title class_">EmbeddingService</span> &#123;</span><br><span class="line">  <span class="keyword">private</span> <span class="keyword">readonly</span> <span class="variable constant_">CACHE_TTL</span> = <span class="number">86400</span>;   <span class="comment">// 24h</span></span><br><span class="line">  <span class="keyword">private</span> <span class="keyword">readonly</span> <span class="variable constant_">BATCH_SIZE</span> = <span class="number">20</span>;</span><br><span class="line"></span><br><span class="line">  <span class="keyword">async</span> <span class="title function_">embed</span>(<span class="attr">text</span>: <span class="built_in">string</span>): <span class="title class_">Promise</span>&lt;<span class="built_in">number</span>[]&gt; &#123;</span><br><span class="line">    <span class="keyword">const</span> cacheKey = <span class="string">`embed:<span class="subst">$&#123;Buffer.<span class="keyword">from</span>(text).toString(<span class="string">&#x27;base64&#x27;</span>).slice(<span class="number">0</span>, <span class="number">100</span>)&#125;</span>`</span>;</span><br><span class="line">    <span class="keyword">const</span> cached = <span class="keyword">await</span> redis.<span class="title function_">get</span>(cacheKey);         <span class="comment">// ① 缓存命中 → 不调 API</span></span><br><span class="line">    <span class="keyword">if</span> (cached) <span class="keyword">return</span> <span class="title class_">JSON</span>.<span class="title function_">parse</span>(cached);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">const</span> response = <span class="keyword">await</span> openai.<span class="property">embeddings</span>.<span class="title function_">create</span>(&#123;  <span class="comment">// ② 未命中 → 调 API</span></span><br><span class="line">      <span class="attr">model</span>: config.<span class="property">EMBEDDING_MODEL</span>, <span class="attr">input</span>: text,</span><br><span class="line">    &#125;);</span><br><span class="line">    <span class="keyword">const</span> embedding = response.<span class="property">data</span>[<span class="number">0</span>].<span class="property">embedding</span>;</span><br><span class="line">    <span class="keyword">await</span> redis.<span class="title function_">setex</span>(cacheKey, <span class="variable language_">this</span>.<span class="property">CACHE_TTL</span>, <span class="title class_">JSON</span>.<span class="title function_">stringify</span>(embedding));  <span class="comment">// ③ 写缓存</span></span><br><span class="line">    <span class="keyword">return</span> embedding;</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">  <span class="keyword">async</span> <span class="title function_">embedBatch</span>(<span class="attr">texts</span>: <span class="built_in">string</span>[]): <span class="title class_">Promise</span>&lt;<span class="built_in">number</span>[][]&gt; &#123;</span><br><span class="line">    <span class="keyword">const</span> <span class="attr">embeddings</span>: <span class="built_in">number</span>[][] = [];</span><br><span class="line">    <span class="keyword">for</span> (<span class="keyword">let</span> i = <span class="number">0</span>; i &lt; texts.<span class="property">length</span>; i += <span class="variable language_">this</span>.<span class="property">BATCH_SIZE</span>) &#123;</span><br><span class="line">      <span class="keyword">const</span> batch = texts.<span class="title function_">slice</span>(i, i + <span class="variable language_">this</span>.<span class="property">BATCH_SIZE</span>);</span><br><span class="line">      <span class="keyword">const</span> response = <span class="keyword">await</span> openai.<span class="property">embeddings</span>.<span class="title function_">create</span>(&#123; <span class="attr">model</span>: config.<span class="property">EMBEDDING_MODEL</span>, <span class="attr">input</span>: batch &#125;);</span><br><span class="line">      embeddings.<span class="title function_">push</span>(...response.<span class="property">data</span>.<span class="title function_">map</span>(<span class="function"><span class="params">item</span> =&gt;</span> item.<span class="property">embedding</span>));</span><br><span class="line">      <span class="keyword">if</span> (i + <span class="variable language_">this</span>.<span class="property">BATCH_SIZE</span> &lt; texts.<span class="property">length</span>) &#123;</span><br><span class="line">        <span class="keyword">await</span> <span class="keyword">new</span> <span class="title class_">Promise</span>(<span class="function"><span class="params">resolve</span> =&gt;</span> <span class="built_in">setTimeout</span>(resolve, <span class="number">100</span>));  <span class="comment">// 速率限制保护</span></span><br><span class="line">      &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> embeddings;</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>设计要点（因果链）</strong>：embedding 是<strong>确定性的</strong>（同一文本永远同一向量）——确定性 &#x3D; 可缓存。缓存命中省一次 API 调用（省钱 + 省延迟），这是 RAG 工程化第一个性能优化点。<strong>批量接口 + 限速</strong>：Embedding API 按 token 计费且速率受限，分批 + 间隔是生产必需。</p>
-<h3 id="6-2-检索服务：RAG-的核心——余弦相似度-阈值过滤"><a href="#6-2-检索服务：RAG-的核心——余弦相似度-阈值过滤" class="headerlink" title="6.2 检索服务：RAG 的核心——余弦相似度 + 阈值过滤"></a>6.2 检索服务：RAG 的核心——余弦相似度 + 阈值过滤</h3><figure class="highlight typescript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// src/services/retrieval.ts</span></span><br><span class="line"><span class="keyword">import</span> &#123; <span class="title class_">Not</span>, <span class="title class_">IsNull</span> &#125; <span class="keyword">from</span> <span class="string">&#x27;typeorm&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; <span class="title class_">TicketRepository</span> &#125; <span class="keyword">from</span> <span class="string">&#x27;../repositories/ticket.repository&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; <span class="title class_">FaqRepository</span> &#125; <span class="keyword">from</span> <span class="string">&#x27;../repositories/faq.repository&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; <span class="title class_">EmbeddingService</span> &#125; <span class="keyword">from</span> <span class="string">&#x27;./embedding&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="keyword">export</span> <span class="keyword">class</span> <span class="title class_">RetrievalService</span> &#123;</span><br><span class="line">  <span class="title function_">constructor</span>(<span class="params"></span></span><br><span class="line"><span class="params">    <span class="keyword">private</span> <span class="attr">embeddingService</span>: <span class="title class_">EmbeddingService</span>,</span></span><br><span class="line"><span class="params">    <span class="keyword">private</span> <span class="attr">similarityThreshold</span>: <span class="built_in">number</span> = <span class="number">0.7</span>,   <span class="comment">// 相似度阈值：低于它宁可不用</span></span></span><br><span class="line"><span class="params">  </span>) &#123;&#125;</span><br><span class="line"></span><br><span class="line">  <span class="keyword">async</span> <span class="title function_">searchSimilarTickets</span>(<span class="params"><span class="attr">query</span>: <span class="built_in">string</span>, <span class="attr">limit</span>: <span class="built_in">number</span> = <span class="number">5</span></span>) &#123;</span><br><span class="line">    <span class="keyword">const</span> queryEmbedding = <span class="keyword">await</span> <span class="variable language_">this</span>.<span class="property">embeddingService</span>.<span class="title function_">embed</span>(query);</span><br><span class="line">    <span class="keyword">const</span> tickets = <span class="keyword">await</span> <span class="title class_">TicketRepository</span>.<span class="title function_">find</span>(&#123; <span class="attr">where</span>: &#123; <span class="attr">embedding</span>: <span class="title class_">Not</span>(<span class="title class_">IsNull</span>()) &#125; &#125;);</span><br><span class="line">    <span class="keyword">return</span> tickets</span><br><span class="line">      .<span class="title function_">map</span>(<span class="function"><span class="params">t</span> =&gt;</span> (&#123; <span class="attr">ticket</span>: t, <span class="attr">similarity</span>: <span class="variable language_">this</span>.<span class="title function_">cosineSimilarity</span>(queryEmbedding, t.<span class="property">embedding</span> <span class="keyword">as</span> <span class="built_in">number</span>[]) &#125;))</span><br><span class="line">      .<span class="title function_">filter</span>(<span class="function"><span class="params">item</span> =&gt;</span> item.<span class="property">similarity</span> &gt;= <span class="variable language_">this</span>.<span class="property">similarityThreshold</span>)  <span class="comment">// 阈值过滤</span></span><br><span class="line">      .<span class="title function_">sort</span>(<span class="function">(<span class="params">a, b</span>) =&gt;</span> b.<span class="property">similarity</span> - a.<span class="property">similarity</span>)</span><br><span class="line">      .<span class="title function_">slice</span>(<span class="number">0</span>, limit);</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">  <span class="keyword">async</span> <span class="title function_">searchFaq</span>(<span class="params"><span class="attr">query</span>: <span class="built_in">string</span>, <span class="attr">limit</span>: <span class="built_in">number</span> = <span class="number">3</span></span>) &#123;</span><br><span class="line">    <span class="comment">// 与 searchSimilarTickets 同构：embed → 全量算相似度 → 阈值 → top-k</span></span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">  <span class="keyword">private</span> <span class="title function_">cosineSimilarity</span>(<span class="attr">a</span>: <span class="built_in">number</span>[], <span class="attr">b</span>: <span class="built_in">number</span>[]): <span class="built_in">number</span> &#123;</span><br><span class="line">    <span class="keyword">if</span> (!a || !b || a.<span class="property">length</span> !== b.<span class="property">length</span>) <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">    <span class="keyword">let</span> dot = <span class="number">0</span>, magA = <span class="number">0</span>, magB = <span class="number">0</span>;</span><br><span class="line">    <span class="keyword">for</span> (<span class="keyword">let</span> i = <span class="number">0</span>; i &lt; a.<span class="property">length</span>; i++) &#123;</span><br><span class="line">      dot += a[i] * b[i]; magA += a[i] * a[i]; magB += b[i] * b[i];</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> dot / (<span class="title class_">Math</span>.<span class="title function_">sqrt</span>(magA) * <span class="title class_">Math</span>.<span class="title function_">sqrt</span>(magB));</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>为什么要有相似度阈值（关键工程决策）</strong>：检索的目的是「给 LLM 喂有效上下文」——<strong>喂了不相关的上下文，LLM 会被带偏（幻觉&#x2F;答非所问）</strong>。阈值 0.7 意味着「没有足够相似的参考就空着」，让 LLM 老实承认不知道，而不是编造。<strong>这是 RAG 质量的核心控制点：检索质量 &gt; 生成能力</strong>（<a href="/post/rag-2026.html">RAG 原理与实践</a> 的 Chunking&#x2F;检索章节在此落地）。</p>
-<p><strong>性能坦白</strong>：应用层全量算相似度是 O(n) 扫描——万级数据够用，十万级要上向量索引（ANN&#x2F;HNSW），百万级必须换向量数据库。<strong>设计文档里写清楚「当前规模下这个选择成立」是工程成熟的标志</strong>。</p>
-<h3 id="6-3-分类服务：LLM-结构化输出（JSON-mode）"><a href="#6-3-分类服务：LLM-结构化输出（JSON-mode）" class="headerlink" title="6.3 分类服务：LLM + 结构化输出（JSON mode）"></a>6.3 分类服务：LLM + 结构化输出（JSON mode）</h3><figure class="highlight typescript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// src/services/classification.ts</span></span><br><span class="line"><span class="keyword">import</span> <span class="title class_">OpenAI</span> <span class="keyword">from</span> <span class="string">&#x27;openai&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; config &#125; <span class="keyword">from</span> <span class="string">&#x27;../config&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="keyword">const</span> openai = <span class="keyword">new</span> <span class="title class_">OpenAI</span>(&#123; <span class="attr">apiKey</span>: config.<span class="property">OPENAI_API_KEY</span> &#125;);</span><br><span class="line"></span><br><span class="line"><span class="keyword">export</span> <span class="keyword">class</span> <span class="title class_">ClassificationService</span> &#123;</span><br><span class="line">  <span class="keyword">async</span> <span class="title function_">classify</span>(<span class="attr">title</span>: <span class="built_in">string</span>, <span class="attr">content</span>: <span class="built_in">string</span>): <span class="title class_">Promise</span>&lt;&#123;</span><br><span class="line">    <span class="attr">category</span>: <span class="built_in">string</span>; <span class="attr">confidence</span>: <span class="built_in">number</span>; <span class="attr">suggestedPriority</span>: <span class="built_in">string</span>;</span><br><span class="line">  &#125;&gt; &#123;</span><br><span class="line">    <span class="keyword">const</span> prompt = <span class="string">`你是一个工单分类专家。请分析以下工单，返回 JSON 格式的分类结果。</span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">工单标题: <span class="subst">$&#123;title&#125;</span></span></span><br><span class="line"><span class="string">工单内容: <span class="subst">$&#123;content&#125;</span></span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">可选分类: technical（技术问题）, billing（账单问题）, account（账户问题）, product（产品咨询）, complaint（投诉建议）</span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">请返回:</span></span><br><span class="line"><span class="string">&#123;</span></span><br><span class="line"><span class="string">  &quot;category&quot;: &quot;分类值&quot;,</span></span><br><span class="line"><span class="string">  &quot;confidence&quot;: 置信度0-1,</span></span><br><span class="line"><span class="string">  &quot;suggestedPriority&quot;: &quot;low/normal/high/urgent&quot;</span></span><br><span class="line"><span class="string">&#125;`</span>;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">const</span> response = <span class="keyword">await</span> openai.<span class="property">chat</span>.<span class="property">completions</span>.<span class="title function_">create</span>(&#123;</span><br><span class="line">      <span class="attr">model</span>: config.<span class="property">OPENAI_MODEL</span>,</span><br><span class="line">      <span class="attr">messages</span>: [&#123; <span class="attr">role</span>: <span class="string">&#x27;user&#x27;</span>, <span class="attr">content</span>: prompt &#125;],</span><br><span class="line">      <span class="attr">temperature</span>: <span class="number">0.3</span>,                                  <span class="comment">// 分类要稳定：低温度</span></span><br><span class="line">      <span class="attr">response_format</span>: &#123; <span class="attr">type</span>: <span class="string">&#x27;json_object&#x27;</span> &#125;,          <span class="comment">// 强制 JSON 输出</span></span><br><span class="line">    &#125;);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">const</span> result = <span class="title class_">JSON</span>.<span class="title function_">parse</span>(response.<span class="property">choices</span>[<span class="number">0</span>].<span class="property">message</span>.<span class="property">content</span> || <span class="string">&#x27;&#123;&#125;&#x27;</span>);</span><br><span class="line">    <span class="keyword">return</span> &#123;</span><br><span class="line">      <span class="attr">category</span>: result.<span class="property">category</span>,</span><br><span class="line">      <span class="attr">confidence</span>: result.<span class="property">confidence</span>,</span><br><span class="line">      <span class="attr">suggestedPriority</span>: result.<span class="property">suggestedPriority</span>,</span><br><span class="line">    &#125;;</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>三个关键工程决策</strong>：</p>
-<ol>
-<li><strong><code>response_format: json_object</code> 强制结构化</strong>——LLM 自由文本输出没法直接进下游（枚举校验&#x2F;数据库）。结构化输出是 LLM 上生产的前提（<a href="/post/llm-api-tool-calling-2026.html">LLM API 与工具调用实战</a> §三）；</li>
-<li><strong><code>temperature: 0.3</code> 低温</strong>——分类任务要确定性，高温会让同一工单每次分类不同；</li>
-<li><strong>JSON.parse 后要校验</strong>——LLM 偶发返回非法 JSON 或缺失字段，生产代码必须有兜底（try-catch + 默认值），别让一个坏输出打挂整条链路。</li>
-</ol>
-<p><strong>因果链</strong>：分类结果里带 <code>confidence</code>（置信度）不是装饰——<strong>它是下游「是否人工介入」的判据</strong>：置信度 &lt; 0.8 的工单直接转人工，只有高置信度才自动流转。<strong>AI 应用的可靠性不是「让 AI 永远对」，而是「AI 不确定时知道说不并降级」</strong>。</p>
-<h3 id="6-4-生成服务：RAG-上下文注入的回复草稿"><a href="#6-4-生成服务：RAG-上下文注入的回复草稿" class="headerlink" title="6.4 生成服务：RAG 上下文注入的回复草稿"></a>6.4 生成服务：RAG 上下文注入的回复草稿</h3><figure class="highlight typescript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// src/services/generation.ts</span></span><br><span class="line"><span class="keyword">import</span> <span class="title class_">OpenAI</span> <span class="keyword">from</span> <span class="string">&#x27;openai&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; config &#125; <span class="keyword">from</span> <span class="string">&#x27;../config&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="keyword">const</span> openai = <span class="keyword">new</span> <span class="title class_">OpenAI</span>(&#123; <span class="attr">apiKey</span>: config.<span class="property">OPENAI_API_KEY</span> &#125;);</span><br><span class="line"></span><br><span class="line"><span class="keyword">export</span> <span class="keyword">class</span> <span class="title class_">GenerationService</span> &#123;</span><br><span class="line">  <span class="keyword">async</span> <span class="title function_">generateAnswer</span>(</span><br><span class="line">    <span class="attr">title</span>: <span class="built_in">string</span>, <span class="attr">content</span>: <span class="built_in">string</span>, <span class="attr">category</span>: <span class="built_in">string</span>,</span><br><span class="line">    <span class="attr">similarTickets</span>: <span class="built_in">string</span>[], <span class="attr">faqEntries</span>: <span class="built_in">string</span>[],</span><br><span class="line">  ): <span class="title class_">Promise</span>&lt;&#123; <span class="attr">answer</span>: <span class="built_in">string</span>; <span class="attr">sourcesUsed</span>: <span class="built_in">string</span>[] &#125;&gt; &#123;</span><br><span class="line">    <span class="keyword">const</span> context = <span class="string">`</span></span><br><span class="line"><span class="string">相似工单参考:</span></span><br><span class="line"><span class="string"><span class="subst">$&#123;similarTickets.join(<span class="string">&#x27;\n---\n&#x27;</span>)&#125;</span></span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">FAQ 知识库参考:</span></span><br><span class="line"><span class="string"><span class="subst">$&#123;faqEntries.join(<span class="string">&#x27;\n---\n&#x27;</span>)&#125;</span></span></span><br><span class="line"><span class="string">`</span>;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">const</span> prompt = <span class="string">`你是一个专业的客服助手。请基于以下参考信息，为用户工单生成回复建议。</span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">工单标题: <span class="subst">$&#123;title&#125;</span></span></span><br><span class="line"><span class="string">工单内容: <span class="subst">$&#123;content&#125;</span></span></span><br><span class="line"><span class="string">工单分类: <span class="subst">$&#123;category&#125;</span></span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">参考信息:</span></span><br><span class="line"><span class="string"><span class="subst">$&#123;context&#125;</span></span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">请生成:</span></span><br><span class="line"><span class="string">1. 礼貌的回复开头</span></span><br><span class="line"><span class="string">2. 针对问题的具体解答</span></span><br><span class="line"><span class="string">3. 如有需要，提供下一步行动建议</span></span><br><span class="line"><span class="string">4. 礼貌的结尾</span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">回复要专业、清晰、有帮助。`</span>;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">const</span> response = <span class="keyword">await</span> openai.<span class="property">chat</span>.<span class="property">completions</span>.<span class="title function_">create</span>(&#123;</span><br><span class="line">      <span class="attr">model</span>: config.<span class="property">OPENAI_MODEL</span>,</span><br><span class="line">      <span class="attr">messages</span>: [&#123; <span class="attr">role</span>: <span class="string">&#x27;user&#x27;</span>, <span class="attr">content</span>: prompt &#125;],</span><br><span class="line">      <span class="attr">temperature</span>: <span class="number">0.7</span>,     <span class="comment">// 生成任务要高一点温度：回复要自然</span></span><br><span class="line">    &#125;);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">return</span> &#123;</span><br><span class="line">      <span class="attr">answer</span>: response.<span class="property">choices</span>[<span class="number">0</span>].<span class="property">message</span>.<span class="property">content</span> || <span class="string">&#x27;&#x27;</span>,</span><br><span class="line">      <span class="attr">sourcesUsed</span>: [],      <span class="comment">// 生产可记录引用了哪些 FAQ/工单（可追溯）</span></span><br><span class="line">    &#125;;</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>温度策略对比（两处设计的呼应）</strong>：</p>
-<table>
-<thead>
-<tr>
-<th>服务</th>
-<th>温度</th>
-<th>原因</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>分类</td>
-<td>0.3 低</td>
-<td>确定性优先：同一工单必须同分类</td>
-</tr>
-<tr>
-<td>生成</td>
-<td>0.7 高</td>
-<td>自然度优先：回复要像人写的</td>
-</tr>
-</tbody></table>
-<p><strong>同一套 API、同一个模型，温度一个参数就改变任务的本质</strong>——这是 LLM 工程里最便宜的调参杠杆。<code>sourcesUsed</code> 字段记录引用来源——<strong>AI 回复要可追溯</strong>：用户追问「你凭什么这么答」时，能指出引用的工单&#x2F;FAQ，这是生产合规的底线。</p>
-<h2 id="7-MCP-Server：把服务暴露给-AI-客户端"><a href="#7-MCP-Server：把服务暴露给-AI-客户端" class="headerlink" title="7. MCP Server：把服务暴露给 AI 客户端"></a>7. MCP Server：把服务暴露给 AI 客户端</h2><h3 id="7-1-注册三个-Tool（工具的-schema-即协议契约）"><a href="#7-1-注册三个-Tool（工具的-schema-即协议契约）" class="headerlink" title="7.1 注册三个 Tool（工具的 schema 即协议契约）"></a>7.1 注册三个 Tool（工具的 schema 即协议契约）</h3><figure class="highlight typescript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// src/mcp/server.ts（核心片段）</span></span><br><span class="line"><span class="keyword">import</span> &#123; <span class="title class_">Server</span> &#125; <span class="keyword">from</span> <span class="string">&#x27;@modelcontextprotocol/sdk/server/index.js&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; <span class="title class_">StdioServerTransport</span> &#125; <span class="keyword">from</span> <span class="string">&#x27;@modelcontextprotocol/sdk/server/stdio.js&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; <span class="title class_">ListToolsRequestSchema</span>, <span class="title class_">CallToolRequestSchema</span> &#125; <span class="keyword">from</span> <span class="string">&#x27;@modelcontextprotocol/sdk/types.js&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="keyword">const</span> server = <span class="keyword">new</span> <span class="title class_">Server</span>(</span><br><span class="line">  &#123; <span class="attr">name</span>: <span class="string">&#x27;ticket-agent&#x27;</span>, <span class="attr">version</span>: <span class="string">&#x27;1.0.0&#x27;</span> &#125;,</span><br><span class="line">  &#123; <span class="attr">capabilities</span>: &#123; <span class="attr">tools</span>: &#123;&#125;, <span class="attr">resources</span>: &#123;&#125; &#125; &#125;</span><br><span class="line">);</span><br><span class="line"></span><br><span class="line"><span class="comment">// ① list_tools：告诉 AI「你能调什么」——schema 越严谨，AI 越少出错</span></span><br><span class="line">server.<span class="title function_">setRequestHandler</span>(<span class="title class_">ListToolsRequestSchema</span>, <span class="title function_">async</span> () =&gt; (&#123;</span><br><span class="line">  <span class="attr">tools</span>: [</span><br><span class="line">    &#123;</span><br><span class="line">      <span class="attr">name</span>: <span class="string">&#x27;classify_ticket&#x27;</span>,</span><br><span class="line">      <span class="attr">description</span>: <span class="string">&#x27;对工单进行自动分类，返回分类结果、置信度和建议优先级&#x27;</span>,</span><br><span class="line">      <span class="attr">inputSchema</span>: &#123;</span><br><span class="line">        <span class="attr">type</span>: <span class="string">&#x27;object&#x27;</span>,</span><br><span class="line">        <span class="attr">properties</span>: &#123;</span><br><span class="line">          <span class="attr">title</span>: &#123; <span class="attr">type</span>: <span class="string">&#x27;string&#x27;</span>, <span class="attr">description</span>: <span class="string">&#x27;工单标题&#x27;</span> &#125;,</span><br><span class="line">          <span class="attr">content</span>: &#123; <span class="attr">type</span>: <span class="string">&#x27;string&#x27;</span>, <span class="attr">description</span>: <span class="string">&#x27;工单详细内容&#x27;</span> &#125;,</span><br><span class="line">        &#125;,</span><br><span class="line">        <span class="attr">required</span>: [<span class="string">&#x27;title&#x27;</span>, <span class="string">&#x27;content&#x27;</span>],</span><br><span class="line">      &#125;,</span><br><span class="line">    &#125;,</span><br><span class="line">    &#123;</span><br><span class="line">      <span class="attr">name</span>: <span class="string">&#x27;generate_answer&#x27;</span>,</span><br><span class="line">      <span class="attr">description</span>: <span class="string">&#x27;基于工单内容和相似历史工单，生成回复建议&#x27;</span>,</span><br><span class="line">      <span class="attr">inputSchema</span>: &#123; <span class="comment">/* title/content/category，同 classify 模式 */</span> &#125;,</span><br><span class="line">    &#125;,</span><br><span class="line">    &#123;</span><br><span class="line">      <span class="attr">name</span>: <span class="string">&#x27;create_ticket&#x27;</span>,</span><br><span class="line">      <span class="attr">description</span>: <span class="string">&#x27;创建工单记录，自动分配优先级&#x27;</span>,</span><br><span class="line">      <span class="attr">inputSchema</span>: &#123; <span class="comment">/* title/content/userEmail */</span> &#125;,</span><br><span class="line">    &#125;,</span><br><span class="line">  ],</span><br><span class="line">&#125;));</span><br><span class="line"></span><br><span class="line"><span class="comment">// ② call_tool：AI 实际调用时的分发</span></span><br><span class="line">server.<span class="title function_">setRequestHandler</span>(<span class="title class_">CallToolRequestSchema</span>, <span class="title function_">async</span> (request) =&gt; &#123;</span><br><span class="line">  <span class="keyword">const</span> &#123; name, <span class="attr">arguments</span>: args &#125; = request.<span class="property">params</span>;</span><br><span class="line">  <span class="keyword">switch</span> (name) &#123;</span><br><span class="line">    <span class="keyword">case</span> <span class="string">&#x27;classify_ticket&#x27;</span>: &#123;</span><br><span class="line">      <span class="keyword">const</span> result = <span class="keyword">await</span> classificationService.<span class="title function_">classify</span>(args.<span class="property">title</span>, args.<span class="property">content</span>);</span><br><span class="line">      <span class="keyword">return</span> &#123; <span class="attr">content</span>: [&#123; <span class="attr">type</span>: <span class="string">&#x27;text&#x27;</span>, <span class="attr">text</span>: <span class="title class_">JSON</span>.<span class="title function_">stringify</span>(result, <span class="literal">null</span>, <span class="number">2</span>) &#125;] &#125;;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">case</span> <span class="string">&#x27;generate_answer&#x27;</span>: &#123;</span><br><span class="line">      <span class="keyword">const</span> result = <span class="keyword">await</span> generationService.<span class="title function_">generateAnswer</span>(args.<span class="property">title</span>, args.<span class="property">content</span>, args.<span class="property">category</span>, [], []);</span><br><span class="line">      <span class="keyword">return</span> &#123; <span class="attr">content</span>: [&#123; <span class="attr">type</span>: <span class="string">&#x27;text&#x27;</span>, <span class="attr">text</span>: result.<span class="property">answer</span> &#125;] &#125;;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">case</span> <span class="string">&#x27;create_ticket&#x27;</span>: &#123;</span><br><span class="line">      <span class="keyword">const</span> ticket = <span class="keyword">await</span> ticketService.<span class="title function_">create</span>(&#123; <span class="attr">title</span>: args.<span class="property">title</span>, <span class="attr">content</span>: args.<span class="property">content</span>, <span class="attr">userEmail</span>: args.<span class="property">userEmail</span> &#125;);</span><br><span class="line">      <span class="keyword">return</span> &#123; <span class="attr">content</span>: [&#123; <span class="attr">type</span>: <span class="string">&#x27;text&#x27;</span>, <span class="attr">text</span>: <span class="title class_">JSON</span>.<span class="title function_">stringify</span>(ticket, <span class="literal">null</span>, <span class="number">2</span>) &#125;] &#125;;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="attr">default</span>:</span><br><span class="line">      <span class="keyword">throw</span> <span class="keyword">new</span> <span class="title class_">Error</span>(<span class="string">`Unknown tool: <span class="subst">$&#123;name&#125;</span>`</span>);</span><br><span class="line">  &#125;</span><br><span class="line">&#125;);</span><br></pre></td></tr></table></figure>
-
-<p><strong>MCP 的本质（Java 视角）</strong>：<code>list_tools</code> ≈ 服务注册表（Eureka&#x2F;Nacos 的「我有什么服务」），<code>inputSchema</code> ≈ OpenAPI 规范——<strong>AI 客户端靠 schema 自学怎么调你的服务，这就是「协议即文档」</strong>。<code>description</code> 字段写清楚会被 AI 当作工具使用说明，值得认真写——<strong>你写的 description 就是给 AI 看的 Javadoc</strong>。</p>
-<h3 id="7-2-双模式入口：stdio-与-HTTP-一行切换"><a href="#7-2-双模式入口：stdio-与-HTTP-一行切换" class="headerlink" title="7.2 双模式入口：stdio 与 HTTP 一行切换"></a>7.2 双模式入口：stdio 与 HTTP 一行切换</h3><figure class="highlight typescript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// src/index.ts</span></span><br><span class="line"><span class="keyword">import</span> <span class="string">&#x27;reflect-metadata&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; <span class="title class_">AppDataSource</span> &#125; <span class="keyword">from</span> <span class="string">&#x27;./lib/database&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; startMcpServer &#125; <span class="keyword">from</span> <span class="string">&#x27;./mcp/server&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; config &#125; <span class="keyword">from</span> <span class="string">&#x27;./config&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="keyword">async</span> <span class="keyword">function</span> <span class="title function_">bootstrap</span>(<span class="params"></span>) &#123;</span><br><span class="line">  <span class="keyword">try</span> &#123;</span><br><span class="line">    <span class="keyword">await</span> <span class="title class_">AppDataSource</span>.<span class="title function_">initialize</span>();          <span class="comment">// 先连库</span></span><br><span class="line">    <span class="keyword">if</span> (config.<span class="property">MCP_TRANSPORT</span> === <span class="string">&#x27;http&#x27;</span>) &#123;</span><br><span class="line">      <span class="comment">// HTTP 模式：Fastify + 健康检查 + MCP HTTP 传输</span></span><br><span class="line">      <span class="keyword">const</span> fastify = <span class="title class_">Fastify</span>(&#123; <span class="attr">logger</span>: <span class="literal">true</span> &#125;);</span><br><span class="line">      <span class="keyword">await</span> fastify.<span class="title function_">register</span>(cors);</span><br><span class="line">      <span class="keyword">await</span> fastify.<span class="title function_">register</span>(helmet);</span><br><span class="line">      <span class="keyword">await</span> fastify.<span class="title function_">register</span>(healthRoutes);    <span class="comment">// /health 检查 DB + Redis 状态</span></span><br><span class="line">      <span class="keyword">await</span> <span class="title function_">startHttpMcpServer</span>(fastify);</span><br><span class="line">      <span class="keyword">await</span> fastify.<span class="title function_">listen</span>(&#123; <span class="attr">port</span>: config.<span class="property">PORT</span>, <span class="attr">host</span>: <span class="string">&#x27;0.0.0.0&#x27;</span> &#125;);</span><br><span class="line">    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">      <span class="keyword">await</span> <span class="title function_">startMcpServer</span>();                  <span class="comment">// stdio 模式：本地进程通信</span></span><br><span class="line">    &#125;</span><br><span class="line">  &#125; <span class="keyword">catch</span> (error) &#123;</span><br><span class="line">    logger.<span class="title function_">error</span>(&#123; error &#125;, <span class="string">&#x27;Failed to start application&#x27;</span>);</span><br><span class="line">    process.<span class="title function_">exit</span>(<span class="number">1</span>);</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br><span class="line"><span class="title function_">bootstrap</span>();</span><br></pre></td></tr></table></figure>
-
-<p><strong>健康检查 <code>/health</code><strong>：逐项 ping MySQL（<code>SELECT 1</code>）和 Redis（<code>redis.ping()</code>），任一 down 返回 <code>unhealthy</code>——</strong>容器编排&#x2F;负载均衡靠它决定要不要摘除实例</strong>。</p>
-<h2 id="8-测试与部署"><a href="#8-测试与部署" class="headerlink" title="8. 测试与部署"></a>8. 测试与部署</h2><h3 id="8-1-单元测试：Mock-掉-OpenAI（不花一分钱-API-费用）"><a href="#8-1-单元测试：Mock-掉-OpenAI（不花一分钱-API-费用）" class="headerlink" title="8.1 单元测试：Mock 掉 OpenAI（不花一分钱 API 费用）"></a>8.1 单元测试：Mock 掉 OpenAI（不花一分钱 API 费用）</h3><figure class="highlight typescript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// tests/unit/services/classification.test.ts</span></span><br><span class="line"><span class="keyword">import</span> &#123; describe, it, expect, beforeEach, mock &#125; <span class="keyword">from</span> <span class="string">&#x27;bun:test&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; <span class="title class_">ClassificationService</span> &#125; <span class="keyword">from</span> <span class="string">&#x27;../../../src/services/classification&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="comment">// Mock OpenAI：测试不真实调 API（快 + 免费 + 确定性）</span></span><br><span class="line">mock.<span class="title function_">module</span>(<span class="string">&#x27;openai&#x27;</span>, <span class="function">() =&gt;</span> (&#123;</span><br><span class="line">  <span class="title class_">OpenAI</span>: <span class="keyword">class</span> &#123;</span><br><span class="line">    chat = &#123;</span><br><span class="line">      <span class="attr">completions</span>: &#123;</span><br><span class="line">        <span class="attr">create</span>: <span class="title function_">mock</span>(<span class="title function_">async</span> () =&gt; (&#123;</span><br><span class="line">          <span class="attr">choices</span>: [&#123; <span class="attr">message</span>: &#123; <span class="attr">content</span>: <span class="title class_">JSON</span>.<span class="title function_">stringify</span>(&#123;</span><br><span class="line">            <span class="attr">category</span>: <span class="string">&#x27;technical&#x27;</span>, <span class="attr">confidence</span>: <span class="number">0.95</span>, <span class="attr">suggestedPriority</span>: <span class="string">&#x27;high&#x27;</span></span><br><span class="line">          &#125;) &#125; &#125;]</span><br><span class="line">        &#125;))</span><br><span class="line">      &#125;</span><br><span class="line">    &#125;;</span><br><span class="line">  &#125;</span><br><span class="line">&#125;));</span><br><span class="line"></span><br><span class="line"><span class="title function_">describe</span>(<span class="string">&#x27;ClassificationService&#x27;</span>, <span class="function">() =&gt;</span> &#123;</span><br><span class="line">  <span class="keyword">let</span> <span class="attr">service</span>: <span class="title class_">ClassificationService</span>;</span><br><span class="line">  <span class="title function_">beforeEach</span>(<span class="function">() =&gt;</span> &#123; service = <span class="keyword">new</span> <span class="title class_">ClassificationService</span>(); &#125;);</span><br><span class="line"></span><br><span class="line">  <span class="title function_">it</span>(<span class="string">&#x27;should classify ticket correctly&#x27;</span>, <span class="title function_">async</span> () =&gt; &#123;</span><br><span class="line">    <span class="keyword">const</span> result = <span class="keyword">await</span> service.<span class="title function_">classify</span>(<span class="string">&#x27;系统登录失败&#x27;</span>, <span class="string">&#x27;输入用户名密码后一直提示认证失败&#x27;</span>);</span><br><span class="line">    <span class="title function_">expect</span>(result.<span class="property">category</span>).<span class="title function_">toBe</span>(<span class="string">&#x27;technical&#x27;</span>);</span><br><span class="line">    <span class="title function_">expect</span>(result.<span class="property">confidence</span>).<span class="title function_">toBeGreaterThan</span>(<span class="number">0.9</span>);</span><br><span class="line">  &#125;);</span><br><span class="line">&#125;);</span><br></pre></td></tr></table></figure>
-
-<p><strong>AI 应用测试的三个层次</strong>：单元测试（Mock LLM，测业务逻辑）、集成测试（测真实调用但用极小模型&#x2F;样本）、评测（用评测集衡量生成质量——<a href="/post/llm-eval-observability-2026.html">LLM 评测与可观测性</a> 已讲 RAGAS）。<strong>Mock 是测试的底线：业务代码与 LLM 解耦后，逻辑测试不依赖网络与付费 API</strong>。</p>
-<h3 id="8-2-Docker-多阶段构建"><a href="#8-2-Docker-多阶段构建" class="headerlink" title="8.2 Docker 多阶段构建"></a>8.2 Docker 多阶段构建</h3><figure class="highlight dockerfile"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">FROM</span> oven/bun:<span class="number">1</span>-alpine AS builder          <span class="comment"># 构建阶段</span></span><br><span class="line"><span class="keyword">WORKDIR</span><span class="language-bash"> /app</span></span><br><span class="line"><span class="keyword">COPY</span><span class="language-bash"> package.json bun.lockb ./</span></span><br><span class="line"><span class="keyword">RUN</span><span class="language-bash"> bun install --frozen-lockfile</span></span><br><span class="line"><span class="keyword">COPY</span><span class="language-bash"> src ./src</span></span><br><span class="line"><span class="keyword">COPY</span><span class="language-bash"> tsconfig.json ./</span></span><br><span class="line"><span class="keyword">RUN</span><span class="language-bash"> bun run build</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">FROM</span> oven/bun:<span class="number">1</span>-alpine                      <span class="comment"># 运行阶段：只带产物，镜像小</span></span><br><span class="line"><span class="keyword">WORKDIR</span><span class="language-bash"> /app</span></span><br><span class="line"><span class="keyword">COPY</span><span class="language-bash"> --from=builder /app/dist ./dist</span></span><br><span class="line"><span class="keyword">COPY</span><span class="language-bash"> --from=builder /app/node_modules ./node_modules</span></span><br><span class="line"><span class="keyword">COPY</span><span class="language-bash"> package.json ./</span></span><br><span class="line"><span class="keyword">ENV</span> NODE_ENV=production</span><br><span class="line"><span class="keyword">EXPOSE</span> <span class="number">3000</span></span><br><span class="line"><span class="keyword">CMD</span><span class="language-bash"> [<span class="string">&quot;bun&quot;</span>, <span class="string">&quot;dist/index.js&quot;</span>]</span></span><br></pre></td></tr></table></figure>
-
-<p><strong>多阶段构建 &#x3D; 依赖与产物分离</strong>（对应 Java 的 <code>mvn package</code> 后只拷 jar）：builder 阶段装全量依赖编译，运行阶段只有 dist + 生产依赖——镜像体积小、攻击面小。<strong>docker-compose 编排 MySQL + Redis + 应用三个容器，healthcheck 决定启动顺序</strong>（MySQL 没 ready 前应用启动会失败重试）。</p>
-<h2 id="9-踩坑与工程决策复盘"><a href="#9-踩坑与工程决策复盘" class="headerlink" title="9. 踩坑与工程决策复盘"></a>9. 踩坑与工程决策复盘</h2><h3 id="9-1-四个关键决策的因果链"><a href="#9-1-四个关键决策的因果链" class="headerlink" title="9.1 四个关键决策的因果链"></a>9.1 四个关键决策的因果链</h3><table>
-<thead>
-<tr>
-<th>决策</th>
-<th>为什么</th>
-<th>代价&#x2F;边界</th>
-<th>什么时候该反悔</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>MySQL 存向量（JSON 列 + 应用层算）</td>
-<td>少一个基础设施，万级数据够用</td>
-<td>检索 O(n) 全量扫描</td>
-<td>数据 10 万+ &#x2F; 检索 &gt;200ms → 换向量库</td>
-</tr>
-<tr>
-<td>Embedding 结果进 Redis 缓存</td>
-<td>确定性输出 &#x3D; 可缓存，省 API 费</td>
-<td>key 是文本 base64 前 100 字符，长文本可能碰撞</td>
-<td>缓存命中率 &lt;50% 时检查 key 设计</td>
-</tr>
-<tr>
-<td>分类低温 0.3 + 生成高温 0.7</td>
-<td>分类要确定、生成要自然</td>
-<td>温度是全局参数，调 API 粒度</td>
-<td>分类出现漂移时再降</td>
-</tr>
-<tr>
-<td>阈值 0.7 过滤检索结果</td>
-<td>不相关的上下文会带偏 LLM</td>
-<td>阈值太严会漏召回</td>
-<td>用评测集（RAGAS）调阈值</td>
-</tr>
-</tbody></table>
-<h3 id="9-2-生产化前必须补的三件事"><a href="#9-2-生产化前必须补的三件事" class="headerlink" title="9.2 生产化前必须补的三件事"></a>9.2 生产化前必须补的三件事</h3><ol>
-<li><strong>LLM 调用加超时与重试</strong>（<code>p-retry</code> 指数退避）——LLM API 超时是常态，不能拖垮请求线程；</li>
-<li><strong>限流</strong>（Redis 计数器）——Agent 被 AI 客户端高频调用时，防打爆 OpenAI 配额（<a href="/post/llm-api-tool-calling-2026.html">LLM API 与工具调用实战</a> §六的错误处理策略直接复用）；</li>
-<li><strong>日志链路追踪</strong>——<code>ticketId</code> 贯穿「接入 → 分类 → 检索 → 生成 → 落库」全过程，一次工单的处理日志能按 id 全量拉出（processing_logs 表就是为此设计）。</li>
-</ol>
-<h2 id="10-总结"><a href="#10-总结" class="headerlink" title="10. 总结"></a>10. 总结</h2><h3 id="10-1-项目速答表（面试-述职用）"><a href="#10-1-项目速答表（面试-述职用）" class="headerlink" title="10.1 项目速答表（面试&#x2F;述职用）"></a>10.1 项目速答表（面试&#x2F;述职用）</h3><table>
-<thead>
-<tr>
-<th>提问</th>
-<th>一句话回答</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>项目解决什么问题？</td>
-<td>工单自动分类 + 相似工单检索 + 回复草稿生成，人审后发出，客服效率提升</td>
-</tr>
-<tr>
-<td>架构怎么分层？</td>
-<td>MCP 接入 → 服务层（分类&#x2F;检索&#x2F;生成）→ 仓储层 → MySQL&#x2F;Redis，对应 Java 的 Controller→Service→Repository</td>
-</tr>
-<tr>
-<td>RAG 怎么做？</td>
-<td>text-embedding-3-small 向量化 + 余弦相似度 + 0.7 阈值过滤 + top-k，上下文注入生成</td>
-</tr>
-<tr>
-<td>为什么 MySQL 不换向量库？</td>
-<td>万级数据应用层算够用，少一个基础设施；数据大了再演进</td>
-</tr>
-<tr>
-<td>LLM 输出不可靠怎么兜底？</td>
-<td>分类 JSON 强制 + 低温度 + confidence 阈值转人工 + 生成结果人审</td>
-</tr>
-<tr>
-<td>怎么控制成本？</td>
-<td>Embedding 缓存（确定性输出）降 API 调用量；测试 Mock OpenAI</td>
-</tr>
-</tbody></table>
-<h3 id="10-2-实战避坑表"><a href="#10-2-实战避坑表" class="headerlink" title="10.2 实战避坑表"></a>10.2 实战避坑表</h3><table>
-<thead>
-<tr>
-<th>坑</th>
-<th>表现</th>
-<th>处理</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>LLM 返回非法 JSON</td>
-<td>JSON.parse 抛异常，链路中断</td>
-<td>try-catch + 默认值兜底（§6.3）</td>
-</tr>
-<tr>
-<td>温度没区分任务</td>
-<td>分类结果漂移</td>
-<td>分类 0.3 &#x2F; 生成 0.7（§6.4 温度表）</td>
-</tr>
-<tr>
-<td>检索不过滤阈值</td>
-<td>无关上下文带偏 LLM</td>
-<td>0.7 阈值 + 空则宁缺毋滥（§6.2）</td>
-</tr>
-<tr>
-<td>embedding 不缓存</td>
-<td>同文本重复调 API，账单爆炸</td>
-<td>Redis 缓存 + TTL 24h（§6.1）</td>
-</tr>
-<tr>
-<td>生产开 synchronize</td>
-<td>表结构被自动改</td>
-<td>生产只走 migration（§5.3）</td>
-</tr>
-<tr>
-<td>不记 LLM 调用日志</td>
-<td>输出异常无法回溯</td>
-<td>processing_logs 全量记录入参出参（§4.1）</td>
-</tr>
-</tbody></table>
-<h3 id="10-3-工具速查表"><a href="#10-3-工具速查表" class="headerlink" title="10.3 工具速查表"></a>10.3 工具速查表</h3><table>
-<thead>
-<tr>
-<th>工具&#x2F;命令</th>
-<th>用途</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>bun install / bun run dev / bun test</code></td>
-<td>一体化工具链（依赖&#x2F;开发&#x2F;测试）</td>
-</tr>
-<tr>
-<td><code>bun run typeorm migration:run</code></td>
-<td>数据库迁移</td>
-</tr>
-<tr>
-<td><code>curl localhost:3000/health</code></td>
-<td>健康检查（DB&#x2F;Redis 状态）</td>
-</tr>
-<tr>
-<td><code>bun run seed</code></td>
-<td>FAQ 种子数据 + 向量化入库</td>
-</tr>
-<tr>
-<td>MCP 客户端（Claude Desktop）</td>
-<td>stdio 模式联调：把 tools 暴露给 AI 实际调用</td>
-</tr>
-</tbody></table>
-<h3 id="10-4-系列定位"><a href="#10-4-系列定位" class="headerlink" title="10.4 系列定位"></a>10.4 系列定位</h3><p>本文是 AI 分类「从概念到落地」的实战一环：<strong>MCP 开发指南讲协议 → RAG 原理讲检索 → 本文把两者缝成一个可运行的 Agent</strong>。下一篇可按需续写《Agent 安全与防护》的生产化实践（提示注入防护&#x2F;权限控制），或转向 Python 版 ticket-agent 的对比精读——两版选一即可，避免重复投入。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
   <nav class="pagination">
     <a class="extend prev" rel="prev" title="Previous page" aria-label="Previous page" href="/home/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/home/">1</a><span class="page-number current">2</span><a class="page-number" href="/home/page/3/">3</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/22/">22</a><a class="extend next" rel="next" title="Next page" aria-label="Next page" href="/home/page/3/"><i class="fa fa-angle-right"></i></a>
   </nav>
@@ -2312,14 +2389,14 @@
       <i class="fa fa-chart-line"></i>
     </span>
       <span>Word count total: </span>
-    <span title="Word count total">597k</span>
+    <span title="Word count total">601k</span>
   </span>
   <span class="post-meta-item">
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
       <span>Reading time total &asymp;</span>
-    <span title="Reading time total">36:11</span>
+    <span title="Reading time total">36:27</span>
   </span>
 </div>
   <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>

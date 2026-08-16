@@ -189,7 +189,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">86</span>
+          <span class="site-state-item-count">88</span>
           <span class="site-state-item-name">posts</span>
         </a>
       </div>
@@ -244,6 +244,1118 @@
     </div>
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/7d52b3c4.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/7d52b3c4.html" class="post-title-link" itemprop="url">进程与线程：从模型到调度</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-08-12 21:00:00" itemprop="dateCreated datePublished" datetime="2026-08-12T21:00:00+08:00">2026-08-12</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/" itemprop="url" rel="index"><span itemprop="name">操作系统</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>4.9k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>18 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <p><strong>进程（process）是正在运行的程序实例</strong>：程序是磁盘上的静态代码，进程是它被加载进内存后的一套完整运行环境。同一个程序可以同时跑出多个进程——开两个 IDE 窗口就是两个进程。本文回答三个问题：进程&#x2F;线程&#x2F;协程到底是什么、CPU 怎么把时间分给它们、切换到底贵在哪——并对照你天天用的技术（线程池大小、虚拟线程、容器 PID 1、Go 的 goroutine），看这些设计怎么从本文的机制里长出来。</p>
+<blockquote>
+<p><strong>系列地图（操作系统）</strong>：① <strong>进程与线程（本文：执行单元与调度）</strong> → ② 内存管理（地址空间与物理内存）→ ③ 文件系统与磁盘 IO（数据落盘）→ ④ IO 模型（等待数据的方式）→ ⑤ Linux 资源排查实战（工具收拢）。本文的切换成本是 ④ 里「BIO 为什么不行」的根因，本文的栈内存是 ② 里「线程多了为什么 OOM」的依据。</p>
+</blockquote>
+<h2 id="1-进程模型：正在运行的程序"><a href="#1-进程模型：正在运行的程序" class="headerlink" title="1. 进程模型：正在运行的程序"></a>1. 进程模型：正在运行的程序</h2><h3 id="1-1-程序的四个组成部分"><a href="#1-1-程序的四个组成部分" class="headerlink" title="1.1 程序的四个组成部分"></a>1.1 程序的四个组成部分</h3><p>一个进程由四部分构成：</p>
+<table>
+<thead>
+<tr>
+<th>组成</th>
+<th>内容</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>程序代码</td>
+<td>指令序列</td>
+<td>只读段，可共享（同一程序多进程共享代码段）</td>
+</tr>
+<tr>
+<td>地址空间</td>
+<td>虚拟内存布局</td>
+<td>代码段、数据段、堆、栈</td>
+</tr>
+<tr>
+<td>运行状态</td>
+<td>寄存器、程序计数器</td>
+<td>中断&#x2F;切换时用于保存现场</td>
+</tr>
+<tr>
+<td>系统资源</td>
+<td>文件描述符、信号、IPC</td>
+<td>打开的文件、管道、socket</td>
+</tr>
+</tbody></table>
+<p>内核用<strong>进程控制块（PCB，Process Control Block）</strong>统一管理进程的一切，Linux 里叫 <code>task_struct</code>：PID、状态、寄存器快照、内存映射、打开的文件表、CPU 使用统计……可以把它理解为进程在操作系统里的「档案袋」。</p>
+<pre class="mermaid">flowchart TD
+    PCB["Process Control Block&lt;br/>(task_struct)"] --> ID["PID / PPID"]
+    PCB --> STATE["Process state&lt;br/>R / S / D / Z / T"]
+    PCB --> REGS["Register file &amp; PC&lt;br/>(context save area)"]
+    PCB --> MEM["Memory mapping&lt;br/>code / data / heap / stack"]
+    PCB --> FILES["Open file descriptors"]
+    PCB --> STAT["CPU time &amp; scheduling info"]
+    PCB --> IPC["Signals / semaphores / pipes"]</pre>
+
+<p>注意 PCB 存在<strong>内核内存</strong>里，用户程序访问不到——这是第 4 节要讲「分态」的原因之一。</p>
+<h3 id="1-2-生命周期：五个状态"><a href="#1-2-生命周期：五个状态" class="headerlink" title="1.2 生命周期：五个状态"></a>1.2 生命周期：五个状态</h3><p>进程一生在几个状态间迁移，<code>ps</code> 输出的 S 列就是当前状态：</p>
+<pre class="mermaid">stateDiagram-v2
+    [*] --> New: fork()
+    New --> Ready: accepted by scheduler
+    Ready --> Running: schedule
+    Running --> Ready: time slice expired
+    Running --> Blocked: I/O wait
+    Blocked --> Ready: I/O complete
+    Running --> Zombie: exit()
+    Zombie --> [*]: reaped by parent (wait)</pre>
+
+<table>
+<thead>
+<tr>
+<th>状态</th>
+<th>含义</th>
+<th>ps 标识</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>就绪（Ready）</td>
+<td>一切就绪，只等 CPU</td>
+<td><code>R</code></td>
+</tr>
+<tr>
+<td>运行（Running）</td>
+<td>正在 CPU 上执行</td>
+<td><code>R</code></td>
+</tr>
+<tr>
+<td>阻塞（Blocked）</td>
+<td>等 I&#x2F;O 或锁</td>
+<td><code>S</code>（可中断睡眠）&#x2F; <code>D</code>（不可中断）</td>
+</tr>
+<tr>
+<td>僵尸（Zombie）</td>
+<td>已退出、等父进程回收</td>
+<td><code>Z</code></td>
+</tr>
+<tr>
+<td>孤儿（Orphan）</td>
+<td>父进程先死，被 1 号进程收养</td>
+<td>无专门标识</td>
+</tr>
+</tbody></table>
+<p><strong>僵尸进程是「已退出但还没被父进程 <code>wait()</code> 回收」的进程</strong>：不占 CPU 不占内存（PCB 还占着），但 PID 不释放，多了会耗尽 PID 上限。父进程用 <code>wait()</code>&#x2F;<code>waitpid()</code> 收尸，Java 里对应的就是 <code>Process.waitFor()</code>。父进程先死了怎么办？孤儿进程由 1 号进程（init&#x2F;systemd）自动收养回收——所以孤儿不可怕，僵尸要防。</p>
+<p>Java 里反而不容易造出僵尸——JDK 的 Process 内部有 reaper 线程自动 <code>waitpid</code> 回收子进程。真正常见的坑是「<strong>起了子进程但没人读它的输出流</strong>」：子进程写满管道缓冲区（64KB）后永久阻塞，表现为整个流程卡死（1.3 有实验）。僵尸进程更多出现在 C&#x2F;Shell 场景（1.3 给造法）。</p>
+<h3 id="1-3-动手验证：用-ps-观察进程状态"><a href="#1-3-动手验证：用-ps-观察进程状态" class="headerlink" title="1.3 动手验证：用 ps 观察进程状态"></a>1.3 动手验证：用 ps 观察进程状态</h3><p>实操命令：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">ps -eo pid,ppid,<span class="built_in">stat</span>,cmd | <span class="built_in">head</span> -20          <span class="comment"># 全量进程 + 状态列</span></span><br><span class="line">ps -eo pid,ppid,<span class="built_in">stat</span>,cmd | grep -i defunct   <span class="comment"># 找出所有僵尸进程</span></span><br><span class="line">top -p &lt;pid&gt;                                 <span class="comment"># 单进程视图，S 列即状态</span></span><br></pre></td></tr></table></figure>
+
+<p>STAT 列对照：<code>R</code>（运行&#x2F;就绪）、<code>S</code>（可中断睡眠，最常见——等 I&#x2F;O、等锁）、<code>D</code>（不可中断睡眠，多在等磁盘）、<code>Z</code>（僵尸）。多进程部署的 Java 应用（如 Elasticsearch 的 JVM + 运维子进程）用 <code>ps --ppid &lt;父pid&gt;</code> 按父子过滤，一眼看到它起了哪些子进程。</p>
+<p>想亲手造一个僵尸进程，三行 C 足够（需要 gcc）：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;unistd.h&gt;</span></span></span><br><span class="line"><span class="type">int</span> <span class="title function_">main</span><span class="params">()</span> &#123; <span class="keyword">if</span> (fork() == <span class="number">0</span>) &#123; _exit(<span class="number">0</span>); &#125; sleep(<span class="number">60</span>); <span class="keyword">return</span> <span class="number">0</span>; &#125;</span><br></pre></td></tr></table></figure>
+
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">gcc -o zombie zombie.c &amp;&amp; ./zombie &amp;   <span class="comment"># 子进程已退出，父进程睡眠不回收</span></span><br><span class="line">ps -eo pid,ppid,<span class="built_in">stat</span>,cmd | grep Z      <span class="comment"># 能看到一个 Z 状态</span></span><br></pre></td></tr></table></figure>
+
+<p>再复现 Java 侧的「卡死」版本——子进程狂输出、父进程不读流，管道缓冲区写满后子进程永久阻塞：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">Process</span> <span class="variable">p</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ProcessBuilder</span>(<span class="string">&quot;sh&quot;</span>, <span class="string">&quot;-c&quot;</span>, <span class="string">&quot;while true; do echo x; done&quot;</span>).start();</span><br><span class="line"><span class="comment">// 不调用 p.getInputStream().read()：子进程写满 64KB 管道缓冲后永久卡住</span></span><br><span class="line">p.waitFor(); <span class="comment">// 永远等不到，日志卡在这一行</span></span><br></pre></td></tr></table></figure>
+
+<p>此时 <code>ps -eo pid,stat,cmd | grep &lt;子进程名&gt;</code> 看到的是 <code>S</code>（阻塞在写管道）而不是 <code>Z</code>。修法是起一个线程消费输出流，或 <code>p.getInputStream().readAllBytes()</code>（对无限输出的进程慎用，会积压内存）。</p>
+<p><strong>容器里的僵尸问题</strong>（K8s 排查常客）：pod 的 PID 1 如果不回收子进程（不调用 <code>waitpid</code>），子进程退出就变僵尸且<strong>没有 init 来收养</strong>——因为容器里没有 systemd，PID 1 就是你的应用。K8s 官方推荐用 <code>tini</code>&#x2F;<code>init</code> 镜像做 PID 1（自带 reaping + 转发信号），Java 应用直接以 <code>java</code> 做 PID 1 反而相对安全（JVM 的 reaper 线程会回收自己启动的子进程）；真正积僵尸的是 shell 做入口镜像、或 C 程序 fork 的场景。排查命令不变：<code>ps -eo pid,ppid,stat,cmd | grep -i defunct</code>——pod 里看到 Z 残留，先查入口是不是裸 shell。</p>
+<h2 id="2-线程：进程内的执行流"><a href="#2-线程：进程内的执行流" class="headerlink" title="2. 线程：进程内的执行流"></a>2. 线程：进程内的执行流</h2><p><strong>线程（thread）是 CPU 调度的最小单位，进程是资源分配的最小单位</strong>。一个进程可以有多个线程：共享进程的地址空间和文件描述符，各自独立持有栈和寄存器。</p>
+<table>
+<thead>
+<tr>
+<th>共享（进程级）</th>
+<th>独占（线程级）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>代码段、数据段</td>
+<td>栈（调用现场）</td>
+</tr>
+<tr>
+<td>堆（new 出来的对象）</td>
+<td>寄存器</td>
+</tr>
+<tr>
+<td>文件描述符</td>
+<td>线程局部存储（TLS）</td>
+</tr>
+<tr>
+<td>信号处理、全局变量</td>
+<td>调度上下文（PC、SP）</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart LR
+    subgraph Process[Process address space]
+        CODE["Code &amp; data"] --- HEAP["Heap"]
+        FILES["File descriptors"]
+    end
+    subgraph T1["Thread 1"]
+        S1["Stack &amp; registers"]
+    end
+    subgraph T2["Thread 2"]
+        S2["Stack &amp; registers"]
+    end
+    CODE --- T1
+    CODE --- T2
+    HEAP --- T1
+    HEAP --- T2
+    FILES --- T1
+    FILES --- T2</pre>
+
+<h3 id="2-1-三种线程模型"><a href="#2-1-三种线程模型" class="headerlink" title="2.1 三种线程模型"></a>2.1 三种线程模型</h3><table>
+<thead>
+<tr>
+<th>模型</th>
+<th>调度在哪</th>
+<th>代表</th>
+<th>特点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1:1 内核线程</td>
+<td>内核</td>
+<td>Linux pthread、Java 平台线程</td>
+<td>内核原生支持，但每个线程都占内核资源</td>
+</tr>
+<tr>
+<td>M:N 用户线程</td>
+<td>用户态库</td>
+<td>Java 早期绿色线程（已废弃）</td>
+<td>灵活但调度映射复杂，难调优</td>
+</tr>
+<tr>
+<td>协程&#x2F;虚拟线程</td>
+<td>用户态 + JVM</td>
+<td>Go goroutine、Java 虚拟线程</td>
+<td>栈上调度，阻塞不占内核线程，百万级并发</td>
+</tr>
+</tbody></table>
+<p><strong>Java 平台线程是 1:1 内核线程</strong>——每 new 一个 <code>Thread</code> 就创建一个内核线程，所以线程数量上不去；<strong>Java 虚拟线程（JDK 21 正式版）是 JVM 用户态调度的协程</strong>：线程数可以到几十万，阻塞 I&#x2F;O 时让出底层载体线程（carrier thread），这就是「百万并发」的来源。</p>
+<p><strong>对照 Go 的 goroutine</strong>（面试常被连起来问）：Go 的 GMP 模型和虚拟线程同构——G（goroutine）&#x3D; 虚拟线程，M（machine）&#x3D; 载体线程，P（processor）&#x3D; 调度器配额。G 在 channel&#x2F;syscall 上阻塞时让出 M，M 挂上别的 G 继续跑；Go 不区分「平台线程&#x2F;虚拟线程」，所有 goroutine 默认都在这个模型里。区别在阻塞边界：<strong>Java 虚拟线程遇到 synchronized 会 pin 住载体线程（JDK 21 已基本修复），Go 没有这个历史包袱</strong>——所以「Go 天然高并发」的底层原因，就是它从语言诞生起就建在协程模型上。</p>
+<h3 id="2-2-为什么线程比进程轻"><a href="#2-2-为什么线程比进程轻" class="headerlink" title="2.2 为什么线程比进程轻"></a>2.2 为什么线程比进程轻</h3><p>创建进程要分配&#x2F;复制地址空间（fork 走写时拷贝），创建线程只是多一个栈和一份调度上下文；切换进程要换页表（TLB 全部失效重载），切换线程共享同一地址空间，只换栈指针和寄存器。一句话：<strong>线程省掉了「换地址空间」这个最贵的步骤</strong>。</p>
+<h3 id="2-3-动手验证：看-JVM-里的线程"><a href="#2-3-动手验证：看-JVM-里的线程" class="headerlink" title="2.3 动手验证：看 JVM 里的线程"></a>2.3 动手验证：看 JVM 里的线程</h3><p><code>top -Hp &lt;jvm_pid&gt;</code> 按线程查看（PID 列实际是 TID）；<code>jstack &lt;pid&gt;</code> 输出每个 Java 线程的栈，状态列能直接对上内核状态：</p>
+<table>
+<thead>
+<tr>
+<th>jstack 状态</th>
+<th>内核状态</th>
+<th>典型场景</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>RUNNABLE</td>
+<td>R</td>
+<td>正在计算；I&#x2F;O 轮询（epoll 等待）也算 RUNNABLE</td>
+</tr>
+<tr>
+<td>TIMED_WAITING（sleep&#x2F;park）</td>
+<td>S</td>
+<td><code>Thread.sleep</code>、<code>LockSupport.parkNanos</code></td>
+</tr>
+<tr>
+<td>WAITING（park）</td>
+<td>S</td>
+<td>等 <code>join</code>、condition 的 <code>await</code></td>
+</tr>
+<tr>
+<td>BLOCKED</td>
+<td>S</td>
+<td>等 <code>synchronized</code> 监视器锁</td>
+</tr>
+</tbody></table>
+<p><strong>一个常见误判</strong>：<code>top</code> 看 Java 进程 CPU 高，<code>top -Hp</code> 发现只有少数 TID 在忙——说明瓶颈在锁竞争或单线程阻塞，线程池开再大也没用，要先看 jstack 找锁。</p>
+<p>虚拟线程的并发上限实验（JDK 21+）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 平台线程：5 万在默认 ulimit 下大概率 OOM 或撞线程数限制（默认栈 1MB）</span></span><br><span class="line"><span class="keyword">try</span> (<span class="type">var</span> <span class="variable">ex</span> <span class="operator">=</span> Executors.newFixedThreadPool(<span class="number">50_000</span>)) &#123; &#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 虚拟线程：10 万轻松——栈按需分配、休眠时释放，不占内核线程</span></span><br><span class="line"><span class="keyword">try</span> (<span class="type">var</span> <span class="variable">ex</span> <span class="operator">=</span> Executors.newVirtualThreadPerTaskExecutor()) &#123;</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; <span class="number">100_000</span>; i++) &#123;</span><br><span class="line">        ex.submit(() -&gt; &#123; Thread.sleep(<span class="number">1000</span>); <span class="keyword">return</span> <span class="literal">null</span>; &#125;);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>同样「10 万个线程睡 1 秒」：平台线程先撞上限，虚拟线程几秒内起完、内存低一个数量级——这就是 1:1 内核线程模型和协程模型的分水岭，也是高并发网关（Netty 连接层 + 虚拟线程业务层）新架构的底气。</p>
+<h2 id="3-调度：CPU-时间怎么分"><a href="#3-调度：CPU-时间怎么分" class="headerlink" title="3. 调度：CPU 时间怎么分"></a>3. 调度：CPU 时间怎么分</h2><p><strong>调度器（scheduler）负责从就绪任务里选一个上 CPU</strong>。单核机器上「同时运行」其实是时间片轮流，调度器决定谁先、谁多、谁被饿死。</p>
+<h3 id="3-1-调度算法演进"><a href="#3-1-调度算法演进" class="headerlink" title="3.1 调度算法演进"></a>3.1 调度算法演进</h3><table>
+<thead>
+<tr>
+<th>算法</th>
+<th>思路</th>
+<th>优点</th>
+<th>缺点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>FCFS 先来先服务</td>
+<td>按到达顺序</td>
+<td>简单、公平</td>
+<td>长任务堵住短任务（护航效应）</td>
+</tr>
+<tr>
+<td>SJF 最短作业优先</td>
+<td>先跑最短的</td>
+<td>平均等待最小</td>
+<td>需预知运行时间，长任务饿死</td>
+</tr>
+<tr>
+<td>RR 时间片轮转</td>
+<td>固定时间片轮换</td>
+<td>响应快</td>
+<td>时间片大小难定：太大退化成 FCFS，太小切换开销爆炸</td>
+</tr>
+<tr>
+<td>优先级调度</td>
+<td>高优先级先跑</td>
+<td>满足交互需求</td>
+<td>低优先级饿死，需老化机制</td>
+</tr>
+<tr>
+<td>MLFQ 多级反馈队列</td>
+<td>多级队列 + 动态升降级</td>
+<td>兼顾交互与吞吐</td>
+<td>参数多，难调</td>
+</tr>
+<tr>
+<td>CFS 完全公平（Linux）</td>
+<td>按 vruntime 红黑树取最小</td>
+<td>公平、O(log n)</td>
+<td>不是硬实时</td>
+</tr>
+</tbody></table>
+<h3 id="3-2-Linux-CFS：把公平量化成-vruntime"><a href="#3-2-Linux-CFS：把公平量化成-vruntime" class="headerlink" title="3.2 Linux CFS：把公平量化成 vruntime"></a>3.2 Linux CFS：把公平量化成 vruntime</h3><p>Linux 默认调度器 CFS（Completely Fair Scheduler）把「公平」量化成 <strong>vruntime（虚拟运行时间）</strong>：每个进程按权重累积 vruntime，<strong>谁 vruntime 最小谁上 CPU</strong>。就绪队列用红黑树按 vruntime 排序，取最左节点 O(log n)。权重由 nice 值决定：nice 越大权重越小、vruntime 涨得越快——nice 0 的进程比 nice 19 的「值钱」得多。</p>
+<pre class="mermaid">flowchart TD
+    A["CPU tick / new task arrives"] --> B["Compute vruntime for each runnable task"]
+    B --> C["Pick task with min vruntime&lt;br/>(leftmost in red-black tree)"]
+    C --> D["Run for time slice"]
+    D --> E{"Preempted or&lt;br/>slice expired?"}
+    E -- No --> D
+    E -- Yes --> A</pre>
+
+<p>一个反直觉但重要的点：<strong>CFS 是「按比例分」而不是「轮流分」</strong>——睡眠（I&#x2F;O 等待）期间 vruntime 不涨，所以 IO 密集进程醒来后天然排前面，响应快；CPU 密集进程也不会被饿死，只是分到的比例低。</p>
+<h3 id="3-3-上下文切换：切换到底贵在哪"><a href="#3-3-上下文切换：切换到底贵在哪" class="headerlink" title="3.3 上下文切换：切换到底贵在哪"></a>3.3 上下文切换：切换到底贵在哪</h3><p><strong>上下文切换（context switch）是把 CPU 从当前任务切到另一个任务的完整过程</strong>，发生在时间片耗尽、任务主动让出（I&#x2F;O、锁等待）或中断时。</p>
+<table>
+<thead>
+<tr>
+<th>切换类型</th>
+<th>成本量级</th>
+<th>拆解</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>进程切换</td>
+<td>1-10 µs</td>
+<td>保存&#x2F;恢复寄存器 + 切换页表（TLB 全失效）+ 内核态进出</td>
+</tr>
+<tr>
+<td>线程切换</td>
+<td>0.5-2 µs</td>
+<td>同进程：只换寄存器快照和栈，不碰页表</td>
+</tr>
+<tr>
+<td>系统调用</td>
+<td>0.1-1 µs</td>
+<td>只进出内核态，不换任务</td>
+</tr>
+</tbody></table>
+<p>所以<strong>线程数量远超 CPU 核数时，大量时间花在切换而不是干活上</strong>——这就是「线程池核心线程数 ≈ CPU 核数（CPU 密集）或 ×(1+IO 等待&#x2F;计算比)（IO 密集）」的底层依据。</p>
+<p>真实场景：压测 TPS 上不去，<code>vmstat 1</code> 里 <code>cs</code>（context switch）列每秒几十万——线程池 300 线程跑 8 核机器，大半时间在切线程。缩到 40 线程后 TPS 反而翻倍。排查命令：<code>pidstat -w 1</code> 看自愿&#x2F;非自愿切换，<code>/proc/&lt;pid&gt;/status</code> 里的 <code>voluntary_ctxt_switches</code> 字段。</p>
+<h3 id="3-4-动手验证：调优先级、测切换开销"><a href="#3-4-动手验证：调优先级、测切换开销" class="headerlink" title="3.4 动手验证：调优先级、测切换开销"></a>3.4 动手验证：调优先级、测切换开销</h3><p>调整 nice 值改调度权重（范围 -20 ~ 19，普通用户只能调大，调小需要 root）：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">nice</span> -n -5 java -jar app.jar          <span class="comment"># 以更高优先级启动</span></span><br><span class="line">renice -n -5 -p $(pgrep java)         <span class="comment"># 运行中调整，top 的 NI 列会变</span></span><br></pre></td></tr></table></figure>
+
+<p>低延迟服务（如网关）把自身进程 nice 调高、把批处理任务（日志压缩、报表）nice 调低，让 CFS 把时间片多分给前者——「按 vruntime 分时间」在生产里的直接用法。</p>
+<p>上下文切换开销实测（Linux）：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">vmstat 1          <span class="comment"># cs 列：每秒上下文切换次数</span></span><br><span class="line">pidstat -w 1      <span class="comment"># 自愿（cswch）与非自愿（nvcswch）切换分开看</span></span><br></pre></td></tr></table></figure>
+
+<p>真实复盘案例：某服务 8 核机器，线程池 300 线程，TPS 卡在 4000 上不去；<code>vmstat 1</code> 显示 <code>cs</code> 每秒 30 万+，<code>pidstat -w</code> 显示每个 worker 每秒上万次非自愿切换（时间片被抢）。线程池缩到 64 后 <code>cs</code> 降到 5 万，TPS 升到 9000。排查链路固定为：<code>vmstat 1</code> 看 cs → <code>top -Hp</code> 确认线程数 → 调线程池 → 复测 cs 与 TPS。</p>
+<p><strong>判定标准</strong>：cs 超过「核数 × 2 万&#x2F;秒」（8 核约 16 万）就要警惕切换占比过高；<code>vmstat</code> 里 <code>%sy</code>（内核态时间）占比异常高，也常是切换或 syscall 过多的信号。</p>
+<h2 id="4-用户态与内核态：系统调用的代价"><a href="#4-用户态与内核态：系统调用的代价" class="headerlink" title="4. 用户态与内核态：系统调用的代价"></a>4. 用户态与内核态：系统调用的代价</h2><p><strong>用户态（user mode）与内核态（kernel mode）是 CPU 的两种特权级别</strong>：内核态能执行特权指令（访问硬件、改页表），用户态不行。用户程序想动硬件，必须通过<strong>系统调用（syscall）</strong>请内核代劳。分态的目的是安全和隔离：你写的代码不能直接改别人的内存、不能直接写硬盘。</p>
+<h3 id="4-1-系统调用链路"><a href="#4-1-系统调用链路" class="headerlink" title="4.1 系统调用链路"></a>4.1 系统调用链路</h3><p>Java 里一次文件读取，底层链路是这样的：</p>
+<pre class="mermaid">sequenceDiagram
+    participant Java as Java (user mode)
+    participant Libc as glibc (user mode)
+    participant Kernel as Kernel (kernel mode)
+    participant Disk as Disk / Page Cache
+    Java->>Libc: FileInputStream.read()
+    Libc->>Kernel: syscall read(fd, buf, len)
+    Kernel->>Disk: page cache lookup / device I/O
+    Disk-->>Kernel: data
+    Kernel-->>Libc: copy to user buffer, return len
+    Libc-->>Java: bytes</pre>
+
+<p>每发一次 syscall 就有一次用户态↔内核态切换。<strong>态切换本身不重（亚微秒级），重的是它打断 CPU 流水线、每次都要校验参数和权限</strong>。由此推出两个工程结论：</p>
+<ul>
+<li>读 1 字节和读 4KB 都是 1 次 <code>read</code> syscall——<strong>缓冲（<code>BufferedInputStream</code>）的意义就在这里</strong>：把 N 次小 syscall 合并成一次大的；</li>
+<li>高性能框架都在「少 syscall」上做文章：批量读写、mmap、sendfile 零拷贝（一次 syscall 在内核态内完成磁盘→socket 拷贝，详见操作系统系列的 IO 模型篇）。</li>
+</ul>
+<h3 id="4-2-两种模式的对照"><a href="#4-2-两种模式的对照" class="headerlink" title="4.2 两种模式的对照"></a>4.2 两种模式的对照</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>用户态</th>
+<th>内核态</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>权限</td>
+<td>受限指令集</td>
+<td>特权指令（I&#x2F;O、内存管理、中断）</td>
+</tr>
+<tr>
+<td>谁在跑</td>
+<td>业务代码、JVM</td>
+<td>内核代码、驱动</td>
+</tr>
+<tr>
+<td>进入方式</td>
+<td>正常执行</td>
+<td>系统调用 &#x2F; 中断 &#x2F; 异常</td>
+</tr>
+<tr>
+<td>崩溃影响</td>
+<td>只崩自己的进程</td>
+<td>可能崩整个系统</td>
+</tr>
+</tbody></table>
+<h3 id="4-3-动手验证：strace-数一数系统调用"><a href="#4-3-动手验证：strace-数一数系统调用" class="headerlink" title="4.3 动手验证：strace 数一数系统调用"></a>4.3 动手验证：strace 数一数系统调用</h3><p><code>strace</code> 是系统调用追踪器，Java 程序同样适用（macOS 用 <code>dtruss</code> 替代，生产环境以 Linux 为准）：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">strace -c java -version                       <span class="comment"># 统计 syscall 类型与次数</span></span><br><span class="line">strace -p &lt;jvm_pid&gt; -f -e trace=<span class="built_in">read</span>,write    <span class="comment"># 附加运行中的 JVM，只看读写</span></span><br></pre></td></tr></table></figure>
+
+<p>输出里 <code>openat</code>&#x2F;<code>read</code>&#x2F;<code>write</code>&#x2F;<code>futex</code> 占绝大多数——<code>futex</code> 对应锁（线程等待&#x2F;唤醒），<code>read</code>&#x2F;<code>write</code> 对应 IO。观察点：<strong>一次业务操作触发的 syscall 数量</strong>——数量级压不下来，调 JVM 参数都是隔靴搔痒。</p>
+<p>缓冲读 vs 非缓冲读，同样的「读 10MB 文件」：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 方式一：FileInputStream 逐字节读 → 1000 万次 read syscall，秒级</span></span><br><span class="line"><span class="keyword">try</span> (<span class="type">var</span> <span class="variable">in</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">FileInputStream</span>(<span class="string">&quot;data.bin&quot;</span>)) &#123;</span><br><span class="line">    <span class="keyword">while</span> (in.read() != -<span class="number">1</span>) &#123; &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 方式二：BufferedInputStream 逐字节读 → 底层每次填满 8KB 缓冲，约 1300 次 read</span></span><br><span class="line"><span class="keyword">try</span> (<span class="type">var</span> <span class="variable">in</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">BufferedInputStream</span>(<span class="keyword">new</span> <span class="title class_">FileInputStream</span>(<span class="string">&quot;data.bin&quot;</span>))) &#123;</span><br><span class="line">    <span class="keyword">while</span> (in.read() != -<span class="number">1</span>) &#123; &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>实测方式一耗时是方式二的百倍以上（每次 syscall 都要进出内核态、校验参数、拷贝一字节）；<code>strace -c</code> 下方式一的 <code>read</code> 计数约 1000 万，方式二约 1300。生产排查时 IO 路径慢，先找「小读小写」——把 N 次小 IO 合并成一次大 IO，收益立竿见影。</p>
+<h2 id="5-总结与避坑清单"><a href="#5-总结与避坑清单" class="headerlink" title="5. 总结与避坑清单"></a>5. 总结与避坑清单</h2><h3 id="5-1-面试速答表"><a href="#5-1-面试速答表" class="headerlink" title="5.1 面试速答表"></a>5.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>进程和线程的区别？</td>
+<td>进程是资源分配单位，线程是调度单位；线程共享进程的地址空间和文件描述符，各自独立栈和寄存器</td>
+</tr>
+<tr>
+<td>为什么线程比进程轻？</td>
+<td>创建省了地址空间复制（写时拷贝），切换省了页表刷新（TLB）</td>
+</tr>
+<tr>
+<td>线程切换开销多大？</td>
+<td>微秒级：寄存器 + 栈 + 内核态进出；进程切换还多一次页表切换</td>
+</tr>
+<tr>
+<td>协程和线程的区别？</td>
+<td>协程在用户态调度，不依赖内核，创建&#x2F;切换成本低一个数量级，适合 IO 密集</td>
+</tr>
+<tr>
+<td>Java 线程是哪种模型？</td>
+<td>平台线程 1:1 内核线程；虚拟线程（JDK 21）是 JVM 调度的协程</td>
+</tr>
+<tr>
+<td>什么是僵尸进程？</td>
+<td>已退出但父进程没 wait() 回收，PCB 未释放；孤儿进程由 init 收养，僵尸必须防</td>
+</tr>
+</tbody></table>
+<h3 id="5-2-实战避坑清单"><a href="#5-2-实战避坑清单" class="headerlink" title="5.2 实战避坑清单"></a>5.2 实战避坑清单</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>TPS 上不去，vmstat 的 cs 每秒几十万</td>
+<td>线程过多，大量时间花在上下文切换</td>
+<td>按核数与 IO 密集度收缩线程池；新项目优先虚拟线程</td>
+</tr>
+<tr>
+<td>起了子进程后主流程卡死</td>
+<td>没人读子进程输出流，管道缓冲写满（64KB）后子进程阻塞</td>
+<td>起线程消费输出流；用完 waitFor() 并关闭流</td>
+</tr>
+<tr>
+<td>内存充足但 new Thread 报 OOM</td>
+<td>进程线程数 &#x2F; 虚拟内存受限（<code>ulimit -u</code>）</td>
+<td>检查 ulimit；或换虚拟线程</td>
+</tr>
+<tr>
+<td>线程池开满 2000 线程响应反而更差</td>
+<td>切换开销 &gt; 并发收益</td>
+<td>线程数 ≈ CPU 核数 × (1 + IO 等待占比 &#x2F; CPU 占比)</td>
+</tr>
+</tbody></table>
+<h3 id="5-3-工具速查表"><a href="#5-3-工具速查表" class="headerlink" title="5.3 工具速查表"></a>5.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>对应本节概念</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>ps -eo pid,ppid,stat,cmd</code></td>
+<td>进程状态、父子关系、僵尸</td>
+<td>1. 进程模型</td>
+</tr>
+<tr>
+<td><code>top -Hp &lt;pid&gt;</code></td>
+<td>每个线程的 CPU 占用</td>
+<td>2. 线程、3. 调度</td>
+</tr>
+<tr>
+<td><code>jstack &lt;pid&gt;</code></td>
+<td>Java 线程栈与状态</td>
+<td>2. 线程（映射内核状态）</td>
+</tr>
+<tr>
+<td><code>vmstat 1</code> &#x2F; <code>pidstat -w 1</code></td>
+<td>每秒切换次数 &#x2F; 自愿·非自愿切换</td>
+<td>3. 上下文切换</td>
+</tr>
+<tr>
+<td><code>nice</code> &#x2F; <code>renice</code></td>
+<td>调度权重（top 的 NI 列）</td>
+<td>3. CFS 权重</td>
+</tr>
+<tr>
+<td><code>strace -c</code></td>
+<td>syscall 类型与次数</td>
+<td>4. 用户态&#x2F;内核态</td>
+</tr>
+</tbody></table>
+<p>三个收获：<strong>进程管资源、线程管执行、调度管时间</strong>；切换成本从大到小是 进程切换 &gt; 线程切换 &gt; 系统调用；Java 的并发问题最终都能映射到这几层上——线程池大小、虚拟线程选型、进程卡死排查，根因都在本节讲的内核机制里，排查工具见上表。</p>
+<p>实操建议：</p>
+<ol>
+<li>压测先看 <code>vmstat 1</code> 的 <code>cs</code> 列，切换率异常高先缩线程池，不要先加并发。</li>
+<li>用了 <code>Runtime.exec()</code> &#x2F; <code>ProcessBuilder</code> 一定 <code>waitFor()</code> + 关流，防僵尸进程。</li>
+<li>新项目 IO 密集型并发优先评估虚拟线程（JDK 21+），平台线程留给 CPU 密集和需要可控栈的场景。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告</strong>：线程的「栈内存」在进程里只是地址空间的一角——第 2 篇《内存管理：虚拟内存与分页》讲地址空间怎么组织、虚拟地址怎么翻译成物理地址、以及容器里 JVM 被 OOM 杀的完整链路。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/67126.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/67126.html" class="post-title-link" itemprop="url">设计模式：15 个高频模式的实战内化</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-08-12 21:00:00" itemprop="dateCreated datePublished" datetime="2026-08-12T21:00:00+08:00">2026-08-12</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/Java/" itemprop="url" rel="index"><span itemprop="name">Java</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>7.6k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>28 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <p><strong>设计模式面试不考「背定义」，考三件事：一句话说出模式解决什么问题、说出 JDK&#x2F;框架里的真实落点、说出你项目里怎么用的。</strong> 本文按此标准组织：15 个高频模式，每个配「动机 → 结构 → 源码落点 → 动手验证」，最后给出源码落点地图和面试答题框架。读完你能做到：面试官提任意一个高频模式，你 30 秒内答出「是什么、解决什么、哪用到、怎么用」。</p>
+<blockquote>
+<p>联动：本文是 <a href="/post/mybatis-2025.html">MyBatis 深度解析</a>（动态代理落点）、<a href="/post/18f2748c.html">Spring 深度解析</a>（工厂&#x2F;模板方法&#x2F;观察者落点）、<a href="/post/netty-2025.html">Netty 原理与实践</a>（责任链落点）的「模式视角」串联篇。</p>
+</blockquote>
+<h2 id="1-设计模式全景：面试怎么考"><a href="#1-设计模式全景：面试怎么考" class="headerlink" title="1. 设计模式全景：面试怎么考"></a>1. 设计模式全景：面试怎么考</h2><h3 id="1-1-三个层次：定义、落点、应用"><a href="#1-1-三个层次：定义、落点、应用" class="headerlink" title="1.1 三个层次：定义、落点、应用"></a>1.1 三个层次：定义、落点、应用</h3><p>设计模式是<strong>在特定上下文中反复出现的问题的解决方案模板</strong>——它不是代码规则，是经验的命名。面试考察分三层：</p>
+<table>
+<thead>
+<tr>
+<th>层次</th>
+<th>考察方式</th>
+<th>区分度</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>定义层</td>
+<td>「单例模式是什么？」</td>
+<td>无区分度，背过就会</td>
+</tr>
+<tr>
+<td>落点层</td>
+<td>「JDK 里哪里用了代理模式？」</td>
+<td>区分背书党</td>
+</tr>
+<tr>
+<td>应用层</td>
+<td>「你项目里哪个地方用了策略模式，为什么？」</td>
+<td>区分有经验者</td>
+</tr>
+</tbody></table>
+<p><strong>因果链</strong>：面试官问设计模式的真实目的是验证「你有没有设计意识」——能不能把变化点隔离出来。<strong>凡是回答「我记得 23 种模式的定义」的，都在第一层；能说出落点和自己项目的，才到第三层。</strong> 本文的目标是把 15 个高频模式全部推到第三层。</p>
+<h3 id="1-2-15-个高频模式的分类地图"><a href="#1-2-15-个高频模式的分类地图" class="headerlink" title="1.2 15 个高频模式的分类地图"></a>1.2 15 个高频模式的分类地图</h3><p>23 种 GoF 模式分三大类，面试覆盖度高度集中在 15 个：</p>
+<pre class="mermaid">flowchart TD
+    A["设计模式 23 种"] --> B["创建型 5：关注对象怎么产生&lt;br/>单例 工厂 建造者 原型 抽象工厂"]
+    A --> C["结构型 7：关注类与对象怎么组合&lt;br/>代理 装饰器 适配器 组合 外观 桥接 享元"]
+    A --> D["行为型 11：关注对象间怎么协作&lt;br/>策略 模板方法 观察者 责任链 迭代器 状态 命令 访问者 中介 解释器 备忘录"]
+    B --> E["面试 15 个高频&lt;br/>创建 3 + 结构 5 + 行为 7"]
+    C --> E
+    D --> E</pre>
+
+<table>
+<thead>
+<tr>
+<th>分类</th>
+<th>高频模式</th>
+<th>一句话动机</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>创建型</td>
+<td>单例、工厂方法、建造者</td>
+<td>把「怎么创建」和「怎么用」解耦</td>
+</tr>
+<tr>
+<td>结构型</td>
+<td>代理、装饰器、适配器、组合、外观</td>
+<td>把「职责」组织成树或包装链</td>
+</tr>
+<tr>
+<td>行为型</td>
+<td>策略、模板方法、观察者、责任链、迭代器、状态、命令</td>
+<td>把「行为变化」从对象里抽出来</td>
+</tr>
+</tbody></table>
+<p><strong>判断标准</strong>：不是记住 23 个名字，而是<strong>看到一段代码能认出用了什么模式，看到一个需求能选对模式</strong>——识别能力 &gt; 记忆能力。面试官更常考的是后者（给你场景问你会怎么设计）。</p>
+<h3 id="1-3-学习主线：从动机出发，不从结构出发"><a href="#1-3-学习主线：从动机出发，不从结构出发" class="headerlink" title="1.3 学习主线：从动机出发，不从结构出发"></a>1.3 学习主线：从动机出发，不从结构出发</h3><p>每个模式背「结构图（UML）+ 角色名」是低效的。正确主线：</p>
+<p><strong>动机（解决什么问题）→ 场景（什么信号该用它）→ 落点（JDK&#x2F;框架哪里在用）→ 动手（自己写一遍）</strong></p>
+<p><strong>因果链</strong>：设计模式本质是「应对变化」——创建型应对「创建逻辑变化」，结构型应对「职责组合变化」，行为型应对「算法&#x2F;协作变化」。<strong>面试答题说动机不说结构，是区分「懂设计」和「背图」的分水岭</strong>——因为结构可以现推，动机不能。</p>
+<h2 id="2-创建型：单例、工厂方法、建造者"><a href="#2-创建型：单例、工厂方法、建造者" class="headerlink" title="2. 创建型：单例、工厂方法、建造者"></a>2. 创建型：单例、工厂方法、建造者</h2><h3 id="2-1-单例：全局唯一-延迟创建"><a href="#2-1-单例：全局唯一-延迟创建" class="headerlink" title="2.1 单例：全局唯一 + 延迟创建"></a>2.1 单例：全局唯一 + 延迟创建</h3><p><strong>动机</strong>：某些对象全系统只需要一份（配置中心、连接池、线程池、日志器）——重复创建浪费资源，且状态必须全局共享。单例解决「全局唯一」这个约束本身。</p>
+<p><strong>四种写法对比</strong>（这是面试第一题，必须全掌握）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 饿汉式：类加载即创建，简单但可能浪费</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">EagerSingleton</span> &#123;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> <span class="type">EagerSingleton</span> <span class="variable">INSTANCE</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">EagerSingleton</span>();</span><br><span class="line">    <span class="keyword">private</span> <span class="title function_">EagerSingleton</span><span class="params">()</span> &#123;&#125;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> EagerSingleton <span class="title function_">getInstance</span><span class="params">()</span> &#123; <span class="keyword">return</span> INSTANCE; &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// DCL 双重检查锁：面试问最多的写法</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">DCLSingleton</span> &#123;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">volatile</span> DCLSingleton instance;  <span class="comment">// 为什么 volatile？看深挖</span></span><br><span class="line">    <span class="keyword">private</span> <span class="title function_">DCLSingleton</span><span class="params">()</span> &#123;&#125;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> DCLSingleton <span class="title function_">getInstance</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">if</span> (instance == <span class="literal">null</span>) &#123;                    <span class="comment">// 第一次检查：无竞争快速路径</span></span><br><span class="line">            <span class="keyword">synchronized</span> (DCLSingleton.class) &#123;    <span class="comment">// 有竞争才进锁</span></span><br><span class="line">                <span class="keyword">if</span> (instance == <span class="literal">null</span>) &#123;            <span class="comment">// 第二次检查：防重复创建</span></span><br><span class="line">                    instance = <span class="keyword">new</span> <span class="title class_">DCLSingleton</span>();</span><br><span class="line">                &#125;</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> instance;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 静态内部类：延迟加载 + 无线程安全代码，最推荐的经典写法</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">HolderSingleton</span> &#123;</span><br><span class="line">    <span class="keyword">private</span> <span class="title function_">HolderSingleton</span><span class="params">()</span> &#123;&#125;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">class</span> <span class="title class_">Holder</span> &#123;                  <span class="comment">// 只有 getInstance 被调用才加载</span></span><br><span class="line">        <span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> <span class="type">HolderSingleton</span> <span class="variable">INSTANCE</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">HolderSingleton</span>();</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> HolderSingleton <span class="title function_">getInstance</span><span class="params">()</span> &#123; <span class="keyword">return</span> Holder.INSTANCE; &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 枚举：防反射 + 防序列化，最硬的写法</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">enum</span> <span class="title class_">EnumSingleton</span> &#123;</span><br><span class="line">    INSTANCE;</span><br><span class="line">    <span class="comment">// 枚举构造器天然私有，JVM 保证唯一实例</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h3 id="2-2-深挖：DCL-为什么必须-volatile？"><a href="#2-2-深挖：DCL-为什么必须-volatile？" class="headerlink" title="2.2 深挖：DCL 为什么必须 volatile？"></a>2.2 深挖：DCL 为什么必须 volatile？</h3><p><code>new DCLSingleton()</code> 在 JVM 里是三步：分配内存 → 调用构造器 → 把引用赋给变量。<strong>指令重排可能让第三步先于第二步</strong>——线程 A 拿到半初始化的对象引用（实例非 null 但字段是默认值），线程 B 在第一次检查就返回了这个坏对象。</p>
+<pre class="mermaid">flowchart LR
+    A["线程 A：new 对象&lt;br/>1.分配内存 2.构造 3.赋引用"] --> B["重排：3 先于 2"]
+    B --> C["线程 B 看到 instance != null&lt;br/>返回未构造完的对象 → 字段全默认值"]</pre>
+
+<p><strong>因果链</strong>：<code>volatile</code> 禁止重排（JDK5 起 volatile 语义含 happens-before）→ 三步按序执行 → 线程 B 要么看到 null（继续走锁），要么看到完整对象。<strong>这个考点一次考三件事：并发、JVM 内存模型、模式——所以面试官爱问。</strong> 生产后果：不加 volatile 的 DCL 在低并发下可能永远不暴露，高并发下偶发字段全为 null&#x2F;默认值的诡异 bug，极难排查。</p>
+<p><strong>生产建议</strong>：新代码直接用枚举或静态内部类，DCL 的价值在面试题里大于生产——这本身就是「模式的正确使用」：<strong>别用需要你手动保证正确性的写法，当有更简单更安全的等价写法时</strong>。</p>
+<h3 id="2-3-动手验证：多线程下验证-DCL-与-volatile"><a href="#2-3-动手验证：多线程下验证-DCL-与-volatile" class="headerlink" title="2.3 动手验证：多线程下验证 DCL 与 volatile"></a>2.3 动手验证：多线程下验证 DCL 与 volatile</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 用 CountDownLatch 制造并发压力，验证 DCL 线程安全</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">SingletonStressTest</span> &#123;</span><br><span class="line">    <span class="keyword">static</span> <span class="keyword">class</span> <span class="title class_">BadSingleton</span> &#123;                    <span class="comment">// 故意去掉 volatile 的版本</span></span><br><span class="line">        <span class="keyword">private</span> <span class="keyword">static</span> BadSingleton instance;</span><br><span class="line">        <span class="keyword">public</span> <span class="type">int</span> <span class="variable">value</span> <span class="operator">=</span> <span class="number">42</span>;</span><br><span class="line">        <span class="keyword">private</span> <span class="title function_">BadSingleton</span><span class="params">()</span> &#123;&#125;</span><br><span class="line">        <span class="keyword">public</span> <span class="keyword">static</span> BadSingleton <span class="title function_">getInstance</span><span class="params">()</span> &#123;</span><br><span class="line">            <span class="keyword">if</span> (instance == <span class="literal">null</span>) &#123;</span><br><span class="line">                <span class="keyword">synchronized</span> (BadSingleton.class) &#123;</span><br><span class="line">                    <span class="keyword">if</span> (instance == <span class="literal">null</span>) instance = <span class="keyword">new</span> <span class="title class_">BadSingleton</span>();</span><br><span class="line">                &#125;</span><br><span class="line">            &#125;</span><br><span class="line">            <span class="keyword">return</span> instance;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> <span class="keyword">throws</span> Exception &#123;</span><br><span class="line">        <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">round</span> <span class="operator">=</span> <span class="number">0</span>; round &lt; <span class="number">100</span>; round++) &#123;</span><br><span class="line">            <span class="type">int</span> <span class="variable">n</span> <span class="operator">=</span> <span class="number">1000</span>;</span><br><span class="line">            <span class="type">var</span> <span class="variable">latch</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">java</span>.util.concurrent.CountDownLatch(n);</span><br><span class="line">            <span class="type">var</span> <span class="variable">refs</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">java</span>.util.concurrent.atomic.AtomicReferenceArray&lt;&gt;(n);</span><br><span class="line">            <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; n; i++) &#123;</span><br><span class="line">                <span class="keyword">final</span> <span class="type">int</span> <span class="variable">idx</span> <span class="operator">=</span> i;</span><br><span class="line">                <span class="keyword">new</span> <span class="title class_">Thread</span>(() -&gt; &#123; latch.countDown(); <span class="keyword">try</span> &#123; latch.await(); &#125; <span class="keyword">catch</span> (Exception e) &#123;&#125;</span><br><span class="line">                    refs.set(idx, BadSingleton.getInstance()); &#125;).start();</span><br><span class="line">            &#125;</span><br><span class="line">            Thread.sleep(<span class="number">50</span>);</span><br><span class="line">            <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; n; i++)</span><br><span class="line">                <span class="keyword">if</span> (refs.get(i).value != <span class="number">42</span>) &#123; System.out.println(<span class="string">&quot;发现未初始化对象: round=&quot;</span> + round); <span class="keyword">return</span>; &#125;</span><br><span class="line">        &#125;</span><br><span class="line">        System.out.println(<span class="string">&quot;100 轮未发现——重排是概率性的，不代表安全&quot;</span>);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>观察点：多跑几次，偶发出现 <code>value != 42</code> 即复现了半初始化对象（依赖 JIT 重排概率，也可能跑不出来）。判定标准：跑出问题 → volatile 机制被实证；没跑出 → 理解了「并发 bug 是概率性、压测不 bug 不等于安全」，这正是生产里此类问题的可怕之处。</p>
+<h3 id="2-4-工厂方法：把创建逻辑从使用方剥离"><a href="#2-4-工厂方法：把创建逻辑从使用方剥离" class="headerlink" title="2.4 工厂方法：把创建逻辑从使用方剥离"></a>2.4 工厂方法：把创建逻辑从使用方剥离</h3><p><strong>动机</strong>：当「创建哪个对象」需要运行时决定（按配置、按类型、按环境），把 <code>new</code> 散落在业务代码里会导致创建逻辑到处改。工厂把「选择实现类」收敛到一个地方。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 简单工厂（不是 GoF 23 种，但工程上最常用）：一个工厂方法按参数返回</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">LoggerFactory</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> Logger <span class="title function_">create</span><span class="params">(LogType type)</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="keyword">switch</span> (type) &#123;</span><br><span class="line">            <span class="keyword">case</span> FILE -&gt; <span class="keyword">new</span> <span class="title class_">FileLogger</span>();</span><br><span class="line">            <span class="keyword">case</span> CONSOLE -&gt; <span class="keyword">new</span> <span class="title class_">ConsoleLogger</span>();</span><br><span class="line">        &#125;;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 工厂方法（GoF）：把创建延迟到子类</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">interface</span> <span class="title class_">LoggerFactory</span> &#123;</span><br><span class="line">    Logger <span class="title function_">create</span><span class="params">()</span>;</span><br><span class="line">&#125;</span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">FileLoggerFactory</span> <span class="keyword">implements</span> <span class="title class_">LoggerFactory</span> &#123;</span><br><span class="line">    <span class="meta">@Override</span> <span class="keyword">public</span> Logger <span class="title function_">create</span><span class="params">()</span> &#123; <span class="keyword">return</span> <span class="keyword">new</span> <span class="title class_">FileLogger</span>(); &#125;   <span class="comment">// 每个具体工厂只负责一类</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>源码落点</strong>：Spring 的 <code>BeanFactory</code> 就是工厂模式的放大版——<code>getBean()</code> 不看构造参数，按名字&#x2F;类型返回，创建细节（单例缓存、循环依赖、AOP 代理）全部藏在内核。<strong>你天天在用工厂，只是没意识到</strong>：<code>ApplicationContext.getBean()</code>、<code>ExecutorService.newFixedThreadPool()</code>（也是工厂）、<code>Integer.valueOf()</code>（缓存工厂）。</p>
+<p><strong>因果链</strong>：工厂的核心收益是「<strong>变化点隔离</strong>」——新增一种 Logger 实现，业务代码零改动，只改工厂。这是所有设计模式共有的底层逻辑：<strong>把会变的封装起来，把不变的暴露出去</strong>。</p>
+<h3 id="2-5-建造者：参数多到构造器放不下"><a href="#2-5-建造者：参数多到构造器放不下" class="headerlink" title="2.5 建造者：参数多到构造器放不下"></a>2.5 建造者：参数多到构造器放不下</h3><p><strong>动机</strong>：对象有 5 个以上可选参数时，构造器重载爆炸、参数顺序出错难查。建造者用「链式设置 + 最后 build」解决。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 典型应用：Lombok @Builder 自动生成的就是这个模式</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">HttpClient</span> &#123;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> <span class="type">int</span> connectTimeout;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> <span class="type">int</span> readTimeout;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> <span class="type">boolean</span> retry;</span><br><span class="line">    <span class="keyword">private</span> <span class="title function_">HttpClient</span><span class="params">(Builder b)</span> &#123; <span class="built_in">this</span>.connectTimeout = b.connectTimeout; <span class="comment">/* ... */</span> &#125;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">class</span> <span class="title class_">Builder</span> &#123;</span><br><span class="line">        <span class="keyword">private</span> <span class="type">int</span> <span class="variable">connectTimeout</span> <span class="operator">=</span> <span class="number">1000</span>;    <span class="comment">// 默认值</span></span><br><span class="line">        <span class="keyword">private</span> <span class="type">boolean</span> <span class="variable">retry</span> <span class="operator">=</span> <span class="literal">false</span>;</span><br><span class="line">        <span class="keyword">public</span> Builder <span class="title function_">connectTimeout</span><span class="params">(<span class="type">int</span> v)</span> &#123; <span class="built_in">this</span>.connectTimeout = v; <span class="keyword">return</span> <span class="built_in">this</span>; &#125;</span><br><span class="line">        <span class="keyword">public</span> Builder <span class="title function_">retry</span><span class="params">(<span class="type">boolean</span> v)</span> &#123; <span class="built_in">this</span>.retry = v; <span class="keyword">return</span> <span class="built_in">this</span>; &#125;</span><br><span class="line">        <span class="keyword">public</span> HttpClient <span class="title function_">build</span><span class="params">()</span> &#123; <span class="keyword">return</span> <span class="keyword">new</span> <span class="title class_">HttpClient</span>(<span class="built_in">this</span>); &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"><span class="comment">// 使用：HttpClient client = new HttpClient.Builder().connectTimeout(5000).retry(true).build();</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>落点</strong>：<code>StringBuilder</code>（对 String 的建造）、OkHttp&#x2F;Netty 的各种 <code>Builder</code>、Lombok <code>@Builder</code>。面试对比「建造者 vs 工厂」：<strong>工厂管「创建哪类」，建造者管「创建细节多」</strong>——一个解决多态，一个解决参数多。</p>
+<h3 id="2-6-动手验证：三个创建型模式改造成对照"><a href="#2-6-动手验证：三个创建型模式改造成对照" class="headerlink" title="2.6 动手验证：三个创建型模式改造成对照"></a>2.6 动手验证：三个创建型模式改造成对照</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 场景：一个支付服务，支持支付宝/微信，未来可能加银联</span></span><br><span class="line"><span class="comment">// 改造前：业务代码里 new，加支付方式要改所有调用点</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">PayService</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">pay</span><span class="params">(PayType type, <span class="type">int</span> amount)</span> &#123;</span><br><span class="line">        <span class="keyword">if</span> (type == PayType.ALIPAY) &#123; <span class="keyword">new</span> <span class="title class_">Alipay</span>().pay(amount); &#125;</span><br><span class="line">        <span class="keyword">else</span> <span class="keyword">if</span> (type == PayType.WECHAT) &#123; <span class="keyword">new</span> <span class="title class_">Wechat</span>().pay(amount); &#125;  <span class="comment">// 加银联 → 这里要加 else</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"><span class="comment">// 改造后：工厂 + 策略，加支付方式只新增一个类</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">PayService</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">pay</span><span class="params">(PayType type, <span class="type">int</span> amount)</span> &#123;</span><br><span class="line">        PayFactory.create(type).pay(amount);     <span class="comment">// 加银联 → 新增类 + 工厂加一行</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>观察点：对比「改调用点」与「改工厂」的工作量差异。判定标准：能说清「新增一种支付方式，两种写法各要改几个文件」，即掌握了工厂的核心价值——<strong>变化点的位置决定维护成本</strong>。</p>
+<h2 id="3-结构型：代理、装饰器、适配器、组合、外观"><a href="#3-结构型：代理、装饰器、适配器、组合、外观" class="headerlink" title="3. 结构型：代理、装饰器、适配器、组合、外观"></a>3. 结构型：代理、装饰器、适配器、组合、外观</h2><h3 id="3-1-代理：不改变目标，包一层控制访问"><a href="#3-1-代理：不改变目标，包一层控制访问" class="headerlink" title="3.1 代理：不改变目标，包一层控制访问"></a>3.1 代理：不改变目标，包一层控制访问</h3><p><strong>动机</strong>：在不改目标类代码的前提下，给目标方法加横切逻辑（日志、鉴权、事务、延迟加载、远程调用）。代理是面试考得最深的结构型模式，因为 Spring AOP 和 MyBatis 都是它的应用。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// JDK 动态代理：基于接口，Proxy + InvocationHandler</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">LogProxy</span> <span class="keyword">implements</span> <span class="title class_">InvocationHandler</span> &#123;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> Object target;</span><br><span class="line">    <span class="keyword">public</span> <span class="title function_">LogProxy</span><span class="params">(Object target)</span> &#123; <span class="built_in">this</span>.target = target; &#125;</span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> Object <span class="title function_">invoke</span><span class="params">(Object proxy, Method method, Object[] args)</span> <span class="keyword">throws</span> Throwable &#123;</span><br><span class="line">        <span class="type">long</span> <span class="variable">start</span> <span class="operator">=</span> System.currentTimeMillis();</span><br><span class="line">        <span class="type">Object</span> <span class="variable">result</span> <span class="operator">=</span> method.invoke(target, args);          <span class="comment">// 反射调用目标</span></span><br><span class="line">        System.out.println(method.getName() + <span class="string">&quot; 耗时 &quot;</span> + (System.currentTimeMillis() - start) + <span class="string">&quot;ms&quot;</span>);</span><br><span class="line">        <span class="keyword">return</span> result;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> &lt;T&gt; T <span class="title function_">create</span><span class="params">(Class&lt;T&gt; clazz, T target)</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> (T) Proxy.newProxyInstance(clazz.getClassLoader(), <span class="keyword">new</span> <span class="title class_">Class</span>[]&#123;clazz&#125;, <span class="keyword">new</span> <span class="title class_">LogProxy</span>(target));</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"><span class="comment">// 使用：UserService proxy = LogProxy.create(UserService.class, new UserServiceImpl());</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>JDK 动态代理 vs CGLIB</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>对比项</th>
+<th>JDK Proxy</th>
+<th>CGLIB</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>要求</td>
+<td>目标必须有接口</td>
+<td>无接口可用</td>
+</tr>
+<tr>
+<td>原理</td>
+<td>生成实现接口的代理类</td>
+<td>生成目标类的子类</td>
+</tr>
+<tr>
+<td>局限</td>
+<td>无接口无法代理</td>
+<td>final 类&#x2F;方法无法代理</td>
+</tr>
+<tr>
+<td>性能</td>
+<td>反射调用，JDK8+ 优化后差距缩小</td>
+<td>方法调用稍快，但生成类慢</td>
+</tr>
+</tbody></table>
+<p><strong>源码落点（深度联动）</strong>：</p>
+<ul>
+<li><strong>Spring AOP</strong>：默认 JDK 代理，目标类无接口或配置 <code>proxy-target-class=true</code> 时用 CGLIB。<strong>生产后果</strong>：只对 public 方法生效、自调用（this.method()）不走代理——「@Transactional 自调用不生效」就是代理模式的经典坑；</li>
+<li><strong>MyBatis Mapper</strong>：你写的 <code>UserMapper</code> 接口从没实现类，MyBatis 用 JDK 代理在运行时生成实现——<code>sqlSession.getMapper()</code> 返回的就是代理对象，invoke 里执行 SQL 绑定；</li>
+<li><strong>懒加载</strong>：MyBatis&#x2F;ORM 的关联查询懒加载也是代理（访问属性时才查库）。</li>
+</ul>
+<p><strong>因果链</strong>：代理把「横切逻辑」从业务代码里抽走 → 业务代码只关心业务 → 框架在代理层统一处理事务&#x2F;日志&#x2F;权限 → <strong>代价是「你以为调的是自己写的类，实际调的是框架生成的代理」</strong>——自调用失效、final 类不生效、内部方法不被拦截，全源于此。<strong>面试答「AOP 原理」答到这一层才算懂</strong>：不是背「JDK 动态代理 + CGLIB」，而是能说清「代理对象是运行时生成的，业务代码永远在代理之后执行」。</p>
+<h3 id="3-2-装饰器：增强功能，保持接口"><a href="#3-2-装饰器：增强功能，保持接口" class="headerlink" title="3.2 装饰器：增强功能，保持接口"></a>3.2 装饰器：增强功能，保持接口</h3><p><strong>动机</strong>：动态给对象叠加功能，且叠加顺序可变。与继承的区别是关键考点——<strong>装饰器是组合式增强，继承是编译期增强</strong>。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// Java IO 就是装饰器最经典的教科书：一层套一层</span></span><br><span class="line"><span class="keyword">try</span> (<span class="type">InputStream</span> <span class="variable">in</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">BufferedInputStream</span>(<span class="keyword">new</span> <span class="title class_">FileInputStream</span>(<span class="string">&quot;data.bin&quot;</span>))) &#123;</span><br><span class="line">    <span class="comment">// FileInputStream 提供字节读取，BufferedInputStream 给它加缓冲——接口没变，功能增强</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>落点</strong>：整个 <code>java.io</code> 包（<code>BufferedInputStream</code> 装饰 <code>FileInputStream</code>）、<code>Collections.synchronizedList(list)</code>（给任意 List 加线程安全）、<code>UnmodifiableCollection</code>。</p>
+<p><strong>代理 vs 装饰器</strong>（面试高频对比题）：</p>
+<table>
+<thead>
+<tr>
+<th>对比项</th>
+<th>代理</th>
+<th>装饰器</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>目的</td>
+<td>控制访问（事务&#x2F;日志&#x2F;鉴权）</td>
+<td>增强功能（缓冲&#x2F;同步&#x2F;压缩）</td>
+</tr>
+<tr>
+<td>与目标关系</td>
+<td>同接口但语义可能变</td>
+<td>保持接口，调用方无感</td>
+</tr>
+<tr>
+<td>典型</td>
+<td>Spring AOP、MyBatis Mapper</td>
+<td>IO 流、Collections 包装</td>
+</tr>
+</tbody></table>
+<p><strong>一句话区分：代理说「我来替你做」，装饰器说「我帮你做得更好」</strong>——代理往往可以完全替换目标（AOP 里你只拿到代理），装饰器要求调用方知道它在装饰（IO 流必须自己组装）。</p>
+<h3 id="3-3-适配器：接口不匹配，翻译层接上"><a href="#3-3-适配器：接口不匹配，翻译层接上" class="headerlink" title="3.3 适配器：接口不匹配，翻译层接上"></a>3.3 适配器：接口不匹配，翻译层接上</h3><p><strong>动机</strong>：两套接口语义相同但签名不同，适配器做翻译。<strong>经典误区：适配器和装饰器都「包一层」，但适配器改变接口（翻译），装饰器保持接口（增强）。</strong></p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 场景：老代码返回 Map，新代码需要对象——不用改老代码，写个适配器</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">UserAdapter</span> &#123;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> Map&lt;String, Object&gt; raw;</span><br><span class="line">    <span class="keyword">public</span> <span class="title function_">UserAdapter</span><span class="params">(Map&lt;String, Object&gt; raw)</span> &#123; <span class="built_in">this</span>.raw = raw; &#125;</span><br><span class="line">    <span class="keyword">public</span> String <span class="title function_">getName</span><span class="params">()</span> &#123; <span class="keyword">return</span> (String) raw.get(<span class="string">&quot;name&quot;</span>); &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>落点</strong>：<strong>Slf4j 是全网最伟大的适配器案例</strong>——你的代码只依赖 <code>org.slf4j.Logger</code>，底层可以是 logback、log4j2 或 JUL，通过 <code>slf4j-log4j12</code> 这类适配层无缝切换；<code>Arrays.asList()</code>（数组→List）、<code>StringReader</code>（String→Reader）、Spring <code>HandlerAdapter</code>（把不同 Controller 签名统一成 ModelAndView）。</p>
+<p><strong>因果链</strong>：适配器的价值在于「<strong>不破坏双方</strong>」——老代码不动、新代码不动，中间加一层。生产里大量「升级依赖、接口变了」的场景，第一反应应该是适配而不是改调用方。<strong>面试答「你项目里用过适配器吗」，标准答案不是背例子，而是「我们升级了 XX SDK，新版接口变了，我写了个适配层包住新版，业务侧零改动」</strong>。</p>
+<h3 id="3-4-组合：树形结构，叶子与容器一视同仁"><a href="#3-4-组合：树形结构，叶子与容器一视同仁" class="headerlink" title="3.4 组合：树形结构，叶子与容器一视同仁"></a>3.4 组合：树形结构，叶子与容器一视同仁</h3><p><strong>动机</strong>：对象是树形结构（部门树、菜单树、文件目录、组织架构），希望调用方不用区分「叶子」和「分支」——统一操作。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">interface</span> <span class="title class_">Component</span> &#123; <span class="keyword">void</span> <span class="title function_">show</span><span class="params">()</span>; &#125;</span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">Leaf</span> <span class="keyword">implements</span> <span class="title class_">Component</span> &#123;                     <span class="comment">// 叶子</span></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> String name;</span><br><span class="line">    <span class="keyword">public</span> <span class="title function_">Leaf</span><span class="params">(String name)</span> &#123; <span class="built_in">this</span>.name = name; &#125;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">show</span><span class="params">()</span> &#123; System.out.println(<span class="string">&quot;- &quot;</span> + name); &#125;</span><br><span class="line">&#125;</span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">Composite</span> <span class="keyword">implements</span> <span class="title class_">Component</span> &#123;                 <span class="comment">// 容器：可以装叶子也可以装容器</span></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> String name;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> List&lt;Component&gt; children = <span class="keyword">new</span> <span class="title class_">ArrayList</span>&lt;&gt;();</span><br><span class="line">    <span class="keyword">public</span> <span class="title function_">Composite</span><span class="params">(String name)</span> &#123; <span class="built_in">this</span>.name = name; &#125;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">add</span><span class="params">(Component c)</span> &#123; children.add(c); &#125;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">show</span><span class="params">()</span> &#123; System.out.println(<span class="string">&quot;+ &quot;</span> + name); children.forEach(Component::show); &#125;</span><br><span class="line">&#125;</span><br><span class="line"><span class="comment">// 使用：root.add(new Leaf(&quot;a&quot;)); root.add(compositeNode) —— 调用方无感知</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>落点</strong>：<code>HashMap</code> 的 <code>computeIfAbsent</code> 组合链、Swing&#x2F;AWT 组件树、JSON 处理（JsonNode 的容器&#x2F;叶子）、Maven 的 pom 继承聚合。</p>
+<h3 id="3-5-外观：给复杂子系统一个简单入口"><a href="#3-5-外观：给复杂子系统一个简单入口" class="headerlink" title="3.5 外观：给复杂子系统一个简单入口"></a>3.5 外观：给复杂子系统一个简单入口</h3><p><strong>动机</strong>：子系统一堆类（下单要调库存、优惠、支付、物流四个服务），调用方不想知道内部协作。外观提供一个高层接口。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">OrderFacade</span> &#123;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> StockService stock; <span class="keyword">private</span> <span class="keyword">final</span> CouponService coupon; <span class="keyword">private</span> <span class="keyword">final</span> PayService pay;</span><br><span class="line">    <span class="keyword">public</span> <span class="title function_">OrderFacade</span><span class="params">(StockService s, CouponService c, PayService p)</span> &#123; stock = s; coupon = c; pay = p; &#125;</span><br><span class="line">    <span class="keyword">public</span> OrderResult <span class="title function_">createOrder</span><span class="params">(OrderReq req)</span> &#123;          <span class="comment">// 一个方法封装四个服务的协作</span></span><br><span class="line">        stock.deduct(req.getSkuId(), req.getCount());</span><br><span class="line">        coupon.apply(req.getCouponId());</span><br><span class="line">        pay.pay(req.getUserId(), req.getAmount());</span><br><span class="line">        <span class="keyword">return</span> <span class="keyword">new</span> <span class="title class_">OrderResult</span>(<span class="literal">true</span>);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>落点</strong>：<code>HttpURLConnection</code>（一个类封装整个协议栈）、Facade 是<strong>秒杀系统设计的核心工具</strong>（后面系统设计篇会复用）。<strong>注意区分：外观（Facade）是对外的统一入口，门面模式（Facade）在 GoF 里就是外观</strong>；与适配器区分：适配器是「翻译」，外观是「组织」——外观内部可以任意编排子系统，调用方只看到一个方法。</p>
+<h3 id="3-6-动手验证：代理-装饰器-适配器三个「包一层」写在一起对比"><a href="#3-6-动手验证：代理-装饰器-适配器三个「包一层」写在一起对比" class="headerlink" title="3.6 动手验证：代理 + 装饰器 + 适配器三个「包一层」写在一起对比"></a>3.6 动手验证：代理 + 装饰器 + 适配器三个「包一层」写在一起对比</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 同一个 target：UserServiceImpl implements UserService</span></span><br><span class="line"><span class="comment">// ① 代理：无感增强，接口不变 —— 调用方以为是真对象</span></span><br><span class="line"><span class="type">UserService</span> <span class="variable">proxy</span> <span class="operator">=</span> LogProxy.create(UserService.class, <span class="keyword">new</span> <span class="title class_">UserServiceImpl</span>());</span><br><span class="line">proxy.findById(<span class="number">1L</span>);        <span class="comment">// 打印耗时 —— 调用方无感</span></span><br><span class="line"></span><br><span class="line"><span class="comment">// ② 装饰器：调用方知道自己在装饰，按需组装</span></span><br><span class="line">List&lt;String&gt; list = Collections.synchronizedList(<span class="keyword">new</span> <span class="title class_">ArrayList</span>&lt;&gt;());  <span class="comment">// 给 ArrayList 加线程安全</span></span><br><span class="line">list.add(<span class="string">&quot;x&quot;</span>);             <span class="comment">// 用起来还是 List</span></span><br><span class="line"></span><br><span class="line"><span class="comment">// ③ 适配器：把老接口翻译成新接口 —— 翻译后接口变了</span></span><br><span class="line"><span class="type">UserAdapter</span> <span class="variable">adapter</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">UserAdapter</span>(Map.of(<span class="string">&quot;name&quot;</span>, <span class="string">&quot;张三&quot;</span>));</span><br><span class="line">adapter.getName();         <span class="comment">// 老数据 (Map) 换成新消费方式 (对象)</span></span><br></pre></td></tr></table></figure>
+
+<p>观察点：三个都是「包一层」，区别在<strong>接口变不变、调用方知不知道</strong>。判定标准：能独立判断「同事写的这段包装代码是哪种」，即建立了模式识别能力——<strong>识别 &gt; 记忆，是结构型模式的考察核心</strong>。</p>
+<h2 id="4-行为型：策略、模板方法、观察者、责任链、迭代器、状态、命令"><a href="#4-行为型：策略、模板方法、观察者、责任链、迭代器、状态、命令" class="headerlink" title="4. 行为型：策略、模板方法、观察者、责任链、迭代器、状态、命令"></a>4. 行为型：策略、模板方法、观察者、责任链、迭代器、状态、命令</h2><h3 id="4-1-策略：算法可变，运行时切换"><a href="#4-1-策略：算法可变，运行时切换" class="headerlink" title="4.1 策略：算法可变，运行时切换"></a>4.1 策略：算法可变，运行时切换</h3><p><strong>动机</strong>：同一行为有多个实现（排序算法、支付方式、限流算法、优惠计算），且运行时才决定用哪个。策略把「算法族」封装成可替换对象。<strong>这是你项目里最可能真正用过的模式</strong>。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 场景：订单优惠计算，不同会员等级不同算法</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">interface</span> <span class="title class_">DiscountStrategy</span> &#123;</span><br><span class="line">    BigDecimal <span class="title function_">calc</span><span class="params">(BigDecimal amount)</span>;</span><br><span class="line">&#125;</span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">NormalStrategy</span> <span class="keyword">implements</span> <span class="title class_">DiscountStrategy</span> &#123; <span class="keyword">public</span> BigDecimal <span class="title function_">calc</span><span class="params">(BigDecimal a)</span> &#123; <span class="keyword">return</span> a; &#125; &#125;</span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">VipStrategy</span> <span class="keyword">implements</span> <span class="title class_">DiscountStrategy</span> &#123;     <span class="comment">// 9 折</span></span><br><span class="line">    <span class="keyword">public</span> BigDecimal <span class="title function_">calc</span><span class="params">(BigDecimal a)</span> &#123; <span class="keyword">return</span> a.multiply(BigDecimal.valueOf(<span class="number">0.9</span>)); &#125;</span><br><span class="line">&#125;</span><br><span class="line"><span class="comment">// 使用方持有策略接口，运行时注入</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">OrderService</span> &#123;</span><br><span class="line">    <span class="keyword">private</span> DiscountStrategy strategy;                      <span class="comment">// 可以构造器注入/Spring 注入</span></span><br><span class="line">    <span class="keyword">public</span> BigDecimal <span class="title function_">finalPrice</span><span class="params">(BigDecimal amount)</span> &#123; <span class="keyword">return</span> strategy.calc(amount); &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>源码落点</strong>：<code>Comparator</code> 就是策略接口（<code>Collections.sort(list, comparator)</code> 传不同策略）；<code>ThreadPoolExecutor</code> 的拒绝策略（<code>AbortPolicy</code>&#x2F;<code>DiscardPolicy</code>&#x2F;<code>CallerRunsPolicy</code>）；Spring 里 <code>@Autowired List&lt;Strategy&gt;</code> 按类型注入全部实现再按条件选——<strong>策略 + 工厂 + Spring 容器三件套是生产标准写法</strong>。</p>
+<p><strong>与状态模式的对比（高频易混）</strong>：策略模式<strong>调用方</strong>决定用哪个算法（外部切换）；状态模式<strong>对象自身状态</strong>决定行为（内部切换，调用方无感）。一句话：策略是「替它选」，状态是「它自己变」。</p>
+<h3 id="4-2-模板方法：骨架固定，步骤可替换"><a href="#4-2-模板方法：骨架固定，步骤可替换" class="headerlink" title="4.2 模板方法：骨架固定，步骤可替换"></a>4.2 模板方法：骨架固定，步骤可替换</h3><p><strong>动机</strong>：流程骨架不变（准备 → 执行 → 收尾），但某些步骤的实现各不相同。父类定义骨架，子类覆写步骤。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">abstract</span> <span class="keyword">class</span> <span class="title class_">ProcessTemplate</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">final</span> <span class="keyword">void</span> <span class="title function_">run</span><span class="params">()</span> &#123;            <span class="comment">// 骨架：final 防止子类改流程</span></span><br><span class="line">        loadConfig();                     <span class="comment">// 第一步：通用</span></span><br><span class="line">        doBusiness();                     <span class="comment">// 第二步：抽象，子类实现</span></span><br><span class="line">        recordLog();                      <span class="comment">// 第三步：通用</span></span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">protected</span> <span class="keyword">abstract</span> <span class="keyword">void</span> <span class="title function_">doBusiness</span><span class="params">()</span>;  <span class="comment">// 钩子方法</span></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">void</span> <span class="title function_">loadConfig</span><span class="params">()</span> &#123; <span class="comment">/* 通用逻辑 */</span> &#125;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">void</span> <span class="title function_">recordLog</span><span class="params">()</span> &#123; <span class="comment">/* 通用逻辑 */</span> &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>源码落点（深度联动）</strong>：</p>
+<ul>
+<li><strong>AQS（AbstractQueuedSynchronizer）</strong>：<code>acquire()</code> 骨架固定（尝试获取 → 失败入队 → 阻塞），<code>tryAcquire()</code> 留给子类——<code>ReentrantLock</code>&#x2F;<code>Semaphore</code>&#x2F;<code>CountDownLatch</code> 都是实现不同 <code>tryAcquire</code> 的「同一骨架不同步骤」；</li>
+<li><strong>Spring JdbcTemplate</strong>：<code>execute()</code> 骨架（拿连接 → 执行 → 释放），<code>doInStatement</code> 留钩子；</li>
+<li><strong>HttpServlet</strong>：<code>service()</code> 分发骨架，<code>doGet</code>&#x2F;<code>doPost</code> 留给子类——<strong>你写的每个 Controller&#x2F; Servlet 都是模板方法的子类</strong>。</li>
+</ul>
+<p><strong>因果链</strong>：模板方法把「不变的流程」上提到父类 → 子类只写变化点 → <strong>生产后果是：流程改动只改骨架一处，所有子类自动生效</strong>（比如给所有流程加埋点，改父类 run() 即可）。面试对比「模板方法 vs 策略」：模板方法变的是<strong>步骤</strong>，策略变的是<strong>整个算法</strong>。</p>
+<h3 id="4-3-观察者：状态变化，通知订阅者"><a href="#4-3-观察者：状态变化，通知订阅者" class="headerlink" title="4.3 观察者：状态变化，通知订阅者"></a>4.3 观察者：状态变化，通知订阅者</h3><p><strong>动机</strong>：一个对象状态变了，一群对象需要跟着变（价格变了刷新界面、订单创建发通知），又不想让双方互相依赖。观察者解耦「发布者」和「订阅者」。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">interface</span> <span class="title class_">OrderListener</span> &#123; <span class="keyword">void</span> <span class="title function_">onOrderCreated</span><span class="params">(Order order)</span>; &#125;</span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">OrderPublisher</span> &#123;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> List&lt;OrderListener&gt; listeners = <span class="keyword">new</span> <span class="title class_">ArrayList</span>&lt;&gt;();</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">addListener</span><span class="params">(OrderListener l)</span> &#123; listeners.add(l); &#125;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">createOrder</span><span class="params">(Order order)</span> &#123;</span><br><span class="line">        <span class="comment">// 业务逻辑...</span></span><br><span class="line">        listeners.forEach(l -&gt; l.onOrderCreated(order));   <span class="comment">// 通知所有订阅者</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"><span class="comment">// 使用：publisher.addListener(smsNotifier); publisher.addListener(metricsReporter);</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>源码落点</strong>：<strong>Spring 事件机制</strong>（<code>ApplicationEventPublisher</code> + <code>@EventListener</code>）就是观察者——发布方 <code>publishEvent</code>，监听方无感知耦合；Swing&#x2F;AWT 的事件监听；<code>java.util.Observer</code>（已废弃）；Redis 的订阅发布；<strong>MQ 是观察者的分布式版</strong>——一个订单事件，多套系统订阅消费。</p>
+<p><strong>因果链</strong>：观察者的收益是「<strong>新增订阅者零侵入</strong>」——加一个下单后发短信的组件，只新增一个监听器，OrderPublisher 一行不改。代价是<strong>流程不可见</strong>：主流程变成「发事件 → 不知道谁在听」→ 排查问题时不能只看调用链，要全搜监听器。<strong>面试深挖：「事件驱动架构和观察者模式什么关系？」——观察者是单机版事件驱动，MQ 是跨进程版，同一思想的放大</strong>。</p>
+<h3 id="4-4-责任链：请求沿链传递，每个节点决定处理或放行"><a href="#4-4-责任链：请求沿链传递，每个节点决定处理或放行" class="headerlink" title="4.4 责任链：请求沿链传递，每个节点决定处理或放行"></a>4.4 责任链：请求沿链传递，每个节点决定处理或放行</h3><p><strong>动机</strong>：一个请求要被多个处理器按顺序处理（鉴权 → 限流 → 业务），或任一节点可终止（审批流）。责任链把处理器串成链，每个节点「处理 or 传给下一个」。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">abstract</span> <span class="keyword">class</span> <span class="title class_">Handler</span> &#123;</span><br><span class="line">    <span class="keyword">protected</span> Handler next;</span><br><span class="line">    <span class="keyword">public</span> Handler <span class="title function_">setNext</span><span class="params">(Handler h)</span> &#123; <span class="built_in">this</span>.next = h; <span class="keyword">return</span> h; &#125;   <span class="comment">// 链式组装</span></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">abstract</span> <span class="keyword">void</span> <span class="title function_">handle</span><span class="params">(String req)</span>;</span><br><span class="line">    <span class="keyword">protected</span> <span class="keyword">void</span> <span class="title function_">pass</span><span class="params">(String req)</span> &#123; <span class="keyword">if</span> (next != <span class="literal">null</span>) next.handle(req); &#125;  <span class="comment">// 传给下一个</span></span><br><span class="line">&#125;</span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">AuthHandler</span> <span class="keyword">extends</span> <span class="title class_">Handler</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">handle</span><span class="params">(String req)</span> &#123; <span class="keyword">if</span> (isLogin(req)) &#123; pass(req); &#125; <span class="keyword">else</span> &#123; reject(); &#125; &#125;</span><br><span class="line">&#125;</span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">RateLimitHandler</span> <span class="keyword">extends</span> <span class="title class_">Handler</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">handle</span><span class="params">(String req)</span> &#123; <span class="keyword">if</span> (allow(req)) &#123; pass(req); &#125; <span class="keyword">else</span> &#123; reject(); &#125; &#125;</span><br><span class="line">&#125;</span><br><span class="line"><span class="comment">// 组装：new AuthHandler().setNext(new RateLimitHandler()).setNext(new BusinessHandler());</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>源码落点（深度联动）</strong>：</p>
+<ul>
+<li><strong>Servlet Filter 链</strong>：<code>doFilter</code> 放行即传下一个——<strong>你写的每个过滤器都在责任链上</strong>；</li>
+<li><strong>Netty Pipeline</strong>：<code>ChannelHandler</code> 串成链，读入站、写出站——Netty 整个架构就是责任链的实现；</li>
+<li><strong>MyBatis 插件</strong>：<code>Interceptor</code> 链包裹四大对象；</li>
+<li><strong>Spring MVC HandlerInterceptor</strong>：preHandle 返回 false 即终止。</li>
+</ul>
+<p><strong>因果链</strong>：责任链的收益是「<strong>加处理器不改链</strong>」——新增一个日志节点，只 new 一个类并插进组装处。代价是<strong>顺序敏感</strong>：链顺序错了，行为就错了（鉴权必须在业务前）→ 生产里责任链的顺序通常写成配置&#x2F;常量，而不是散落代码里。<strong>面试答「Filter vs Interceptor vs AOP 区别」时，责任链是共同底层的组织方式</strong>。</p>
+<h3 id="4-5-迭代器：遍历与容器解耦"><a href="#4-5-迭代器：遍历与容器解耦" class="headerlink" title="4.5 迭代器：遍历与容器解耦"></a>4.5 迭代器：遍历与容器解耦</h3><p><strong>动机</strong>：容器内部结构（数组、链表、树）各不相同，调用方希望统一遍历方式。迭代器提供统一接口，容器隐藏结构。</p>
+<p><strong>落点</strong>：<code>java.util.Iterator</code>（所有 Collection 的遍历）、<code>for-each</code> 语法糖底层就是迭代器、MyBatis 的游标分页（<code>Cursor</code>）。</p>
+<p><strong>面试点</strong>：<strong>for-each 遍历时删除元素为什么抛 ConcurrentModificationException？</strong> —— <code>ArrayList</code> 的迭代器维护 <code>expectedModCount</code>，<code>remove()</code> 直接改 <code>modCount</code>，迭代器 next() 时校验不一致即抛异常。<strong>因果链</strong>：这是迭代器模式的「契约」——迭代器假定容器在遍历期间不被结构修改，违反契约就用异常提醒。用 <code>iterator.remove()</code> 或 CopyOnWriteArrayList 是正解。</p>
+<h3 id="4-6-状态模式：行为随状态切换"><a href="#4-6-状态模式：行为随状态切换" class="headerlink" title="4.6 状态模式：行为随状态切换"></a>4.6 状态模式：行为随状态切换</h3><p><strong>动机</strong>：对象行为取决于内部状态（订单：待支付 → 已支付 → 已发货 → 已完成），状态多了 if-else 爆炸。状态模式把每个状态的行为封装成独立类。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">interface</span> <span class="title class_">OrderState</span> &#123;</span><br><span class="line">    <span class="keyword">void</span> <span class="title function_">handle</span><span class="params">(OrderContext ctx)</span>;           <span class="comment">// 状态决定行为，还能切换状态</span></span><br><span class="line">&#125;</span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">PaidState</span> <span class="keyword">implements</span> <span class="title class_">OrderState</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">handle</span><span class="params">(OrderContext ctx)</span> &#123; ship(ctx); ctx.setState(<span class="keyword">new</span> <span class="title class_">ShippedState</span>()); &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>面试对比</strong>：状态 vs 策略（§4.1 已述）；状态 vs if-else（状态模式是 if-else 的面向对象替代，状态多且迁移规则复杂时用）。</p>
+<h3 id="4-7-命令：请求封装成对象，可排队可回滚"><a href="#4-7-命令：请求封装成对象，可排队可回滚" class="headerlink" title="4.7 命令：请求封装成对象，可排队可回滚"></a>4.7 命令：请求封装成对象，可排队可回滚</h3><p><strong>动机</strong>：把「做什么」（命令对象）与「谁来做」（执行者）分离，支持排队、撤销、日志。<strong>落点</strong>：Runnable&#x2F;Callable（把任务封装成对象交给线程池）、Spring <code>@Async</code>、数据库事务本身（undo log 就是命令模式的回滚思想）。</p>
+<h3 id="4-8-动手验证：用责任链重构一个「入职流程」"><a href="#4-8-动手验证：用责任链重构一个「入职流程」" class="headerlink" title="4.8 动手验证：用责任链重构一个「入职流程」"></a>4.8 动手验证：用责任链重构一个「入职流程」</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 场景：新员工入职要过 4 关：入职手续 → 系统账号 → 培训 → 领设备</span></span><br><span class="line"><span class="comment">// if-else 版（新增流程要改主流程）</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">onboard</span><span class="params">(Employee e)</span> &#123;</span><br><span class="line">    <span class="keyword">if</span> (doPaperwork(e)) &#123; <span class="keyword">if</span> (createAccount(e)) &#123; <span class="keyword">if</span> (train(e)) &#123; grantDevice(e); &#125; &#125; &#125;</span><br><span class="line">&#125;</span><br><span class="line"><span class="comment">// 责任链版：新增流程 = 新增类 + 组装处加一行，主流程代码为 0 变化</span></span><br><span class="line"><span class="keyword">new</span> <span class="title class_">PaperworkHandler</span>().setNext(<span class="keyword">new</span> <span class="title class_">AccountHandler</span>()).setNext(<span class="keyword">new</span> <span class="title class_">TrainHandler</span>()).setNext(<span class="keyword">new</span> <span class="title class_">DeviceHandler</span>())</span><br><span class="line">    .handle(e);</span><br></pre></td></tr></table></figure>
+
+<p>观察点：对比「新增一个『背调』环节」时两版的改动范围。判定标准：能说出「if-else 版改主流程方法体，责任链版新增一个类 + 改组装行」，即掌握了责任链的本质——<strong>流程变化与流程定义分离</strong>。</p>
+<h2 id="5-源码落点地图：把-15-个模式钉进你天天写的代码"><a href="#5-源码落点地图：把-15-个模式钉进你天天写的代码" class="headerlink" title="5. 源码落点地图：把 15 个模式钉进你天天写的代码"></a>5. 源码落点地图：把 15 个模式钉进你天天写的代码</h2><h3 id="5-1-JDK-框架落点总表"><a href="#5-1-JDK-框架落点总表" class="headerlink" title="5.1 JDK&#x2F;框架落点总表"></a>5.1 JDK&#x2F;框架落点总表</h3><table>
+<thead>
+<tr>
+<th>模式</th>
+<th>JDK 落点</th>
+<th>框架落点</th>
+<th>你项目里的信号</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>单例</td>
+<td>Runtime、System、枚举</td>
+<td>Spring Bean 默认单例</td>
+<td>全局配置&#x2F;连接池&#x2F;线程池</td>
+</tr>
+<tr>
+<td>工厂</td>
+<td>valueOf 系列、Executors</td>
+<td>Spring BeanFactory、MyBatis SqlSessionFactory</td>
+<td>「按类型创建」</td>
+</tr>
+<tr>
+<td>建造者</td>
+<td>StringBuilder</td>
+<td>Lombok @Builder、OkHttp</td>
+<td>参数 ≥5 个</td>
+</tr>
+<tr>
+<td>代理</td>
+<td>无（基础机制）</td>
+<td>Spring AOP、MyBatis Mapper、懒加载</td>
+<td>事务&#x2F;日志&#x2F;鉴权横切</td>
+</tr>
+<tr>
+<td>装饰器</td>
+<td>IO 流、Collections.synchronizedXxx</td>
+<td>MyBatis 的 Log 包装</td>
+<td>功能叠加、组合式增强</td>
+</tr>
+<tr>
+<td>适配器</td>
+<td>Arrays.asList、StringReader</td>
+<td>Slf4j→logback、Spring HandlerAdapter</td>
+<td>接口不匹配、SDK 升级</td>
+</tr>
+<tr>
+<td>组合</td>
+<td>无</td>
+<td>Swing 组件树</td>
+<td>树形结构统一操作</td>
+</tr>
+<tr>
+<td>外观</td>
+<td>HttpURLConnection</td>
+<td>Facade 服务、网关</td>
+<td>子系统协作的统一入口</td>
+</tr>
+<tr>
+<td>策略</td>
+<td>Comparator、线程池拒绝策略</td>
+<td>@Autowired 策略注入</td>
+<td>算法族运行时切换</td>
+</tr>
+<tr>
+<td>模板方法</td>
+<td>AQS（tryAcquire 钩子）、AbstractList</td>
+<td>JdbcTemplate、HttpServlet</td>
+<td>流程固定步骤可变</td>
+</tr>
+<tr>
+<td>观察者</td>
+<td>PropertyChangeSupport</td>
+<td>Spring 事件、MQ 消费者</td>
+<td>状态变化多端通知</td>
+</tr>
+<tr>
+<td>责任链</td>
+<td>无</td>
+<td>Servlet Filter、Netty Pipeline、MyBatis 插件</td>
+<td>请求多级处理</td>
+</tr>
+<tr>
+<td>迭代器</td>
+<td>Collection 全家、for-each</td>
+<td>MyBatis Cursor</td>
+<td>统一遍历</td>
+</tr>
+<tr>
+<td>状态</td>
+<td>无</td>
+<td>工作流引擎</td>
+<td>状态多且迁移规则复杂</td>
+</tr>
+<tr>
+<td>命令</td>
+<td>Runnable&#x2F;Callable</td>
+<td>@Async、任务队列</td>
+<td>请求要排队&#x2F;撤销&#x2F;日志</td>
+</tr>
+</tbody></table>
+<h3 id="5-2-面试答题框架：30-秒标准结构"><a href="#5-2-面试答题框架：30-秒标准结构" class="headerlink" title="5.2 面试答题框架：30 秒标准结构"></a>5.2 面试答题框架：30 秒标准结构</h3><p>任何高频模式题，按固定框架答，杜绝「背定义」观感：</p>
+<ol>
+<li><strong>一句话动机</strong>（解决什么问题）：「单例保证全局唯一，避免重复创建和状态不一致」</li>
+<li><strong>关键机制</strong>（怎么实现）：「DCL + volatile 防重排，或静态内部类延迟加载」</li>
+<li><strong>框架落点</strong>（哪里见过）：「Spring 的 Bean 默认就是单例的」</li>
+<li><strong>你的应用</strong>（自己用过）：「我们项目里配置管理器用了单例，配合 Spring 单例 Bean」</li>
+<li><strong>代价</strong>（权衡）：「单例有状态时并发不安全」「单例让测试困难」——<strong>主动说代价是加分项，说明你真的用过</strong></li>
+</ol>
+<p><strong>核心技巧：第 4、5 步是区分度所在</strong>。第 1-3 步所有人都会，第 4 步需要真实经验（没有就说「我看到过 XX 框架里这样用」），第 5 步体现设计判断力。</p>
+<h3 id="5-3-反模式警示：什么时候不该用模式"><a href="#5-3-反模式警示：什么时候不该用模式" class="headerlink" title="5.3 反模式警示：什么时候不该用模式"></a>5.3 反模式警示：什么时候不该用模式</h3><table>
+<thead>
+<tr>
+<th>反模式</th>
+<th>表现</th>
+<th>后果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>过度设计</td>
+<td>3 个 if 也要套策略</td>
+<td>代码量翻倍，可读性崩</td>
+</tr>
+<tr>
+<td>为模式而模式</td>
+<td>面试官问「用了什么模式」才想起给代码贴标签</td>
+<td>模式是结果的命名，不是设计目标</td>
+</tr>
+<tr>
+<td>策略类爆炸</td>
+<td>每个策略一个类，类数量失控</td>
+<td>维护成本高于 if-else</td>
+</tr>
+<tr>
+<td>责任链顺序散落</td>
+<td>链顺序埋在各处 new 代码里</td>
+<td>顺序改了不知道，行为静默变化</td>
+</tr>
+</tbody></table>
+<p><strong>判断标准</strong>：<strong>「这个变化真的会发生吗？」</strong>——支付方式未来可能加（策略合理）、会员等级就两种且一年不变（if-else 更务实）。模式的适用前提是「变化可预期且发生频率高」。</p>
+<h2 id="6-总结"><a href="#6-总结" class="headerlink" title="6. 总结"></a>6. 总结</h2><h3 id="6-1-面试速答表"><a href="#6-1-面试速答表" class="headerlink" title="6.1 面试速答表"></a>6.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>单例有哪几种写法？</td>
+<td>饿汉&#x2F;静态内部类&#x2F;枚举（推荐），DCL 是面试题；DCL 必须 volatile 防指令重排返回半初始化对象</td>
+</tr>
+<tr>
+<td>代理和装饰器区别？</td>
+<td>代理控制访问（替你做事），装饰器增强功能（帮你做得更好）；接口变不变、调用方知不知道</td>
+</tr>
+<tr>
+<td>JDK 动态代理和 CGLIB？</td>
+<td>JDK 基于接口生成代理类；CGLIB 生成子类；无接口用 CGLIB，final 类都不能代理</td>
+</tr>
+<tr>
+<td>Spring AOP 为什么自调用失效？</td>
+<td>代理对象是运行时生成的，this 调用不经过代理——自调用（this.method()）直接命中目标方法</td>
+</tr>
+<tr>
+<td>MyBatis Mapper 为什么不用写实现类？</td>
+<td>SqlSession.getMapper() 返回 JDK 动态代理，invoke 里做 SQL 绑定</td>
+</tr>
+<tr>
+<td>策略和状态模式区别？</td>
+<td>策略：调用方选算法（外部切换）；状态：对象自身状态决定行为（内部切换）</td>
+</tr>
+<tr>
+<td>模板方法在哪见过？</td>
+<td>AQS：acquire 骨架固定，tryAcquire 留钩子；JdbcTemplate、HttpServlet 同理</td>
+</tr>
+<tr>
+<td>观察者和 MQ 关系？</td>
+<td>观察者是单机事件通知，MQ 是它的分布式放大版——解耦发布与订阅</td>
+</tr>
+<tr>
+<td>for-each 中删除为什么抛异常？</td>
+<td>迭代器校验 modCount，结构修改违反迭代契约</td>
+</tr>
+<tr>
+<td>什么时候不该用模式？</td>
+<td>变化不会发生或频率极低时——模式为「可预期的变化」服务</td>
+</tr>
+</tbody></table>
+<h3 id="6-2-实战避坑表"><a href="#6-2-实战避坑表" class="headerlink" title="6.2 实战避坑表"></a>6.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>DCL 偶发返回「半成品」对象</td>
+<td>缺 volatile，指令重排</td>
+<td>加 volatile；或换静态内部类&#x2F;枚举</td>
+</tr>
+<tr>
+<td>@Transactional 自调用不生效</td>
+<td>走 this 调用，绕过代理</td>
+<td>注入自身代理&#x2F;拆类&#x2F;用 TransactionTemplate</td>
+</tr>
+<tr>
+<td>接口事务不生效</td>
+<td>Spring 默认 JDK 代理，目标必须实现接口</td>
+<td>配置 proxy-target-class&#x3D;true 或确保实现接口</td>
+</tr>
+<tr>
+<td>策略类爆炸</td>
+<td>每个细微差异一个策略</td>
+<td>评估变化概率，合并策略或退化回 if-else</td>
+</tr>
+<tr>
+<td>责任链顺序错乱</td>
+<td>链顺序散落在组装代码</td>
+<td>顺序集中管理（配置&#x2F;常量&#x2F;文档）</td>
+</tr>
+<tr>
+<td>单例保存了可变状态</td>
+<td>全局共享状态被并发写</td>
+<td>状态只读，或用 ThreadLocal&#x2F;无状态单例</td>
+</tr>
+</tbody></table>
+<h3 id="6-3-自查清单（替代工具速查表——设计模式没有工具，检查清单就是工具）"><a href="#6-3-自查清单（替代工具速查表——设计模式没有工具，检查清单就是工具）" class="headerlink" title="6.3 自查清单（替代工具速查表——设计模式没有工具，检查清单就是工具）"></a>6.3 自查清单（替代工具速查表——设计模式没有工具，检查清单就是工具）</h3><ul>
+<li><input disabled="" type="checkbox"> 能 30 秒答出任意高频模式的「动机 + 落点 + 你项目里的应用」五步框架</li>
+<li><input disabled="" type="checkbox"> 能说出代理&#x2F;装饰器&#x2F;适配器三者「包一层」的区别（接口变不变 + 调用方知不知道）</li>
+<li><input disabled="" type="checkbox"> 能在 Spring&#x2F;MyBatis&#x2F;Netty 源码里指出至少 5 个模式的真实位置</li>
+<li><input disabled="" type="checkbox"> 能判断「同事的代码这段用了什么模式」</li>
+<li><input disabled="" type="checkbox"> 能说出 2 个反模式案例（自己踩过的或见过的）</li>
+</ul>
+<p><strong>下一篇预告</strong>：设计模式是「单个类的设计」，下一篇《秒杀系统设计：从方法论到落地》把单类设计升级为<strong>系统级设计</strong>——限流&#x2F;削峰&#x2F;防超卖&#x2F;热点隔离，串起本文的策略（限流算法）、责任链（网关过滤）、外观（下单门面）与已有的 Redis、MQ、分库分表知识。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -1511,990 +2623,6 @@
 
 
 
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/629ad3df.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="知行栈">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | 知行栈">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/629ad3df.html" class="post-title-link" itemprop="url">MySQL 索引原理与实践</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-
-      <time title="Created: 2026-08-11 23:55:00" itemprop="dateCreated datePublished" datetime="2026-08-11T23:55:00+08:00">2026-08-11</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">In</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/" itemprop="url" rel="index"><span itemprop="name">后端开发</span></a>
-        </span>
-          , 
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/" itemprop="url" rel="index"><span itemprop="name">数据存储</span></a>
-        </span>
-          , 
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/MySQL/" itemprop="url" rel="index"><span itemprop="name">MySQL</span></a>
-        </span>
-    </span>
-
-  
-    <span class="post-meta-break"></span>
-    <span class="post-meta-item" title="Word count in article">
-      <span class="post-meta-item-icon">
-        <i class="far fa-file-word"></i>
-      </span>
-      <span class="post-meta-item-text">Word count in article: </span>
-      <span>7.5k</span>
-    </span>
-    <span class="post-meta-item" title="Reading time">
-      <span class="post-meta-item-icon">
-        <i class="far fa-clock"></i>
-      </span>
-      <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>27 mins.</span>
-    </span>
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <blockquote>
-<p>本文是《<a href="/post/32511a71.html">MySQL 原理与优化</a>》的<strong>索引专题深挖篇</strong>，把该文第 2 章”索引”展开成完整知识体系：B+ 树的底层结构为什么长这样、聚簇索引与非聚簇索引的本质区别、以及日常建索引时真正管用的实践要点。索引是 MySQL 面试的必考区，也是 1-3 年 Java 后端从”会写 SQL”到”会优化 SQL”的分水岭——多表 join 能写出来是基本功，慢 SQL 能自己建索引治好才是进阶。</p>
-<p>本文按”为什么需要索引 → B+ 树底层结构 → 聚簇与非聚簇 → 联合索引与最左前缀 → EXPLAIN 与索引失效 → 建索引实践”六章组织，每章末尾给结论，第 7 章是高频面试速答。全文默认讨论 InnoDB 引擎 + MySQL 5.7&#x2F;8.0。</p>
-</blockquote>
-<h2 id="1-为什么需要索引"><a href="#1-为什么需要索引" class="headerlink" title="1. 为什么需要索引"></a>1. 为什么需要索引</h2><h3 id="1-1-没有索引的查询：全表扫描"><a href="#1-1-没有索引的查询：全表扫描" class="headerlink" title="1.1 没有索引的查询：全表扫描"></a>1.1 没有索引的查询：全表扫描</h3><p>MySQL 的数据以<strong>页</strong>为单位存在磁盘上（默认 16 KB&#x2F;页，<code>innodb_page_size</code>）。一张 1000 万行的表，数据占几千个页。没有索引时，查询只能从第一页扫到最后一页，逐行判断条件——这就是<strong>全表扫描</strong>，复杂度 O(n)，一次查询就是几千次磁盘 IO。</p>
-<p>几个关键数字，记住它们才能理解索引的价值：</p>
-<table>
-<thead>
-<tr>
-<th>存储&#x2F;操作</th>
-<th>延迟量级</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>内存访问</td>
-<td>约 100 ns</td>
-</tr>
-<tr>
-<td>SSD 随机读</td>
-<td>约 0.1 ms</td>
-</tr>
-<tr>
-<td>HDD 随机读</td>
-<td>约 10 ms</td>
-</tr>
-<tr>
-<td>一次磁盘 IO（读一页）</td>
-<td>机械盘毫秒级，SSD 亚毫秒级</td>
-</tr>
-</tbody></table>
-<p>一次全表扫描 &#x3D; 数千次这样的随机 IO。而索引的目标，是把”扫几千页”变成”读 2~3 个页”。</p>
-<h3 id="1-2-索引的本质：一张有序的”目录”"><a href="#1-2-索引的本质：一张有序的”目录”" class="headerlink" title="1.2 索引的本质：一张有序的”目录”"></a>1.2 索引的本质：一张有序的”目录”</h3><p>索引本质上是一份<strong>独立于表数据、按键排序的目录结构</strong>，类似新华字典的拼音检字表：</p>
-<ul>
-<li>没有检字表：从第 1 页翻到第 900 页找”栈”字；</li>
-<li>有检字表：先定位”zhan”在拼音表的哪个区间，再翻到对应正文页。</li>
-</ul>
-<p>数据库索引同理：先在索引里用<strong>二分查找</strong>定位到目标键，再顺着指针拿到数据所在页。查找次数从 O(n) 降到 O(log n)，而且是<strong>页级</strong>的 log n——这正是 B+ 树多叉设计的用武之地（见第 2 章）。</p>
-<p>当然索引不是免费的午餐，它有两个代价：</p>
-<ul>
-<li><strong>空间</strong>：每个索引都是一份额外的有序结构，占用磁盘与 Buffer Pool 内存；</li>
-<li><strong>写放大</strong>：每次 INSERT&#x2F;UPDATE&#x2F;DELETE 都要同步维护索引，索引越多，写入越慢（详见 6.3）。</li>
-</ul>
-<h3 id="1-3-为什么偏偏是-B-树"><a href="#1-3-为什么偏偏是-B-树" class="headerlink" title="1.3 为什么偏偏是 B+ 树"></a>1.3 为什么偏偏是 B+ 树</h3><p>工程师拿到”有序目录”的需求，天然会想到几类候选结构。逐一排除：</p>
-<table>
-<thead>
-<tr>
-<th>候选结构</th>
-<th>等值查找</th>
-<th>范围查询</th>
-<th>磁盘友好度</th>
-<th>结论</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>哈希表</td>
-<td>O(1)，最快</td>
-<td>不支持（无序）</td>
-<td>一般</td>
-<td>InnoDB 仅在内存中用自适应哈希索引加速热点页，不做持久化索引</td>
-</tr>
-<tr>
-<td>二叉查找树&#x2F;AVL&#x2F;红黑树</td>
-<td>O(log n)</td>
-<td>需要中序遍历</td>
-<td>差</td>
-<td>树高 log₂n，10 亿数据约 30 层 &#x3D; 30 次磁盘 IO；且平衡调整频繁</td>
-</tr>
-<tr>
-<td>B 树</td>
-<td>O(log n)</td>
-<td>需要回溯父节点</td>
-<td>中</td>
-<td>所有节点都存数据，单页装下的键少，树偏高（对比见 2.5）</td>
-</tr>
-<tr>
-<td>跳表</td>
-<td>O(log n)</td>
-<td>好（内存中）</td>
-<td>差</td>
-<td>链式结构对磁盘页对齐不友好，Redis 的 ZSet 用在内存场景</td>
-</tr>
-<tr>
-<td><strong>B+ 树</strong></td>
-<td>O(log n)</td>
-<td>好（叶子链表顺序扫）</td>
-<td><strong>最好</strong></td>
-<td><strong>InnoDB 的选择</strong></td>
-</tr>
-</tbody></table>
-<p><strong>结论</strong>：等值、范围、磁盘 IO、写入稳定性四者权衡下来，B+ 树是磁盘数据库索引的最优解。为什么这么说，第 2 章把它的底层结构拆开看。</p>
-<h2 id="2-B-树索引的底层结构"><a href="#2-B-树索引的底层结构" class="headerlink" title="2. B+ 树索引的底层结构"></a>2. B+ 树索引的底层结构</h2><h3 id="2-1-先理解磁盘-IO-模型：页、树高、IO-次数"><a href="#2-1-先理解磁盘-IO-模型：页、树高、IO-次数" class="headerlink" title="2.1 先理解磁盘 IO 模型：页、树高、IO 次数"></a>2.1 先理解磁盘 IO 模型：页、树高、IO 次数</h3><p>InnoDB 的索引和数据都以页为单位读写，一次磁盘 IO 至少读一个页。所以<strong>一次索引查找的磁盘 IO 次数 ≈ 树的层数</strong>。层数就是 B+ 树的设计核心：把树做得越矮，查询就越快。</p>
-<p>B+ 树的层数由”每个页能装多少键”决定，这个数字叫<strong>分支因子</strong>。以 8 字节的 BIGINT 主键 + 6 字节页指针为例，一条索引记录约 14 字节：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">每页可存键数 ≈ 16 KB ÷ 14 B ≈ 1170 条</span><br></pre></td></tr></table></figure>
-
-<p>也就是说，一个非叶子页能带 1170 个孩子。树的容量是几何级数增长的：</p>
-<table>
-<thead>
-<tr>
-<th>层数</th>
-<th>可支撑数据量（按叶子页 15 行&#x2F;页估算）</th>
-<th>实际 IO 次数</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>2 层</td>
-<td>1170 × 15 ≈ 1.7 万行</td>
-<td>1 次</td>
-</tr>
-<tr>
-<td>3 层</td>
-<td>1170 × 1170 × 15 ≈ 2000 万行</td>
-<td>2 次</td>
-</tr>
-<tr>
-<td>4 层</td>
-<td>百亿行</td>
-<td>3 次</td>
-</tr>
-</tbody></table>
-<p>注意 IO 次数比层数少 1：<strong>根页常驻 Buffer Pool 内存</strong>，不需要读磁盘。所以 1000 万行的表按主键查，真实磁盘 IO 只要 2 次。这就是”3 层 B+ 树支撑千万级数据”这句话的来历。</p>
-<h3 id="2-2-B-树长什么样"><a href="#2-2-B-树长什么样" class="headerlink" title="2.2 B+ 树长什么样"></a>2.2 B+ 树长什么样</h3><figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">         内部节点（非叶子）：只存&quot;键 + 指向子页的指针&quot;，不存数据</span><br><span class="line">                 [ 21 ]        [ 45 ]        [ 79 ]</span><br><span class="line">                /      \      /       \      /      \</span><br><span class="line">        ┌───────┘        └───┘         └────┘        └───────┐</span><br><span class="line">        ↓                    ↓                  ↓</span><br><span class="line">  叶子节点页              叶子节点页           叶子节点页</span><br><span class="line">[1|2|5|8|11|15]  &lt;───&gt;  [21|23|28|34|40]  &lt;───&gt;  [45|49|56|...]</span><br><span class="line">   数据或主键值            数据或主键值          数据或主键值</span><br><span class="line">     ●────────────────────●────────────────────●─────────</span><br><span class="line">       叶子节点之间用链表串联（InnoDB 中为双向链表）</span><br></pre></td></tr></table></figure>
-
-<p>两个核心设计：</p>
-<ul>
-<li><strong>内部节点只存键 + 指针</strong>。一个页能装下 1170 个键，整棵树被压得很矮——这是 B+ 树 vs B 树最大的区别（2.5 详述）；</li>
-<li><strong>所有数据都在叶子节点</strong>，叶子之间用链表串联。范围查询找到起点后，沿链表顺序往下读即可，天然支持顺序扫描。</li>
-</ul>
-<h3 id="2-3-页内二分查找"><a href="#2-3-页内二分查找" class="headerlink" title="2.3 页内二分查找"></a>2.3 页内二分查找</h3><p>B+ 树的查找分两个阶段：<strong>沿树逐层下探</strong>（每次读一页），<strong>在页内二分查找</strong>（内存操作）。</p>
-<p>以 <code>WHERE id = 45</code> 为例，完整路径：</p>
-<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">第 1 次 IO（根页，常驻内存）: 在 [21, 45, 79] 中二分 → 45 在第二个区间 → 取 45 的左指针</span><br><span class="line">第 2 次 IO（中间页）:          页内记录是 [23, 28, 34, 40, 45, ...] → 二分命中 45</span><br><span class="line">第 3 次 IO（叶子页）:          找到完整行数据（聚簇索引）或主键值（二级索引，见第 3 章）</span><br></pre></td></tr></table></figure>
-
-<p>页内记录按键有序，二分查找是纯内存操作，代价可忽略。整条链路的主导成本只有那 2 次磁盘 IO。</p>
-<h3 id="2-4-插入与页分裂"><a href="#2-4-插入与页分裂" class="headerlink" title="2.4 插入与页分裂"></a>2.4 插入与页分裂</h3><p>B+ 树的插入规则很简单：找到应插入的叶子页，放进去；<strong>页满了就分裂成两页，并把新的最小键上提到父节点</strong>（父节点可能继续分裂，向上递归）。</p>
-<p>页分裂的代价很大——要写两个新页、改父节点，可能连锁向上分裂。所以<strong>插入顺序直接决定索引的健康度</strong>：</p>
-<ul>
-<li><strong>顺序插入（自增主键）</strong>：永远追加在最右叶子页，只有这一个页反复分裂，代价最小，叶子页空间利用率接近 100%；</li>
-<li><strong>乱序插入（UUID 主键）</strong>：随机落在任意页，页频繁分裂，分裂后两页都只装一半数据——<strong>空间利用率跌到约 50%，索引膨胀一倍，还会产生大量碎片</strong>。</li>
-</ul>
-<p>这一条直接导出了第 3 章的结论：主键不要用 UUID。</p>
-<h3 id="2-5-B-树-vs-B-树：好在哪里"><a href="#2-5-B-树-vs-B-树：好在哪里" class="headerlink" title="2.5 B+ 树 vs B 树：好在哪里"></a>2.5 B+ 树 vs B 树：好在哪里</h3><table>
-<thead>
-<tr>
-<th>对比维度</th>
-<th>B 树</th>
-<th>B+ 树</th>
-<th>对磁盘数据库意味着什么</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>数据存储位置</td>
-<td>所有节点都存数据</td>
-<td>只有叶子节点存数据</td>
-<td>B+ 树单页能装更多键，树更矮，IO 更少</td>
-</tr>
-<tr>
-<td>单页键容量</td>
-<td>少（每条记录 14B+行数据）</td>
-<td>多（纯键 + 指针）</td>
-<td>同样 2000 万行，B 树要多 1~2 层</td>
-</tr>
-<tr>
-<td>范围查询</td>
-<td>要回溯父节点、中序遍历</td>
-<td>叶子链表顺序扫描</td>
-<td><code>id &gt; 100</code> 的效率高一个量级</td>
-</tr>
-<tr>
-<td>全表扫描</td>
-<td>需要遍历整棵树</td>
-<td>直接扫叶子链表，近似顺序读</td>
-<td>顺序 IO 比随机 IO 快几个数量级</td>
-</tr>
-<tr>
-<td>写放大</td>
-<td>中间节点存数据，更新频繁</td>
-<td>内部节点纯指针，结构稳定</td>
-<td>支持更高并发写入</td>
-</tr>
-</tbody></table>
-<p><strong>本节小结</strong>：B+ 树用”非叶子纯索引 → 高分支因子 → 矮树”换来更少的磁盘 IO；用”叶子链表”换来高效的范围查询和顺序读。这两个特性叠加，就是 InnoDB 把它选为默认索引结构的全部理由。</p>
-<h2 id="3-聚簇索引与非聚簇索引"><a href="#3-聚簇索引与非聚簇索引" class="headerlink" title="3. 聚簇索引与非聚簇索引"></a>3. 聚簇索引与非聚簇索引</h2><h3 id="3-1-聚簇索引：数据就是索引"><a href="#3-1-聚簇索引：数据就是索引" class="headerlink" title="3.1 聚簇索引：数据就是索引"></a>3.1 聚簇索引：数据就是索引</h3><p><strong>聚簇索引（Clustered Index，InnoDB 中即主键索引）的叶子节点直接存完整行数据</strong>。也就是说，InnoDB 的表数据本身就是一棵 B+ 树——数据物理上按键有序组织，这叫<strong>索引组织表（Index-Organized Table）</strong>。</p>
-<p>每个表<strong>只能有一个</strong>聚簇索引，由 InnoDB 按以下优先级自动决定：</p>
-<ol>
-<li>显式定义的<strong>主键</strong>；</li>
-<li>如果没有主键，取<strong>第一个非空 UNIQUE 索引</strong>；</li>
-<li>都没有，InnoDB 自动生成一个<strong>隐藏的 6 字节 ROWID</strong> 作为聚簇索引（表结构设计缺陷，见 3.5）。</li>
-</ol>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">CREATE TABLE</span> t_user (</span><br><span class="line">    id   <span class="type">BIGINT</span> <span class="keyword">PRIMARY KEY</span> AUTO_INCREMENT,   <span class="comment">-- 聚簇索引</span></span><br><span class="line">    name <span class="type">VARCHAR</span>(<span class="number">32</span>),</span><br><span class="line">    age  <span class="type">INT</span></span><br><span class="line">);</span><br><span class="line"><span class="comment">-- 主键查找：一次叶子命中直接拿到整行，无需任何额外步骤</span></span><br><span class="line"><span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> t_user <span class="keyword">WHERE</span> id <span class="operator">=</span> <span class="number">100</span>;</span><br></pre></td></tr></table></figure>
-
-<p>聚簇索引叶子页里除了业务列，还藏着 InnoDB 的隐藏列（<code>trx_id</code> 事务 ID、<code>roll_pointer</code> 回滚指针），MVCC 的版本链就挂在它们上面——这是《MySQL 原理与优化》事务章节的内容，此处不展开。</p>
-<h3 id="3-2-非聚簇索引（二级索引）：列值-主键"><a href="#3-2-非聚簇索引（二级索引）：列值-主键" class="headerlink" title="3.2 非聚簇索引（二级索引）：列值 + 主键"></a>3.2 非聚簇索引（二级索引）：列值 + 主键</h3><p><strong>二级索引（Secondary Index，又称非聚簇索引&#x2F;辅助索引）的叶子节点只存两样东西：索引列的值 + 主键值</strong>。</p>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">ALTER TABLE</span> t_user <span class="keyword">ADD</span> INDEX idx_name (name);</span><br><span class="line"><span class="comment">-- 索引内容示意（按 name 排序）：</span></span><br><span class="line"><span class="comment">--   (&#x27;alice&#x27;, 3)  (&#x27;bob&#x27;, 8)  (&#x27;charlie&#x27;, 12)  ...</span></span><br></pre></td></tr></table></figure>
-
-<p>一个关键细节（面试常考）：<strong>InnoDB 二级索引叶子存的是主键值，而不是行指针</strong>（MyISAM 的索引叶子存的是行指针&#x2F;文件偏移）。为什么？因为聚簇索引里数据页分裂、移动是常态，如果二级索引存指针，每次数据挪动都要回写所有二级索引；而主键值永远不变。代价是：<strong>主键越长，每个二级索引越大</strong>——这是 3.5 主键要短的核心原因。</p>
-<p>一张表可以建多个二级索引，它们与数据的物理顺序无关，各自独立。</p>
-<h3 id="3-3-两种索引对比"><a href="#3-3-两种索引对比" class="headerlink" title="3.3 两种索引对比"></a>3.3 两种索引对比</h3><table>
-<thead>
-<tr>
-<th>维度</th>
-<th>聚簇索引（主键索引）</th>
-<th>二级索引（非聚簇索引）</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>叶子节点内容</td>
-<td>完整行数据</td>
-<td>索引列值 + 主键值</td>
-</tr>
-<tr>
-<td>每表数量</td>
-<td>只能有 1 个</td>
-<td>可以有多个</td>
-</tr>
-<tr>
-<td>与数据关系</td>
-<td>数据即索引，物理顺序 &#x3D; 主键序</td>
-<td>独立结构，与物理顺序无关</td>
-</tr>
-<tr>
-<td>查找路径</td>
-<td>命中叶子即拿到整行</td>
-<td>命中叶子只拿到主键，可能需要回表</td>
-</tr>
-<tr>
-<td>创建方式</td>
-<td>主键自动生成</td>
-<td><code>CREATE INDEX</code> 显式创建</td>
-</tr>
-<tr>
-<td>主键值变化</td>
-<td>—</td>
-<td>所有二级索引需要跟着改</td>
-</tr>
-</tbody></table>
-<h3 id="3-4-回表与覆盖索引"><a href="#3-4-回表与覆盖索引" class="headerlink" title="3.4 回表与覆盖索引"></a>3.4 回表与覆盖索引</h3><p>回表是这两个概念之间的”差价”，一句话定义：<strong>二级索引只存”列值 + 主键”，当查询需要的字段不在索引里时，只能拿主键再到聚簇索引查一遍完整行，这次”回头”就是回表</strong>。</p>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 表 t_user：id 主键，idx_name(name)</span></span><br><span class="line"><span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> t_user <span class="keyword">WHERE</span> name <span class="operator">=</span> <span class="string">&#x27;alice&#x27;</span>;</span><br><span class="line"><span class="comment">-- 执行路径：</span></span><br><span class="line"><span class="comment">--   1) 走 idx_name，二分定位到 (&#x27;alice&#x27;, 3)</span></span><br><span class="line"><span class="comment">--   2) 拿到主键 3，回聚簇索引查 id=3 的完整行</span></span><br></pre></td></tr></table></figure>
-
-<p>每次回表都是一次聚簇索引查找（约 1~2 次磁盘 IO）。如果命中了 100 行，就是 100 次回表——这就是大范围查询慢的真相。</p>
-<p><strong>覆盖索引</strong>：查询所需的列<strong>全部包含在索引中</strong>，无需回表。它不是一个新索引类型，而是一种”索引刚好够用”的状态：</p>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 查询只需要 name 和 id（主键），而 idx_name 里恰好都有</span></span><br><span class="line"><span class="keyword">SELECT</span> id, name <span class="keyword">FROM</span> t_user <span class="keyword">WHERE</span> name <span class="operator">=</span> <span class="string">&#x27;alice&#x27;</span>;</span><br><span class="line"><span class="comment">-- Extra: Using index（即覆盖索引命中，无回表）</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> t_user <span class="keyword">WHERE</span> name <span class="operator">=</span> <span class="string">&#x27;alice&#x27;</span>;</span><br><span class="line"><span class="comment">-- Extra: NULL / Using where（需要回表）</span></span><br></pre></td></tr></table></figure>
-
-<p>注意二级索引天然包含主键，所以”查 id + 查索引列”这类查询几乎总是可以做成覆盖索引。设计实践里，<strong>用空间换回表</strong>是有性价比的（见 6.2 覆盖性原则）。</p>
-<h3 id="3-5-主键怎么选：自增-vs-UUID-vs-业务主键"><a href="#3-5-主键怎么选：自增-vs-UUID-vs-业务主键" class="headerlink" title="3.5 主键怎么选：自增 vs UUID vs 业务主键"></a>3.5 主键怎么选：自增 vs UUID vs 业务主键</h3><p>结合 2.4 的页分裂和 3.2 的”叶子存主键”，主键选择可以一次性推出来：</p>
-<table>
-<thead>
-<tr>
-<th>候选</th>
-<th>插入顺序性</th>
-<th>索引膨胀</th>
-<th>结论</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>BIGINT 自增</td>
-<td>顺序插入，无页分裂</td>
-<td>8 字节，二级索引最小</td>
-<td><strong>首选</strong></td>
-</tr>
-<tr>
-<td>雪花 ID（BIGINT）</td>
-<td>基本有序，可接受</td>
-<td>8 字节</td>
-<td>分布式场景首选</td>
-</tr>
-<tr>
-<td>UUID（36 字符串&#x2F;16B binary）</td>
-<td>完全乱序，页分裂频繁，碎片多</td>
-<td>大，且乱序会加剧膨胀</td>
-<td>避免</td>
-</tr>
-<tr>
-<td>业务主键（如 18 位身份证号）</td>
-<td>视业务而定</td>
-<td>长字符串，所有二级索引跟着变大</td>
-<td>避免，用唯一索引约束替代</td>
-</tr>
-</tbody></table>
-<p><strong>实践结论</strong>：</p>
-<ul>
-<li>主键用<strong>无业务含义的 BIGINT 自增</strong>（单机）或雪花 ID（分布式），一列定生死：乱序、过长都是慢性病，上线后很难改；</li>
-<li>业务上的唯一性（身份证号、手机号、订单号）用 <strong>UNIQUE 索引</strong>约束，而不是塞进主键；</li>
-<li>主键与唯一索引的语义区别：主键不能为 NULL，唯一索引允许 NULL（且多个 NULL 不冲突）。</li>
-</ul>
-<p><strong>本节小结</strong>：聚簇索引 &#x3D; 整张表的数据本体；二级索引 &#x3D; “索引列 + 主键”的副本。两者之间的差价是回表，覆盖索引是抹平差价的手段；而主键的选择（顺序、长度）决定所有二级索引的生死。</p>
-<h2 id="4-联合索引与最左前缀"><a href="#4-联合索引与最左前缀" class="headerlink" title="4. 联合索引与最左前缀"></a>4. 联合索引与最左前缀</h2><h3 id="4-1-联合索引的内部排序"><a href="#4-1-联合索引的内部排序" class="headerlink" title="4.1 联合索引的内部排序"></a>4.1 联合索引的内部排序</h3><p>联合索引 <code>(a, b, c)</code> 底层就是一棵 B+ 树，只是排序规则变成了<strong>先按 a 排，a 相同再按 b 排，b 相同再按 c 排</strong>：</p>
-<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">(a=1,b=2)  (a=1,b=5)  (a=1,b=5,c=9)  (a=2,b=1)  (a=2,b=3)  ...</span><br><span class="line">└─── 先看 a ───┘  └──────── 再看 b ────────┘  └── 再看 c ──┘</span><br></pre></td></tr></table></figure>
-
-<p>这个”字典序”就是最左前缀原则的全部来源：<strong>索引能用来定位的条件，必须是从最左列开始的一段连续前缀</strong>。因为索引里的顺序是”先 a 后 b 后 c”，只给 b 的值，索引无法知道去哪一区间找。</p>
-<h3 id="4-2-最左前缀：哪些查询能用上-a-b-c"><a href="#4-2-最左前缀：哪些查询能用上-a-b-c" class="headerlink" title="4.2 最左前缀：哪些查询能用上 (a, b, c)"></a>4.2 最左前缀：哪些查询能用上 <code>(a, b, c)</code></h3><table>
-<thead>
-<tr>
-<th>查询条件</th>
-<th>能用到的索引部分</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>a = 1</code></td>
-<td>a</td>
-<td>完整使用</td>
-</tr>
-<tr>
-<td><code>a = 1 AND b = 2</code></td>
-<td>a + b</td>
-<td>完整使用</td>
-</tr>
-<tr>
-<td><code>a = 1 AND b = 2 AND c = 3</code></td>
-<td>a + b + c</td>
-<td>完整使用</td>
-</tr>
-<tr>
-<td><code>b = 2</code></td>
-<td>无</td>
-<td>缺最左列 a，索引失效（全表扫描或索引全扫）</td>
-</tr>
-<tr>
-<td><code>a = 1 AND c = 3</code></td>
-<td>只用 a</td>
-<td>跳过 b，c 无法用于索引定位（5.6+ 可被索引下推部分挽回，见 4.3）</td>
-</tr>
-<tr>
-<td><code>b = 2 AND a = 1</code></td>
-<td>a + b</td>
-<td>优化器会重排等值条件，等价于 <code>a=1 AND b=2</code></td>
-</tr>
-</tbody></table>
-<p>两个补充规则：</p>
-<ul>
-<li><strong>等值条件顺序无关</strong>：优化器会自动把等值条件按索引列序重排，所以 <code>b=2 AND a=1</code> 和 <code>a=1 AND b=2</code> 效果一样；</li>
-<li><strong>范围条件后面的列”断链”<strong>：<code>a &gt; 1 AND b = 2</code> 中，a 用于索引定位，但 b 无法用于定位——索引定位只能在第一个范围条件上停止（b&#x3D;2 只能退化为索引层过滤，8.0 前回表后过滤，8.0 中可被 ICP 拦截，见 4.3）。所以</strong>等值列放前面、范围列放后面</strong>是联合索引设计的铁律（见 6.2）。</li>
-</ul>
-<h3 id="4-3-索引下推（ICP）：把过滤提前到索引层"><a href="#4-3-索引下推（ICP）：把过滤提前到索引层" class="headerlink" title="4.3 索引下推（ICP）：把过滤提前到索引层"></a>4.3 索引下推（ICP）：把过滤提前到索引层</h3><p>MySQL 5.6 引入的索引下推（Index Condition Pushdown），解决的是”联合索引部分失效”场景下的回表浪费：</p>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 联合索引 (name, age)，注意 age 也恰好是索引列</span></span><br><span class="line"><span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> t_user <span class="keyword">WHERE</span> name <span class="keyword">LIKE</span> <span class="string">&#x27;张%&#x27;</span> <span class="keyword">AND</span> age <span class="operator">=</span> <span class="number">30</span>;</span><br></pre></td></tr></table></figure>
-
-<ul>
-<li><strong>5.6 之前</strong>：引擎层把 <code>name LIKE &#39;张%&#39;</code> 命中的所有记录（含 <code>age != 30</code> 的）<strong>全部回表</strong>，由 Server 层过滤 <code>age = 30</code>——假设命中 1 万条，就回表 1 万次；</li>
-<li><strong>5.6 之后（ICP）</strong>：引擎层在**遍历二级索引时直接判断 <code>age = 30</code>**，只把满足条件的行回表——假设只剩 50 条，就回表 50 次。</li>
-</ul>
-<p>执行计划里看到 <code>Extra: Using index condition</code> 即命中 ICP。注意前提：过滤条件里的列（这里的 age）必须是索引列。</p>
-<h3 id="4-4-索引与排序：ORDER-BY-免排序"><a href="#4-4-索引与排序：ORDER-BY-免排序" class="headerlink" title="4.4 索引与排序：ORDER BY 免排序"></a>4.4 索引与排序：ORDER BY 免排序</h3><p>B+ 树的叶子天然有序，所以<strong>只要排序字段是联合索引的一个连续前缀，ORDER BY 就能直接按索引顺序取数据，省掉 filesort</strong>（内存&#x2F;磁盘排序，代价很高）：</p>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 联合索引 (a, b, c)</span></span><br><span class="line"><span class="keyword">WHERE</span> a <span class="operator">=</span> <span class="number">1</span> <span class="keyword">ORDER</span> <span class="keyword">BY</span> b      <span class="comment">-- 能用：a 等值确定前缀，b 天然有序 → 免排序</span></span><br><span class="line"><span class="keyword">ORDER</span> <span class="keyword">BY</span> a, b               <span class="comment">-- 能用：整体就是索引序</span></span><br><span class="line"><span class="keyword">WHERE</span> a <span class="operator">=</span> <span class="number">1</span> <span class="keyword">ORDER</span> <span class="keyword">BY</span> b <span class="keyword">DESC</span> <span class="comment">-- 能用：反向扫描（8.0 之前需注意混合升降序不行）</span></span><br><span class="line"><span class="keyword">ORDER</span> <span class="keyword">BY</span> a <span class="keyword">DESC</span>, b <span class="keyword">ASC</span>      <span class="comment">-- 8.0 之前不行（需 filesort）；8.0 建降序索引后可以</span></span><br><span class="line"><span class="keyword">ORDER</span> <span class="keyword">BY</span> b                  <span class="comment">-- 不行：缺最左列 a，索引序不等于 b 的序</span></span><br></pre></td></tr></table></figure>
-
-<p>看到 <code>Extra: Using filesort</code> 就要警惕——它通常意味着一次额外的排序开销，优先考虑把排序列放进索引（或调整索引列序）。</p>
-<p><strong>本节小结</strong>：联合索引 &#x3D; 一棵按”字典序”排序的树；最左前缀是它的使用规则，等值前置、范围后置是它的设计规则；ICP 在索引层提前过滤，覆盖索引&#x2F;索引序消灭回表与 filesort——这四个机制全部围绕”减少聚簇索引访问”服务。</p>
-<h2 id="5-EXPLAIN-与索引失效排查"><a href="#5-EXPLAIN-与索引失效排查" class="headerlink" title="5. EXPLAIN 与索引失效排查"></a>5. EXPLAIN 与索引失效排查</h2><h3 id="5-1-EXPLAIN-速查"><a href="#5-1-EXPLAIN-速查" class="headerlink" title="5.1 EXPLAIN 速查"></a>5.1 EXPLAIN 速查</h3><p>慢 SQL 排查的第一动作永远是 <code>EXPLAIN SELECT ...</code>。重点看五个字段：</p>
-<table>
-<thead>
-<tr>
-<th>字段</th>
-<th>含义</th>
-<th>怎么看</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>type</code></td>
-<td>访问类型，从好到坏：<code>system</code> &gt; <code>const</code> &gt; <code>eq_ref</code> &gt; <code>ref</code> &gt; <code>range</code> &gt; <code>index</code> &gt; <code>ALL</code></td>
-<td><code>ALL</code>（全表扫描）和 <code>index</code>（全索引扫描）是优化信号</td>
-</tr>
-<tr>
-<td><code>key</code></td>
-<td>实际用到的索引</td>
-<td><code>NULL</code> 说明没用索引</td>
-</tr>
-<tr>
-<td><code>key_len</code></td>
-<td>索引实际用到的字节数</td>
-<td>比设计值短，说明只用了部分前缀（列没吃满）</td>
-</tr>
-<tr>
-<td><code>rows</code></td>
-<td>估算扫描行数</td>
-<td>越大越慢，与实际返回行数差距过大说明统计不准</td>
-</tr>
-<tr>
-<td><code>Extra</code></td>
-<td>附加信息</td>
-<td>见下表</td>
-</tr>
-</tbody></table>
-<p><code>Extra</code> 常见取值：</p>
-<table>
-<thead>
-<tr>
-<th>Extra 取值</th>
-<th>含义</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>Using index</code></td>
-<td>覆盖索引，无回表（好）</td>
-</tr>
-<tr>
-<td><code>Using index condition</code></td>
-<td>索引下推生效（好）</td>
-</tr>
-<tr>
-<td><code>Using where</code></td>
-<td>存储引擎返回后 Server 层过滤（可能回表）</td>
-</tr>
-<tr>
-<td><code>Using filesort</code></td>
-<td>需要额外排序（差）</td>
-</tr>
-<tr>
-<td><code>Using temporary</code></td>
-<td>需要临时表（差，常见于 GROUP BY 没用上索引）</td>
-</tr>
-</tbody></table>
-<p><code>key_len</code> 计算示例（面试手算题）：utf8mb4 字符集下 <code>VARCHAR(32)</code> 可空列，<code>32 × 4 + 2（变长长度字节）+ 1（NULL 标记）= 131</code> 字节。联合索引 <code>(a, b)</code> 的 key_len 只等于 a 的长度，说明 b 没用上。</p>
-<h3 id="5-2-索引失效场景清单"><a href="#5-2-索引失效场景清单" class="headerlink" title="5.2 索引失效场景清单"></a>5.2 索引失效场景清单</h3><table>
-<thead>
-<tr>
-<th>场景</th>
-<th>示例</th>
-<th>原因与正解</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>对索引列做函数&#x2F;运算</td>
-<td><code>WHERE DATE(create_time) = &#39;2026-08-01&#39;</code></td>
-<td>索引存的是列原值，无法按函数结果定位。正解：<code>create_time &gt;= &#39;2026-08-01&#39; AND create_time &lt; &#39;2026-08-02&#39;</code>，或 8.0 函数索引</td>
-</tr>
-<tr>
-<td>隐式类型转换</td>
-<td>字符串列 <code>WHERE phone = 13800000000</code>（数值）</td>
-<td>列上发生类型转换，见 5.3</td>
-</tr>
-<tr>
-<td><code>LIKE &#39;%xx&#39;</code> 前导模糊</td>
-<td><code>WHERE name LIKE &#39;%张&#39;</code></td>
-<td>无法确定扫描起点。<code>张%</code> 可以走 range</td>
-</tr>
-<tr>
-<td><code>OR</code> 连接非索引列</td>
-<td><code>WHERE name = &#39;a&#39; OR age &gt; 30</code>（age 无索引）</td>
-<td>优化器无法保证只走 name 索引。正解：拆两条 SQL 或给 age 建索引</td>
-</tr>
-<tr>
-<td>违反最左前缀</td>
-<td>联合索引 <code>(a,b,c)</code> 查 <code>WHERE b = 2</code></td>
-<td>见 4.2</td>
-</tr>
-<tr>
-<td>范围条件断链</td>
-<td><code>WHERE a &gt; 1 AND b = 2</code></td>
-<td>b 无法用于定位，只能过滤（等值列放前，见 4.2）</td>
-</tr>
-<tr>
-<td><code>NOT IN</code> &#x2F; <code>!=</code> &#x2F; <code>NOT LIKE</code></td>
-<td><code>WHERE status != 1</code></td>
-<td><strong>非绝对失效</strong>：返回比例高时优化器主动选全表扫描，比例低时可能走 range，取决于统计信息</td>
-</tr>
-<tr>
-<td>数据量过小</td>
-<td>几千行的表</td>
-<td>优化器认为全表扫描更快（扫描几个页 vs 走索引还要回表），是合理决策，不是 bug</td>
-</tr>
-</tbody></table>
-<p>两个常见误解要澄清：</p>
-<ul>
-<li><strong><code>IS NULL</code> 走不走索引？</strong> 走。InnoDB 二级索引允许存 NULL，<code>IS NULL</code> 是 ref 级别的索引查找；</li>
-<li><strong><code>!=</code> 一定失效？</strong> 不一定。它是优化器基于成本的选择，与数据分布有关——用 <code>EXPLAIN</code> 验证而不是背结论。</li>
-</ul>
-<h3 id="5-3-隐式类型转换：最容易踩的坑"><a href="#5-3-隐式类型转换：最容易踩的坑" class="headerlink" title="5.3 隐式类型转换：最容易踩的坑"></a>5.3 隐式类型转换：最容易踩的坑</h3><p>MySQL 的规则：<strong>字符串列与数值比较时，字符串被转换为数值</strong>——转换发生在<strong>列</strong>上，索引失效；数值列与字符串比较时，字符串被转成数值，列不受影响，索引可用。</p>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- phone 是 VARCHAR 列：</span></span><br><span class="line"><span class="keyword">WHERE</span> phone <span class="operator">=</span> <span class="number">13800000000</span>;   <span class="comment">-- 等效于 CAST(phone AS 数字)，列上做转换 → 索引失效</span></span><br><span class="line"><span class="keyword">WHERE</span> phone <span class="operator">=</span> <span class="string">&#x27;13800000000&#x27;</span>; <span class="comment">-- 字符串比较，索引可用 ✓</span></span><br><span class="line"></span><br><span class="line"><span class="comment">-- id 是 BIGINT 列：</span></span><br><span class="line"><span class="keyword">WHERE</span> id <span class="operator">=</span> <span class="string">&#x27;100&#x27;</span>;            <span class="comment">-- 字符串转数字，列不受影响，索引可用 ✓</span></span><br></pre></td></tr></table></figure>
-
-<p><strong>实践规则</strong>：Java 里用 MyBatis&#x2F;JPA 传参时，<code>phone</code> 这类字符串字段传参类型必须和列类型一致（DTO 里是 <code>String</code>），否则会掉进这个坑且线上很难发现。排查技巧：<code>EXPLAIN</code> 里 <code>key</code> 为 NULL 但条件明明有索引，先检查类型。</p>
-<h3 id="5-4-优化器选错索引"><a href="#5-4-优化器选错索引" class="headerlink" title="5.4 优化器选错索引"></a>5.4 优化器选错索引</h3><p>优化器基于<strong>统计信息</strong>（采样估算行数）选索引，统计不准确时可能选错：</p>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">ANALYZE <span class="keyword">TABLE</span> t_user;                  <span class="comment">-- 更新统计信息（最常见解法）</span></span><br><span class="line">EXPLAIN <span class="keyword">SELECT</span> ...;                    <span class="comment">-- 复看执行计划</span></span><br><span class="line"><span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> t_user FORCE INDEX (idx); <span class="comment">-- 强制指定（最后手段，表结构/数据变化后可能失效，慎用）</span></span><br></pre></td></tr></table></figure>
-
-<p>统计信息与真实分布差太远、或者优化器对”回表成本”的估算有误时，选错就发生了。另外 8.0 可以用 <code>EXPLAIN ANALYZE</code> 拿到实际执行耗时，比看估算 rows 更可靠。</p>
-<p><strong>本节小结</strong>：看 <code>type</code> 是否 ALL、<code>key</code> 是否 NULL、<code>Extra</code> 是否有 filesort&#x2F;temporary 三个信号；失效排查按”函数&#x2F;运算 → 隐式转换 → LIKE → OR → 最左前缀 → 范围断链”的顺序过一遍；选错索引先 <code>ANALYZE TABLE</code>，<code>FORCE INDEX</code> 是最后手段。</p>
-<h2 id="6-日常建索引的实践要点"><a href="#6-日常建索引的实践要点" class="headerlink" title="6. 日常建索引的实践要点"></a>6. 日常建索引的实践要点</h2><h3 id="6-1-建索引的决策流程"><a href="#6-1-建索引的决策流程" class="headerlink" title="6.1 建索引的决策流程"></a>6.1 建索引的决策流程</h3><p>不要”凭感觉建索引”，按下面的流程走：</p>
-<ol>
-<li><strong>定位慢 SQL</strong>：开启慢查询日志（<code>long_query_time = 1</code>，或阈值按业务调），或用 <code>performance_schema</code>&#x2F;监控平台捞 Top SQL；</li>
-<li><strong>EXPLAIN 分析</strong>：确认是不是全表扫描（<code>type = ALL</code>）、有没有 filesort、rows 是否过大；</li>
-<li><strong>设计索引</strong>：把 SQL 的 <code>WHERE</code> 等值列、<code>JOIN</code> 关联列、<code>ORDER BY</code> 排序列、<code>GROUP BY</code> 列列出来，按 6.2 的规则排成联合索引；</li>
-<li><strong>验证</strong>：<code>EXPLAIN</code> 对比建索引前后的 <code>type</code>、<code>rows</code>、<code>Extra</code>，确认覆盖到查询；</li>
-<li><strong>上线观察</strong>：索引对写放大有代价，上线后观察慢日志和写入延迟，确认收益 &gt; 成本。</li>
-</ol>
-<h3 id="6-2-选列与排序的四个原则"><a href="#6-2-选列与排序的四个原则" class="headerlink" title="6.2 选列与排序的四个原则"></a>6.2 选列与排序的四个原则</h3><p><strong>① 区分度优先</strong>：索引的价值在于”过滤”，区分度低的列（性别、状态位）单独建索引收益极低——过滤完还是半张表。用 <code>SHOW INDEX FROM t</code> 看 <code>Cardinality</code>（估算基数），基数&#x2F;总行数越大越好。区分度低的列适合放在联合索引<strong>靠后的位置</strong>做等值过滤（见③）。</p>
-<p><strong>② 等值列在前，范围&#x2F;排序列在后</strong>：等值条件（<code>=</code>）能精确确定扫描区间，范围条件（<code>&gt;</code>、<code>BETWEEN</code>、<code>LIKE &#39;x%&#39;</code>）会让后面的列断链。排序&#x2F;分组列放在最后，顺便免掉 filesort（4.4）。</p>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 经典场景：用户订单页&quot;查某用户最近订单&quot;</span></span><br><span class="line"><span class="comment">-- WHERE user_id = ? ORDER BY created_at DESC</span></span><br><span class="line"><span class="comment">-- 联合索引 (user_id, created_at)：user_id 等值定位，created_at 天然有序免排序 ✓</span></span><br><span class="line"><span class="keyword">CREATE</span> INDEX idx_user_time <span class="keyword">ON</span> t_order (user_id, created_at);</span><br></pre></td></tr></table></figure>
-
-<p><strong>③ 尽量让查询覆盖</strong>：查询只返回索引列的列时，把高频 SELECT 的列塞进索引尾部队列，用空间换回表。典型：列表页查 <code>(id, name, status)</code>，就建 <code>(name, status)</code> 或让联合索引带上它们。</p>
-<p><strong>④ 先查后建，宁缺毋滥</strong>：没有慢 SQL 就没有索引需求；小表（万行以内）全表扫描只有几个页的 IO，索引的收益可以忽略，别为”仪式感”建索引。</p>
-<h3 id="6-3-索引的成本：为什么不能建太多"><a href="#6-3-索引的成本：为什么不能建太多" class="headerlink" title="6.3 索引的成本：为什么不能建太多"></a>6.3 索引的成本：为什么不能建太多</h3><p>每个索引都是<strong>一份独立的排序副本</strong>，代价具体到数字：</p>
-<ul>
-<li><strong>写放大</strong>：一条 INSERT 要写 1 份聚簇索引 + N 份二级索引；UPDATE 修改了索引列，对应索引也要改；DELETE 同理。索引从 3 个加到 8 个，写入开销接近翻倍；</li>
-<li><strong>空间</strong>：每加一个索引，就是表数据的 20%~100% 的额外存储（取决于列宽），同时挤占 Buffer Pool 内存，降低缓存命中率；</li>
-<li><strong>唯一索引更贵</strong>：插入前要立即判断唯一性，无法利用 change buffer 的延迟合并（普通二级索引可以）。</li>
-</ul>
-<p><strong>量化建议</strong>：单表索引控制在 <strong>5~6 个以内</strong>，能用联合索引覆盖的查询就不要拆成多个单列索引。</p>
-<h3 id="6-4-冗余索引与维护"><a href="#6-4-冗余索引与维护" class="headerlink" title="6.4 冗余索引与维护"></a>6.4 冗余索引与维护</h3><ul>
-<li><strong>联合索引吞并单列索引</strong>：有 <code>(a, b)</code> 就没必要保留单列 <code>(a)</code>——前者完全覆盖后者的能力。但 <code>(b, a)</code> 与 <code>(a, b)</code> 是两种不同结构，别删错；</li>
-<li><strong>8.0 的 <code>INVISIBLE</code> 索引</strong>：拿不准要不要删的索引，先 <code>ALTER TABLE ... ALTER INDEX idx INVISIBLE</code> 无痛隐藏，观察一段时间没有报错再 DROP，比直接删安全得多；</li>
-<li><strong>索引碎片</strong>：页分裂会留下碎片。<code>SHOW TABLE STATUS LIKE &#39;t_order&#39;</code> 看 <code>Data_free</code>，碎片明显时 <code>OPTIMIZE TABLE t_order</code> 重建表（注意锁表时间，选业务低峰）；</li>
-<li><strong>前缀索引</strong>：超长字符串（URL、邮箱）建 <code>url(20)</code> 前缀索引，但会损失区分度，且<strong>无法用于覆盖索引和 ORDER BY</strong>——权衡后使用；</li>
-<li><strong>8.0 函数索引</strong>：<code>CREATE INDEX idx_date ON t ( (DATE(create_time)) )</code>，专门兜底”函数查询”场景，但优先还是改写 SQL。</li>
-</ul>
-<h3 id="6-5-三个典型业务场景"><a href="#6-5-三个典型业务场景" class="headerlink" title="6.5 三个典型业务场景"></a>6.5 三个典型业务场景</h3><figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 场景一：登录防重。账号唯一索引 + 防重插入</span></span><br><span class="line"><span class="keyword">CREATE</span> <span class="keyword">UNIQUE</span> INDEX uk_phone <span class="keyword">ON</span> t_user (phone);</span><br><span class="line"><span class="keyword">INSERT INTO</span> t_user (phone) <span class="keyword">VALUES</span> (<span class="string">&#x27;13800000000&#x27;</span>)</span><br><span class="line">    <span class="keyword">ON</span> DUPLICATE KEY <span class="keyword">UPDATE</span> phone <span class="operator">=</span> phone;  <span class="comment">-- 或用 INSERT IGNORE</span></span><br><span class="line"></span><br><span class="line"><span class="comment">-- 场景二：订单列表（状态 + 时间范围过滤 + 分页）</span></span><br><span class="line"><span class="comment">-- WHERE status = 1 AND created_at &gt; ? ORDER BY created_at LIMIT 20</span></span><br><span class="line"><span class="keyword">CREATE</span> INDEX idx_status_time <span class="keyword">ON</span> t_order (status, created_at);</span><br><span class="line"><span class="comment">-- 注意 status 区分度低，放前面做等值过滤合理；若 status 只有两三个值，</span></span><br><span class="line"><span class="comment">-- 且该 SQL 返回行数占比高，可考虑只用 (created_at) 让索引层过滤范围</span></span><br><span class="line"></span><br><span class="line"><span class="comment">-- 场景三：深分页（LIMIT 100000, 10 前 10 万行全部回表）</span></span><br><span class="line"><span class="comment">-- 延迟关联：先用覆盖索引取出 id，再回表拿整行</span></span><br><span class="line"><span class="keyword">SELECT</span> t.<span class="operator">*</span> <span class="keyword">FROM</span> t_order t</span><br><span class="line"><span class="keyword">JOIN</span> (<span class="keyword">SELECT</span> id <span class="keyword">FROM</span> t_order <span class="keyword">ORDER</span> <span class="keyword">BY</span> created_at LIMIT <span class="number">100000</span>, <span class="number">10</span>) tmp</span><br><span class="line">  <span class="keyword">ON</span> t.id <span class="operator">=</span> tmp.id;</span><br></pre></td></tr></table></figure>
-
-<h3 id="6-6-常用命令清单"><a href="#6-6-常用命令清单" class="headerlink" title="6.6 常用命令清单"></a>6.6 常用命令清单</h3><figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">SHOW</span> INDEX <span class="keyword">FROM</span> t_user;                    <span class="comment">-- 看索引与 Cardinality</span></span><br><span class="line"><span class="keyword">SHOW</span> <span class="keyword">CREATE TABLE</span> t_user;                  <span class="comment">-- 看完整建表语句</span></span><br><span class="line">EXPLAIN <span class="keyword">SELECT</span> ...;                        <span class="comment">-- 看执行计划</span></span><br><span class="line">ANALYZE <span class="keyword">TABLE</span> t_user;                      <span class="comment">-- 更新统计信息</span></span><br><span class="line">OPTIMIZE <span class="keyword">TABLE</span> t_user;                     <span class="comment">-- 重建表、回收碎片（业务低峰）</span></span><br><span class="line"><span class="keyword">SET</span> <span class="keyword">GLOBAL</span> slow_query_log <span class="operator">=</span> <span class="keyword">ON</span>;            <span class="comment">-- 开启慢查询日志</span></span><br><span class="line">EXPLAIN ANALYZE <span class="keyword">SELECT</span> ...;                <span class="comment">-- 8.0：返回实际执行耗时</span></span><br></pre></td></tr></table></figure>
-
-<p><strong>本节小结</strong>：建索引 &#x3D; 先有慢 SQL 证据，再按”等值列在前、范围&#x2F;排序列在后、高频查询尽量覆盖、区分度决定值不值得”四原则设计联合索引；同时记住每条索引的写放大和空间成本，5~6 个是常见上限；冗余索引、碎片、隐式转换是上线后最常补的课。</p>
-<h2 id="7-面试高频题速答（1-3-年档）"><a href="#7-面试高频题速答（1-3-年档）" class="headerlink" title="7. 面试高频题速答（1-3 年档）"></a>7. 面试高频题速答（1-3 年档）</h2><table>
-<thead>
-<tr>
-<th>问题</th>
-<th>速答</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>为什么 InnoDB 用 B+ 树而不是 B 树？</td>
-<td>内部节点不存数据 → 单页键多 → 树矮 IO 少；叶子链表 → 范围查询和顺序扫描高效；写放大更小</td>
-</tr>
-<tr>
-<td>聚簇索引和非聚簇索引的区别？</td>
-<td>聚簇叶子存整行、每表一个、决定物理顺序；二级索引叶子存”列值 + 主键”、可多个、与物理顺序无关</td>
-</tr>
-<tr>
-<td>为什么二级索引存主键而不是行指针？</td>
-<td>数据页移动&#x2F;分裂时主键不变，避免级联更新所有二级索引；代价是主键越长索引越大</td>
-</tr>
-<tr>
-<td>什么是回表和覆盖索引？</td>
-<td>二级索引缺字段时拿主键回头查聚簇索引叫回表；查询列全在索引里则无需回表（Extra: Using index）</td>
-</tr>
-<tr>
-<td>联合索引 <code>(a,b,c)</code>，<code>WHERE b=1 AND c=2</code> 能用吗？</td>
-<td>不能定位，最左列缺失；只能全索引扫描，8.0 下可被 ICP 在索引层过滤</td>
-</tr>
-<tr>
-<td>索引下推解决什么问题？</td>
-<td>让二级索引遍历时直接过滤部分失效的索引列，减少回表次数（Extra: Using index condition）</td>
-</tr>
-<tr>
-<td>什么场景索引会失效？</td>
-<td>函数&#x2F;运算、隐式类型转换、<code>LIKE &#39;%x&#39;</code>、OR 非索引列、违反最左前缀、范围后断链</td>
-</tr>
-<tr>
-<td>自增主键 vs UUID？</td>
-<td>自增顺序插入无页分裂、索引小；UUID 乱序导致页分裂、碎片、空间利用率掉到 50% 附近</td>
-</tr>
-<tr>
-<td>索引是不是越多越好？</td>
-<td>不是。每个索引都是写放大 + 空间成本，单表 5~6 个为常见上限，用联合索引替代多个单列索引</td>
-</tr>
-<tr>
-<td>唯一索引和普通索引怎么选？</td>
-<td>需要业务防重&#x2F;唯一约束用唯一索引；否则用普通索引（可走 change buffer，写入更便宜）</td>
-</tr>
-</tbody></table>
-<h2 id="8-总结"><a href="#8-总结" class="headerlink" title="8. 总结"></a>8. 总结</h2><p>一条主线串起全文：<strong>B+ 树用”矮树 + 叶子链表”把磁盘 IO 次数从 O(n) 压到 O(层数)<strong>；</strong>聚簇索引就是表数据本体，二级索引是”列 + 主键”的副本，回表是两者之间的差价</strong>；<strong>联合索引按字典序组织，最左前缀决定能用不能用，等值前置决定用得好不好</strong>；<strong>EXPLAIN 的 type&#x2F;key&#x2F;Extra 三件套 + 隐式转换、函数、LIKE 这些失效清单，是排查慢 SQL 的标准动作</strong>；最后落到实践：先慢日志，后 EXPLAIN，再按”区分度、列序、覆盖、成本”四原则建索引。</p>
-<p>索引优化是 MySQL 学习中性价比最高的投入——它不需要改代码，不需要扩机器，一条 <code>CREATE INDEX</code> 常常把慢 SQL 从秒级降到毫秒级。但这张”免费的优化券”也有规则：建错了（冗余、过度）会拖垮写入，建歪了（列序、类型）等于没建。</p>
-<p>延伸阅读（按学习顺序）：</p>
-<ul>
-<li><a href="/post/32511a71.html">MySQL 原理与优化</a>：架构、事务、锁、MVCC 的完整体系，索引的上位知识；</li>
-<li><a href="/post/mysql-ha-2025.html">MySQL 高可用与分库分表实战</a>：单机撑不住之后的扩展方案，索引设计在其中依然有效；</li>
-<li><a href="/docs/nav/mysql-nav.html">MySQL 导航</a>：本文在”后端能力链”中的定位与推荐学习顺序；</li>
-<li>缓存互补：<a href="/post/bae4ff13.html">Redis 深度解析</a>：索引救不了的读瓶颈，交给缓存。</li>
-</ul>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/hexo-next-guide.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="知行栈">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | 知行栈">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/hexo-next-guide.html" class="post-title-link" itemprop="url">Hexo + NexT 博客搭建全指南</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-
-      <time title="Created: 2026-08-09 16:00:00" itemprop="dateCreated datePublished" datetime="2026-08-09T16:00:00+08:00">2026-08-09</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">In</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/%E5%BC%80%E5%8F%91%E5%B7%A5%E5%85%B7/" itemprop="url" rel="index"><span itemprop="name">开发工具</span></a>
-        </span>
-    </span>
-
-  
-    <span class="post-meta-break"></span>
-    <span class="post-meta-item" title="Word count in article">
-      <span class="post-meta-item-icon">
-        <i class="far fa-file-word"></i>
-      </span>
-      <span class="post-meta-item-text">Word count in article: </span>
-      <span>3.2k</span>
-    </span>
-    <span class="post-meta-item" title="Reading time">
-      <span class="post-meta-item-icon">
-        <i class="far fa-clock"></i>
-      </span>
-      <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>12 mins.</span>
-    </span>
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="Hexo-NexT-博客搭建全指南"><a href="#Hexo-NexT-博客搭建全指南" class="headerlink" title="Hexo + NexT 博客搭建全指南"></a>Hexo + NexT 博客搭建全指南</h1><blockquote>
-<p>按本指南逐步操作，你将得到一个与当前站点完全一致的博客：<strong>Hexo 静态站点 + NexT 主题（Gemini）</strong>，包含四层导航菜单、分类导航页体系、菜单树面包屑、短链接（abbrlink）与站内搜索。全文只讲操作，照做即可。</p>
-</blockquote>
-<h2 id="1-最终效果与目录结构"><a href="#1-最终效果与目录结构" class="headerlink" title="1. 最终效果与目录结构"></a>1. 最终效果与目录结构</h2><ul>
-<li><strong>四层点击式菜单</strong>：Docs → 五大分类 → 子分类 → 文章，左侧菜单逐层展开</li>
-<li><strong>分类导航页</strong>：每个分类一张 <code>page</code>，组织学习路线与文章定位（不计入文章列表）</li>
-<li><strong>菜单树面包屑</strong>：每个导航页标题下方自动显示「Docs &#x2F; 上一级 &#x2F; 当前页」的居中面包屑</li>
-<li><strong>短链接</strong>：文章 URL 为 <code>/post/6a6e612d.html</code> 形式，不暴露中文文件名</li>
-<li><strong>站内搜索</strong>：<code>Ctrl+K</code> &#x2F; <code>⌘K</code> 全局搜索</li>
-</ul>
-<p>最终目录结构：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">blog/</span><br><span class="line">├── _config.yml              # 站点配置（permalink、abbrlink、deploy）</span><br><span class="line">├── _config.next.yml         # 主题配置（scheme、menu、local_search）</span><br><span class="line">├── source/</span><br><span class="line">│   ├── _posts/              # 文章</span><br><span class="line">│   │   ├── java-interview/</span><br><span class="line">│   │   ├── database/</span><br><span class="line">│   │   └── ...</span><br><span class="line">│   └── docs/                # 导航页</span><br><span class="line">│       ├── index.md         # 全站导航首页</span><br><span class="line">│       └── nav/             # 分类导航页</span><br><span class="line">│           ├── backend-dev-nav.md</span><br><span class="line">│           ├── java-nav.md</span><br><span class="line">│           └── ...</span><br><span class="line">├── scaffolds/               # 新文件模板</span><br><span class="line">└── node_modules/hexo-theme-next/</span><br></pre></td></tr></table></figure>
-
-<h2 id="2-环境准备"><a href="#2-环境准备" class="headerlink" title="2. 环境准备"></a>2. 环境准备</h2><h3 id="2-1-安装-Node-js"><a href="#2-1-安装-Node-js" class="headerlink" title="2.1 安装 Node.js"></a>2.1 安装 Node.js</h3><p>推荐用 nvm 管理 Node 版本：</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash</span><br><span class="line"><span class="built_in">source</span> ~/.zshrc        <span class="comment"># 重新加载配置</span></span><br><span class="line">nvm install --lts</span><br><span class="line">node -v                <span class="comment"># 确认输出版本号</span></span><br></pre></td></tr></table></figure>
-
-<h3 id="2-2-安装-Git"><a href="#2-2-安装-Git" class="headerlink" title="2.2 安装 Git"></a>2.2 安装 Git</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">brew install git       <span class="comment"># macOS</span></span><br><span class="line">git config --global user.name <span class="string">&quot;你的名字&quot;</span></span><br><span class="line">git config --global user.email <span class="string">&quot;你的邮箱&quot;</span></span><br></pre></td></tr></table></figure>
-
-<h3 id="2-3-安装-hexo-cli"><a href="#2-3-安装-hexo-cli" class="headerlink" title="2.3 安装 hexo-cli"></a>2.3 安装 hexo-cli</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">npm install -g hexo-cli</span><br></pre></td></tr></table></figure>
-
-<h2 id="3-Hexo-站点初始化及基本配置"><a href="#3-Hexo-站点初始化及基本配置" class="headerlink" title="3. Hexo 站点初始化及基本配置"></a>3. Hexo 站点初始化及基本配置</h2><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">hexo init blog</span><br><span class="line"><span class="built_in">cd</span> blog</span><br><span class="line">npm install</span><br><span class="line">hexo server</span><br></pre></td></tr></table></figure>
-
-<p>浏览器打开 <code>http://localhost:4000</code>，看到默认首页即初始化成功。<code>Ctrl+C</code> 停止本地服务。</p>
-<p>此时站点结构如下：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">blog/</span><br><span class="line">├── _config.yml          # 站点配置</span><br><span class="line">├── package.json         # 依赖</span><br><span class="line">├── scaffolds/           # 新建文件的模板</span><br><span class="line">├── source/</span><br><span class="line">│   └── _posts/          # 文章目录</span><br><span class="line">└── themes/              # 主题目录（旧版主题放这里）</span><br></pre></td></tr></table></figure>
-
-<p>站点基本配置，编辑站点根目录的 <code>_config.yml</code>：</p>
-<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 站点信息</span></span><br><span class="line"><span class="attr">title:</span> <span class="string">站点名称</span></span><br><span class="line"><span class="attr">subtitle:</span> <span class="string">副标题</span></span><br><span class="line"><span class="attr">author:</span> <span class="string">作者名</span></span><br><span class="line"><span class="attr">language:</span> <span class="string">zh-CN</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 部署后的访问地址（发布前确定）</span></span><br><span class="line"><span class="attr">url:</span> <span class="string">https://你的用户名.github.io</span></span><br></pre></td></tr></table></figure>
-
-<p>其余保持默认。</p>
-<h2 id="4-NexT-主题安装及基本配置"><a href="#4-NexT-主题安装及基本配置" class="headerlink" title="4. NexT 主题安装及基本配置"></a>4. NexT 主题安装及基本配置</h2><p>NexT 8 通过 npm 安装：</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 切到站点根目录</span></span><br><span class="line">npm install hexo-theme-next</span><br></pre></td></tr></table></figure>
-
-<p>主题源码位于 <code>node_modules/hexo-theme-next/</code>。复制主题的 <code>_config.yml</code> 到站点站点根目录：</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 切到站点根目录</span></span><br><span class="line"><span class="built_in">cp</span> node_modules/hexo-theme-next/_config.yml _config.next.yml</span><br></pre></td></tr></table></figure>
-
-<p>基本配置：</p>
-<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 主题方案：Muse / Mist / Pisces / Gemini</span></span><br><span class="line"><span class="attr">scheme:</span> <span class="string">Gemini</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 深色模式</span></span><br><span class="line"><span class="attr">darkmode:</span> <span class="literal">true</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 菜单图标</span></span><br><span class="line"><span class="attr">menu_settings:</span></span><br><span class="line">  <span class="attr">icons:</span> <span class="literal">true</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 站内搜索</span></span><br><span class="line"><span class="attr">local_search:</span></span><br><span class="line">  <span class="attr">enable:</span> <span class="literal">true</span></span><br><span class="line">  <span class="attr">top_n_per_article:</span> <span class="number">1</span></span><br><span class="line">  <span class="attr">unescape:</span> <span class="literal">true</span></span><br><span class="line">  <span class="attr">preload:</span> <span class="literal">true</span></span><br></pre></td></tr></table></figure>
-
-<h2 id="5-常用功能配置"><a href="#5-常用功能配置" class="headerlink" title="5. 常用功能配置"></a>5. 常用功能配置</h2><h3 id="5-1-文章短链接"><a href="#5-1-文章短链接" class="headerlink" title="5.1 文章短链接"></a>5.1 文章短链接</h3><p>安装插件，让文章 URL 变为 <code>/post/&lt;8位短码&gt;.html</code>，不依赖中文文件名：</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">npm install hexo-abbrlink</span><br></pre></td></tr></table></figure>
-
-<p><code>_config.yml</code> 中配置：</p>
-<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">permalink:</span> <span class="string">post/:abbrlink.html</span></span><br><span class="line"><span class="attr">abbrlink:</span></span><br><span class="line">  <span class="attr">alg:</span> <span class="string">crc32</span>   <span class="comment"># 短码生成算法</span></span><br><span class="line">  <span class="attr">rep:</span> <span class="string">hex</span>     <span class="comment"># 短码进制</span></span><br></pre></td></tr></table></figure>
-
-<p>文章 front-matter 中可手动指定短码（不写则自动生成）：</p>
-<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">---</span></span><br><span class="line"><span class="attr">title:</span> <span class="string">我的第一篇文章</span></span><br><span class="line"><span class="attr">abbrlink:</span> <span class="string">my-first-post</span>    <span class="comment"># 可选；不写则自动生成 8 位十六进制短码</span></span><br><span class="line"><span class="attr">date:</span> <span class="number">2026-08-09 12:00:00</span></span><br><span class="line"><span class="meta">---</span></span><br></pre></td></tr></table></figure>
-
-
-<h3 id="5-2-站内搜索"><a href="#5-2-站内搜索" class="headerlink" title="5.2 站内搜索"></a>5.2 站内搜索</h3><p>NexT 8 的站内搜索需要数据文件生成器：</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">npm install hexo-generator-searchdb</span><br></pre></td></tr></table></figure>
-
-<p><code>_config.next.yml</code> 已配置 <code>local_search.enable: true</code>（见第 4 章），主题会生成 <code>search.xml</code>，点击菜单中的搜索按钮或按 <code>Ctrl+K</code> &#x2F; <code>⌘K</code> 即可使用。搜索会同时覆盖文章与导航页。</p>
-<h3 id="5-3-Mermaid-图表渲染"><a href="#5-3-Mermaid-图表渲染" class="headerlink" title="5.3 Mermaid 图表渲染"></a>5.3 Mermaid 图表渲染</h3><p>本站图表支持<strong>两种写法</strong>，渲染效果一致，推荐代码围栏（编辑器里可直接预览）：</p>
-<table>
-<thead>
-<tr>
-<th>方式</th>
-<th>写法</th>
-<th>渲染机制</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>代码围栏（推荐）</td>
-<td>&#96;&#96;&#96;mermaid 围栏</td>
-<td>hexo-filter-mermaid-diagrams 插件把围栏转成 <code>&lt;pre class=&quot;mermaid&quot;&gt;</code>，由 <code>scripts/mermaid-fences.js</code> 按需加载 mermaid.js 渲染（本地 vendor，无 CDN）</td>
-</tr>
-<tr>
-<td>主题标签</td>
-<td>&#123;% mermaid %&#125; 标签</td>
-<td>同一加载器兼容 <code>&lt;code class=&quot;mermaid&quot;&gt;</code> 结构，两种格式统一渲染</td>
-</tr>
-</tbody></table>
-<h4 id="5-3-1-方式一：代码围栏（推荐）"><a href="#5-3-1-方式一：代码围栏（推荐）" class="headerlink" title="5.3.1 方式一：代码围栏（推荐）"></a>5.3.1 方式一：代码围栏（推荐）</h4><p>用 <strong>mermaid 代码围栏</strong>（三个反引号 + mermaid）包裹图表：</p>
-<pre class="mermaid">flowchart LR
-  A[开始] --> B{判断}
-  B -->|是| C[结果]
-  B -->|否| A</pre>
-
-<p>渲染为一张可交互的流程图（放大、导出 SVG）。图表源码里的 <code>&lt;</code>、<code>&amp;</code> 会被构建期自动转义，可放心书写。</p>
-<h4 id="5-3-2-方式二：主题标签"><a href="#5-3-2-方式二：主题标签" class="headerlink" title="5.3.2 方式二：主题标签"></a>5.3.2 方式二：主题标签</h4><p>用 <strong>&#123;% mermaid %&#125; 标签</strong>包裹（NexT 原生语法，老文章在用；两种方式按文章自由选择，互不影响）：</p>
-<pre><code>&#123;% mermaid %&#125;
-flowchart LR
-  A[开始] --> B&#123;判断&#125;
-  B -->|是| C[结果]
-  B -->|否| A
-&#123;% endmermaid %&#125;</code></pre>
-
-<p>标签内容的转义与围栏方式相同。</p>
-<h4 id="5-3-3-常用图表类型"><a href="#5-3-3-常用图表类型" class="headerlink" title="5.3.3 常用图表类型"></a>5.3.3 常用图表类型</h4><table>
-<thead>
-<tr>
-<th>类型</th>
-<th>语法关键字</th>
-<th>典型场景</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>流程图</td>
-<td><code>flowchart LR</code> &#x2F; <code>flowchart TD</code></td>
-<td>流程、逻辑分支</td>
-</tr>
-<tr>
-<td>时序图</td>
-<td><code>sequenceDiagram</code></td>
-<td>接口调用、消息交互</td>
-</tr>
-<tr>
-<td>状态图</td>
-<td><code>stateDiagram-v2</code></td>
-<td>状态机、生命周期</td>
-</tr>
-<tr>
-<td>类图</td>
-<td><code>classDiagram</code></td>
-<td>类与关系</td>
-</tr>
-<tr>
-<td>甘特图</td>
-<td><code>gantt</code></td>
-<td>计划排期</td>
-</tr>
-</tbody></table>
-<h4 id="5-3-4-配置与依赖"><a href="#5-3-4-配置与依赖" class="headerlink" title="5.3.4 配置与依赖"></a>5.3.4 配置与依赖</h4><table>
-<thead>
-<tr>
-<th>位置</th>
-<th>配置</th>
-<th>作用</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>_config.yml</code></td>
-<td><code>mermaid.enable: true</code></td>
-<td>插件开关：构建期把代码围栏转成 <code>&lt;pre class=&quot;mermaid&quot;&gt;</code></td>
-</tr>
-<tr>
-<td><code>scripts/mermaid-fences.js</code></td>
-<td>无需配置</td>
-<td>构建期转义 <code>&lt;</code>&#x2F;<code>&amp;</code>；页面按需加载 mermaid.js 渲染所有 <code>.mermaid</code> 元素（两种格式都认）</td>
-</tr>
-<tr>
-<td><code>_config.next.yml</code></td>
-<td><code>mermaid.enable: false</code></td>
-<td>主题内置加载器只识别标签结构（选择器 <code>pre &gt; .mermaid</code>），与插件输出不兼容，保持关闭</td>
-</tr>
-</tbody></table>
-<blockquote>
-<p><strong>注意</strong>：图内文字建议用英文（中文在部分 mermaid 版本渲染偶发换行错位）；图表源码里的 <code>&lt;</code>、<code>&amp;</code> 会被构建期自动转义，可放心书写。同一张图不要同时用两种方式各写一遍，否则页面会出现两份相同的图表。</p>
-</blockquote>
-<h2 id="6-博客布局"><a href="#6-博客布局" class="headerlink" title="6. 博客布局"></a>6. 博客布局</h2><p>本站的体系是「<strong>文章 + 导航页</strong>」双轨：</p>
-<ul>
-<li><strong>文章</strong>（<code>source/_posts/</code>）：真实内容，计入文章列表，URL 为 <code>/post/&lt;短码&gt;.html</code></li>
-<li><strong>导航页</strong>（<code>source/docs/</code>、<code>source/docs/nav/</code>）：分类索引，<code>layout: page</code>，<strong>不计入</strong>文章列表，URL 等于物理路径（<code>/docs/nav/java-nav.html</code>）</li>
-</ul>
-<h3 id="6-1-文章与导航页"><a href="#6-1-文章与导航页" class="headerlink" title="6.1 文章与导航页"></a>6.1 文章与导航页</h3><h4 id="6-1-1-文章模板"><a href="#6-1-1-文章模板" class="headerlink" title="6.1.1 文章模板"></a>6.1.1 文章模板</h4><p><code>source/_posts/</code> 下的 Markdown 文件即文章，front-matter：</p>
-<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">---</span></span><br><span class="line"><span class="attr">title:</span> <span class="string">文章标题</span></span><br><span class="line"><span class="attr">abbrlink:</span> <span class="string">article-slug</span>        <span class="comment"># 短码（见 5.1）</span></span><br><span class="line"><span class="attr">date:</span> <span class="number">2026-08-09 12:00:00</span></span><br><span class="line"><span class="attr">categories:</span></span><br><span class="line">  <span class="bullet">-</span> <span class="string">分类名</span></span><br><span class="line"><span class="attr">tags:</span></span><br><span class="line">  <span class="bullet">-</span> <span class="string">标签1</span></span><br><span class="line">  <span class="bullet">-</span> <span class="string">标签2</span></span><br><span class="line"><span class="meta">---</span></span><br><span class="line"><span class="meta"></span></span><br><span class="line"><span class="string">正文内容……</span></span><br></pre></td></tr></table></figure>
-
-<h4 id="6-1-2-导航页模板"><a href="#6-1-2-导航页模板" class="headerlink" title="6.1.2 导航页模板"></a>6.1.2 导航页模板</h4><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">mkdir</span> -p <span class="built_in">source</span>/docs/nav     <span class="comment"># 建立导航页目录</span></span><br></pre></td></tr></table></figure>
-
-<p>导航页 front-matter：</p>
-<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">---</span></span><br><span class="line"><span class="attr">title:</span> <span class="string">Java</span> <span class="string">导航</span></span><br><span class="line"><span class="attr">layout:</span> <span class="string">page</span>                  <span class="comment"># 关键：page 而非 post</span></span><br><span class="line"><span class="attr">date:</span> <span class="number">2026-08-09 10:00:00</span></span><br><span class="line"><span class="attr">tags:</span></span><br><span class="line">  <span class="bullet">-</span> <span class="string">导航</span></span><br><span class="line"><span class="meta">---</span></span><br><span class="line"><span class="meta"></span></span><br><span class="line"><span class="comment">## Java 核心</span></span><br><span class="line"></span><br><span class="line"><span class="string">|</span> <span class="string">文章</span> <span class="string">|</span> <span class="string">说明</span> <span class="string">|</span></span><br><span class="line"><span class="string">|------|------|</span></span><br><span class="line"><span class="string">|</span> [<span class="string">Java</span> <span class="string">并发编程</span>]<span class="string">(/post/a3f81c2d.html)</span> <span class="string">|</span> <span class="string">并发基础、锁、线程池</span> <span class="string">|</span></span><br></pre></td></tr></table></figure>
-
-<p>导航页内用<strong>绝对路径</strong>链接文章（<code>/post/&lt;短码&gt;.html</code>）与兄弟导航页（<code>/docs/nav/&lt;文件名&gt;.html</code>）。</p>
-<blockquote>
-<p><strong>面包屑自动生成</strong>：页面标题下方会自动显示「Docs &#x2F; 上一级 &#x2F; 当前页」的居中面包屑（实现见 6.4），导航页里<strong>不需要</strong>再写「返回上级」链接。</p>
-<p><strong>内容定位</strong>：导航页承担「学习路线」职能——推荐顺序与前置要求（学习路径）、文章定位表（适用场景&#x2F;前置要求）、相关主题交叉链接；面试向页面再补「高频问题 → 文章」映射；入口罗列交给左侧菜单——两者分工，避免同一份列表维护两遍。</p>
-</blockquote>
-<h4 id="6-1-3-全站首页"><a href="#6-1-3-全站首页" class="headerlink" title="6.1.3 全站首页"></a>6.1.3 全站首页</h4><p><code>source/docs/index.md</code> 是全站导航首页，写站点介绍与分类索引，供菜单 <code>Docs</code> 指向。</p>
-<h3 id="6-2-四层导航菜单"><a href="#6-2-四层导航菜单" class="headerlink" title="6.2 四层导航菜单"></a>6.2 四层导航菜单</h3><h4 id="6-2-1-菜单结构"><a href="#6-2-1-菜单结构" class="headerlink" title="6.2.1 菜单结构"></a>6.2.1 菜单结构</h4><p><code>_config.next.yml</code> 的 <code>menu:</code> 段支持任意层级的树形嵌套，每层节点用 <code>default:</code> 指定本节点的页面路径，叶子节点直接给文章路径：</p>
-<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">menu:</span></span><br><span class="line">  <span class="attr">Docs:</span></span><br><span class="line">    <span class="attr">default:</span> <span class="string">/docs/</span> <span class="string">||</span> <span class="string">fa</span> <span class="string">fa-book</span></span><br><span class="line">    <span class="string">后端开发:</span>                 <span class="comment"># 第二层：分类导航页</span></span><br><span class="line">      <span class="attr">default:</span> <span class="string">nav/backend-dev-nav.html</span> <span class="string">||</span> <span class="string">fa</span> <span class="string">fa-code</span></span><br><span class="line">      <span class="attr">Java:</span>                  <span class="comment"># 第三层：子分类导航页</span></span><br><span class="line">        <span class="attr">default:</span> <span class="string">../java-nav.html</span> <span class="string">||</span> <span class="string">fa</span> <span class="string">fa-coffee</span></span><br><span class="line">        <span class="string">Java</span> <span class="string">并发编程:</span> <span class="string">../../../post/a3f81c2d.html</span> <span class="string">||</span> <span class="string">fa</span> <span class="string">fa-file-code</span></span><br><span class="line">    <span class="string">计算机基础:</span>               <span class="comment"># 并列第二层</span></span><br><span class="line">      <span class="attr">default:</span> <span class="string">nav/cs-foundation-nav.html</span> <span class="string">||</span> <span class="string">fa</span> <span class="string">fa-desktop</span></span><br><span class="line">  <span class="attr">archives:</span> <span class="string">/archives/</span> <span class="string">||</span> <span class="string">fa</span> <span class="string">fa-archive</span></span><br><span class="line">  <span class="attr">categories:</span> <span class="string">/categories/</span> <span class="string">||</span> <span class="string">fa</span> <span class="string">fa-th</span></span><br></pre></td></tr></table></figure>
-
-<h4 id="6-2-2-相对路径规则"><a href="#6-2-2-相对路径规则" class="headerlink" title="6.2.2 相对路径规则"></a>6.2.2 相对路径规则</h4><p>每个节点的配置值 &#x3D; <strong>从父节点页面出发，到目标页面的相对路径</strong>：</p>
-<table>
-<thead>
-<tr>
-<th>节点</th>
-<th>父页面</th>
-<th>目标页面</th>
-<th>配置值</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>顶级 Docs</td>
-<td>无</td>
-<td><code>/docs/</code></td>
-<td><code>/docs/</code>（绝对路径）</td>
-</tr>
-<tr>
-<td>第二层</td>
-<td><code>/docs/</code></td>
-<td><code>/docs/nav/xxx.html</code></td>
-<td><code>nav/xxx.html</code></td>
-</tr>
-<tr>
-<td>第三层</td>
-<td><code>/docs/nav/xxx.html</code></td>
-<td>同目录的另一导航页</td>
-<td><code>../yyy-nav.html</code></td>
-</tr>
-<tr>
-<td>分组落地页</td>
-<td><code>/docs/</code></td>
-<td>组页面（如 <code>/docs/nav/data-storage-nav.html</code>）</td>
-<td><code>nav/data-storage-nav.html</code></td>
-</tr>
-<tr>
-<td>叶子（文章）</td>
-<td><code>/docs/nav/xxx.html</code></td>
-<td><code>/post/xxx.html</code></td>
-<td><code>../../../post/xxx.html</code></td>
-</tr>
-</tbody></table>
-<p>规则记忆法：第二层从 <code>/docs/</code> 进入 <code>nav/</code> 目录；导航页互跳用 <code>../</code>；文章目录 <code>/post/</code> 与 <code>/docs/nav/</code> 互不相干，需向上三级（<code>docs/nav/</code> → <code>docs/</code> → 根）再进入 <code>post/</code>。</p>
-<blockquote>
-<p><strong>坑：分组节点必须指向独立页面，不能指向锚点，也不能指向子页路径</strong>。</p>
-<ul>
-<li>曾把分组 <code>default</code> 写成 <code>../backend-dev-nav.html#数据存储</code>，希望省一张页面。结果菜单高亮逻辑（主题 <code>utils.js</code> 的 <code>registerActiveMenuItem</code>）用 <code>location.pathname</code> 做前缀匹配，而 <code>pathname</code> <strong>不含 <code>#hash</code><strong>——4 个指向同一页面不同锚点的链接会</strong>同时高亮</strong>，点击也不会跳新页面，只在原页面内滚动。每个分组必须是一张真实落地页，页面内容写学习路线与子主题入口（见 6.1.2 内容定位）。</li>
-<li>分组 <code>default</code> 也不能直接指向子页路径（如 <code>../java-nav.html</code>）：<code>menu_map</code> 是扁平 Map（子页先注册、组后注册会覆盖同名 key），会破坏该子页的面包屑层级。</li>
-</ul>
-</blockquote>
-<h4 id="6-2-3-图标"><a href="#6-2-3-图标" class="headerlink" title="6.2.3 图标"></a>6.2.3 图标</h4><p>菜单图标使用 FontAwesome：<code>|| fa fa-xxx</code>。分类用语义化图标（书、代码、数据库、服务等），文章统一 <code>fa fa-file-code</code>。</p>
-<h3 id="6-3-主题源码微调"><a href="#6-3-主题源码微调" class="headerlink" title="6.3 主题源码微调"></a>6.3 主题源码微调</h3><blockquote>
-<p>四层菜单本身是 NexT 8.29 原生能力，<strong>不需要</strong>修改源码。只有以下一处微调是必需的，文件位于 <code>node_modules/hexo-theme-next/</code>，<strong>升级主题后需重新应用</strong>。</p>
-</blockquote>
-<h4 id="6-3-1-文章页显示层级菜单"><a href="#6-3-1-文章页显示层级菜单" class="headerlink" title="6.3.1 文章页显示层级菜单"></a>6.3.1 文章页显示层级菜单</h4><p>文件：<code>layout/_partials/header/sub-menu.njk</code>，把渲染条件从「仅 page 页面」改为「page 与 post 页面」：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">&#123;%- if theme.menu and (is_page() or is_post()) %&#125;</span><br></pre></td></tr></table></figure>
-
-<p>（原始为 &#96;</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
   <nav class="pagination">
     <a class="extend prev" rel="prev" title="Previous page" aria-label="Previous page" href="/home/page/6/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/home/">1</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/6/">6</a><span class="page-number current">7</span><a class="page-number" href="/home/page/8/">8</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/22/">22</a><a class="extend next" rel="next" title="Next page" aria-label="Next page" href="/home/page/8/"><i class="fa fa-angle-right"></i></a>
   </nav>
@@ -2519,14 +2647,14 @@ flowchart LR
       <i class="fa fa-chart-line"></i>
     </span>
       <span>Word count total: </span>
-    <span title="Word count total">597k</span>
+    <span title="Word count total">601k</span>
   </span>
   <span class="post-meta-item">
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
       <span>Reading time total &asymp;</span>
-    <span title="Reading time total">36:11</span>
+    <span title="Reading time total">36:27</span>
   </span>
 </div>
   <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>

@@ -189,7 +189,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">86</span>
+          <span class="site-state-item-count">88</span>
           <span class="site-state-item-name">posts</span>
         </a>
       </div>
@@ -244,6 +244,743 @@
     </div>
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/1f63abdd.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/1f63abdd.html" class="post-title-link" itemprop="url">HTTP 协议：应用层之王</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-08-13 02:30:00" itemprop="dateCreated datePublished" datetime="2026-08-13T02:30:00+08:00">2026-08-13</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%BD%91%E7%BB%9C/" itemprop="url" rel="index"><span itemprop="name">计算机网络</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>3.7k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>14 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <p><strong>HTTP（HyperText Transfer Protocol）是应用层的请求-响应协议：浏览器和服务端用「方法 + URL + 状态码 + 头 + 体」这套固定骨架，交换业务语义。</strong> 它是你每天接触最多的协议——网关、CDN、负载均衡、浏览器缓存、前后端联调全在说它的语言。本文回答四个问题：HTTP 报文长什么样、无状态怎么补状态、连接与性能怎么演进（1.0 → 1.1 → 2 → 3）、缓存和 HTTPS 在生产里怎么用——并对照 keep-alive 与端口耗尽、304 命中、HTTPS 握手开销这些场景，看协议演进如何被「下层机制」一路推着走。</p>
+<blockquote>
+<p><strong>系列地图（计算机网络）</strong>：① 网络分层（网络长什么样）→ ② TCP 协议（可靠传输与代价）→ ③ <strong>HTTP 协议（本文：应用层之王）</strong> → ④ DNS 与网络排查实战（工具收拢）→ ⑤ 从输入 URL 到页面展示全链路（串讲收官）。</p>
+</blockquote>
+<h2 id="1-HTTP-的骨架：请求-响应模型"><a href="#1-HTTP-的骨架：请求-响应模型" class="headerlink" title="1. HTTP 的骨架：请求-响应模型"></a>1. HTTP 的骨架：请求-响应模型</h2><h3 id="1-1-报文结构：固定四段"><a href="#1-1-报文结构：固定四段" class="headerlink" title="1.1 报文结构：固定四段"></a>1.1 报文结构：固定四段</h3><p><strong>请求</strong>：请求行（方法 路径 版本）→ 请求头 → 空行 → 请求体。<strong>响应</strong>：状态行（版本 状态码 短语）→ 响应头 → 空行 → 响应体。</p>
+<pre class="mermaid">flowchart LR
+    subgraph REQ["Request"]
+        R1["GET /index.html HTTP/1.1&lt;br/>Host: blog.example.com&lt;br/>Cookie: sid=abc&lt;br/>&lt;br/>(body)"]
+    end
+    subgraph RESP["Response"]
+        S1["HTTP/1.1 200 OK&lt;br/>Content-Type: text/html&lt;br/>Cache-Control: max-age=60&lt;br/>&lt;br/>&amp;lt;html&amp;gt;..."]
+    end
+    REQ -->|"over TCP (keep-alive)"| RESP</pre>
+
+<p>头部是「元数据」的载体：<code>Host</code>（虚拟主机路由）、<code>Content-Type</code>（体格式）、<code>Cookie</code>（会话状态）、<code>Cache-Control</code>（缓存策略）。<strong>空行是头和体的分界</strong>——解析器先读到空行，才知道「头结束了、体从哪开始」（第 1 篇 §5.2 的长度边界问题在这里有个简单的解：空行本身就是一个边界标记）。</p>
+<h3 id="1-2-状态码：生产只看这几档"><a href="#1-2-状态码：生产只看这几档" class="headerlink" title="1.2 状态码：生产只看这几档"></a>1.2 状态码：生产只看这几档</h3><table>
+<thead>
+<tr>
+<th>档位</th>
+<th>含义</th>
+<th>生产常见</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>2xx</td>
+<td>成功</td>
+<td>200 正常、204 无内容（DELETE 等）</td>
+</tr>
+<tr>
+<td>3xx</td>
+<td>重定向&#x2F;协商</td>
+<td>301 永久、302 临时、304 缓存未变（§3.2）</td>
+</tr>
+<tr>
+<td>4xx</td>
+<td>客户端错误</td>
+<td>400 参数错、401 未认证、403 无权限、404 不存在、413 体过大、429 限流</td>
+</tr>
+<tr>
+<td>5xx</td>
+<td>服务端错误</td>
+<td>500 程序异常、502 网关拿不到上游、503 过载&#x2F;停机、504 上游超时</td>
+</tr>
+</tbody></table>
+<p><strong>面试速记</strong>：4xx 是「请求本身的问题」，5xx 是「服务的问题」——排查第一问就是「状态码第几位」。502 与 504 的分界是「连接被拒&#x2F;断开 vs 等不到响应」，两者排查方向不同（网关配置 vs 上游超时）。</p>
+<h3 id="1-3-无状态与-Cookie：协议的无记忆-vs-业务的需要"><a href="#1-3-无状态与-Cookie：协议的无记忆-vs-业务的需要" class="headerlink" title="1.3 无状态与 Cookie：协议的无记忆 vs 业务的需要"></a>1.3 无状态与 Cookie：协议的无记忆 vs 业务的需要</h3><p><strong>HTTP 本身无状态</strong>：每个请求都是独立的，服务端不记得你是谁。但业务需要会话——于是 <strong>Cookie 在应用层补了状态</strong>：服务端在响应头 <code>Set-Cookie</code> 里下发一个会话 ID，浏览器之后每次请求自动带上。<strong>因果链</strong>：无状态是 HTTP 的可扩展性根源（任何一台服务器都能服务任何请求，负载均衡随便转发——回看第 1 篇 §5.1 七层 LB 的会话保持），Cookie 是「协议无状态 × 业务要状态」的补丁；而补丁带来的安全问题（Cookie 被偷、被伪造）催生了 SameSite、Secure、HttpOnly 这些属性。</p>
+<h3 id="1-4-动手验证：把一次请求的报文完整看一遍"><a href="#1-4-动手验证：把一次请求的报文完整看一遍" class="headerlink" title="1.4 动手验证：把一次请求的报文完整看一遍"></a>1.4 动手验证：把一次请求的报文完整看一遍</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">curl -s -i https://www.baidu.com | <span class="built_in">head</span> -20      <span class="comment"># -i 显示响应头（状态行在最上）</span></span><br><span class="line">curl -s -o /dev/null -w <span class="string">&#x27;code=%&#123;http_code&#125; dns=%&#123;time_namelookup&#125;s conn=%&#123;time_connect&#125;s total=%&#123;time_total&#125;s\n&#x27;</span> https://www.baidu.com</span><br></pre></td></tr></table></figure>
+
+<p>观察点：第一行状态行 <code>HTTP/1.1 200 OK</code>、<code>Content-Type</code>、<code>Set-Cookie</code>（如果有）逐行可读；<code>-w</code> 的计时把「DNS → TCP 连接 → 总时间」拆开——<strong>每个阶段对应分层模型的一层</strong>（DNS 在第 4 篇展开）。判定标准：能说出「计时三段的每一段是哪一层干的」即通过。</p>
+<h2 id="2-连接与性能：从-keep-alive-到-HTTP-3"><a href="#2-连接与性能：从-keep-alive-到-HTTP-3" class="headerlink" title="2. 连接与性能：从 keep-alive 到 HTTP&#x2F;3"></a>2. 连接与性能：从 keep-alive 到 HTTP&#x2F;3</h2><h3 id="2-1-keep-alive：连接复用的价值"><a href="#2-1-keep-alive：连接复用的价值" class="headerlink" title="2.1 keep-alive：连接复用的价值"></a>2.1 keep-alive：连接复用的价值</h3><p>HTTP&#x2F;1.0 时代每个请求都新建 TCP 连接——<strong>三次握手 + 四次挥手每请求一次</strong>。HTTP&#x2F;1.1 默认 keep-alive：一个 TCP 连接串行复用多个请求。</p>
+<p><strong>因果链（跨两篇闭环）</strong>：短连接时代，「服务端主动关闭」产生大量 TIME_WAIT（第 2 篇 §1.4 的机制）→ 高并发下端口耗尽（操作系统系列第 5 篇 §5.1 的事故现场）→ keep-alive 让连接复用、让 TIME_WAIT 不再产生。<strong>HTTP&#x2F;1.1 的默认连接策略，就是 TCP 机制这笔账算出来的</strong>——这也是为什么面试问「TIME_WAIT 怎么治」时答「连接复用」会追溯到 HTTP 连接管理。</p>
+<h3 id="2-2-队头阻塞：HTTP-1-1-的原罪"><a href="#2-2-队头阻塞：HTTP-1-1-的原罪" class="headerlink" title="2.2 队头阻塞：HTTP&#x2F;1.1 的原罪"></a>2.2 队头阻塞：HTTP&#x2F;1.1 的原罪</h3><p>keep-alive 下请求仍然<strong>串行</strong>：一个请求没响应完，下一个就得等——<strong>队头阻塞（HOL blocking）</strong>。浏览器的应对是<strong>并发连接</strong>（Chrome 同源约 6 条），但也到顶了。于是 HTTP&#x2F;2 换思路：<strong>一个 TCP 连接里塞多个并行的「流（stream）」</strong>，字节流被切成帧交错发送，接收方按流重组：</p>
+<pre class="mermaid">flowchart TD
+    subgraph H11["HTTP/1.1: serial requests on one connection"]
+        A1["Req1 ... wait ... Resp1 -> Req2 -> Resp2"]
+    end
+    subgraph H2["HTTP/2: multiplexed streams over one connection"]
+        B1["stream1: Req/Resp 1 -------"]
+        B2["stream2: Req/Resp 2 ---"]
+        B3["stream3: Req/Resp 3 -------"]
+    end</pre>
+
+<p>加上二进制分帧（帧 &#x3D; 头 + 类型 + 所属流 ID）和 HPACK 头部压缩，HTTP&#x2F;2 把「并发」从「多条连接」变成了「一条连接内的多路复用」。</p>
+<h3 id="2-3-深挖：队头阻塞没消失，只是搬家了"><a href="#2-3-深挖：队头阻塞没消失，只是搬家了" class="headerlink" title="2.3 深挖：队头阻塞没消失，只是搬家了"></a>2.3 深挖：队头阻塞没消失，只是搬家了</h3><p><strong>HTTP&#x2F;2 的多路复用治好了「应用层」队头阻塞，但 TCP 的队头阻塞还在</strong>：一条 TCP 连接丢一个包，TCP 要等重传，<strong>阻塞的是整条连接上的所有流</strong>。于是 HTTP&#x2F;3 干脆<strong>换掉传输层</strong>——QUIC 协议跑在 UDP 上，自己实现可靠传输、多路复用、0-RTT 连接恢复：</p>
+<table>
+<thead>
+<tr>
+<th>版本</th>
+<th>传输层</th>
+<th>并发方式</th>
+<th>队头阻塞</th>
+<th>握手</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>HTTP&#x2F;1.1</td>
+<td>TCP</td>
+<td>多条连接（浏览器 ~6 条）</td>
+<td>应用层串行</td>
+<td>1 RTT</td>
+</tr>
+<tr>
+<td>HTTP&#x2F;2</td>
+<td>TCP</td>
+<td>单连接多流</td>
+<td>应用层解决，TCP 层仍有</td>
+<td>1 RTT</td>
+</tr>
+<tr>
+<td>HTTP&#x2F;3</td>
+<td>QUIC (UDP)</td>
+<td>单连接多流</td>
+<td>传输层也解决</td>
+<td>0-1 RTT</td>
+</tr>
+</tbody></table>
+<p><strong>因果链</strong>：这条演进链是「上层协议被下层机制约束」的完整教材——HTTP&#x2F;2 的每个设计点都是对 HTTP&#x2F;1.1 缺陷的回答，HTTP&#x2F;3 的回答是「既然 TCP 的可靠性模型跟不上，就把可靠传输拿回应用层自己做」（和第 1 篇 §5.2 粘包拆包同构：<strong>传输层给不了的语义，应用层自己补</strong>）。</p>
+<h3 id="2-4-动手验证：看协议协商（ALPN）与连接复用"><a href="#2-4-动手验证：看协议协商（ALPN）与连接复用" class="headerlink" title="2.4 动手验证：看协议协商（ALPN）与连接复用"></a>2.4 动手验证：看协议协商（ALPN）与连接复用</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">curl --http2 -s -I https://www.baidu.com | <span class="built_in">head</span> -3     <span class="comment"># 看是否协商到 HTTP/2（curl 7.47+ 默认支持）</span></span><br><span class="line">curl -v -s https://www.baidu.com -o /dev/null 2&gt;&amp;1 | grep -E <span class="string">&#x27;ALPN|Re-using|Connected&#x27;</span></span><br></pre></td></tr></table></figure>
+
+<p>观察点：<code>ALPN, server accepted ... h2</code> 说明协商到 HTTP&#x2F;2；<code>Re-using existing connection</code> 说明 curl 复用了同一 TCP 连接——<strong>keep-alive 的现场</strong>。判定标准：能同时看到「HTTP&#x2F;2 协商」和「连接复用」两条日志，本节机制就算看到了；<code>curl --http1.1</code> 重跑对比，HTTP&#x2F;2 握手少一个往返（<code>time_connect</code> 更快）。</p>
+<h2 id="3-缓存：让数据少走网络"><a href="#3-缓存：让数据少走网络" class="headerlink" title="3. 缓存：让数据少走网络"></a>3. 缓存：让数据少走网络</h2><h3 id="3-1-两级缓存决策：先问本地，再问服务器"><a href="#3-1-两级缓存决策：先问本地，再问服务器" class="headerlink" title="3.1 两级缓存决策：先问本地，再问服务器"></a>3.1 两级缓存决策：先问本地，再问服务器</h3><p>浏览器拿到响应先看<strong>强缓存</strong>（<code>Cache-Control: max-age=60</code>）：60 秒内直接用本地副本，<strong>不发请求</strong>；过期后再发请求做<strong>协商缓存</strong>：带 <code>If-None-Match</code>（ETag 值），服务端比对后若没变回 <strong>304 Not Modified</strong>（只传头、不传体）：</p>
+<pre class="mermaid">flowchart TD
+    REQ["Request"] --> CC{"Cache-Control valid?"}
+    CC -- Yes --> LOCAL["Use local copy (no request)"]
+    CC -- No --> ETAG{"Send If-None-Match /&lt;br/>If-Modified-Since"}
+    ETAG -- "Unchanged" --> N304["304: headers only, no body"]
+    ETAG -- "Changed" --> N200["200: full response"]</pre>
+
+<p><strong>易错点（面试高频）</strong>：<code>no-cache</code> 不是「不缓存」，是「每次都要协商」；<code>no-store</code> 才是「真的不存」。<code>max-age</code> 的优先级高于 <code>Expires</code>。</p>
+<h3 id="3-2-深挖：缓存一致性——为什么前端文件都带-hash"><a href="#3-2-深挖：缓存一致性——为什么前端文件都带-hash" class="headerlink" title="3.2 深挖：缓存一致性——为什么前端文件都带 hash"></a>3.2 深挖：缓存一致性——为什么前端文件都带 hash</h3><p>缓存提高性能的前提是<strong>内容不变</strong>；内容变了要能让用户拿到新版本。生产标准做法：<strong>内容寻址</strong>——文件名带内容 hash（<code>app.a1b2c3.js</code>），hash 变 &#x3D; 文件名变 &#x3D; 新的缓存条目；发布时静态资源 <code>max-age</code> 设一年，靠文件名变化让浏览器「被迫」重新拉取。<strong>因果链</strong>：静态资源长缓存 + hash 文件名 &#x3D; 用「文件名即版本」绕开「缓存无法主动失效」的协议局限——CDN 的分发逻辑同样是这个模型（CDN 节点缓存到源站的 HTTP 响应，回源策略就是缓存策略）。</p>
+<h3 id="3-3-动手验证：起一个带缓存头的服务，看-200-→-304"><a href="#3-3-动手验证：起一个带缓存头的服务，看-200-→-304" class="headerlink" title="3.3 动手验证：起一个带缓存头的服务，看 200 → 304"></a>3.3 动手验证：起一个带缓存头的服务，看 200 → 304</h3><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># cache_server.py：返回带 Cache-Control 与 ETag 的响应</span></span><br><span class="line"><span class="keyword">import</span> http.server</span><br><span class="line"><span class="keyword">class</span> <span class="title class_">H</span>(http.server.BaseHTTPRequestHandler):</span><br><span class="line">    <span class="keyword">def</span> <span class="title function_">do_GET</span>(<span class="params">self</span>):</span><br><span class="line">        body = <span class="string">b&quot;hello&quot;</span></span><br><span class="line">        <span class="variable language_">self</span>.send_response(<span class="number">200</span>)</span><br><span class="line">        <span class="variable language_">self</span>.send_header(<span class="string">&quot;Cache-Control&quot;</span>, <span class="string">&quot;max-age=60&quot;</span>)</span><br><span class="line">        <span class="variable language_">self</span>.send_header(<span class="string">&quot;ETag&quot;</span>, <span class="string">&#x27;&quot;abc123&quot;&#x27;</span>)</span><br><span class="line">        <span class="variable language_">self</span>.send_header(<span class="string">&quot;Content-Length&quot;</span>, <span class="built_in">str</span>(<span class="built_in">len</span>(body)))</span><br><span class="line">        <span class="variable language_">self</span>.end_headers()</span><br><span class="line">        <span class="variable language_">self</span>.wfile.write(body)</span><br><span class="line">http.server.HTTPServer((<span class="string">&quot;&quot;</span>, <span class="number">45682</span>), H).serve_forever()</span><br></pre></td></tr></table></figure>
+
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">python3 cache_server.py &amp;</span><br><span class="line">curl -s -i http://localhost:45682/ | grep -E <span class="string">&#x27;HTTP|Cache-Control|ETag&#x27;</span>   <span class="comment"># 第 1 次：200 + 缓存头</span></span><br><span class="line">curl -s -i -H <span class="string">&#x27;If-None-Match: &quot;abc123&quot;&#x27;</span> http://localhost:45682/ | <span class="built_in">head</span> -1 <span class="comment"># 第 2 次：协商 → 304</span></span><br><span class="line"><span class="built_in">kill</span> %1</span><br></pre></td></tr></table></figure>
+
+<p>观察点：第一次 200 带回缓存头；带 <code>If-None-Match</code> 的第二次只回 <code>HTTP/1.1 304 Not Modified</code>（无体）——<strong>协商缓存的完整流程</strong>。判定标准：304 出现即验证通过；再体会「304 省的是体、不是请求」——RTT 还在，这就是强缓存比协商缓存更贵的道理。</p>
+<h2 id="4-安全：HTTPS-与常见攻击"><a href="#4-安全：HTTPS-与常见攻击" class="headerlink" title="4. 安全：HTTPS 与常见攻击"></a>4. 安全：HTTPS 与常见攻击</h2><h3 id="4-1-HTTPS：在应用层和传输层之间加一层安全"><a href="#4-1-HTTPS：在应用层和传输层之间加一层安全" class="headerlink" title="4.1 HTTPS：在应用层和传输层之间加一层安全"></a>4.1 HTTPS：在应用层和传输层之间加一层安全</h3><p>HTTPS &#x3D; HTTP + TLS。<strong>TLS 干两件事：身份认证（证书链）+ 加密传输（对称密钥 + 非对称交换）</strong>。简化握手：</p>
+<pre class="mermaid">sequenceDiagram
+    participant Client
+    participant Server
+    Client->>Server: ClientHello (support TLS 1.3, key share)
+    Server->>Client: ServerHello with certificate and signature
+    Client->>Server: Verify chain and send encrypted keys (1-RTT done)
+    Note over Client,Server: TLS 1.3: 1 RTT, session resume: 0 RTT</pre>
+
+<p><strong>因果链</strong>：为什么 HTTPS 慢、为什么 TLS 1.3 快——TLS 1.2 完整握手要 2 个 RTT（协商 + 密钥交换），TLS 1.3 砍到 1 个 RTT（密钥共享提前到 ClientHello），会话恢复 0 RTT。<strong>每少一个 RTT，都是对「第 2 篇 BDP 视角」的呼应</strong>：跨洋请求的每个 RTT 都是 100ms 级，握手 RTT 数量直接进用户体验。生产上「全站 HTTPS 变慢」的优化手段（OCSP stapling、会话复用、TLS 1.3）全是「减少 RTT」的努力。</p>
+<h3 id="4-2-深挖：中间人攻击为什么会被证书拦住"><a href="#4-2-深挖：中间人攻击为什么会被证书拦住" class="headerlink" title="4.2 深挖：中间人攻击为什么会被证书拦住"></a>4.2 深挖：中间人攻击为什么会被证书拦住</h3><p>TLS 防的是<strong>中间人（MITM）</strong>：攻击者伪装成服务器截获流量。原理：服务端必须出示<strong>可验证的证书</strong>（域名 + 公钥，由证书颁发机构 CA 签名），客户端验证签名链——攻击者的证书没有被受信任的 CA 签过名，验证失败。<strong>因果链</strong>：证书信任链是「分层模型之外的信任层」——它不在任何一层传输数据，而是给「传输的双方身份」背书；生产里「自签证书」「内网 https 绕过验证」都是在削弱这一层换取便利，代价是中间人风险重新打开。</p>
+<h3 id="4-3-常见攻击与-HTTP-层的防御"><a href="#4-3-常见攻击与-HTTP-层的防御" class="headerlink" title="4.3 常见攻击与 HTTP 层的防御"></a>4.3 常见攻击与 HTTP 层的防御</h3><table>
+<thead>
+<tr>
+<th>攻击</th>
+<th>机制</th>
+<th>HTTP 层防御</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>CSRF</td>
+<td>攻击者诱导浏览器带 Cookie 发请求（Cookie 自动携带）</td>
+<td>SameSite&#x3D;Lax&#x2F;Strict、CSRF Token、校验 Referer</td>
+</tr>
+<tr>
+<td>XSS</td>
+<td>注入脚本偷 Cookie</td>
+<td>HttpOnly Cookie、CSP 头、输入转义</td>
+</tr>
+<tr>
+<td>会话劫持</td>
+<td>偷会话 ID 冒充用户</td>
+<td>Secure Cookie（仅 HTTPS 传输）、定期轮换</td>
+</tr>
+</tbody></table>
+<p><strong>深挖：CSRF 的根源是「HTTP 无状态 × Cookie 自动携带」的补丁副作用</strong>——无状态（§1.3）让服务端认 Cookie，Cookie 自动携带让攻击者可以「借」受害者的身份发请求；SameSite 是浏览器层对「跨站请求不该带 Cookie」的补丁。<strong>每一次攻击与防御，都是对协议设计权衡的再修补</strong>。</p>
+<h3 id="4-4-动手验证：看-TLS-握手的实际协商结果"><a href="#4-4-动手验证：看-TLS-握手的实际协商结果" class="headerlink" title="4.4 动手验证：看 TLS 握手的实际协商结果"></a>4.4 动手验证：看 TLS 握手的实际协商结果</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">curl -v -s https://www.baidu.com -o /dev/null 2&gt;&amp;1 | grep -E <span class="string">&#x27;SSL connection|TLSv|ALPN&#x27;</span></span><br><span class="line">openssl s_client -connect www.baidu.com:443 -brief &lt;/dev/null 2&gt;&amp;1 | <span class="built_in">head</span> -6   <span class="comment"># 直接看证书与协议</span></span><br></pre></td></tr></table></figure>
+
+<p>观察点：<code>SSL connection using TLSv1.3</code> 说明协商到 TLS 1.3（1-RTT）；<code>openssl s_client -brief</code> 能看到证书签发者（CA）和协议版本。判定标准：能读出「协议版本 + 证书签发者 + 加密套件」三项即通过——这就是 4.1&#x2F;4.2 的机制在真实连接上的落点。</p>
+<h2 id="5-总结"><a href="#5-总结" class="headerlink" title="5. 总结"></a>5. 总结</h2><h3 id="5-1-面试速答表"><a href="#5-1-面试速答表" class="headerlink" title="5.1 面试速答表"></a>5.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>HTTP 为什么无状态？</td>
+<td>可扩展性根源：任何服务器可服务任何请求；状态用 Cookie 在应用层补</td>
+</tr>
+<tr>
+<td>keep-alive 解决什么？</td>
+<td>连接复用：免每次握手挥手，也让 TIME_WAIT 不再堆积</td>
+</tr>
+<tr>
+<td>HTTP&#x2F;2 解决了什么、没解决什么？</td>
+<td>多路复用解决应用层队头阻塞；TCP 层丢包仍阻塞所有流（TCP 队头阻塞）</td>
+</tr>
+<tr>
+<td>HTTP&#x2F;3 为什么换 UDP？</td>
+<td>QUIC 自研可靠传输，把队头阻塞从传输层也去掉，0-RTT 恢复连接</td>
+</tr>
+<tr>
+<td>强缓存和协商缓存区别？</td>
+<td>强缓存不发请求（max-age 内直接用）；协商缓存要发请求（304 只传头）</td>
+</tr>
+<tr>
+<td>no-cache 和 no-store？</td>
+<td>no-cache 是每次协商；no-store 才是真不缓存</td>
+</tr>
+<tr>
+<td>为什么静态资源带 hash？</td>
+<td>文件名即版本，用「新文件名」触发浏览器重新拉取，绕开缓存无法主动失效</td>
+</tr>
+<tr>
+<td>HTTPS 为什么慢、怎么变快？</td>
+<td>TLS 握手多 RTT；TLS 1.3 砍到 1-RTT、会话恢复 0-RTT</td>
+</tr>
+</tbody></table>
+<h3 id="5-2-实战避坑表"><a href="#5-2-实战避坑表" class="headerlink" title="5.2 实战避坑表"></a>5.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>改了前端代码用户还在用旧的</td>
+<td>静态资源无 hash、缓存未失效</td>
+<td>内容寻址：文件名带 hash，max-age 设长</td>
+</tr>
+<tr>
+<td>登录失效&#x2F;被强制下线</td>
+<td>会话 ID 变更、Cookie 域&#x2F;路径配置错</td>
+<td>核对 Set-Cookie 的 Domain&#x2F;Path&#x2F;Secure&#x2F;SameSite</td>
+</tr>
+<tr>
+<td>上游正常但网关报 502</td>
+<td>网关连不上上游（端口、防火墙）</td>
+<td>区分 502（连不上）与 504（连上但超时）</td>
+</tr>
+<tr>
+<td>大请求被拒</td>
+<td>413 体过大</td>
+<td>调大 nginx client_max_body_size &#x2F; 网关限制</td>
+</tr>
+<tr>
+<td>接口突然 429</td>
+<td>触发限流（网关&#x2F;应用层）</td>
+<td>看限流维度（IP&#x2F;用户&#x2F;Key），别当 5xx 排查</td>
+</tr>
+<tr>
+<td>HTTPS 握手超时</td>
+<td>证书链不完整&#x2F;会话复用被禁</td>
+<td>检查中间证书；开 TLS 会话复用</td>
+</tr>
+</tbody></table>
+<h3 id="5-3-工具速查表"><a href="#5-3-工具速查表" class="headerlink" title="5.3 工具速查表"></a>5.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>对应本节</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>curl -i/-v/-w</code></td>
+<td>报文、状态码、分段计时</td>
+<td>1. 报文&#x2F;无状态</td>
+</tr>
+<tr>
+<td><code>curl --http2</code></td>
+<td>ALPN 协商、多路复用</td>
+<td>2. 协议演进</td>
+</tr>
+<tr>
+<td><code>curl -H If-None-Match</code></td>
+<td>304 协商缓存</td>
+<td>3. 缓存</td>
+</tr>
+<tr>
+<td><code>openssl s_client -brief</code></td>
+<td>协议版本、证书链</td>
+<td>4. HTTPS</td>
+</tr>
+<tr>
+<td><code>npx http-server -c-1</code></td>
+<td>本地静态服务缓存验证</td>
+<td>3. 缓存（可替代 Python 服务）</td>
+</tr>
+</tbody></table>
+<p>实操建议：</p>
+<ol>
+<li>前后端联调先 <code>curl -i</code> 看状态码和头，不要只看浏览器 Network 面板的「红色」——状态码第几位决定排查方向。</li>
+<li>静态资源一律内容寻址（hash 文件名 + 长 max-age）；接口响应按「是否允许缓存」显式给 Cache-Control，别让浏览器瞎猜。</li>
+<li>网关&#x2F;代理层配置（nginx、云 LB）把 HTTP&#x2F;2 与 TLS 1.3 打开，RTT 节省直接进用户体验；监控 4xx&#x2F;5xx 分位，429 单独告警。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告</strong>：打开一个页面的第一件事是「把域名变成 IP」——第 4 篇《DNS 与网络排查实战》讲域名解析的完整链路、DNS 缓存层级与常见故障，并把系列工具链收拢成「从状态码到抓包」的分层排查法（直接承接本文的 curl 计时与第 1 篇的分层定位）。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/de264802.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/de264802.html" class="post-title-link" itemprop="url">TCP 协议：可靠传输的代价</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-08-13 01:30:00" itemprop="dateCreated datePublished" datetime="2026-08-13T01:30:00+08:00">2026-08-13</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E8%AE%A1%E7%AE%97%E6%9C%BA%E7%BD%91%E7%BB%9C/" itemprop="url" rel="index"><span itemprop="name">计算机网络</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>4k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>14 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <p><strong>TCP（Transmission Control Protocol）是传输层的可靠字节流协议：用序号、确认、重传、窗口四套机制，把不可靠的网络变成「有序、不丢、不重」的字节流。</strong> 可靠是有代价的——握手延迟、确认往返、拥塞退避，每一个都是「性能 vs 可靠性」的显式权衡。本文回答四个问题：连接怎么建立和拆除、可靠性靠什么保证、为什么 TCP 有时快不起来、状态机怎么变成线上事故——并对照 TIME_WAIT&#x2F;CLOSE_WAIT 堆积、SYN 洪泛、TCP_NODELAY 这些生产场景，看机制如何长成排查手段。</p>
+<blockquote>
+<p><strong>系列地图（计算机网络）</strong>：① 网络分层（网络长什么样）→ ② <strong>TCP 协议（本文：可靠传输与代价）</strong> → ③ HTTP 协议（应用层之王）→ ④ DNS 与网络排查实战（工具收拢）→ ⑤ 从输入 URL 到页面展示全链路（串讲收官）。</p>
+</blockquote>
+<h2 id="1-三次握手与四次挥手：连接的建立与拆除"><a href="#1-三次握手与四次挥手：连接的建立与拆除" class="headerlink" title="1. 三次握手与四次挥手：连接的建立与拆除"></a>1. 三次握手与四次挥手：连接的建立与拆除</h2><h3 id="1-1-三次握手：互相确认序号"><a href="#1-1-三次握手：互相确认序号" class="headerlink" title="1.1 三次握手：互相确认序号"></a>1.1 三次握手：互相确认序号</h3><p>连接建立的本质是<strong>双方同步序号</strong>——后续所有可靠性都建立在序号上。三次握手每次交换的都是「我的初始序号 + 我确认收到你的」：</p>
+<pre class="mermaid">sequenceDiagram
+    participant C as Client
+    participant S as Server
+    C->>S: SYN seq=100 (SYN_SENT)
+    S->>C: SYN+ACK seq=300 ack=101 (SYN_RECV)
+    C->>S: ACK seq=101 ack=301 (ESTABLISHED)
+    Note over C,S: ESTABLISHED: 双方都确认了对方序号</pre>
+
+<ul>
+<li>第 1 次（SYN）：客户端说「我想连，我的起始序号是 100」</li>
+<li>第 2 次（SYN+ACK）：服务端说「收到，我的起始序号是 300，请确认 101」</li>
+<li>第 3 次（ACK）：客户端说「确认 301」——<strong>只有第 3 次到达，服务端才确认「客户端确实活着」</strong></li>
+</ul>
+<h3 id="1-2-为什么是三次而不是两次"><a href="#1-2-为什么是三次而不是两次" class="headerlink" title="1.2 为什么是三次而不是两次"></a>1.2 为什么是三次而不是两次</h3><p><strong>两次握手无法防御「迟到的旧 SYN」</strong>：若客户端某次连接的超时 SYN 在网络里游荡，1 秒后才到服务端，服务端回 SYN+ACK 并建立连接、占用资源——而客户端根本不知道这回事（它早已放弃）。三次握手中<strong>客户端第 3 次的 ACK 携带了「我确实在发起这次连接」的确认</strong>，服务端收到它才分配连接资源，旧 SYN 永远等不到第 3 次 ACK，自然超时释放。</p>
+<p><strong>深挖：这直接决定了半连接与全连接队列的设计</strong>——服务端收到 SYN 只进<strong>半连接队列</strong>（内核管理，还没分配完整连接），收到第 3 次 ACK 才移入<strong>全连接队列</strong>（应用层 backlog 参数），accept() 从全连接队列取。两个队列的容量就是两个不同的攻击面（§4.2 展开）。</p>
+<h3 id="1-3-四次挥手：半关闭的两段告别"><a href="#1-3-四次挥手：半关闭的两段告别" class="headerlink" title="1.3 四次挥手：半关闭的两段告别"></a>1.3 四次挥手：半关闭的两段告别</h3><pre class="mermaid">sequenceDiagram
+    participant C as Client
+    participant S as Server
+    C->>S: FIN (FIN_WAIT_1)
+    S->>C: ACK (CLOSE_WAIT / FIN_WAIT_2)
+    S->>C: FIN (LAST_ACK)
+    C->>S: ACK (TIME_WAIT 2MSL / CLOSED)</pre>
+
+<p><strong>挥手是四次而不是三次，因为 TCP 支持半关闭</strong>：收到 FIN 只代表对方「不再发」，本端可能还有数据要发。于是「FIN → ACK」（对方发完）和「FIN → ACK」（本端发完）是两对独立的过程。生产上的时间点：<strong>先收到 FIN 的一方进入 CLOSE_WAIT，最后发送 FIN 的一方进入 TIME_WAIT</strong>。</p>
+<h3 id="1-4-深挖：TIME-WAIT-为什么必须等-2MSL"><a href="#1-4-深挖：TIME-WAIT-为什么必须等-2MSL" class="headerlink" title="1.4 深挖：TIME_WAIT 为什么必须等 2MSL"></a>1.4 深挖：TIME_WAIT 为什么必须等 2MSL</h3><p>主动关闭方最后发 ACK 后进入 TIME_WAIT，<strong>等待 2 倍 MSL（报文最大生存时间，Linux 默认 60 秒）</strong>，两个原因：</p>
+<ol>
+<li><strong>保证最后的 ACK 到达</strong>：ACK 可能丢失，对方会重发 FIN——TIME_WAIT 期间内核能重发 ACK；</li>
+<li><strong>防止旧报文污染新连接</strong>：网络中可能还游荡着这条连接的迟到报文（序号可能撞上新连接的序号），等 2MSL 让它们自然消亡。</li>
+</ol>
+<p><strong>因果链</strong>：TIME_WAIT 是「防迟到报文」的安全收尾，所以它<strong>不能通过调小端口或缩短等待来根治</strong>——高并发短连接服务的 TIME_WAIT 堆积（操作系统系列第 5 篇 §5.1 的端口耗尽事故）正解是<strong>连接复用</strong>：HTTP keep-alive、连接池把短连接变长连接，让 TIME_WAIT 根本不产生。机制决定解法，这是最典型的一例。</p>
+<h3 id="1-5-动手验证：亲眼看到握手与挥手"><a href="#1-5-动手验证：亲眼看到握手与挥手" class="headerlink" title="1.5 动手验证：亲眼看到握手与挥手"></a>1.5 动手验证：亲眼看到握手与挥手</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">tcpdump -i lo0 -c 12 port 45681 &amp;       <span class="comment"># 先开抓包（macOS 需 sudo；lo0 是回环接口）</span></span><br><span class="line">nc -l 45681 &amp;                           <span class="comment"># 服务端</span></span><br><span class="line">nc localhost 45681; <span class="built_in">echo</span> hi | nc localhost 45681; <span class="built_in">sleep</span> 2; <span class="built_in">kill</span> %1</span><br></pre></td></tr></table></figure>
+
+<p>观察点：抓包里依次出现 <code>S</code>（SYN）→ <code>S.</code>（SYN+ACK）→ <code>.</code>（ACK）→ 数据 → 挥手时 <code>F</code>&#x2F;<code>F.</code>&#x2F;<code>F.P.</code> 序列。判定标准：每 4 个包一组对应一次连接，三次握手 3 个包 + 挥手 4 个包清晰可见即验证通过。顺手看 <code>ss -tan | grep 45681</code>，客户端断开后服务端进入 <code>CLOSE_WAIT</code>——<strong>状态机不是背的，是观察出来的</strong>。</p>
+<h2 id="2-可靠传输：序号、确认与重传"><a href="#2-可靠传输：序号、确认与重传" class="headerlink" title="2. 可靠传输：序号、确认与重传"></a>2. 可靠传输：序号、确认与重传</h2><h3 id="2-1-序号与累计确认"><a href="#2-1-序号与累计确认" class="headerlink" title="2.1 序号与累计确认"></a>2.1 序号与累计确认</h3><p>发送方给每个字节编号（<code>seq</code>），接收方回「下一个期望的字节号」（<code>ack</code>）。<strong>累计确认</strong>：<code>ack=501</code> 表示「500 之前都收到了，请从 501 开始发」——接收方不需要逐字节确认，一个 ack 覆盖之前全部。这是 TCP 高效的根本：确认开销与数据量无关，与「空洞」次数有关。</p>
+<h3 id="2-2-三种重传：从傻等到智能"><a href="#2-2-三种重传：从傻等到智能" class="headerlink" title="2.2 三种重传：从傻等到智能"></a>2.2 三种重传：从傻等到智能</h3><table>
+<thead>
+<tr>
+<th>重传机制</th>
+<th>触发条件</th>
+<th>代价</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>超时重传</td>
+<td>发出去没等到 ACK，RTO 到期</td>
+<td>慢（RTO 通常 200ms 起，指数退避）</td>
+</tr>
+<tr>
+<td>快速重传</td>
+<td>收到 3 个重复 ACK</td>
+<td>快（不用等超时，立刻知道丢了）</td>
+</tr>
+<tr>
+<td>SACK</td>
+<td>收到带 SACK 选项的 ACK（报告空洞范围）</td>
+<td>最快（只重传丢失的段，不重传全部）</td>
+</tr>
+</tbody></table>
+<p><strong>深挖：快速重传是怎么「不超时就知道丢了」的</strong>——接收方收到乱序数据会立刻回「期望序号」的重复 ACK，发送方连收 3 个重复 ACK 就断定丢包（而不是等 RTO）。SACK 更进一步，接收方用选项字段报告「我收了 1-500 和 800-1000，缺 501-799」——发送方精确补缺。<strong>这就是为什么生产内核都默认开 SACK（<code>tcp_sack=1</code>），跨洋传输尤其依赖它</strong>——重传粒度从「整条」降到「一段」，吞吐差距能到数倍。</p>
+<h3 id="2-3-滑动窗口：流量控制"><a href="#2-3-滑动窗口：流量控制" class="headerlink" title="2.3 滑动窗口：流量控制"></a>2.3 滑动窗口：流量控制</h3><p>接收方在 ACK 里携带自己的<strong>接收窗口（rwnd）</strong>，宣告「你最多再发这么多，我缓存放得下」——发送方的发送窗口 &#x3D; min(自己的拥塞窗口 cwnd, 对方的 rwnd)。这就是<strong>流量控制</strong>：保护接收方不被撑爆。</p>
+<p><strong>因果链</strong>：窗口是「字节流没有消息边界」的机制源头——内核按窗口大小打包发送，应用层 write 的数据被切成段、段又可能被合并（回看第 1 篇 §5.2 的粘包拆包）。<strong>流量控制管「发多少」，拥塞控制管「发多快」</strong>，一个是接收方视角，一个是网络视角——两个窗口，两种保护对象。</p>
+<h3 id="2-4-动手验证：把确认和重传抓出来看"><a href="#2-4-动手验证：把确认和重传抓出来看" class="headerlink" title="2.4 动手验证：把确认和重传抓出来看"></a>2.4 动手验证：把确认和重传抓出来看</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">sysctl net.ipv4.tcp_sack net.ipv4.tcp_timestamps    <span class="comment"># 确认 SACK 与时间戳选项（macOS 用 sysctl 看同名字段）</span></span><br><span class="line">curl -v -o /dev/null https://www.baidu.com          <span class="comment"># 慢速看握手后立刻有 ack 对</span></span><br><span class="line"><span class="comment"># Linux 上可用 tc 制造丢包看快速重传：</span></span><br><span class="line"><span class="comment"># tc qdisc add dev eth0 root netem loss 5%   （需要 root，macOS 无 tc，服务器上验证）</span></span><br></pre></td></tr></table></figure>
+
+<p>观察点：<code>tcp_sack</code> 为 1 说明 SACK 生效——之后所有重传都是「选择性补缺」而非整段重传。判定标准：内核参数为 1 + 抓包能看到 ACK 里带 SACK 选项，即验证了第 2.2 节的机制在当前系统是活的。</p>
+<h2 id="3-拥塞控制：为什么-TCP-快不起来"><a href="#3-拥塞控制：为什么-TCP-快不起来" class="headerlink" title="3. 拥塞控制：为什么 TCP 快不起来"></a>3. 拥塞控制：为什么 TCP 快不起来</h2><h3 id="3-1-慢启动与拥塞避免"><a href="#3-1-慢启动与拥塞避免" class="headerlink" title="3.1 慢启动与拥塞避免"></a>3.1 慢启动与拥塞避免</h3><p>拥塞窗口（cwnd）决定发送速率，算法分两段：</p>
+<pre class="mermaid">flowchart LR
+    subgraph SS["Slow start (cwnd doubles each RTT)"]
+        A1["cwnd=10 -> 20 -> 40 -> ..."]
+    end
+    subgraph CA["Congestion avoidance (cwnd +1 each RTT)"]
+        B1["linear growth until packet loss"]
+    end
+    A1 -->|"hit ssthresh"| B1
+    B1 -->|"packet loss: ssthresh = cwnd/2, cwnd reset"| A1</pre>
+
+<ul>
+<li><strong>慢启动</strong>：cwnd 从 10 段（RFC 6928）开始，每个 RTT 翻倍——指数增长，快速探测带宽；</li>
+<li><strong>拥塞避免</strong>：涨到 ssthresh 后每个 RTT 只 +1——线性试探，逼近丢包边缘；</li>
+<li><strong>丢包即信号</strong>：超时或 3 个重复 ACK 都判定网络拥塞，ssthresh 减半、cwnd 重置——<strong>这就是「TCP 快不起来」的机制根源</strong>：它靠丢包探测带宽，一旦探测到就退避，天然保守。</li>
+</ul>
+<h3 id="3-2-深挖：BDP——为什么「加了带宽还是慢」"><a href="#3-2-深挖：BDP——为什么「加了带宽还是慢」" class="headerlink" title="3.2 深挖：BDP——为什么「加了带宽还是慢」"></a>3.2 深挖：BDP——为什么「加了带宽还是慢」</h3><p><strong>BDP（带宽延迟积）&#x3D; 带宽 × RTT</strong>：一秒钟「在路上」的数据量。要让链路打满，发送窗口必须 ≥ BDP，否则无论带宽多大，每个 RTT 只发得出一窗数据：</p>
+<table>
+<thead>
+<tr>
+<th>RTT</th>
+<th>100Mbps 链路的 BDP</th>
+<th>需要的窗口</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>10ms（同城）</td>
+<td>125KB</td>
+<td>默认窗口可能够用</td>
+</tr>
+<tr>
+<td>100ms（跨洋）</td>
+<td>1.25MB</td>
+<td>必须调大 socket 缓冲区</td>
+</tr>
+<tr>
+<td>500ms（卫星&#x2F;跨洲）</td>
+<td>6.25MB</td>
+<td>远超默认，不调就永远跑不满</td>
+</tr>
+</tbody></table>
+<p><strong>因果链</strong>：跨洋传输慢的根因往往不是带宽，是「窗口 &lt; BDP」——Linux 的 <code>tcp_rmem/tcp_wmem</code> 上限（默认最大 4-6MB）在百兆跨洋链路下刚好不够。生产调优方向：确认 rmem&#x2F;wmem 上限 ≥ BDP、开 <code>tcp_window_scaling</code>（默认已开）、或接受「长肥管道」的物理上限。面试答「为什么加了带宽没用」的正确姿势就是背出 BDP 公式并算出窗口需求。</p>
+<h3 id="3-3-深挖：Nagle-与延迟-ACK——小包的隐形敌人"><a href="#3-3-深挖：Nagle-与延迟-ACK——小包的隐形敌人" class="headerlink" title="3.3 深挖：Nagle 与延迟 ACK——小包的隐形敌人"></a>3.3 深挖：Nagle 与延迟 ACK——小包的隐形敌人</h3><ul>
+<li><strong>Nagle 算法</strong>：小包（&lt; MSS）要等「前面数据的 ACK 全部回来」或「缓冲凑满 MSS」才发——避免一堆小包占满带宽；</li>
+<li><strong>延迟 ACK</strong>：接收方攒最多 40ms 再回 ACK——减少 ACK 数量。</li>
+</ul>
+<p>两者叠加产生<strong>40ms 级的额外延迟</strong>（小请求被 Nagle 摁住、ACK 被延迟等），对 RPC&#x2F;Redis 这类低延迟交互是灾难。解法：**<code>TCP_NODELAY</code> 关掉 Nagle<strong>（socket 选项 SO_TCP_NODELAY）——Netty 默认开启、Redis 服务端默认开启，这就是为什么它们响应快。</strong>因果链**：Nagle 是为「带宽利用率」设计的历史包袱，低延迟场景要显式关掉——「优化带宽的机制在延迟敏感场景变成负担」，这是 TCP 设计权衡的又一例。</p>
+<h3 id="3-4-动手验证：测量「窗口-BDP」的直觉"><a href="#3-4-动手验证：测量「窗口-BDP」的直觉" class="headerlink" title="3.4 动手验证：测量「窗口 &lt; BDP」的直觉"></a>3.4 动手验证：测量「窗口 &lt; BDP」的直觉</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">ping www.baidu.com | <span class="built_in">head</span> -5     <span class="comment"># 拿到 RTT（比如 30ms）</span></span><br><span class="line"><span class="comment"># BDP 估算：RTT 0.03s × 100Mbps 链路 = 3.75Mbit ≈ 460KB 窗口需求</span></span><br><span class="line">sysctl net.ipv4.tcp_wmem         <span class="comment"># Linux 默认 send 缓冲 4KB-16KB-4MB，确认上限够不够</span></span><br><span class="line"><span class="comment"># 可选：iperf3 测带宽（brew install iperf3），与 BDP 估算对照</span></span><br></pre></td></tr></table></figure>
+
+<p>观察点：算出 RTT 后立刻估算「这条链路要打满需要多大窗口」，再对比本机默认缓冲上限。判定标准：当「BDP 需求 &gt; 默认上限」时你就预见到了「加带宽不加窗口没用」的生产结论——这就是公式变判断力。</p>
+<h2 id="4-状态机排查：从状态堆积到生产事故"><a href="#4-状态机排查：从状态堆积到生产事故" class="headerlink" title="4. 状态机排查：从状态堆积到生产事故"></a>4. 状态机排查：从状态堆积到生产事故</h2><h3 id="4-1-深挖：CLOSE-WAIT-堆积——代码泄漏的信号"><a href="#4-1-深挖：CLOSE-WAIT-堆积——代码泄漏的信号" class="headerlink" title="4.1 深挖：CLOSE_WAIT 堆积——代码泄漏的信号"></a>4.1 深挖：CLOSE_WAIT 堆积——代码泄漏的信号</h3><p><strong>CLOSE_WAIT &#x3D; 对方发了 FIN，本端没调用 close()<strong>——连接「半死不活」地挂在那里。这是</strong>应用代码问题</strong>（不是内核问题）：读流没读完就放弃、异常路径忘了关闭、连接池里的连接没有 close。症状特征：<code>ss -tan</code> 里 CLOSE_WAIT 数量只增不减，<code>lsof</code> 看每个 fd 都对应同一个业务线程——排查方向是<strong>代码的关闭路径</strong>，不是调内核参数。</p>
+<p><strong>因果链</strong>：CLOSE_WAIT 是「TCP 半关闭机制 × 应用忘记关闭」的交叉产物——机制本身是正确的（等本端把数据发完），代价是泄漏必须由应用显式管理；Java 侧 <code>try-with-resources</code>、finally 关闭、连接池 <code>testOnReturn</code> 都是对「close 是义务」的工程化。</p>
+<h3 id="4-2-深挖：SYN-RECV-堆积——半连接队列溢出"><a href="#4-2-深挖：SYN-RECV-堆积——半连接队列溢出" class="headerlink" title="4.2 深挖：SYN_RECV 堆积——半连接队列溢出"></a>4.2 深挖：SYN_RECV 堆积——半连接队列溢出</h3><p><code>ss -tan</code> 大量 <code>SYN_RECV</code> &#x3D; 服务端发了 SYN+ACK 但等不到第 3 次 ACK——<strong>半连接队列被占满</strong>。两个原因：</p>
+<table>
+<thead>
+<tr>
+<th>原因</th>
+<th>特征</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>SYN Flood 攻击</td>
+<td>源 IP 随机、半连接数突增</td>
+<td>内核 SYN cookies（<code>tcp_syncookies=1</code>）自动防；前置四层 LB 抗流量</td>
+</tr>
+<tr>
+<td>backlog 太小</td>
+<td>正常流量也堆半连接</td>
+<td>调大 <code>tcp_max_syn_backlog</code> + 应用 backlog（Tomcat <code>acceptCount</code>、Netty <code>SO_BACKLOG</code>）</td>
+</tr>
+</tbody></table>
+<p><strong>因果链</strong>：半连接队列是「三次握手分两阶段设计」的直接产物（§1.2）——攻击者只发 SYN 不发 ACK，就能占满队列让正常连接进不来；SYN cookies 的解法是「服务端不存半连接状态，把状态编码进 SYN+ACK 的序号里」——<strong>用机制绕过机制</strong>。</p>
+<h3 id="4-3-动手验证：复现-CLOSE-WAIT-堆积"><a href="#4-3-动手验证：复现-CLOSE-WAIT-堆积" class="headerlink" title="4.3 动手验证：复现 CLOSE_WAIT 堆积"></a>4.3 动手验证：复现 CLOSE_WAIT 堆积</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// CloseWaitServer.java：收到 FIN 后故意不 close（模拟泄漏）</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">CloseWaitServer</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> <span class="keyword">throws</span> Exception &#123;</span><br><span class="line">        <span class="type">var</span> <span class="variable">server</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">java</span>.net.ServerSocket(<span class="number">45680</span>);</span><br><span class="line">        <span class="keyword">while</span> (<span class="literal">true</span>) &#123;</span><br><span class="line">            <span class="type">var</span> <span class="variable">s</span> <span class="operator">=</span> server.accept();</span><br><span class="line">            System.out.println(<span class="string">&quot;accepted, NOT closing (simulating leak)&quot;</span>);</span><br><span class="line">            <span class="comment">// 不读不关——让连接挂在 CLOSE_WAIT</span></span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">java CloseWaitServer &amp;</span><br><span class="line"><span class="keyword">for</span> i <span class="keyword">in</span> $(<span class="built_in">seq</span> 1 20); <span class="keyword">do</span> nc localhost 45680 &amp; <span class="keyword">done</span>; <span class="built_in">sleep</span> 1</span><br><span class="line">ss -tan | grep -c CLOSE_WAIT        <span class="comment"># 复现：CLOSE_WAIT 数量随连接数增长</span></span><br><span class="line"><span class="built_in">kill</span> %1; pkill -f nc</span><br></pre></td></tr></table></figure>
+
+<p>观察点：20 个客户端断开后，<code>ss -tan</code> 里 45680 端口挂着 20 个 CLOSE_WAIT——<strong>服务端「没关」连接的现场</strong>。判定标准：CLOSE_WAIT 数量与客户端数一致即复现成功；修法就是把 <code>// 不读不关</code> 换成 finally 里 close——<strong>一次复现胜过十行背默</strong>。</p>
+<h2 id="5-总结"><a href="#5-总结" class="headerlink" title="5. 总结"></a>5. 总结</h2><h3 id="5-1-面试速答表"><a href="#5-1-面试速答表" class="headerlink" title="5.1 面试速答表"></a>5.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>三次握手为什么不是两次？</td>
+<td>防迟到的旧 SYN：服务端收到第 3 次 ACK 才确认「客户端真的在发起连接」，旧 SYN 等不到 ACK 自然释放</td>
+</tr>
+<tr>
+<td>四次挥手为什么是四次？</td>
+<td>TCP 支持半关闭，「对方发完」和「本端发完」是两对独立的 FIN&#x2F;ACK</td>
+</tr>
+<tr>
+<td>TIME_WAIT 为什么等 2MSL？</td>
+<td>保证最后 ACK 能重发 + 防迟到旧报文污染新连接；正解是连接复用不是调短</td>
+</tr>
+<tr>
+<td>超时重传和快速重传的区别？</td>
+<td>超时靠 RTO 到期（慢），快速重传靠 3 个重复 ACK（快），SACK 只补丢失段（最快）</td>
+</tr>
+<tr>
+<td>流量控制和拥塞控制的区别？</td>
+<td>rwnd 保护接收方（发多少），cwnd 保护网络（发多快），发送窗口 &#x3D; min 两者</td>
+</tr>
+<tr>
+<td>为什么加带宽还是慢？</td>
+<td>BDP &#x3D; 带宽 × RTT，窗口 &lt; BDP 就打不满链路，先算窗口需求</td>
+</tr>
+<tr>
+<td>Nagle 为什么是低延迟敌人？</td>
+<td>小包被摁住等 ACK，叠加延迟 ACK 产生 40ms 级延迟；TCP_NODELAY 关闭</td>
+</tr>
+<tr>
+<td>CLOSE_WAIT 堆积说明什么？</td>
+<td>收到 FIN 没调 close()——应用代码泄漏，不是内核问题</td>
+</tr>
+</tbody></table>
+<h3 id="5-2-实战避坑表"><a href="#5-2-实战避坑表" class="headerlink" title="5.2 实战避坑表"></a>5.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>高并发短连接服务端口耗尽</td>
+<td>TIME_WAIT 堆积占满端口范围</td>
+<td>连接复用（keep-alive&#x2F;连接池），别调小 TIME_WAIT</td>
+</tr>
+<tr>
+<td>CLOSE_WAIT 只增不减</td>
+<td>代码没关连接&#x2F;连接池泄漏</td>
+<td>排查关闭路径；try-with-resources；池参数</td>
+</tr>
+<tr>
+<td>connect 超时但服务在跑</td>
+<td>半连接&#x2F;全连接队列溢出</td>
+<td>看 SYN_RECV 数量；开 syncookies；调大 backlog</td>
+</tr>
+<tr>
+<td>跨洋传输打不满带宽</td>
+<td>窗口 &lt; BDP</td>
+<td>调大 tcp_rmem&#x2F;wmem 上限；确认 window scaling 开启</td>
+</tr>
+<tr>
+<td>小请求延迟稳定 40ms</td>
+<td>Nagle + 延迟 ACK 叠加</td>
+<td>开 TCP_NODELAY（Netty&#x2F;Redis 默认已开）</td>
+</tr>
+<tr>
+<td>丢包后吞吐暴跌</td>
+<td>无 SACK，整条重传</td>
+<td>确认 tcp_sack&#x3D;1</td>
+</tr>
+</tbody></table>
+<h3 id="5-3-工具速查表"><a href="#5-3-工具速查表" class="headerlink" title="5.3 工具速查表"></a>5.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>对应机制</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>tcpdump</code></td>
+<td>S&#x2F;S.&#x2F;F 序列、重传、SACK</td>
+<td>握手&#x2F;挥手&#x2F;重传</td>
+</tr>
+<tr>
+<td><code>ss -tan</code></td>
+<td>各状态计数、五元组</td>
+<td>状态机</td>
+</tr>
+<tr>
+<td><code>ss -s</code></td>
+<td>TIME_WAIT&#x2F;CLOSE_WAIT 总数</td>
+<td>状态堆积</td>
+</tr>
+<tr>
+<td><code>sysctl net.ipv4.tcp_*</code></td>
+<td>sack&#x2F;syncookies&#x2F;rmem 等</td>
+<td>内核参数</td>
+</tr>
+<tr>
+<td><code>ping</code></td>
+<td>RTT → BDP 估算</td>
+<td>拥塞控制</td>
+</tr>
+<tr>
+<td><code>iperf3</code></td>
+<td>实测带宽 vs BDP 理论值</td>
+<td>拥塞控制</td>
+</tr>
+<tr>
+<td><code>lsof -i</code></td>
+<td>连接与进程的对应</td>
+<td>排查归属</td>
+</tr>
+</tbody></table>
+<p>实操建议：</p>
+<ol>
+<li>每台服务器 <code>sysctl</code> 核一遍：<code>tcp_sack=1</code>、<code>tcp_syncookies=1</code>、<code>tcp_window_scaling=1</code> 三件套，其余别乱调。</li>
+<li>所有 Java socket&#x2F;框架（Netty、Spring 连接池）确认走默认即已开 TCP_NODELAY；自定义 socket 记得显式设。</li>
+<li>高并发短连接服务的架构决策（keep-alive、连接池、四层 LB 长连接转发）全部源于「TIME_WAIT 机制 + 端口资源」这笔账，选型时先算账。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告</strong>：TCP 保证了「字节流到了」，业务层关心的「语义」由应用层协议定义——第 3 篇《HTTP 协议：应用层之王》讲请求&#x2F;响应结构、无状态与 Cookie、keep-alive 与连接复用，并拆解「HTTP&#x2F;1.1 的队头阻塞 → HTTP&#x2F;2 多路复用 → HTTP&#x2F;3 换掉 TCP」这条演进链（直接承接本文的 TCP 机制与第 1 篇的分层视角）。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -1069,1159 +1806,6 @@
 
 
 
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/1c69d2aa.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="知行栈">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | 知行栈">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/1c69d2aa.html" class="post-title-link" itemprop="url">IO 模型：阻塞、多路复用与零拷贝</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-
-      <time title="Created: 2026-08-12 23:30:00" itemprop="dateCreated datePublished" datetime="2026-08-12T23:30:00+08:00">2026-08-12</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">In</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/" itemprop="url" rel="index"><span itemprop="name">操作系统</span></a>
-        </span>
-    </span>
-
-  
-    <span class="post-meta-break"></span>
-    <span class="post-meta-item" title="Word count in article">
-      <span class="post-meta-item-icon">
-        <i class="far fa-file-word"></i>
-      </span>
-      <span class="post-meta-item-text">Word count in article: </span>
-      <span>6.2k</span>
-    </span>
-    <span class="post-meta-item" title="Reading time">
-      <span class="post-meta-item-icon">
-        <i class="far fa-clock"></i>
-      </span>
-      <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>23 mins.</span>
-    </span>
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <p><strong>IO 模型决定「数据没就绪时，你的线程在干什么」</strong>：阻塞模型让线程干等，非阻塞模型让线程反复问，多路复用让内核一次告诉你「谁好了」，异步模型让内核干完再叫你。本文串起三件事：五种模型的取舍、epoll 为什么是标准答案、以及 Java 侧（BIO&#x2F;NIO&#x2F;Netty&#x2F;虚拟线程）分别落在哪个模型上——并全程对照 Redis、nginx、Netty、Tomcat 这些你天天用的技术，看它们各自的线程模型怎么从本文的机制里长出来。</p>
-<blockquote>
-<p><strong>系列地图（操作系统）</strong>：① 进程与线程（执行单元与调度）→ ② 内存管理（地址空间与物理内存）→ ③ 文件系统与磁盘 IO（数据落盘）→ ④ <strong>IO 模型（本文：等待数据的方式）</strong> → ⑤ Linux 资源排查实战（前四篇工具收拢）。本文是前四篇的汇合点：阻塞线程的成本来自 ① 的切换开销与 ② 的栈内存，零拷贝数据路径来自 ③ 的页缓存。</p>
-</blockquote>
-<h2 id="1-五种-IO-模型：等的方式不同"><a href="#1-五种-IO-模型：等的方式不同" class="headerlink" title="1. 五种 IO 模型：等的方式不同"></a>1. 五种 IO 模型：等的方式不同</h2><h3 id="1-1-一张图看懂五个模型"><a href="#1-1-一张图看懂五个模型" class="headerlink" title="1.1 一张图看懂五个模型"></a>1.1 一张图看懂五个模型</h3><p>以「读 socket」为例，数据到达前线程的状态：</p>
-<pre class="mermaid">flowchart TD
-    subgraph Blocking["Blocking IO"]
-        B1["Thread calls read()"] --> B2["Thread blocks until data ready"]
-    end
-    subgraph Nonblocking["Non-blocking IO"]
-        N1["Thread calls read()"] --> N2{"Data ready?"}
-        N2 -- No --> N3["Return EAGAIN, poll again&lt;br/>(wastes CPU)"]
-        N2 -- Yes --> N4["Return data"]
-        N3 --> N1
-    end
-    subgraph Mux["Multiplexing (select / epoll)"]
-        M1["Thread calls epoll_wait()"] --> M2["Sleep in kernel"]
-        M2 --> M3{"Any fd ready?"}
-        M3 -- Yes --> M4["Wake up, return ready fd list"]
-        M3 -- No --> M2
-    end
-    subgraph Async["True async IO (io_uring)"]
-        A1["Submit read request, return"] --> A2["Kernel completes IO,&lt;br/>delivers completion event"]
-    end</pre>
-
-<table>
-<thead>
-<tr>
-<th>模型</th>
-<th>谁在等</th>
-<th>线程利用率</th>
-<th>代码难度</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>阻塞 IO（BIO）</td>
-<td>每个连接一个线程干等</td>
-<td>最低（线程数 &#x3D; 连接数）</td>
-<td>最简单</td>
-</tr>
-<tr>
-<td>非阻塞 IO</td>
-<td>应用自己轮询</td>
-<td>低（空转 CPU）</td>
-<td>简单但费电</td>
-</tr>
-<tr>
-<td>多路复用</td>
-<td>内核替所有 fd 等</td>
-<td>高（一个线程管几千连接）</td>
-<td>中等（状态机）</td>
-</tr>
-<tr>
-<td>信号驱动</td>
-<td>内核发信号</td>
-<td>高</td>
-<td>复杂，用得少</td>
-</tr>
-<tr>
-<td>异步 IO</td>
-<td>内核全包</td>
-<td>最高</td>
-<td>复杂（回调地狱）</td>
-</tr>
-</tbody></table>
-<h3 id="1-2-阻塞与非阻塞：read-的两种等待"><a href="#1-2-阻塞与非阻塞：read-的两种等待" class="headerlink" title="1.2 阻塞与非阻塞：read 的两种等待"></a>1.2 阻塞与非阻塞：read 的两种等待</h3><p><strong>阻塞 IO</strong>：<code>read()</code> 发出后线程挂起，数据就绪才返回——等待期间线程不占 CPU 但占「线程配额」，每个连接一个线程。</p>
-<p>这套「线程 &#x3D; 连接」的模型在 1999 年的 <strong>C10K 问题</strong>（万级并发连接）上撞了墙：1 万连接 &#x3D; 1 万线程。1 万线程意味着什么？用前两篇的知识算账：每线程默认 1MB 栈（第 2 篇），虚拟内存承诺 10GB；1 万线程轮流上 CPU，上下文切换每秒几十万次（第 1 篇），光调度就吃掉大半 CPU。<strong>所以 C10K 的解法不是「更多线程」，而是「更少线程」</strong>——epoll 让一个线程等 1 万 fd（§2），Reactor 让几个线程服务 1 万连接（§3）。</p>
-<p>回头看今天的技术，全是这套解法的后代：Redis 单线程事件循环扛 10 万 QPS、nginx 的 worker 数 &#x3D; CPU 核数、Netty 默认两组 EventLoop 线程池。<strong>它们的线程数差异（Redis&#x3D;1、nginx&#x2F;Netty&#x3D;核数级、BIO&#x3D;连接数）就是「切换成本 vs 并发需求」的三档答案</strong>——这也是为什么面试问「Redis 为什么单线程还快」，标准答案的第一句永远是「它不做阻塞 IO，一个线程足以喂饱 CPU」。</p>
-<p><strong>非阻塞 IO</strong>：<code>read()</code> 立即返回——没数据时返回 <code>EAGAIN</code>，应用必须自己重试。避免了线程浪费，但把「等」的责任推给了应用，纯轮询是 CPU 灾难，实战中只作为多路复用的补充（数据没就绪时转去等 epoll）。</p>
-<h3 id="1-3-多路复用：一次等一堆"><a href="#1-3-多路复用：一次等一堆" class="headerlink" title="1.3 多路复用：一次等一堆"></a>1.3 多路复用：一次等一堆</h3><p><strong>多路复用（I&#x2F;O multiplexing）让一个线程把「等待」交给内核</strong>：注册一堆 fd，内核在任何一个就绪时唤醒线程。select&#x2F;poll 是第一代实现，epoll 是 Linux 的工程答案（第 2 节展开）。Java NIO 的 <code>Selector</code> 就是对它的封装，Netty 底层就是它。</p>
-<h3 id="1-4-异步-IO：内核干完再叫你"><a href="#1-4-异步-IO：内核干完再叫你" class="headerlink" title="1.4 异步 IO：内核干完再叫你"></a>1.4 异步 IO：内核干完再叫你</h3><p><strong>异步 IO 是「提交请求就走，内核完成后再通知」</strong>：应用线程完全不参与等待。Linux 上的 <code>io_uring</code>（及早期 aio）是代表。注意区分：<strong>多路复用是「内核替你等」，异步是「内核替你干」</strong>——Netty 常被叫异步框架，其实是多路复用 + 回调，不是真异步。</p>
-<h3 id="1-5-动手验证：strace-看一次阻塞读"><a href="#1-5-动手验证：strace-看一次阻塞读" class="headerlink" title="1.5 动手验证：strace 看一次阻塞读"></a>1.5 动手验证：strace 看一次阻塞读</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">nc -l 8080 &amp;                                   <span class="comment"># 起一个不回复的服务器</span></span><br><span class="line">strace -p $(pgrep -f <span class="string">&#x27;nc -l 8080&#x27;</span>) -e trace=<span class="built_in">read</span>,recvfrom,poll -f &amp;</span><br><span class="line"><span class="built_in">sleep</span> 1; <span class="built_in">echo</span> hello | nc 127.0.0.1 8080        <span class="comment"># 客户端发数据</span></span><br></pre></td></tr></table></figure>
-
-<p>strace 输出里能看到 <code>recvfrom(3, ...</code> 阻塞住——<code>poll</code>&#x2F;<code>recvfrom</code> 返回前的等待就是「阻塞」。把同样的观测换成 NIO 程序，会看到 <code>epoll_wait</code> 在循环——这就是两种模型在系统调用层的全部区别。</p>
-<h2 id="2-epoll：多路复用的工程答案"><a href="#2-epoll：多路复用的工程答案" class="headerlink" title="2. epoll：多路复用的工程答案"></a>2. epoll：多路复用的工程答案</h2><h3 id="2-1-select-poll-的两个问题"><a href="#2-1-select-poll-的两个问题" class="headerlink" title="2.1 select&#x2F;poll 的两个问题"></a>2.1 select&#x2F;poll 的两个问题</h3><table>
-<thead>
-<tr>
-<th>维度</th>
-<th>select</th>
-<th>poll</th>
-<th>epoll</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>fd 上限</td>
-<td>1024（FD_SETSIZE）</td>
-<td>无上限</td>
-<td>无上限</td>
-</tr>
-<tr>
-<td>每次调用</td>
-<td>全量拷贝 fd 数组进内核</td>
-<td>同左</td>
-<td>只增删改（epoll_ctl）</td>
-</tr>
-<tr>
-<td>查找就绪</td>
-<td>O(n) 扫描全部</td>
-<td>O(n)</td>
-<td>O(1) 取就绪链表</td>
-</tr>
-<tr>
-<td>内核实现</td>
-<td>线性扫描</td>
-<td>线性扫描</td>
-<td>红黑树 + 就绪链表</td>
-</tr>
-</tbody></table>
-<p>select 每次调用都要把几千个 fd 拷进内核、扫描一遍——<strong>连接多了以后，等待本身变成了性能瓶颈</strong>。epoll 把「注册」和「等待」拆开：注册一次，之后只等结果。</p>
-<h3 id="2-2-epoll-的三板斧"><a href="#2-2-epoll-的三板斧" class="headerlink" title="2.2 epoll 的三板斧"></a>2.2 epoll 的三板斧</h3><pre class="mermaid">flowchart LR
-    APP["App"] --> C1["epoll_create()&lt;br/>create red-black tree"]
-    C1 --> C2["epoll_ctl()&lt;br/>register / modify / delete fd"]
-    C2 --> C3["epoll_wait()&lt;br/>sleep; wake on ready"]
-    C3 --> READY["Ready list (linked list)"]
-    KERN["Kernel: fd becomes readable"] --> READY
-    READY --> C3</pre>
-
-<p>机制拆解：内核里一棵<strong>红黑树</strong>存所有注册的 fd（增删改 O(log n)），一个<strong>就绪链表</strong>存已经可读可写的 fd（由中断&#x2F;唤醒路径挂入）；<code>epoll_wait</code> 只把就绪链表拷给用户——<strong>等待与规模无关，这就是 O(1) 的真相</strong>。</p>
-<h3 id="2-3-LT-与-ET：就绪事件报几次"><a href="#2-3-LT-与-ET：就绪事件报几次" class="headerlink" title="2.3 LT 与 ET：就绪事件报几次"></a>2.3 LT 与 ET：就绪事件报几次</h3><table>
-<thead>
-<tr>
-<th>模式</th>
-<th>行为</th>
-<th>适用</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>LT（水平触发，默认）</td>
-<td>fd 一直可读就反复报，不处理下次还报</td>
-<td>简单，不容易漏事件</td>
-</tr>
-<tr>
-<td>ET（边缘触发）</td>
-<td>只报一次，必须一次读完，否则丢事件</td>
-<td>高性能（配合非阻塞 + 读到 EAGAIN）</td>
-</tr>
-</tbody></table>
-<p>LT 与 ET 的取舍不是风格之争，是两套技术场景逼出来的设计——直接看两个最著名的使用者：</p>
-<ul>
-<li><strong>Redis 用 ET</strong>：单线程事件循环，所有连接的处理在一条线程里串行完成。LT 会反复上报同一个就绪事件、每次都唤醒循环白耗一次；而单线程意味着没有并发读竞争，「一次读到 EAGAIN」安全且必然——ET「必须读尽」的代价在单线程模型下不存在。这是 Redis 单线程 10 万 QPS 的细节之一。</li>
-<li><strong>Netty 默认 LT</strong>：EventLoop 池是多线程，且每次循环有读配额（默认 16MB）防止一个连接吃光 CPU——读不完的剩余数据回到队列、下次循环再读，此时 LT 的「反复上报」恰好保证事件不漏。所以 Netty 默认 LT 不是偷懒，是用重复唤醒换「不漏事件」的确定性。</li>
-</ul>
-<p><strong>生产后果</strong>：Netty 若手动改 ET，业务必须自己保证读尽——线上「偶发丢数据」事故的一大来源就是 ET 读循环少判了一次 EAGAIN；Redis 反而没有这个问题（单线程 + 读尽是写死的）。<strong>入门用 LT，性能临界再上 ET，前提是读循环写到 EAGAIN 为止</strong>。</p>
-<h3 id="2-4-动手验证：最小的多路复用服务器"><a href="#2-4-动手验证：最小的多路复用服务器" class="headerlink" title="2.4 动手验证：最小的多路复用服务器"></a>2.4 动手验证：最小的多路复用服务器</h3><p>一个线程管所有连接的完整骨架（NIO）：</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">Selector</span> <span class="variable">selector</span> <span class="operator">=</span> Selector.open();</span><br><span class="line"><span class="type">ServerSocketChannel</span> <span class="variable">ssc</span> <span class="operator">=</span> ServerSocketChannel.open();</span><br><span class="line">ssc.bind(<span class="keyword">new</span> <span class="title class_">InetSocketAddress</span>(<span class="number">8080</span>));</span><br><span class="line">ssc.configureBlocking(<span class="literal">false</span>);</span><br><span class="line">ssc.register(selector, SelectionKey.OP_ACCEPT);</span><br><span class="line"><span class="keyword">while</span> (<span class="literal">true</span>) &#123;</span><br><span class="line">    selector.select();                       <span class="comment">// 内核里有 fd 就绪才返回</span></span><br><span class="line">    <span class="type">var</span> <span class="variable">keys</span> <span class="operator">=</span> selector.selectedKeys();</span><br><span class="line">    <span class="type">var</span> <span class="variable">it</span> <span class="operator">=</span> keys.iterator();</span><br><span class="line">    <span class="keyword">while</span> (it.hasNext()) &#123;</span><br><span class="line">        <span class="type">var</span> <span class="variable">key</span> <span class="operator">=</span> it.next();</span><br><span class="line">        it.remove();                          <span class="comment">// 必须移除，否则重复处理</span></span><br><span class="line">        <span class="keyword">if</span> (key.isAcceptable()) &#123;</span><br><span class="line">            <span class="type">var</span> <span class="variable">ch</span> <span class="operator">=</span> ssc.accept();</span><br><span class="line">            ch.configureBlocking(<span class="literal">false</span>);</span><br><span class="line">            ch.register(selector, SelectionKey.OP_READ);</span><br><span class="line">        &#125; <span class="keyword">else</span> <span class="keyword">if</span> (key.isReadable()) &#123;</span><br><span class="line">            <span class="type">var</span> <span class="variable">buf</span> <span class="operator">=</span> ByteBuffer.allocate(<span class="number">1024</span>);</span><br><span class="line">            ((SocketChannel) key.channel()).read(buf);</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>观测它确实在走 epoll：</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">strace -f -e trace=epoll_create,epoll_ctl,epoll_wait java -<span class="built_in">cp</span> . NioServer</span><br><span class="line"><span class="comment"># epoll_create / epoll_ctl(ADD, fd=..) / epoll_wait 循环，一个线程</span></span><br></pre></td></tr></table></figure>
-
-<p>再验证「一个线程能撑多少连接」的上限其实是 fd 配额：<code>ulimit -n</code>（默认 1024，生产要调大）、<code>/proc/sys/fs/file-max</code>（系统级）。压测机没调 <code>ulimit -n</code> 就报 <code>Too many open files</code>——<strong>高并发服务的第一道坑不是代码，是 nofile 配额</strong>。</p>
-<h2 id="3-Reactor：多路复用的线程模型"><a href="#3-Reactor：多路复用的线程模型" class="headerlink" title="3. Reactor：多路复用的线程模型"></a>3. Reactor：多路复用的线程模型</h2><h3 id="3-1-单线程不够，上主从"><a href="#3-1-单线程不够，上主从" class="headerlink" title="3.1 单线程不够，上主从"></a>3.1 单线程不够，上主从</h3><p>多路复用解决了「一个线程等一堆」，但业务处理也挤在这一个线程上：一个连接读数据慢，其他连接全被拖住。于是演进出 Reactor 系列：</p>
-<pre class="mermaid">flowchart TD
-    subgraph Boss["Main reactor (accept)"]
-        B["1 thread, epoll_wait on listen fd"]
-    end
-    subgraph Workers["Worker reactors (IO + business)"]
-        W1["Thread pool: epoll_wait&lt;br/>on accepted fd set"]
-        W2["Thread pool: epoll_wait&lt;br/>on accepted fd set"]
-    end
-    B -->|"hand off accepted socket"| W1
-    B -->|"hand off accepted socket"| W2</pre>
-
-<table>
-<thead>
-<tr>
-<th>模型</th>
-<th>线程数</th>
-<th>适用</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>单 Reactor 单线程</td>
-<td>1 线程全包</td>
-<td>Redis（纯内存、CPU 密集单线程够用）</td>
-</tr>
-<tr>
-<td>单 Reactor 多线程</td>
-<td>1 个 accept + 业务线程池</td>
-<td>入门架构</td>
-</tr>
-<tr>
-<td>主从 Reactor 多线程</td>
-<td>accept 线程 + IO 线程池</td>
-<td><strong>Netty 默认</strong>（boss + worker）</td>
-</tr>
-</tbody></table>
-<h3 id="3-2-Netty-的-boss-worker-与-epoll"><a href="#3-2-Netty-的-boss-worker-与-epoll" class="headerlink" title="3.2 Netty 的 boss&#x2F;worker 与 epoll"></a>3.2 Netty 的 boss&#x2F;worker 与 epoll</h3><p>Netty 的 <code>EventLoopGroup</code> 就是 Reactor 的实现：<code>bossGroup</code> 只负责 accept（epoll_wait 在监听 fd 上），<code>workerGroup</code> 负责已连接 socket 的读写。三个关键设计细节，每个都能对应上本节讲的机制：</p>
-<ol>
-<li><strong>EventLoop &#x3D; 线程 + epoll_wait 循环</strong>：默认 worker 线程数 &#x3D; CPU 核数 × 2。为什么不是越多越好？每个 EventLoop 是串行循环，线程数超过核数后，多出来的只是排队抢 CPU（第 1 篇的切换成本）——并发不涨，切换变多。</li>
-<li><strong>一个 channel 绑定一个 EventLoop，不轮询</strong>：同一连接的所有事件永远由同一个线程处理——天然免锁。这是「单线程串行」理念在 Netty 里的落地：Netty 内部几乎无锁，靠的就是这个绑定关系。</li>
-<li><strong>IO 线程红线</strong>：业务代码绝不能在 IO 线程里做阻塞操作（数据库查询、<code>Thread.sleep</code>、锁等待）——那会让这个 EventLoop 的几百个连接一起等，等于把「一线程管 N 连接」退化成「N 个连接共用一根喉咙」。这是 Netty 面试第一题，也是线上 Netty 服务卡顿的第一大原因。</li>
-</ol>
-<p>对照 Redis：Redis 是单 Reactor 单线程（纯内存操作，无阻塞 IO，一个线程够喂饱 CPU），Netty 是主从 Reactor 多线程（网络 IO + 业务混合，必须分线程）。<strong>Redis&#x3D;1、Netty&#x3D;核数×2、BIO&#x3D;连接数——三档线程数就是切换成本与并发需求的三档答案</strong>，与 C10K 一节的结论完全一致。</p>
-<h3 id="3-3-虚拟线程：把阻塞写法映射回多路复用"><a href="#3-3-虚拟线程：把阻塞写法映射回多路复用" class="headerlink" title="3.3 虚拟线程：把阻塞写法映射回多路复用"></a>3.3 虚拟线程：把阻塞写法映射回多路复用</h3><p>JDK 21 虚拟线程的妙处：<strong>业务代码写回阻塞风格，JVM 底层自动把「阻塞」变成「让出载体线程去服务别人」</strong>——本质是 JVM 内部实现了一个多路复用 + 线程调度器：</p>
-<pre class="mermaid">sequenceDiagram
-    participant VT as Virtual thread
-    participant Sched as JVM scheduler
-    participant Carrier as Carrier thread (OS thread)
-    participant Kernel as Kernel (epoll)
-    VT->>Sched: socket read (blocking syntax)
-    Sched->>Carrier: park, free the carrier
-    Kernel->>Sched: data ready (epoll wakes)
-    Sched->>Carrier: unpark, resume VT</pre>
-
-<p>对比：Netty 是「异步写法 + 多路复用」，虚拟线程是「阻塞写法 + JVM 替你多路复用」。<strong>都能扛高并发，选型取决于团队更熟哪种风格</strong>——虚拟线程省掉了回调状态机，但线程调度与锁竞争的可控性不如显式 Reactor。</p>
-<h3 id="3-4-Tomcat-的线程模型：又一个-Reactor-变体（实战重点）"><a href="#3-4-Tomcat-的线程模型：又一个-Reactor-变体（实战重点）" class="headerlink" title="3.4 Tomcat 的线程模型：又一个 Reactor 变体（实战重点）"></a>3.4 Tomcat 的线程模型：又一个 Reactor 变体（实战重点）</h3><p><strong>Tomcat 的 Connector（连接器）是独立于 Servlet 引擎的 IO 层</strong>，负责 socket 的建立与读写——从 8.5 起它默认跑在 NIO 上，是 Reactor 家族的第三个成员。但它的线程模型和 Netty 有本质区别，先看连接器演进：</p>
-<table>
-<thead>
-<tr>
-<th>Tomcat 版本</th>
-<th>默认连接器</th>
-<th>底层</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>8.0 及以前</td>
-<td>BIO（Java IO）</td>
-<td>阻塞 IO，每连接一线程</td>
-<td>8.5.0 起移除（官方迁移指南）</td>
-</tr>
-<tr>
-<td>8.5 &#x2F; 9 &#x2F; 10</td>
-<td>NIO</td>
-<td>多路复用（Selector）</td>
-<td>默认协议 HTTP&#x2F;1.1</td>
-</tr>
-<tr>
-<td>8.0+（可选）</td>
-<td>NIO2</td>
-<td>JDK AIO</td>
-<td>一直非默认，Linux 上无收益（§4.2）</td>
-</tr>
-<tr>
-<td>8.5+（可选）</td>
-<td>APR&#x2F;native</td>
-<td>本地库 OpenSSL</td>
-<td>Tomcat 9 起并入 NIO 的 OpenSSL 形态</td>
-</tr>
-<tr>
-<td>10.1.10+ &#x2F; 11</td>
-<td>虚拟线程执行器</td>
-<td>JDK 21 虚拟线程</td>
-<td>10.1 需显式配置，11 起默认</td>
-</tr>
-</tbody></table>
-<p>为什么 BIO 在 8.5 被移除：连接数一上来，「每连接一线程」的账就崩了（§1.2 的 C10K 算账），而 NIO 只需两个专职线程就能服务全部连接。Tomcat 的 NIO 线程模型是三段式：</p>
-<pre class="mermaid">flowchart TD
-    CLIENT["Clients"] -->|"new connection"| ACC["Acceptor (x1)&lt;br/>blocking accept() loop"]
-    ACC -->|"register fd"| POLLER["Poller (Linux x1)&lt;br/>epoll_wait loop, pollTime 2ms"]
-    POLLER -->|"ready event as task"| POOL["Worker thread pool&lt;br/>maxThreads=200 (default)"]
-    POOL -->|"executes servlet request"| APP["Business logic"]</pre>
-
-<p>三个角色各干一件事（默认值均出自官方文档）：</p>
-<ol>
-<li><strong>acceptor</strong>（默认 1 个线程）：死循环 <code>accept()</code>，收到新连接注册给 poller——对应 Netty 的 boss。</li>
-<li><strong>poller</strong>（Linux 默认 1 个线程）：<code>epoll_wait</code> 循环（pollTime 默认 2000 微秒），就绪事件封装成任务丢进线程池——对应 Netty 的 worker 职责。</li>
-<li><strong>worker 线程池</strong>（maxThreads 默认 200，minSpareThreads 默认 10）：真正执行 Servlet 业务。</li>
-</ol>
-<p>poller 与 Netty worker 的分工差异，是两者线程模型的分水岭：</p>
-<table>
-<thead>
-<tr>
-<th>维度</th>
-<th>Netty</th>
-<th>Tomcat</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>连接分配</td>
-<td>连接绑定单个 EventLoop，同一连接永远同一线程</td>
-<td>每次请求从池里临时抓线程，无绑定</td>
-</tr>
-<tr>
-<td>线程数</td>
-<td>boss 1 + worker 核数×2</td>
-<td>acceptor 1 + poller 1 + 线程池 200</td>
-</tr>
-<tr>
-<td>免锁依据</td>
-<td>绑定 → 单线程串行 → 天然无锁</td>
-<td>请求间无共享状态 → 无锁</td>
-</tr>
-<tr>
-<td>适配场景</td>
-<td>长连接、协议帧（RPC &#x2F; 网关 &#x2F; IM）</td>
-<td>短请求、HTTP 语义（Servlet 每请求一线程模型）</td>
-</tr>
-<tr>
-<td>线程打满后果</td>
-<td>一个 EventLoop 卡住，几百连接一起等</td>
-<td>池满，新请求排队或拒连</td>
-</tr>
-</tbody></table>
-<p><strong>深挖：为什么 Tomcat 用「池」而 Netty 用「绑定」？</strong> 机制差异是连接有没有状态——HTTP 请求之间无关联，Servlet 规范要求「一个请求在一个线程里从头执行到尾」，Tomcat 只需临时分配，用池；Netty 面向长连接协议开发，连接上挂着编解码器、半包缓冲等状态，必须钉死在一个线程上才能免锁，用绑定。<strong>生产后果</strong>：压测 1 万连接打进 Tomcat，真正干活的始终 ≤200 个线程，其余连接在排队——先等 worker 线程（池满），再等操作系统队列（acceptCount 默认 100，官方文档），队列也满就被内核直接拒连。所以压测里大量 <code>Connection reset</code>，第一嫌疑是 maxConnections（默认 8192，官方文档）和 acceptCount 这两个数，不是应用崩了。这正是一开始 C10K 结论的镜像：<strong>BIO 是线程&#x3D;连接，Tomcat 是线程&#x3D;并发请求（上限 200），连接再多也不长线程</strong>——收益是线程数可控，代价是请求排队。</p>
-<p>另外，§3.3 的虚拟线程在 Tomcat 有官方落点：10.1.10+ 提供 <code>StandardVirtualThreadExecutor</code>（JDK 21+），把 worker 换成虚拟线程后「一请求一虚拟线程」，maxThreads 不再是硬天花板；Tomcat 11 起默认启用（发布公告）。「阻塞写法 + 容器帮你多路复用」在 web 容器里落了地。细节上，Tomcat poller 的 Selector 默认 LT 语义（事件没处理完下次继续报），和 Netty 的取向一致——防漏事件优先（§2.3）。</p>
-<h3 id="3-5-动手验证：连接数与线程数的对照"><a href="#3-5-动手验证：连接数与线程数的对照" class="headerlink" title="3.5 动手验证：连接数与线程数的对照"></a>3.5 动手验证：连接数与线程数的对照</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">ss -lnt                          <span class="comment"># 本机所有监听与已建连接（State/Recv-Q/Send-Q）</span></span><br><span class="line">ss -s                            <span class="comment"># 连接统计：total、estab、timewait</span></span><br><span class="line"><span class="built_in">ulimit</span> -n                        <span class="comment"># 当前进程 fd 上限（每连接 ≈ 2 fd）</span></span><br><span class="line">lsof -p &lt;pid&gt; | grep -c TCP      <span class="comment"># 某进程实际连接数</span></span><br></pre></td></tr></table></figure>
-
-<p>对照实验：BIO 服务器 1000 连接 &#x3D; 1000+ 线程（<code>pstree -p &lt;pid&gt;</code> 数）；NIO&#x2F;Netty 服务器 1000 连接 &#x3D; 几个线程。<strong>线程数、连接数、fd 数三者的数量关系，就是 IO 模型在进程里的实锤</strong>。</p>
-<p>再对 Tomcat（任意本地 Spring Boot 应用，内置就是 Tomcat）做一次线程解剖：</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">jps | grep -iE <span class="string">&#x27;boot|jar&#x27;</span>        <span class="comment"># 找应用 pid</span></span><br><span class="line">jstack &lt;pid&gt; | grep -oE <span class="string">&#x27;http-nio-[0-9]+-(Acceptor|Poller|exec)-[0-9]+&#x27;</span> | <span class="built_in">sort</span> | <span class="built_in">uniq</span> -c</span><br><span class="line">ab -n 20000 -c 500 http://localhost:8080/   <span class="comment"># 压测（macOS：brew install apachebench）</span></span><br></pre></td></tr></table></figure>
-
-<ul>
-<li><strong>预期观察点</strong>：<code>Acceptor</code> 1 个、<code>Poller</code> 1 个（Linux 默认）、<code>exec-N</code> 线程随并发增减且 ≤ maxThreads（默认 200）。</li>
-<li><strong>判定标准</strong>：默认配置压测 Failed&#x3D;0；把 <code>server.tomcat.threads.max=50</code>（Spring Boot 配置）改小重压，Failed 显著上升、exec 线程封顶在 50——<strong>线程池上限就是 Tomcat 吞吐的天花板，而连接数可以远大于 50</strong>。</li>
-</ul>
-<h2 id="4-Java-侧实践：BIO-NIO-AIO-怎么选"><a href="#4-Java-侧实践：BIO-NIO-AIO-怎么选" class="headerlink" title="4. Java 侧实践：BIO&#x2F;NIO&#x2F;AIO 怎么选"></a>4. Java 侧实践：BIO&#x2F;NIO&#x2F;AIO 怎么选</h2><h3 id="4-1-三种形态对照"><a href="#4-1-三种形态对照" class="headerlink" title="4.1 三种形态对照"></a>4.1 三种形态对照</h3><table>
-<thead>
-<tr>
-<th>形态</th>
-<th>底层模型</th>
-<th>典型类</th>
-<th>连接并发</th>
-<th>代码风格</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>BIO</td>
-<td>阻塞 IO</td>
-<td>Socket &#x2F; ServerSocket</td>
-<td>线程 &#x3D; 连接</td>
-<td>最简单</td>
-</tr>
-<tr>
-<td>NIO</td>
-<td>多路复用（Selector + epoll）</td>
-<td>Selector &#x2F; Channel &#x2F; Buffer</td>
-<td>线程 &lt;&lt; 连接</td>
-<td>回调&#x2F;状态机</td>
-</tr>
-<tr>
-<td>AIO</td>
-<td>真异步（Windows IOCP；Linux 上退化）</td>
-<td>AsynchronousSocketChannel</td>
-<td>线程 ≈ 0</td>
-<td>回调</td>
-</tr>
-<tr>
-<td>虚拟线程 + BIO</td>
-<td>阻塞写法 + JVM 多路复用</td>
-<td>普通 Socket + 虚拟线程池</td>
-<td>线程 &#x3D; 逻辑任务</td>
-<td>阻塞风格，最简单</td>
-</tr>
-</tbody></table>
-<p><strong>AIO 的坑在 4.2 深挖</strong>：Linux 上 JDK 的 AIO 底层还是多路复用模拟，没有真异步 IO 的收益，Netty 直接不用 AIO。</p>
-<h3 id="4-2-深挖：AIO-的真相——IOCP-与-Linux-的尴尬"><a href="#4-2-深挖：AIO-的真相——IOCP-与-Linux-的尴尬" class="headerlink" title="4.2 深挖：AIO 的真相——IOCP 与 Linux 的尴尬"></a>4.2 深挖：AIO 的真相——IOCP 与 Linux 的尴尬</h3><p><strong>AIO（异步 IO，JDK 7 的 NIO.2 异步通道）是「提交请求立即返回，内核完成后再回调」</strong>——回到 §1.4 的定义：多路复用是「内核替你等」，异步是「内核替你干」。这一节看「替你干」在三个平台上的三种真相：</p>
-<table>
-<thead>
-<tr>
-<th>实现</th>
-<th>真异步？</th>
-<th>机制</th>
-<th>现状</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>Windows IOCP</td>
-<td>是</td>
-<td>完成端口：内核完成 IO 后投递完成包，线程池取出回调</td>
-<td>JDK AIO 在 Windows 的底层实现</td>
-</tr>
-<tr>
-<td>Linux JDK AIO</td>
-<td>否</td>
-<td>epoll 多路复用 + JDK 内部线程池模拟</td>
-<td>Netty 官方 wiki 明说不用 AIO</td>
-</tr>
-<tr>
-<td>Linux io_uring</td>
-<td>是</td>
-<td>内核完成队列（SQ&#x2F;CQ 环形队列，5.1+）</td>
-<td>Netty 有 incubator 移植，生产未普及</td>
-</tr>
-</tbody></table>
-<p><strong>深挖：JDK 在 Linux 上的 AIO 是「多路复用 + 线程池」披了一层回调的壳</strong>（源码 <code>UnixAsynchronousChannelProvider</code> 走事件循环）。等于你自己写 NIO 再包回调，性能不比 NIO 好，还把线程的控制权交了出去——这正是 Netty 不用 AIO 的理由：Linux 上无性能收益（官方 wiki），且 AIO 回调跑在 JDK 内部线程池上，和 Netty「回调必须绑定 EventLoop」的线程模型冲突。IOCP 是真异步，因为 Windows 内核为此设计了完整的完成端口机制；Linux 内核直到 5.1 才有 io_uring 提供真异步，但它和 JDK AIO 的 API 不兼容，Java 生态还在追赶（netty-incubator-transport-native-io_uring）。</p>
-<p><strong>生产结论</strong>：Linux 上的 Java 高并发网络服务，多路复用（NIO &#x2F; Netty）仍是主线；AIO 的价值在 Windows 场景和文件 IO（<code>AsynchronousFileChannel</code>），不在 Linux 网络 IO——这也是 Tomcat 的 NIO2 连接器始终非默认（§3.4 表）的底层原因。</p>
-<h4 id="动手验证：strace-拆穿-Linux-上的-AIO"><a href="#动手验证：strace-拆穿-Linux-上的-AIO" class="headerlink" title="动手验证：strace 拆穿 Linux 上的 AIO"></a>动手验证：strace 拆穿 Linux 上的 AIO</h4><p>写一个最小的 AIO echo 服务器，用 strace 看它到底调了什么系统调用：</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// AioEchoServer.java：基于 AsynchronousServerSocketChannel 的最小 echo 服务器</span></span><br><span class="line"><span class="keyword">import</span> java.net.InetSocketAddress;</span><br><span class="line"><span class="keyword">import</span> java.nio.ByteBuffer;</span><br><span class="line"><span class="keyword">import</span> java.nio.channels.*;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">AioEchoServer</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> <span class="keyword">throws</span> Exception &#123;</span><br><span class="line">        <span class="type">AsynchronousServerSocketChannel</span> <span class="variable">server</span> <span class="operator">=</span> AsynchronousServerSocketChannel.open()</span><br><span class="line">                .bind(<span class="keyword">new</span> <span class="title class_">InetSocketAddress</span>(<span class="number">8080</span>));</span><br><span class="line">        server.accept(<span class="literal">null</span>, <span class="keyword">new</span> <span class="title class_">CompletionHandler</span>&lt;AsynchronousSocketChannel, Void&gt;() &#123;</span><br><span class="line">            <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">completed</span><span class="params">(AsynchronousSocketChannel ch, Void a)</span> &#123;</span><br><span class="line">                server.accept(<span class="literal">null</span>, <span class="built_in">this</span>);                 <span class="comment">// 立即继续接受下一个连接</span></span><br><span class="line">                <span class="type">ByteBuffer</span> <span class="variable">buf</span> <span class="operator">=</span> ByteBuffer.allocate(<span class="number">1024</span>);</span><br><span class="line">                ch.read(buf, buf, <span class="keyword">new</span> <span class="title class_">CompletionHandler</span>&lt;Integer, ByteBuffer&gt;() &#123;</span><br><span class="line">                    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">completed</span><span class="params">(Integer n, ByteBuffer b)</span> &#123;</span><br><span class="line">                        b.flip();</span><br><span class="line">                        ch.write(b, <span class="literal">null</span>, <span class="literal">null</span>);           <span class="comment">// 回显（真实场景需处理写完成回调）</span></span><br><span class="line">                    &#125;</span><br><span class="line">                    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">failed</span><span class="params">(Throwable e, ByteBuffer b)</span> &#123; &#125;</span><br><span class="line">                &#125;);</span><br><span class="line">            &#125;</span><br><span class="line">            <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">failed</span><span class="params">(Throwable e, Void a)</span> &#123; &#125;</span><br><span class="line">        &#125;);</span><br><span class="line">        Thread.sleep(Long.MAX_VALUE);                      <span class="comment">// 保持进程存活</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">strace -f -e trace=epoll_create,epoll_ctl,epoll_wait,io_uring_enter,io_submit \</span><br><span class="line">  java AioEchoServer &amp;</span><br><span class="line"><span class="built_in">sleep</span> 2; <span class="built_in">echo</span> hello | nc 127.0.0.1 8080; <span class="built_in">sleep</span> 1; pkill -f AioEchoServer</span><br></pre></td></tr></table></figure>
-
-<ul>
-<li><strong>预期观察点</strong>：输出里是 <code>epoll_create / epoll_ctl / epoll_wait</code> 循环，没有任何 <code>io_submit</code> &#x2F; <code>io_uring_enter</code>。</li>
-<li><strong>判定标准</strong>：看到 <code>epoll_wait</code> 即证明 Linux 上 JDK AIO 是多路复用模拟——「异步」名不副实，性能天花板和自写 NIO 相同。</li>
-</ul>
-<h3 id="4-3-选型结论"><a href="#4-3-选型结论" class="headerlink" title="4.3 选型结论"></a>4.3 选型结论</h3><table>
-<thead>
-<tr>
-<th>场景</th>
-<th>选择</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>内部服务、连接数少（&lt;200）</td>
-<td>BIO + 线程池就够，别过度设计</td>
-</tr>
-<tr>
-<td>高并发网关&#x2F;RPC&#x2F;消息</td>
-<td>Netty（NIO + 主从 Reactor）</td>
-</tr>
-<tr>
-<td>高吞吐 IO 密集业务</td>
-<td>虚拟线程（JDK 21+）或 Netty</td>
-</tr>
-<tr>
-<td>需要精确控制每个连接</td>
-<td>NIO 裸写（极少）</td>
-</tr>
-</tbody></table>
-<h3 id="4-4-动手验证：复现-Too-many-open-files"><a href="#4-4-动手验证：复现-Too-many-open-files" class="headerlink" title="4.4 动手验证：复现 Too many open files"></a>4.4 动手验证：复现 Too many open files</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">ulimit</span> -n 64                      <span class="comment"># 把 fd 配额压到 64</span></span><br><span class="line"><span class="comment"># 跑一个 BIO 服务器（每连接一线程），循环 accept 不关闭连接</span></span><br><span class="line"><span class="comment"># 到第 60 个左右报 java.net.SocketException: Too many open files</span></span><br></pre></td></tr></table></figure>
-
-<p>这个报错的完整链路：连接数 × 每连接 fd（socket + 管道）&gt; nofile → accept 失败 → 服务半残。**生产上所有高并发进程的启动脚本里都要有 <code>ulimit -n 65535</code> 或 systemd 的 <code>LimitNOFILE</code>**——漏了它，压测第一波流量就能干崩服务。</p>
-<h2 id="5-总结与避坑清单"><a href="#5-总结与避坑清单" class="headerlink" title="5. 总结与避坑清单"></a>5. 总结与避坑清单</h2><h3 id="5-1-面试速答表"><a href="#5-1-面试速答表" class="headerlink" title="5.1 面试速答表"></a>5.1 面试速答表</h3><table>
-<thead>
-<tr>
-<th>面试题</th>
-<th>一句话答案</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>BIO&#x2F;NIO&#x2F;AIO 区别？</td>
-<td>BIO 阻塞、一线程一连接；NIO 多路复用、一线程多连接；AIO 提交后回调（Linux JDK 上是模拟）</td>
-</tr>
-<tr>
-<td>epoll 为什么比 select 快？</td>
-<td>select 每次全量拷贝 + O(n) 扫描；epoll 注册一次、红黑树管理、只返回就绪链表（O(1)）</td>
-</tr>
-<tr>
-<td>LT 和 ET 区别？</td>
-<td>LT 反复报就绪（防漏）；ET 只报一次，必须读到 EAGAIN（高性能，写错丢事件）</td>
-</tr>
-<tr>
-<td>Netty 为什么快？</td>
-<td>主从 Reactor + epoll + 零拷贝 + 池化 ByteBuf，全是内核与 JVM 机制的叠加</td>
-</tr>
-<tr>
-<td>虚拟线程和 Netty 怎么选？</td>
-<td>都是「线程数低于连接数」；虚拟线程换阻塞写法，Netty 保留显式控制</td>
-</tr>
-<tr>
-<td>10 万连接怎么实现？</td>
-<td>多路复用（1 线程管 N 连接）+ 调大 nofile + 调大端口范围（ip_local_port_range）</td>
-</tr>
-<tr>
-<td>Tomcat 的连接器默认是什么？</td>
-<td>8.5 起默认 NIO（BIO 已移除）；acceptor 1 + poller 1（Linux）+ worker 线程池 200</td>
-</tr>
-<tr>
-<td>Tomcat 压测大量 Connection reset？</td>
-<td>连接数超 maxConnections（默认 8192）或操作系统队列超 acceptCount（默认 100），内核拒连</td>
-</tr>
-<tr>
-<td>Tomcat 和 Netty 线程模型差别？</td>
-<td>Tomcat 池化（每次请求临时抓线程，无状态免锁）；Netty 绑定（连接钉死一个 EventLoop，串行免锁）</td>
-</tr>
-<tr>
-<td>AIO 和 NIO 的区别？</td>
-<td>NIO 内核替你等（就绪后你读）；AIO 内核替你干（完成再回调）；Linux 上 JDK AIO 是 epoll 模拟</td>
-</tr>
-<tr>
-<td>Netty 为什么不用 AIO？</td>
-<td>Linux 上 JDK AIO &#x3D; 多路复用 + 线程池模拟，无性能收益，且回调线程不可控（官方 wiki）</td>
-</tr>
-</tbody></table>
-<h3 id="5-2-实战避坑清单"><a href="#5-2-实战避坑清单" class="headerlink" title="5.2 实战避坑清单"></a>5.2 实战避坑清单</h3><table>
-<thead>
-<tr>
-<th>症状</th>
-<th>原因</th>
-<th>处理</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>压测报 Too many open files</td>
-<td>nofile 配额默认 1024，连接数轻松超</td>
-<td>启动脚本 ulimit -n &#x2F; systemd LimitNOFILE</td>
-</tr>
-<tr>
-<td>Netty 服务偶发卡顿</td>
-<td>业务线程把阻塞操作（DB 查询）写进了 IO 线程</td>
-<td>业务逻辑丢业务线程池；IO 线程只做编解码</td>
-</tr>
-<tr>
-<td>连接数高但线程数也高</td>
-<td>还在用 BIO 或线程池开太大</td>
-<td>换 NIO&#x2F;Netty；或虚拟线程</td>
-</tr>
-<tr>
-<td>NIO 数据偶尔丢&#x2F;错乱</td>
-<td>ET 模式没读到 EAGAIN 就放弃</td>
-<td>读循环直到返回 0 或 EAGAIN；入门用 LT</td>
-</tr>
-<tr>
-<td>select 服务器连接&gt;1024 异常</td>
-<td>select 的 FD_SETSIZE 硬上限</td>
-<td>换 poll&#x2F;epoll（或 Netty）</td>
-</tr>
-<tr>
-<td>Tomcat 高并发大量 Connection reset &#x2F; 超时</td>
-<td>maxConnections（8192）、acceptCount（100）、maxThreads（200）默认值被压穿</td>
-<td><code>ss -lnt</code> 对照连接数；调大三参数，或 10.1+&#x2F;JDK 21 换虚拟线程执行器</td>
-</tr>
-<tr>
-<td>Tomcat exec 线程数堆到上限且请求排队</td>
-<td>maxThreads 设得太大，切线程成本吃掉 CPU（第 1 篇）</td>
-<td>调回合理值；优化业务耗时；换虚拟线程让池上限失去意义</td>
-</tr>
-<tr>
-<td>用 AsynchronousSocketChannel 性能反而不如 NIO</td>
-<td>Linux 上 JDK AIO 是 epoll 模拟</td>
-<td>换 NIO&#x2F;Netty；AIO 只在 Windows（IOCP）和文件 IO 有价值</td>
-</tr>
-</tbody></table>
-<h3 id="5-3-工具速查表"><a href="#5-3-工具速查表" class="headerlink" title="5.3 工具速查表"></a>5.3 工具速查表</h3><table>
-<thead>
-<tr>
-<th>工具</th>
-<th>看什么</th>
-<th>对应本节概念</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>strace -e trace=epoll_wait,select</code></td>
-<td>当前程序用哪种多路复用</td>
-<td>1&#x2F;2. IO 模型、epoll</td>
-</tr>
-<tr>
-<td><code>ss -lnt</code> &#x2F; <code>ss -s</code></td>
-<td>连接数、状态分布</td>
-<td>3. 线程模型对照</td>
-</tr>
-<tr>
-<td><code>ulimit -n</code> &#x2F; <code>/proc/sys/fs/file-max</code></td>
-<td>fd 配额</td>
-<td>4. 连接上限</td>
-</tr>
-<tr>
-<td><code>lsof -p &lt;pid&gt; | grep -c TCP</code></td>
-<td>进程真实连接数</td>
-<td>3&#x2F;4. 连接观测</td>
-</tr>
-<tr>
-<td><code>pstree -p &lt;pid&gt;</code></td>
-<td>线程数（对照连接数）</td>
-<td>3. 线程模型</td>
-</tr>
-<tr>
-<td><code>jstack &lt;pid&gt; | grep http-nio</code></td>
-<td>Tomcat acceptor&#x2F;poller&#x2F;exec 线程名与数量</td>
-<td>3.4 Tomcat 线程模型（exec ≤ maxThreads）</td>
-</tr>
-<tr>
-<td><code>ab -n 20000 -c 500</code></td>
-<td>压测失败率与延迟</td>
-<td>3.4 连接上限与线程池天花板</td>
-</tr>
-<tr>
-<td><code>strace -f -e trace=epoll_wait</code></td>
-<td>Linux 上「异步」是不是真的</td>
-<td>4.2 AIO 模拟验证</td>
-</tr>
-</tbody></table>
-<p>五个收获：<strong>IO 模型本质是「谁在等数据」的分配问题</strong>；epoll 的快是「注册与等待分离」的快；线程模型解决「等到了之后谁来处理」（Netty 绑定、Tomcat 池化、Redis 单线程是三份答案）；AIO 的「内核替你干」在 Linux 上名不副实；Java 的 BIO&#x2F;NIO&#x2F;虚拟线程是同一套内核机制的三副面孔。</p>
-<p>实操建议：</p>
-<ol>
-<li>高并发服务上线前检查三件事：<code>ulimit -n</code>、<code>ip_local_port_range</code>、监听端口 backlog（<code>ss -lnt</code> 看 Send-Q 溢出）。</li>
-<li>用了 Netty&#x2F;自研 NIO，先立规矩：IO 线程零阻塞操作，所有耗时逻辑必须出线程池。</li>
-<li>新项目 IO 密集业务直接评估虚拟线程，连接管理交给框架（Netty&#x2F;RPC 框架），两套并存不冲突。</li>
-<li>Tomcat 上线前核对三参数：maxThreads、maxConnections、acceptCount（压测 Connection reset 先查它们）；JDK 21 + Tomcat 10.1 直接评估 <code>StandardVirtualThreadExecutor</code>。</li>
-</ol>
-<hr>
-<p><strong>下一篇预告（操作系统系列收官）</strong>：本文的线程、连接、fd 全部是排查对象——第 5 篇《Linux 资源排查实战》把前四篇的工具（ps&#x2F;jstack&#x2F;vmstat&#x2F;iostat&#x2F;strace&#x2F;ss）收拢成 CPU、内存、IO 三类故障的定位流程，用真实案例走一遍「症状 → 工具 → 根因 → 处理」的完整链路。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/fdff16da.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="知行栈">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | 知行栈">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/fdff16da.html" class="post-title-link" itemprop="url">文件系统与磁盘 IO</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-
-      <time title="Created: 2026-08-12 23:00:00" itemprop="dateCreated datePublished" datetime="2026-08-12T23:00:00+08:00">2026-08-12</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">In</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/" itemprop="url" rel="index"><span itemprop="name">操作系统</span></a>
-        </span>
-    </span>
-
-  
-    <span class="post-meta-break"></span>
-    <span class="post-meta-item" title="Word count in article">
-      <span class="post-meta-item-icon">
-        <i class="far fa-file-word"></i>
-      </span>
-      <span class="post-meta-item-text">Word count in article: </span>
-      <span>3.7k</span>
-    </span>
-    <span class="post-meta-item" title="Reading time">
-      <span class="post-meta-item-icon">
-        <i class="far fa-clock"></i>
-      </span>
-      <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>13 mins.</span>
-    </span>
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <p><strong>文件系统（file system）是内核在磁盘上建立的「文件名 → 字节数据」组织层</strong>：你写的代码只认路径和读写接口，实际数据以块为单位躺在磁盘上，由文件系统负责映射、缓存和落盘。本文回答四个问题：文件在磁盘上怎么组织、读写为什么先过内存缓存、磁盘 IO 的延迟从哪来、Java 怎么和这几层正确打交道——并对照 MySQL&#x2F;ES&#x2F;Kafka&#x2F;RocketMQ 的落盘策略，看「fsync 频率」「顺序写」「零拷贝」这些参数和架构决策怎么从本节机制里长出来。</p>
-<blockquote>
-<p><strong>系列地图（操作系统）</strong>：① 进程与线程（执行单元与调度）→ ② 内存管理（地址空间与物理内存）→ ③ <strong>文件系统与磁盘 IO（本文：数据落盘）</strong> → ④ IO 模型（等待数据的方式）→ ⑤ Linux 资源排查实战（工具收拢）。本文的页缓存是 ② 的页表指向的内存区，本文的 syscall&#x2F;fsync 成本来自 ① 的用户态与内核态切换。</p>
-</blockquote>
-<h2 id="1-文件系统：从文件名到字节"><a href="#1-文件系统：从文件名到字节" class="headerlink" title="1. 文件系统：从文件名到字节"></a>1. 文件系统：从文件名到字节</h2><h3 id="1-1-inode：文件的「户口本」"><a href="#1-1-inode：文件的「户口本」" class="headerlink" title="1.1 inode：文件的「户口本」"></a>1.1 inode：文件的「户口本」</h3><p><strong>inode（index node）是文件的元数据记录</strong>，存权限、大小、时间戳、数据块位置，但不存文件名。文件名存在<strong>目录项（dentry）</strong>里——目录是一个「文件名 → inode 编号」的映射表。</p>
-<table>
-<thead>
-<tr>
-<th>概念</th>
-<th>是什么</th>
-<th>存在哪</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>inode</td>
-<td>文件的元数据（大小&#x2F;权限&#x2F;块位置）</td>
-<td>磁盘 inode 区 + 内存</td>
-</tr>
-<tr>
-<td>dentry</td>
-<td>文件名 → inode 的映射项</td>
-<td>内存（缓存）</td>
-</tr>
-<tr>
-<td>数据块</td>
-<td>文件实际内容（ext4 默认 4KB 一块）</td>
-<td>磁盘数据区</td>
-</tr>
-<tr>
-<td>硬链接</td>
-<td>两个文件名指向同一 inode</td>
-<td>目录表</td>
-</tr>
-<tr>
-<td>软链接</td>
-<td>存目标路径的文件（inode 内容是路径）</td>
-<td>目录表 + 数据块</td>
-</tr>
-</tbody></table>
-<p>由此推出两个冷知识：<strong>硬链接不能跨文件系统</strong>（inode 编号只在同一文件系统内有效）；<strong>移动文件在同一文件系统内只是改目录项</strong>（所以 <code>mv</code> 秒完成，跨盘才是复制+删除）。</p>
-<h3 id="1-2-路径解析：一次-ls-的完整旅程"><a href="#1-2-路径解析：一次-ls-的完整旅程" class="headerlink" title="1.2 路径解析：一次 ls 的完整旅程"></a>1.2 路径解析：一次 ls 的完整旅程</h3><pre class="mermaid">flowchart TD
-    CMD["ls /data/logs/app.log"] --> ROOT["Look up / (root dentry)"]
-    ROOT --> D1["Resolve data -> dentry&lt;br/>(hash lookup in dir cache)"]
-    D1 --> D2["Resolve logs -> dentry"]
-    D2 --> D3["Resolve app.log -> dentry"]
-    D3 --> INODE["Get inode: perms / size / block list"]
-    INODE --> DATA{"Blocks cached in page cache?"}
-    DATA -- Yes --> SHOW["Read from RAM, done"]
-    DATA -- No --> DISK["Read blocks from disk into page cache"]
-    DISK --> SHOW</pre>
-
-<p><code>/data/logs/app.log</code> 要逐级解析：根 → data → logs → app.log，每级都是「查目录项 → 找 inode」。所以<strong>路径越深、目录项缓存越冷，一次访问越慢</strong>——应用侧经验：热点文件放浅路径，冷启动时 <code>find</code>&#x2F;遍历大目录会打爆目录缓存。</p>
-<h3 id="1-3-文件系统类型速查"><a href="#1-3-文件系统类型速查" class="headerlink" title="1.3 文件系统类型速查"></a>1.3 文件系统类型速查</h3><table>
-<thead>
-<tr>
-<th>文件系统</th>
-<th>特点</th>
-<th>常见场景</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>ext4</td>
-<td>老牌默认，稳定，单文件上限 16TB</td>
-<td>通用 Linux 数据盘</td>
-</tr>
-<tr>
-<td>xfs</td>
-<td>大文件、高并发更优，RHEL 默认</td>
-<td>数据库&#x2F;大数据存储</td>
-</tr>
-<tr>
-<td>overlayfs</td>
-<td>容器镜像分层（只读层 + 可写层）</td>
-<td>Docker&#x2F;K8s 镜像与容器层</td>
-</tr>
-<tr>
-<td>tmpfs</td>
-<td>内存文件系统，重启即失</td>
-<td>&#x2F;tmp、&#x2F;dev&#x2F;shm</td>
-</tr>
-</tbody></table>
-<p>容器里写文件要明白：<strong>写的是 overlay 的可写层，宿主机上是两层目录叠加</strong>——容器磁盘 IO 不是直通宿主机盘，镜像层与可写层之间还有 copy-up 开销。</p>
-<h3 id="1-4-动手验证：看-inode、撞一次-inode-耗尽"><a href="#1-4-动手验证：看-inode、撞一次-inode-耗尽" class="headerlink" title="1.4 动手验证：看 inode、撞一次 inode 耗尽"></a>1.4 动手验证：看 inode、撞一次 inode 耗尽</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">stat</span> /etc/hosts          <span class="comment"># 输出里的 Inode 编号、块数、权限</span></span><br><span class="line"><span class="built_in">ls</span> -li /etc/hosts        <span class="comment"># 第一列就是 inode 号</span></span><br><span class="line"><span class="built_in">df</span> -h &amp;&amp; <span class="built_in">df</span> -i           <span class="comment"># -h 看空间，-i 看 inode 用量！</span></span><br><span class="line"><span class="built_in">df</span> -T                    <span class="comment"># 当前文件系统类型</span></span><br></pre></td></tr></table></figure>
-
-<p><strong>inode 耗尽是最容易被误判为「磁盘满」的故障</strong>：小文件海量（日志碎片、docker overlay 层、邮件队列）会把 inode 区吃光，此时 <code>df -h</code> 还有空间，但任何 <code>touch</code> 都报 <code>No space left on device</code>。验证：</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">dd</span> <span class="keyword">if</span>=/dev/zero of=/tmp/smallfs bs=1M count=64 &amp;&amp; mkfs.ext4 /tmp/smallfs</span><br><span class="line"><span class="built_in">mkdir</span> /tmp/mnt &amp;&amp; mount -o loop /tmp/smallfs /tmp/mnt</span><br><span class="line"><span class="keyword">for</span> i <span class="keyword">in</span> $(<span class="built_in">seq</span> 1 100000); <span class="keyword">do</span> <span class="built_in">touch</span> /tmp/mnt/f<span class="variable">$i</span>; <span class="keyword">done</span>   <span class="comment"># 到第 16000 个左右就满了</span></span><br><span class="line"><span class="built_in">df</span> -i /tmp/mnt                                          <span class="comment"># IUsed 100% 而 Used 只有几 MB</span></span><br></pre></td></tr></table></figure>
-
-<p><strong>判定标准</strong>：<code>df -h</code> 有空间但建不了文件 → 看 <code>df -i</code>；inode 100% 时的处理是清理小文件（日志轮转、聚合），而不是扩磁盘。</p>
-<h2 id="2-页缓存：文件读写的加速层"><a href="#2-页缓存：文件读写的加速层" class="headerlink" title="2. 页缓存：文件读写的加速层"></a>2. 页缓存：文件读写的加速层</h2><h3 id="2-1-读路径：一切先过页缓存"><a href="#2-1-读路径：一切先过页缓存" class="headerlink" title="2.1 读路径：一切先过页缓存"></a>2.1 读路径：一切先过页缓存</h3><p>磁盘读不会直接进用户程序——内核先把数据读进<strong>页缓存（page cache）</strong>，再从页缓存拷给用户。第二次读同一文件就是纯内存操作（第 2 篇的 dd 实验已经验证过）。</p>
-<h3 id="2-2-写路径：先缓存，异步落盘"><a href="#2-2-写路径：先缓存，异步落盘" class="headerlink" title="2.2 写路径：先缓存，异步落盘"></a>2.2 写路径：先缓存，异步落盘</h3><p><strong>写也不直接落盘</strong>：写操作先进页缓存标为脏页（dirty），由内核回写线程异步刷盘。这是「write 返回了但数据还没到磁盘」的根本原因——也是 MySQL&#x2F;ES 这类要保数据的系统必须自己调 <code>fsync</code> 的原因。</p>
-<pre class="mermaid">flowchart LR
-    APP["App write()"] --> PC["Mark page dirty in page cache&lt;br/>(write returns fast)"]
-    PC --> WB{"writeback timer&lt;br/>or dirty ratio exceeded?"}
-    WB -- No --> PC
-    WB -- Yes --> FLUSH["Flush dirty pages to disk"]
-    FLUSH --> PC
-    APP -. "fsync() forces now" .-> FLUSH</pre>
-
-<p>脏页刷盘由两个条件触发：<strong>定时</strong>（<code>dirty_expire_centisecs</code>，默认 30 秒）和<strong>比例</strong>（脏页占内存 <code>dirty_ratio</code>，默认 20%）。于是有个经典故障模式：写入量大时脏页积压到阈值，<strong>一次性大批量回写</strong>，磁盘瞬时打满、应用瞬间卡顿（回写风暴）。</p>
-<h3 id="2-3-三种-IO-路径：缓冲、直接、mmap"><a href="#2-3-三种-IO-路径：缓冲、直接、mmap" class="headerlink" title="2.3 三种 IO 路径：缓冲、直接、mmap"></a>2.3 三种 IO 路径：缓冲、直接、mmap</h3><table>
-<thead>
-<tr>
-<th>方式</th>
-<th>机制</th>
-<th>特点</th>
-<th>适用</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>缓冲 IO（默认）</td>
-<td>读写过页缓存</td>
-<td>快（缓存命中免磁盘），写不保证落盘</td>
-<td>通用场景</td>
-</tr>
-<tr>
-<td>直接 IO（O_DIRECT）</td>
-<td>绕过页缓存直达磁盘</td>
-<td>可控，每次都要真实 IO</td>
-<td>数据库自己管理缓存时</td>
-</tr>
-<tr>
-<td>mmap</td>
-<td>页缓存映射进用户空间</td>
-<td>免 read&#x2F;write syscall，直接当内存用</td>
-<td>大文件随机读、共享内存</td>
-</tr>
-</tbody></table>
-<p>MySQL 的 <code>innodb_flush_method=O_DIRECT</code>、ES 的 <code>mmapfs</code>，都是在告诉内核「缓存我自己管，别给我套一层」。</p>
-<h3 id="2-4-动手验证：看到脏页与回写"><a href="#2-4-动手验证：看到脏页与回写" class="headerlink" title="2.4 动手验证：看到脏页与回写"></a>2.4 动手验证：看到脏页与回写</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cat</span> /proc/meminfo | grep -E <span class="string">&#x27;Dirty|Writeback&#x27;</span>   <span class="comment"># 当前脏页/回写中字节数</span></span><br><span class="line">vmstat 1                                         <span class="comment"># bo（block out）列：每秒刷盘块数</span></span><br><span class="line"><span class="built_in">dd</span> <span class="keyword">if</span>=/dev/zero of=/tmp/big bs=1M count=2048     <span class="comment"># 写 2GB</span></span><br><span class="line"><span class="built_in">cat</span> /proc/meminfo | grep Dirty                   <span class="comment"># 写完后 Dirty 暴涨</span></span><br><span class="line"><span class="built_in">sync</span>                                             <span class="comment"># 手动刷盘，观察 bo 列与 Dirty 回落</span></span><br></pre></td></tr></table></figure>
-
-<p><strong>判定标准</strong>：<code>Dirty</code> 长期接近 <code>dirty_ratio</code> 阈值 &#x3D; 写入速率超过刷盘能力，回写风暴随时触发；生产上给日志&#x2F;数据盘调小 <code>vm.dirty_ratio</code>（如 5%），把大回写拆成小批，换平滑性。</p>
-<h2 id="3-磁盘-IO：延迟从哪来"><a href="#3-磁盘-IO：延迟从哪来" class="headerlink" title="3. 磁盘 IO：延迟从哪来"></a>3. 磁盘 IO：延迟从哪来</h2><h3 id="3-1-延迟量级记忆法"><a href="#3-1-延迟量级记忆法" class="headerlink" title="3.1 延迟量级记忆法"></a>3.1 延迟量级记忆法</h3><table>
-<thead>
-<tr>
-<th>介质</th>
-<th>访问延迟</th>
-<th>记忆点</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>内存</td>
-<td>100ns</td>
-<td>基线</td>
-</tr>
-<tr>
-<td>SSD（NVMe）</td>
-<td>0.1ms</td>
-<td>比内存慢 1000 倍</td>
-</tr>
-<tr>
-<td>HDD（机械盘）</td>
-<td>10ms</td>
-<td>寻道 + 旋转，比 SSD 慢 100 倍</td>
-</tr>
-<tr>
-<td>跨机房网络</td>
-<td>10-100ms</td>
-<td>比磁盘还慢</td>
-</tr>
-</tbody></table>
-<p>机械盘慢在<strong>寻道</strong>（磁头移动到目标磁道，物理动作），所以「随机 IO」对 HDD 是灾难、对 SSD 只是小事（SSD 没有寻道，但随机写会放大写放大，见 3.3）。<strong>IO 优化第一原则：把随机 IO 变成顺序 IO</strong>——Kafka&#x2F;MySQL redo log 全部是顺序追加写，就是这个原因。</p>
-<h3 id="3-2-IO-调度器：磁盘前的最后一道队列"><a href="#3-2-IO-调度器：磁盘前的最后一道队列" class="headerlink" title="3.2 IO 调度器：磁盘前的最后一道队列"></a>3.2 IO 调度器：磁盘前的最后一道队列</h3><p>内核把应用的 IO 请求排序后再交给磁盘：SSD&#x2F;NVMe 时代基本用 <code>none</code>（直通，乱序无所谓）；机械盘时代用 <code>mq-deadline</code>&#x2F;<code>bfq</code>（合并相邻请求、保证延迟上限）。</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cat</span> /sys/block/sda/queue/scheduler    <span class="comment"># 看当前调度器</span></span><br></pre></td></tr></table></figure>
-
-<h3 id="3-3-顺序-vs-随机：为什么顺序写快"><a href="#3-3-顺序-vs-随机：为什么顺序写快" class="headerlink" title="3.3 顺序 vs 随机：为什么顺序写快"></a>3.3 顺序 vs 随机：为什么顺序写快</h3><table>
-<thead>
-<tr>
-<th>场景</th>
-<th>HDD</th>
-<th>SSD</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>顺序写</td>
-<td>无寻道，接近带宽上限</td>
-<td>快，且无写放大</td>
-</tr>
-<tr>
-<td>随机写</td>
-<td>每次寻道 10ms，TPS 个位数</td>
-<td>每次覆盖要「读-改-写」整块（写放大），寿命受损</td>
-</tr>
-</tbody></table>
-<p>所以<strong>日志、消息队列、数据库 redo log 全部顺序追加</strong>；而随机读多的场景靠缓存（页缓存、Redis）而不是靠盘。Kafka 号称「快」，本质是顺序写 + 页缓存 + 零拷贝三件套。</p>
-<h3 id="3-4-动手验证：iostat-与顺序-随机对照"><a href="#3-4-动手验证：iostat-与顺序-随机对照" class="headerlink" title="3.4 动手验证：iostat 与顺序&#x2F;随机对照"></a>3.4 动手验证：iostat 与顺序&#x2F;随机对照</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">iostat -x 1            <span class="comment"># 关键列：%util、r/s、w/s、await、rrqm/s（合并率）</span></span><br><span class="line"><span class="built_in">df</span> -T /                <span class="comment"># 先确认盘类型（ssd/hdd）</span></span><br></pre></td></tr></table></figure>
-
-<p>顺序 vs 随机实测（HDD 上差距惊人，SSD 上差距缩小但仍明显）：</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">dd</span> <span class="keyword">if</span>=/dev/zero of=/tmp/seq bs=1M count=1024 oflag=direct   <span class="comment"># 顺序写 1GB</span></span><br><span class="line"><span class="built_in">dd</span> <span class="keyword">if</span>=/dev/zero of=/tmp/rand bs=4k count=256000 oflag=direct <span class="comment"># 4K 随机写 1GB，慢数倍到数十倍</span></span><br></pre></td></tr></table></figure>
-
-<p><strong>判定标准</strong>：<code>%util</code> 接近 100% 而 <code>await</code> 高 &#x3D; 盘是瓶颈（先确认是否回写风暴&#x2F;随机 IO 过量）；<code>rrqm/s</code>&#x2F;<code>wrqm/s</code> 高是好事（内核帮你合并了请求）。</p>
-<h2 id="4-应用侧：Java-与磁盘的正确姿势"><a href="#4-应用侧：Java-与磁盘的正确姿势" class="headerlink" title="4. 应用侧：Java 与磁盘的正确姿势"></a>4. 应用侧：Java 与磁盘的正确姿势</h2><h3 id="4-1-文件写盘的可靠性层次"><a href="#4-1-文件写盘的可靠性层次" class="headerlink" title="4.1 文件写盘的可靠性层次"></a>4.1 文件写盘的可靠性层次</h3><p>数据从「写了」到「真的在盘上」，可靠性逐级递减，成本也逐级递减：</p>
-<table>
-<thead>
-<tr>
-<th>层次</th>
-<th>动作</th>
-<th>崩溃后</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>进程内缓冲</td>
-<td>只写进 Java 的 buffer</td>
-<td>进程挂就丢</td>
-</tr>
-<tr>
-<td>页缓存</td>
-<td>write() 返回</td>
-<td>断电丢（进程挂不丢，脏页会回写）</td>
-</tr>
-<tr>
-<td>磁盘</td>
-<td>fsync &#x2F; force(true)</td>
-<td>断电也不丢</td>
-</tr>
-<tr>
-<td>磁盘+双写</td>
-<td>fsync 到两块盘（RAID1）</td>
-<td>一块盘坏也不丢</td>
-</tr>
-</tbody></table>
-<p>Java 里对应：</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// A：write 返回 ≠ 落盘（数据在页缓存，进程挂了内核照样刷，断电才丢）</span></span><br><span class="line"><span class="keyword">try</span> (<span class="type">var</span> <span class="variable">out</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">FileOutputStream</span>(<span class="string">&quot;a.log&quot;</span>)) &#123;</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; <span class="number">100_000</span>; i++) out.write(<span class="string">&quot;x&quot;</span>.getBytes());</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// B：每次 force(true) 强制 fsync——可靠，但实测慢 100 倍量级</span></span><br><span class="line"><span class="keyword">try</span> (<span class="type">var</span> <span class="variable">out</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">FileOutputStream</span>(<span class="string">&quot;b.log&quot;</span>)) &#123;</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; <span class="number">100_000</span>; i++) &#123;</span><br><span class="line">        out.write(<span class="string">&quot;x&quot;</span>.getBytes());</span><br><span class="line">        out.getFD().sync();</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>A 和 B 耗时差两个数量级，这就是为什么 MySQL&#x2F;ES 不会每条日志都 fsync：MySQL 用 <code>innodb_flush_log_at_trx_commit</code> 权衡（&#x3D;1 每次提交刷盘、&#x3D;2 只刷 OS 缓存），ES 的 translog 同理——<strong>性能与可靠性的取舍点，就是 fsync 频率</strong>。</p>
-<p><strong>深挖：WAL——把随机写变成顺序写</strong>。MySQL（redo log + binlog）、ES（translog）、RocketMQ（commitlog）的落盘模式是同一条：<strong>先顺序追加日志并 fsync，再异步刷数据页</strong>。为什么？数据页是随机 IO（散在磁盘各处），日志是顺序追加（尾部写）——先保证「日志在盘上」再用它兜底重建数据，于是随机写被拆成「高频小顺序写 + 低频异步随机写」，这是「顺序优于随机」（§3.3）在存储架构上的直接应用：</p>
-<table>
-<thead>
-<tr>
-<th>中间件</th>
-<th>日志</th>
-<th>刷盘开关</th>
-<th>掉电风险</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>MySQL</td>
-<td>redo log</td>
-<td><code>innodb_flush_log_at_trx_commit</code> &#x3D; 1&#x2F;2&#x2F;0</td>
-<td>&#x3D;0 时丢最近 1 秒事务</td>
-</tr>
-<tr>
-<td>MySQL</td>
-<td>binlog</td>
-<td><code>sync_binlog</code></td>
-<td>需与 redo 参数配合</td>
-</tr>
-<tr>
-<td>ES</td>
-<td>translog</td>
-<td><code>translog.durability</code> &#x3D; request&#x2F;async</td>
-<td>async 丢最近刷新间隔</td>
-</tr>
-<tr>
-<td>RocketMQ</td>
-<td>commitlog</td>
-<td><code>flushDiskType</code> &#x3D; SYNC_FLUSH&#x2F;ASYNC_FLUSH</td>
-<td>async 丢未落盘消息</td>
-</tr>
-</tbody></table>
-<p>所以面试问「MySQL 为什么崩溃后不丢已提交事务」的答案链是：redo log 顺序写 → fsync 落盘 → 崩溃恢复重放日志——每一环都是本节机制的组合。Kafka 的「快」同理：顺序追加 + 页缓存（§2）+ 零拷贝（§4.2），不主动 fsync 时靠内核回写兜底——<strong>性能上限由内核机制决定，可靠性下限由 fsync 策略决定</strong>。</p>
-<h3 id="4-2-零拷贝：一次-transferTo-的旅程"><a href="#4-2-零拷贝：一次-transferTo-的旅程" class="headerlink" title="4.2 零拷贝：一次 transferTo 的旅程"></a>4.2 零拷贝：一次 transferTo 的旅程</h3><p>传统「文件 → 网络」要 4 次拷贝（磁盘→内核→用户→内核→网卡，第 1 篇讲过 syscall 成本），<strong>零拷贝（sendfile）在内核态直接完成文件→socket</strong>，用户空间完全不沾数据：</p>
-<pre class="mermaid">flowchart LR
-    subgraph Traditional["Traditional read + write"]
-        T1["disk -> page cache"] --> T2["cache -> user buffer"]
-        T2 --> T3["user buffer -> socket buffer"]
-        T3 --> T4["socket buffer -> NIC"]
-    end
-    subgraph Zerocopy["sendfile / FileChannel.transferTo"]
-        Z1["disk -> page cache"] --> Z2["page cache -> NIC (DMA)"]
-    end</pre>
-
-<p>Java 里一行：</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">try</span> (<span class="type">var</span> <span class="variable">in</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">FileInputStream</span>(<span class="string">&quot;big.bin&quot;</span>).getChannel();</span><br><span class="line">     <span class="type">var</span> <span class="variable">out</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">FileOutputStream</span>(<span class="string">&quot;/dev/null&quot;</span>).getChannel()) &#123;</span><br><span class="line">    in.transferTo(<span class="number">0</span>, in.size(), out);   <span class="comment">// 内核态完成，用户空间不参与拷贝</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>零拷贝是 Kafka 消息转发、Netty 文件传输（<code>FileRegion</code>）、Nginx 静态文件（<code>sendfile on</code>）的核心加速——<strong>「数据不过用户空间」这条原则，值得背下来</strong>。</p>
-<h3 id="4-3-动手验证：iostat-盯住-fsync-与零拷贝"><a href="#4-3-动手验证：iostat-盯住-fsync-与零拷贝" class="headerlink" title="4.3 动手验证：iostat 盯住 fsync 与零拷贝"></a>4.3 动手验证：iostat 盯住 fsync 与零拷贝</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">iostat -x 1          <span class="comment"># 分别跑上面的 A、B 代码，看 w/s、%util、await 的差异</span></span><br><span class="line">strace -c java -<span class="built_in">cp</span> . DemoForce    <span class="comment"># 对比 B 的 fsync 计数（第 1 篇的工具再用一次）</span></span><br></pre></td></tr></table></figure>
-
-<p>A 跑完 <code>w/s</code> 平缓（回写线程异步刷）、B 跑完 <code>w/s</code> 与 <code>await</code> 飙升（每次同步刷盘）——这就是「写日志慢」的现场。生产中日志框架的 <code>immediateFlush=true</code>（logback）就是逐条 fsync 的代价，高吞吐路径常关掉它换批量刷。</p>
-<h2 id="5-总结与避坑清单"><a href="#5-总结与避坑清单" class="headerlink" title="5. 总结与避坑清单"></a>5. 总结与避坑清单</h2><h3 id="5-1-面试速答表"><a href="#5-1-面试速答表" class="headerlink" title="5.1 面试速答表"></a>5.1 面试速答表</h3><table>
-<thead>
-<tr>
-<th>面试题</th>
-<th>一句话答案</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>inode 和文件名的关系？</td>
-<td>文件名在目录项里，inode 存元数据；硬链接是多个名字指向同一 inode</td>
-</tr>
-<tr>
-<td>write 返回就落盘了吗？</td>
-<td>没有——先进页缓存标脏页，异步回写；fsync 才强制落盘</td>
-</tr>
-<tr>
-<td>缓冲 IO 和直接 IO 的区别？</td>
-<td>缓冲 IO 过页缓存（快、断电有风险）；O_DIRECT 绕过缓存直达磁盘，适合自己管缓存的应用</td>
-</tr>
-<tr>
-<td>为什么数据库要 fsync？</td>
-<td>数据可靠性要求断电不丢；fsync 频率是性能与可靠性的取舍点</td>
-</tr>
-<tr>
-<td>什么是零拷贝？</td>
-<td>sendfile 在内核态把文件直接发到 socket，用户空间不参与拷贝；Java 用 FileChannel.transferTo</td>
-</tr>
-<tr>
-<td>为什么 Kafka 这么快？</td>
-<td>顺序写 + 页缓存 + 零拷贝三件套，全是内核机制的直接受益者</td>
-</tr>
-<tr>
-<td>磁盘满但建不了文件？</td>
-<td>大概率 inode 耗尽（df -i 100%），清小文件而不是扩盘</td>
-</tr>
-</tbody></table>
-<h3 id="5-2-实战避坑清单"><a href="#5-2-实战避坑清单" class="headerlink" title="5.2 实战避坑清单"></a>5.2 实战避坑清单</h3><table>
-<thead>
-<tr>
-<th>症状</th>
-<th>原因</th>
-<th>处理</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>写入高峰瞬间卡顿、IO 打满</td>
-<td>脏页积压触发批量回写（回写风暴）</td>
-<td>调低 vm.dirty_ratio（如 5%），拆小写批</td>
-</tr>
-<tr>
-<td>磁盘有空间却报 No space left</td>
-<td>inode 耗尽（df -i 100%）</td>
-<td>清小文件；日志轮转开 compress</td>
-</tr>
-<tr>
-<td>写日志&#x2F;写 DB 性能差</td>
-<td>逐条 fsync（immediateFlush &#x2F; flush_log&#x3D;1 且盘慢）</td>
-<td>批量刷；换 NVMe；调整 flush 策略</td>
-</tr>
-<tr>
-<td>大文件传输 CPU 高</td>
-<td>数据在用户空间拷贝了多次</td>
-<td>上 transferTo &#x2F; sendfile</td>
-</tr>
-<tr>
-<td>容器里写文件异常慢</td>
-<td>overlay 层 copy-up + 双份占用</td>
-<td>数据卷挂载宿主机目录，绕过 overlay</td>
-</tr>
-</tbody></table>
-<h3 id="5-3-工具速查表"><a href="#5-3-工具速查表" class="headerlink" title="5.3 工具速查表"></a>5.3 工具速查表</h3><table>
-<thead>
-<tr>
-<th>工具</th>
-<th>看什么</th>
-<th>对应本节概念</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>stat</code> &#x2F; <code>ls -li</code></td>
-<td>inode、块数、权限</td>
-<td>1. inode</td>
-</tr>
-<tr>
-<td><code>df -i</code></td>
-<td>inode 用量</td>
-<td>1. inode 耗尽</td>
-</tr>
-<tr>
-<td><code>/proc/meminfo</code> 的 Dirty</td>
-<td>脏页积压程度</td>
-<td>2. 写路径</td>
-</tr>
-<tr>
-<td><code>iostat -x 1</code></td>
-<td>%util、await、合并率</td>
-<td>3. 磁盘 IO</td>
-</tr>
-<tr>
-<td><code>vmstat 1</code> 的 bo</td>
-<td>每秒刷盘块数</td>
-<td>2. 回写</td>
-</tr>
-<tr>
-<td><code>strace -c</code></td>
-<td>fsync&#x2F;read&#x2F;write 计数</td>
-<td>2&#x2F;4. 可靠性层次</td>
-</tr>
-</tbody></table>
-<p>四个收获：<strong>路径是查表、写盘是缓存异步</strong>；延迟量级 内存 &lt; SSD &lt; HDD &lt; 网络 决定架构选择；「顺序写 + 页缓存 + 零拷贝」是高性能存储的共同答案；Java 侧的每一次 <code>force()</code> 都是性能与可靠性的显式抉择。</p>
-<p>实操建议：</p>
-<ol>
-<li>日志和数据盘先确认文件系统与 inode 余量（<code>df -i</code>），小文件海量的路径提前轮转。</li>
-<li>高吞吐写路径关掉逐条 fsync（logback <code>immediateFlush=false</code> 等），用批量刷盘换可靠性档位。</li>
-<li>文件传输一律 <code>transferTo</code>&#x2F;<code>sendfile</code>，让数据绕过用户空间；怀疑 IO 问题先用 <code>iostat -x</code> 定位是「盘慢」还是「请求模式差」。</li>
-</ol>
-<hr>
-<p><strong>下一篇预告</strong>：磁盘与网络都要等，等的姿势决定架构——第 4 篇《IO 模型：阻塞、多路复用与零拷贝》讲五种 IO 模型与 epoll 机制，以及 Redis 单线程、Netty EventLoop、虚拟线程怎么从这套机制里长出来。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
   <nav class="pagination">
     <a class="extend prev" rel="prev" title="Previous page" aria-label="Previous page" href="/home/page/4/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/home/">1</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/4/">4</a><span class="page-number current">5</span><a class="page-number" href="/home/page/6/">6</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/22/">22</a><a class="extend next" rel="next" title="Next page" aria-label="Next page" href="/home/page/6/"><i class="fa fa-angle-right"></i></a>
   </nav>
@@ -2246,14 +1830,14 @@
       <i class="fa fa-chart-line"></i>
     </span>
       <span>Word count total: </span>
-    <span title="Word count total">597k</span>
+    <span title="Word count total">601k</span>
   </span>
   <span class="post-meta-item">
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
       <span>Reading time total &asymp;</span>
-    <span title="Reading time total">36:11</span>
+    <span title="Reading time total">36:27</span>
   </span>
 </div>
   <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
