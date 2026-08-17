@@ -1810,14 +1810,14 @@
         <i class="far fa-file-word"></i>
       </span>
       <span class="post-meta-item-text">Word count in article: </span>
-      <span>28k</span>
+      <span>32k</span>
     </span>
     <span class="post-meta-item" title="Reading time">
       <span class="post-meta-item-icon">
         <i class="far fa-clock"></i>
       </span>
       <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>1:43</span>
+      <span>1:57</span>
     </span>
 </div>
 
@@ -1828,8 +1828,11 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <h1 id="面试-Java-基础"><a href="#面试-Java-基础" class="headerlink" title="面试-Java-基础"></a>面试-Java-基础</h1><blockquote>
+          <blockquote>
 <p>本文覆盖：Java 版本演进、Java 基础（equals&#x2F;hashCode、String、异常、泛型、反射、序列化）、Java 集合、Java IO、网络基础（TCP&#x2F;IP 与 HTTP）。<br>每个章节遵循同一逻辑：<strong>为什么需要 → 怎么实现的 → 代码示例</strong>。</p>
+</blockquote>
+<blockquote>
+<p><strong>系列地图（Java 后端面试）</strong>：① Java 核心基础（本文）→ ② Java 并发编程 → ③ JVM 原理与调优 → ④ Spring 深度解析 → ⑤ MyBatis 深度解析。本文是全系列的机制地基：3.4 的 ConcurrentHashMap 是并发篇 CAS 与锁粒度问题的引子；4.3 的 epoll 机制是 Netty 篇与操作系统系列反复复用的底座；5.2 的 TCP 状态机是后面所有中间件排障时的常识层。</p>
 </blockquote>
 <hr>
 <h2 id="1-Java-版本演进"><a href="#1-Java-版本演进" class="headerlink" title="1. Java 版本演进"></a>1. Java 版本演进</h2><h3 id="1-0-面试官为什么问版本"><a href="#1-0-面试官为什么问版本" class="headerlink" title="1.0 面试官为什么问版本"></a>1.0 面试官为什么问版本</h3><p>版本问题考察的不是”记住了哪些新特性”，而是三件事：</p>
@@ -1898,6 +1901,16 @@
 <td align="left">虚拟线程、Record Pattern、模式匹配完善</td>
 </tr>
 </tbody></table>
+<p>LTS 节奏与主线：</p>
+<pre class="mermaid">flowchart LR
+    J8["JDK 8 LTS&lt;br/>Lambda / Stream /&lt;br/>legacy baseline"] --> J9["JDK 9&lt;br/>JPMS 模块化"]
+    J9 --> J11["JDK 11 LTS&lt;br/>HTTP Client 转正&lt;br/>ZGC 实验"]
+    J11 --> J17["JDK 17 LTS&lt;br/>sealed / 模式匹配&lt;br/>ZGC 成熟"]
+    J17 --> J21["JDK 21 LTS&lt;br/>虚拟线程 /&lt;br/>Record Pattern"]
+    style J8 fill:#d8f3dc
+    style J21 fill:#ffd6a5</pre>
+
+<p>主线：JDK 8 定下「函数式」基调，9~11 解决「JDK 自身工程化」（模块化、新 HTTP 客户端），14 起模式匹配逐版转正并在 17 定型，21 用虚拟线程回答高并发。</p>
 <h3 id="1-1-Java-8（2014，LTS）：函数式编程进入-Java-生态"><a href="#1-1-Java-8（2014，LTS）：函数式编程进入-Java-生态" class="headerlink" title="1.1 Java 8（2014，LTS）：函数式编程进入 Java 生态"></a>1.1 Java 8（2014，LTS）：函数式编程进入 Java 生态</h3><p><strong>为什么需要</strong>：Java 8 发布时语言已 18 岁，上一轮语言级大改是 JDK 5 的泛型。此时多核 CPU 已经普及，但 Java 处理集合的方式仍是”for 循环 + 临时变量”，并发手段仍是原生线程 + <code>synchronized</code>。函数式编程（Lambda、流式处理）正是为解决两件事：</p>
 <ul>
 <li><strong>样板代码</strong>：匿名内部类写一个 <code>Runnable</code>、<code>Comparator</code> 要十几行；</li>
@@ -1995,6 +2008,16 @@
 <li><strong>8 → 17 比 8 → 11 更划算</strong>：升级的固定成本（依赖扫描、字节码库、测试）是一样的，11 很快又会被迫升，一步到位 17 更省；</li>
 <li><strong>升级前必查清单</strong>：<code>sun.misc</code>&#x2F;<code>sun.reflect</code> 等内部 API 使用、<code>-XX:</code> 参数兼容性（CMS 在 14 被移除）、偏向锁相关调优参数、<code>SecurityManager</code>（17 弃用，24 移除）、字节码增强库（CGLIB&#x2F;ASM 版本）。</li>
 </ol>
+<h3 id="1-6-动手验证：javap-看-Lambda-真相，实测虚拟线程成本"><a href="#1-6-动手验证：javap-看-Lambda-真相，实测虚拟线程成本" class="headerlink" title="1.6 动手验证：javap 看 Lambda 真相，实测虚拟线程成本"></a>1.6 动手验证：javap 看 Lambda 真相，实测虚拟线程成本</h3><p><strong>实验 1：验证 Lambda 不是匿名类语法糖</strong>（对照实验）</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 编译含 Lambda 的 Demo.java，再看字节码里的调用点</span></span><br><span class="line">$ javac Demo.java</span><br><span class="line">$ javap -c Demo | grep invokedynamic</span><br><span class="line">$ <span class="built_in">ls</span> Demo*.class        <span class="comment"># 看有没有 Demo$1.class 这类匿名类</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：字节码中出现 <code>invokedynamic #xx</code> 调用点，目录里<strong>没有</strong>按数字编号的匿名类文件（<code>Demo$1.class</code>）。</p>
+<p><strong>判定标准</strong>：<code>invokedynamic</code> 出现 + 无匿名类文件——证明 Lambda 由 <code>LambdaMetafactory</code> 在运行期生成实现类，不是「匿名内部类的语法糖」。</p>
+<p><strong>实验 2：虚拟线程 vs 平台线程的成本账</strong>（JDK 21）</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 运行本文 1.4 的 VirtualThreadDemo：1 万个虚拟线程各 sleep 1 秒</span></span><br><span class="line">$ java VirtualThreadDemo.java        <span class="comment"># 1 秒左右结束</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：同样「万线程 sleep」用平台线程写，默认栈 1MB 起步就是 10GB 虚拟内存 + 上万次内核级切换；虚拟线程（每线程几 KB）1 秒跑完。</p>
+<p><strong>判定标准</strong>：运行中 <code>ps -M &lt;pid&gt; | wc -l</code> 看到的载体线程数 ≈ CPU 核数（而非 1 万）；<code>jcmd &lt;pid&gt; Thread.dump_to_file -format=json vthreads.json</code> 能导出 1 万条虚拟线程记录。</p>
 <hr>
 <h2 id="2-Java-基础"><a href="#2-Java-基础" class="headerlink" title="2. Java 基础"></a>2. Java 基础</h2><p>面试官问基础问题，考察的从来不是”背定义”，而是<strong>契约意识</strong>和<strong>生产教训</strong>——<code>equals</code> 不重写 <code>hashCode</code> 会丢数据、String 拼接在哪个版本创建几个对象、异常抛 checked 还是 unchecked 反映你的 API 设计能力。下面每个问题都按”为什么问 → 原理 → 代码”展开。</p>
 <h3 id="2-1-equals-与-hashCode"><a href="#2-1-equals-与-hashCode" class="headerlink" title="2.1 equals 与 hashCode"></a>2.1 equals 与 hashCode</h3><p><strong>面试官为什么问</strong>：这是把对象放进 <code>HashMap</code>&#x2F;<code>HashSet</code> 的最基本前提。违反契约的后果是隐性的——“存得进去、取不出来”或”重复存储”，比编译错误难排查得多。</p>
@@ -2056,6 +2079,28 @@
 <blockquote>
 <p>为什么 7 要移入堆？永久代默认只有几十 MB，<code>intern()</code> 多了直接 OOM；移入堆后由普通 GC 管理，StringTable 可以像其它对象一样被回收，容量也可随堆扩大。</p>
 </blockquote>
+<pre class="mermaid">graph TB
+    subgraph JDK6["JDK 6 及以前"]
+        A1[JVM 内存] --> A2[堆]
+        A1 --> A3[方法区 / 永久代&lt;br>默认仅几十MB]
+        A3 --> A4[StringTable&lt;br>（字符串常量池）]
+        A4 --> A5[❌ 只有 Full GC 才回收&lt;br>大量 intern 极易 OOM]
+    end
+
+    subgraph JDK7_8["JDK 7 / 8+"]
+        B1[JVM 内存] --> B2[堆]
+        B2 --> B3[StringTable&lt;br>（字符串常量池）]
+        B2 --> B4[普通对象 / 实例数据]
+        B3 --> B5[✅ Minor GC 即可回收&lt;br>容量随堆空间动态扩展]
+    end
+
+    JDK6 -.->|JDK 7 起移入堆| JDK7_8
+    
+    style JDK6 fill:#f9f0e6,stroke:#d96c2b
+    style JDK7_8 fill:#e6f2ff,stroke:#2b6fd9
+    style A4 fill:#ffcccc,stroke:#cc0000
+    style B3 fill:#ccffcc,stroke:#008000</pre>
+
 <h4 id="intern-的版本差异（JDK-6-vs-JDK-7-）"><a href="#intern-的版本差异（JDK-6-vs-JDK-7-）" class="headerlink" title="intern() 的版本差异（JDK 6 vs JDK 7+）"></a>intern() 的版本差异（JDK 6 vs JDK 7+）</h4><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// jdk8：intern() 将堆中 &quot;ab&quot; 的引用记入 StringTable</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">StringPool</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> &#123;</span><br><span class="line">        <span class="type">String</span> <span class="variable">s1</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">String</span>(<span class="string">&quot;a&quot;</span>) + <span class="keyword">new</span> <span class="title class_">String</span>(<span class="string">&quot;b&quot;</span>); <span class="comment">// s1 指向堆中的 &quot;ab&quot;</span></span><br><span class="line">        s1.intern(); <span class="comment">// 在 StringTable 中放入堆中 &quot;ab&quot; 的引用（JDK 7+ 不再复制）</span></span><br><span class="line">        <span class="type">String</span> <span class="variable">s2</span> <span class="operator">=</span> <span class="string">&quot;ab&quot;</span>; <span class="comment">// 字面量 &quot;ab&quot; 直接命中 StringTable 中刚登记的引用</span></span><br><span class="line">        System.out.println(s1 == s2); <span class="comment">// true</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// jdk6：intern() 将字符串复制一份到永久代</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">StringPool</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> &#123;</span><br><span class="line">        <span class="type">String</span> <span class="variable">s1</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">String</span>(<span class="string">&quot;a&quot;</span>) + <span class="keyword">new</span> <span class="title class_">String</span>(<span class="string">&quot;b&quot;</span>); <span class="comment">// s1 指向堆中的 &quot;ab&quot;</span></span><br><span class="line">        s1.intern(); <span class="comment">// 在 StringTable（永久代）创建一份副本</span></span><br><span class="line">        <span class="type">String</span> <span class="variable">s2</span> <span class="operator">=</span> <span class="string">&quot;ab&quot;</span>; <span class="comment">// s2 指向 StringTable 中的副本（永久代）</span></span><br><span class="line">        System.out.println(s1 == s2); <span class="comment">// false —— 堆对象 != 永久代副本</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 
 <h4 id="高频考点：String-s-new-String-a-new-String-a-创建几个对象"><a href="#高频考点：String-s-new-String-a-new-String-a-创建几个对象" class="headerlink" title="高频考点：String s = new String(&quot;a&quot;) + new String(&quot;a&quot;) 创建几个对象"></a>高频考点：<code>String s = new String(&quot;a&quot;) + new String(&quot;a&quot;)</code> 创建几个对象</h4><p><strong>JDK 8 下经典答案是：6 个对象</strong>（把 StringBuilder 内部的 <code>char[]</code> 计入；不算它为 5 个）。</p>
@@ -2332,6 +2377,12 @@
 <figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">ObjectInputFilter</span> <span class="variable">filter</span> <span class="operator">=</span> ObjectInputFilter.Config.createFilter(</span><br><span class="line">    <span class="string">&quot;com.example.*;java.base/*;!*&quot;</span>);  <span class="comment">// 只允许 com.example 包与 java.base 模块的类</span></span><br><span class="line"><span class="type">ObjectInputStream</span> <span class="variable">ois</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ObjectInputStream</span>(<span class="keyword">new</span> <span class="title class_">FileInputStream</span>(<span class="string">&quot;user.bin&quot;</span>));</span><br><span class="line">ois.setObjectInputFilter(filter);</span><br></pre></td></tr></table></figure>
 
 <p>另外：<strong>JDK 16 的 Record</strong> 天然不适合原生序列化（<code>record</code> 序列化方案在 JDK 17 发布，但官方不建议使用）；枚举是少数”安全”的原生序列化目标（序列化的是枚举名，不反射重建）。</p>
+<h3 id="2-7-动手验证：equals-hashCode-契约与-String-常量池对照实验"><a href="#2-7-动手验证：equals-hashCode-契约与-String-常量池对照实验" class="headerlink" title="2.7 动手验证：equals&#x2F;hashCode 契约与 String 常量池对照实验"></a>2.7 动手验证：equals&#x2F;hashCode 契约与 String 常量池对照实验</h3><p><strong>实验 1：只重写 equals 的后果</strong>（对照实验——运行本文 2.1 的 <code>EqualsHashCodeDemo</code>）</p>
+<p><strong>预期观察点</strong>：输出 <code>集合大小: 2</code> 和 <code>包含 Alice: false</code>——逻辑相等的两个对象都进了 HashSet（重复存储），且用新对象查询落到了不同的桶（取不出来）。</p>
+<p><strong>判定标准</strong>：把注释掉的 <code>hashCode()</code> 恢复后重跑，输出翻转为 <code>集合大小: 1</code>、<code>包含 Alice: true</code>。看到这个翻转，契约的因果就验证完了。</p>
+<p><strong>实验 2：intern() 的版本语义</strong>（对照实验——分别用 JDK 8+ 与 JDK 6 运行本文 2.2 的 <code>StringPool</code>）</p>
+<p><strong>预期观察点</strong>：JDK 8+ 输出 <code>true</code>（intern 只把堆对象引用登记进 StringTable，字面量直接命中）；JDK 6 输出 <code>false</code>（intern 复制了一份到永久代，堆对象 !&#x3D; 永久代副本）。</p>
+<p><strong>判定标准</strong>：同一个 <code>s1 == s2</code> 表达式在不同 JDK 上输出相反结果——能讲出「JDK 7 起常量池移入堆、intern 语义从复制变成登记引用」，这个考点就过关了。</p>
 <hr>
 <h2 id="3-Java-集合"><a href="#3-Java-集合" class="headerlink" title="3. Java 集合"></a>3. Java 集合</h2><p>集合考察的核心不是 API 背诵，而是<strong>选型能力</strong>（什么场景用什么）和<strong>实现理解</strong>（为什么这样实现、版本间为什么改）。</p>
 <h3 id="3-1-集合框架概览"><a href="#3-1-集合框架概览" class="headerlink" title="3.1 集合框架概览"></a>3.1 集合框架概览</h3><p>Java 集合框架分两大体系：<code>Collection</code>（<code>List</code>&#x2F;<code>Set</code>&#x2F;<code>Queue</code>）与 <code>Map</code>。决策从”我需要什么语义”出发：</p>
@@ -2443,6 +2494,21 @@
 <td align="left">并发场景必须用 ConcurrentHashMap</td>
 </tr>
 </tbody></table>
+<p>扩容时「免全量 rehash」的高低位拆分（JDK 8 的灵魂）：</p>
+<pre class="mermaid">flowchart TD
+    subgraph old["Old table, capacity = 16"]
+        B["bucket j: n1 n2 n3 n4"]
+    end
+    subgraph split["Split by hash &amp; oldCap"]
+        L["lo list: n1 n4 (bit = 0)"]
+        H["hi list: n2 n3 (bit = 1)"]
+    end
+    subgraph newtab["New table, capacity = 32"]
+        P["newTab[j] = lo list"]
+        Q["newTab[j + 16] = hi list"]
+    end
+    old --> split --> newtab</pre>
+
 <h4 id="为什么链表-≥-8-才转红黑树、≤-6-就退化"><a href="#为什么链表-≥-8-才转红黑树、≤-6-就退化" class="headerlink" title="为什么链表 ≥ 8 才转红黑树、≤ 6 就退化"></a>为什么链表 ≥ 8 才转红黑树、≤ 6 就退化</h4><ol>
 <li><strong>8 的统计依据（泊松分布）</strong>：负载因子 0.75、随机哈希下，桶内链表长度达到 8 的概率约为 <strong>0.00000006（六千万分之一）</strong>——这个数字出自 JDK 源码注释。也就是说正常情况下链表根本不会长到 8，<strong>树化是针对”哈希函数被恶意&#x2F;异常破坏”（如 hash 冲突攻击、糟糕的 hashCode）的兜底</strong>，而不是常态；</li>
 <li><strong>为什么是 8 而不是更早</strong>：红黑树节点 <code>TreeNode</code> 比普通链表节点多 parent&#x2F;left&#x2F;right&#x2F;red 等字段（<strong>占用约 2 倍内存</strong>），树化的”查找 O(log n) vs 链表 O(n)”性能优势要与节点内存开销权衡，8 是两者交叉点附近的经验值；</li>
@@ -2630,6 +2696,12 @@
 </ul>
 <h4 id="完整示例：排行榜-范围查询"><a href="#完整示例：排行榜-范围查询" class="headerlink" title="完整示例：排行榜 + 范围查询"></a>完整示例：排行榜 + 范围查询</h4><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> java.util.*;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">TreeMapDemo</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> &#123;</span><br><span class="line">        <span class="comment">// 场景: 成绩排行 —— 按分数排序、取 Top3、查&quot;某分数段&quot;的人</span></span><br><span class="line">        TreeMap&lt;Integer, String&gt; scores = <span class="keyword">new</span> <span class="title class_">TreeMap</span>&lt;&gt;(Comparator.reverseOrder()); <span class="comment">// 分数降序</span></span><br><span class="line">        scores.put(<span class="number">95</span>, <span class="string">&quot;Alice&quot;</span>);</span><br><span class="line">        scores.put(<span class="number">88</span>, <span class="string">&quot;Bob&quot;</span>);</span><br><span class="line">        scores.put(<span class="number">99</span>, <span class="string">&quot;Charlie&quot;</span>);</span><br><span class="line">        scores.put(<span class="number">70</span>, <span class="string">&quot;David&quot;</span>);</span><br><span class="line">        scores.put(<span class="number">60</span>, <span class="string">&quot;Eve&quot;</span>);</span><br><span class="line"></span><br><span class="line">        <span class="comment">// Top3（降序取前 3 个键值对）</span></span><br><span class="line">        System.out.println(<span class="string">&quot;Top3: &quot;</span> + scores.entrySet().stream()</span><br><span class="line">                .limit(<span class="number">3</span>).toList());</span><br><span class="line"></span><br><span class="line">        <span class="comment">// 查询 &gt;= 90 分的人（tailMap 含边界）</span></span><br><span class="line">        System.out.println(<span class="string">&quot;90分以上: &quot;</span> + scores.tailMap(<span class="number">90</span>, <span class="literal">true</span>));</span><br><span class="line"></span><br><span class="line">        <span class="comment">// 查询 [70, 90) 分数段（subMap: 含 70，不含 90）</span></span><br><span class="line">        System.out.println(<span class="string">&quot;70~90段: &quot;</span> + scores.subMap(<span class="number">90</span>, <span class="literal">false</span>, <span class="number">70</span>, <span class="literal">true</span>));</span><br><span class="line"></span><br><span class="line">        <span class="comment">// 找&quot;刚好比 85 大&quot;的分数</span></span><br><span class="line">        System.out.println(<span class="string">&quot;比85高一分: &quot;</span> + scores.ceilingKey(<span class="number">85</span>));   <span class="comment">// 88（&gt;= 85 的最小值）</span></span><br><span class="line">        System.out.println(<span class="string">&quot;比85低一分: &quot;</span> + scores.floorKey(<span class="number">85</span>));     <span class="comment">// 70（&lt;= 85 的最大值）</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 
+<h3 id="3-6-动手验证：LinkedList-的反直觉实测-HashMap-并发丢数据"><a href="#3-6-动手验证：LinkedList-的反直觉实测-HashMap-并发丢数据" class="headerlink" title="3.6 动手验证：LinkedList 的反直觉实测 + HashMap 并发丢数据"></a>3.6 动手验证：LinkedList 的反直觉实测 + HashMap 并发丢数据</h3><p><strong>实验 1：ArrayList vs LinkedList 实测</strong>（运行本文 3.2 的 <code>ListBenchmark</code>）</p>
+<p><strong>预期观察点</strong>：尾部追加 100 万次两者基本打平（ArrayList 偶尔更快）；随机访问 10 万次 ArrayList 毫秒级、LinkedList 慢一到两个数量级。</p>
+<p><strong>判定标准</strong>：随机访问差距 &gt; 10 倍——印证「LinkedList 的 O(1) 是理论值，节点分散导致的缓存不友好在真实数据规模下毫无优势」。</p>
+<p><strong>实验 2：HashMap 并发 put 丢数据</strong>（运行本文 3.3 的 <code>HashMapThreadSafeDemo</code>）</p>
+<p><strong>预期观察点</strong>：HashMap 并发 put 10_000 次后 <code>size</code> 大概率 &lt; 10000（读改写竞态互相覆盖）；ConcurrentHashMap 恒等于 10000。</p>
+<p><strong>判定标准</strong>：<code>size &lt; 10000</code> 即复现了丢数据——这不是偶发现象，是多线程「读改写」竞态的结构性结果；任何被多线程共享的 Map 都不能用裸 HashMap。</p>
 <hr>
 <h2 id="4-Java-IO"><a href="#4-Java-IO" class="headerlink" title="4. Java IO"></a>4. Java IO</h2><p>IO 面试的核心逻辑只有一条：<strong>如何用更少的线程服务更多的连接</strong>。从 BIO 到 NIO 到 AIO 再到虚拟线程，都是为了回答这个问题。</p>
 <h3 id="4-1-从-BIO-到-NIO-的演进"><a href="#4-1-从-BIO-到-NIO-的演进" class="headerlink" title="4.1 从 BIO 到 NIO 的演进"></a>4.1 从 BIO 到 NIO 的演进</h3><h4 id="BIO-的问题：一连接一线程"><a href="#BIO-的问题：一连接一线程" class="headerlink" title="BIO 的问题：一连接一线程"></a>BIO 的问题：一连接一线程</h4><p>传统阻塞 IO（BIO）的调用点（<code>accept</code>、<code>read</code>、<code>write</code>）都是<strong>阻塞</strong>的——线程发起 IO 后挂起，直到数据到达。于是高并发服务只能”一连接一线程”：</p>
@@ -2775,7 +2847,7 @@
 <li>用户态与内核态通过 <strong><code>mmap</code> 共享内存</strong>共用事件表，避免数据拷贝，近乎零拷贝；</li>
 <li>支持 <strong>LT（水平触发）</strong> 与 <strong>ET（边缘触发）</strong> 两种模式：<ul>
 <li><strong>LT</strong>：fd 只要可读写就<strong>反复通知</strong>（数据没读完就持续上报），与 select&#x2F;poll 行为一致，不易丢事件，编程简单；</li>
-<li><strong>ET</strong>：仅在状态<strong>变化</strong>时通知一次，必须配合<strong>非阻塞 IO + 循环 read</strong> 一次性读完，否则可能漏数据。通知次数少、效率更高，但编程复杂（Netty 默认采用 ET 风格）。</li>
+<li><strong>ET</strong>：仅在状态<strong>变化</strong>时通知一次，必须配合<strong>非阻塞 IO + 循环 read</strong> 一次性读完，否则可能漏数据。通知次数少、效率更高，但编程复杂。</li>
 </ul>
 </li>
 </ul>
@@ -2833,7 +2905,43 @@
 </tr>
 </tbody></table>
 <p><strong>场景选择</strong>：连接数少、追求跨平台用 select&#x2F;poll；高并发、海量连接用 epoll（Netty 在 Linux 上的 <code>EpollEventLoop</code> 就是对 epoll 的封装）。<strong>为什么 epoll 快</strong>：select&#x2F;poll 是”我扫一遍所有 fd 看谁就绪”（O(n) 每次都扫），epoll 是”fd 就绪时内核回调把我挂进就绪链表”（只有就绪的才处理）——从”扫描”变成”通知”，这是本质区别。</p>
+<h4 id="深挖：Redis-用-ET、Netty-用-LT——同一个机制的两份答案"><a href="#深挖：Redis-用-ET、Netty-用-LT——同一个机制的两份答案" class="headerlink" title="深挖：Redis 用 ET、Netty 用 LT——同一个机制的两份答案"></a>深挖：Redis 用 ET、Netty 用 LT——同一个机制的两份答案</h4><p>LT&#x2F;ET 不是「谁更先进」，而是两种完全不同的契约：<strong>LT 保证「事件不丢失」</strong>（数据没读完就反复通知），<strong>ET 保证「一次就绪只通知一次」</strong>（读不完是你自己的事）。两大框架各选一头，机制原因各不相同：</p>
+<table>
+<thead>
+<tr>
+<th align="left">框架</th>
+<th align="left">选择</th>
+<th align="left">机制原因</th>
+<th align="left">生产后果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left"><strong>Redis</strong>（事件循环单线程）</td>
+<td align="left"><strong>ET</strong></td>
+<td align="left">单线程串行处理，一个 fd 就绪后由同一线程连续读到 <code>EAGAIN</code>，不存在「别的线程抢读」；ET 让通知次数与事件数严格 1:1，省掉 LT 反复确认的开销</td>
+<td align="left">读循环<strong>少判一次 EAGAIN 就丢数据</strong>，所以 Redis 的读回调必须是 <code>while</code> 循环读完整批</td>
+</tr>
+<tr>
+<td align="left"><strong>Netty</strong>（EventLoop）</td>
+<td align="left"><strong>LT</strong>（epoll 默认）</td>
+<td align="left">多个 Channel 的事件由同一 EventLoop 串行分发，LT 保证「事件没处理完就持续通知」，配合 16MB 自动读配额，<strong>事件永不丢失</strong>；若默认 ET，Netty 无法替用户保证「一定循环读完了」</td>
+<td align="left">用 ET 自研服务器的团队，最常见的线上事故是「偶发丢数据」——read 循环在某个边界少读了一次，下次通知永远不会再来</td>
+</tr>
+</tbody></table>
+<p><strong>记住一句话</strong>：LT 是「有数据就反复叫你，直到你读完」；ET 是「变一次叫一次，没读完算你丢」。生产自研 NIO 服务器入门一律 LT；只有像 Redis 那样单线程串行处理、且读逻辑保证循环读完的场景才上 ET。</p>
 <h3 id="4-4-Reactor-模式"><a href="#4-4-Reactor-模式" class="headerlink" title="4.4 Reactor 模式"></a>4.4 Reactor 模式</h3><p><strong>为什么需要 Reactor</strong>：4.2 的模型 3 代码里，<code>selector.select()</code> 返回后，事件分发、业务处理、读写都揉在一个循环里。连接多了之后这个循环会变成瓶颈。Reactor 模式把职责拆开：<strong>IO 事件分发（Reactor）与业务处理（Handler）解耦</strong>，事件循环只做分发，业务可以放到线程池。</p>
+<p>主从 Reactor 的线程分工：</p>
+<pre class="mermaid">flowchart TD
+    C["Clients"] --> B["Main Reactor (BossGroup)&lt;br/>accept + dispatch"]
+    B --> S1["Sub Reactor 1&lt;br/>EventLoop: select + IO"]
+    B --> S2["Sub Reactor 2&lt;br/>EventLoop: select + IO"]
+    B --> S3["Sub Reactor N&lt;br/>EventLoop: select + IO"]
+    S1 --> P["Business Thread Pool"]
+    S2 --> P
+    S3 --> P
+    style B fill:#e8eaf6
+    style P fill:#fff3e0</pre>
+
 <p><strong>三种形态</strong>：</p>
 <table>
 <thead>
@@ -2879,6 +2987,16 @@
 <li><strong>跨线程注意点</strong>：业务线程向共享 <code>output</code> 缓冲区写入、修改 <code>interestOps</code> 都必须 <code>synchronized</code>，并 <code>selector.wakeup()</code> 唤醒 select（否则 select 阻塞着不会立刻感知新事件）——这也是为什么更彻底的主从多线程模型把事件循环分组，避免跨线程触碰 selector 状态；</li>
 <li><strong>为什么生产不用这段代码</strong>：业务线程直接操作 Reactor 的共享 Buffer 与 interestOps，同步负担重且易错；Netty 通过 <code>EventLoop</code> 线程模型保证”同一 Channel 的所有操作都在同一线程”，从根上消除跨线程共享。</li>
 </ul>
+<h3 id="4-5-动手验证：Reactor-压测与连接观测（工具链实战）"><a href="#4-5-动手验证：Reactor-压测与连接观测（工具链实战）" class="headerlink" title="4.5 动手验证：Reactor 压测与连接观测（工具链实战）"></a>4.5 动手验证：Reactor 压测与连接观测（工具链实战）</h3><p><strong>实验步骤</strong>（macOS&#x2F;Linux 通用）：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 终端 1：启动单 Reactor 多线程服务器（本文 SimpleReactor，端口 8083）</span></span><br><span class="line">$ java SimpleReactor.java</span><br><span class="line"></span><br><span class="line"><span class="comment"># 终端 2：50 客户端 × 100 请求压测</span></span><br><span class="line">$ java ReactorClient.java</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：</p>
+<ul>
+<li>压测输出 <code>测试完成! 总请求: 5000, 耗时: Xms, QPS: Y</code>，<code>Client-N 收到响应</code> 全部成功、无异常栈；</li>
+<li>压测进行中另开终端观察连接：Linux <code>ss -lnt | grep 8083</code>，macOS <code>lsof -i :8083 | grep -c ESTABLISHED</code>——连接数随压测波动，而不是堆满不释放。</li>
+</ul>
+<p><strong>判定标准</strong>：5000 请求全部成功、QPS 稳定、无 <code>Connection reset</code>——事件循环 + 业务线程池的解耦生效。把 <code>Thread.sleep((long) (Math.random() * 10))</code> 的延迟加大到 100ms 再跑一次：QPS 下降但服务器不卡死（对照 BIO 版 <code>BlockingIoServer</code> 此时已排队到超时）——这就是「业务慢不拖垮事件循环」的直接证据。</p>
+<p><strong>收尾</strong>：终端 1 按 <code>Ctrl+C</code> 结束服务器（实验不留后台进程）。</p>
 <hr>
 <h2 id="5-网络基础（TCP-IP-与-HTTP）"><a href="#5-网络基础（TCP-IP-与-HTTP）" class="headerlink" title="5. 网络基础（TCP&#x2F;IP 与 HTTP）"></a>5. 网络基础（TCP&#x2F;IP 与 HTTP）</h2><p>网络是 Java 后端的”地基”——你写的每一个 HTTP 接口、每一条数据库连接、每一次消息推送都跑在 TCP&#x2F;IP 之上。面试官问网络，考察的不是背报文格式，而是三件事：<strong>数据到底是怎么走的</strong>（分层与封装）、<strong>TCP 的可靠性是怎么做到的</strong>（握手、窗口、拥塞），以及 <strong>HTTP&#x2F;HTTPS 的机制细节</strong>（报文、状态码、跨域、TLS）。</p>
 <h3 id="5-1-TCP-IP-协议栈"><a href="#5-1-TCP-IP-协议栈" class="headerlink" title="5.1 TCP&#x2F;IP 协议栈"></a>5.1 TCP&#x2F;IP 协议栈</h3><h4 id="OSI-七层-vs-TCP-IP-四层"><a href="#OSI-七层-vs-TCP-IP-四层" class="headerlink" title="OSI 七层 vs TCP&#x2F;IP 四层"></a>OSI 七层 vs TCP&#x2F;IP 四层</h4><p><strong>为什么需要分层</strong>：一次网络传输要解决无数问题——信号怎么变成比特、比特怎么变成帧、帧怎么路由到对方、怎么保证不丢不乱。分层把这些问题拆成互相独立的模块，每层只干一件事、只跟相邻层打交道——任何一层换实现（比如链路层从以太网换成 WiFi）不影响其它层。</p>
@@ -3019,6 +3137,23 @@
 <td align="left">客户端确认收到——至此双方双向就绪，进入 ESTABLISHED</td>
 </tr>
 </tbody></table>
+<p>一次连接的完整生命周期（握手 → 传输 → 挥手）：</p>
+<pre class="mermaid">sequenceDiagram
+    participant C as Client
+    participant S as Server
+    Note over C,S: Three-way handshake
+    C->>S: SYN seq=x
+    S->>C: SYN+ACK seq=y ack=x+1
+    C->>S: ACK ack=y+1
+    Note over C,S: ESTABLISHED (data transfer)
+    Note over C,S: Four-way teardown
+    C->>S: FIN
+    S->>C: ACK
+    Note over S: CLOSE_WAIT (half-close)
+    S->>C: FIN
+    C->>S: ACK
+    Note over C: TIME_WAIT 2MSL</pre>
+
 <p><strong>为什么是三次不是两次</strong>（必背）：</p>
 <ul>
 <li>两次握手只能保证”服务器确认了客户端能发”，无法保证”客户端确认了服务器能发”——但核心问题还不是这个；</li>
@@ -3741,10 +3876,229 @@
 <p><strong>Java 侧实践</strong>：生产 HTTPS 性能大头是”握手次数”而不是”加密计算”（AES 有硬件加速，单次加密开销极小）——优化主攻方向是<strong>减少握手</strong>：连接池 + 会话复用 + HTTP&#x2F;2。Java 的 <code>HttpClient</code> 默认支持 HTTP&#x2F;2 和 TLS 会话复用，直接用即可：</p>
 <figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// Java 11+ 标准 HTTP 客户端访问 HTTPS（自动 TLS 握手，默认支持 HTTP/2）</span></span><br><span class="line"><span class="type">HttpClient</span> <span class="variable">client</span> <span class="operator">=</span> HttpClient.newBuilder()</span><br><span class="line">        .version(HttpClient.Version.HTTP_2)   <span class="comment">// 偏好 HTTP/2，服务端不支持自动降级 1.1</span></span><br><span class="line">        .connectTimeout(Duration.ofSeconds(<span class="number">5</span>))</span><br><span class="line">        .build();</span><br><span class="line"></span><br><span class="line">HttpResponse&lt;String&gt; resp = client.send(</span><br><span class="line">        HttpRequest.newBuilder(URI.create(<span class="string">&quot;https://api.example.com/health&quot;</span>))</span><br><span class="line">                .GET().build(),</span><br><span class="line">        HttpResponse.BodyHandlers.ofString());</span><br><span class="line">System.out.println(resp.statusCode() + <span class="string">&quot; &quot;</span> + resp.version());  <span class="comment">// 如 200 HTTP_2</span></span><br></pre></td></tr></table></figure>
 
+<h3 id="5-6-动手验证：tcpdump-抓握手、openssl-验证书链（工具链实战）"><a href="#5-6-动手验证：tcpdump-抓握手、openssl-验证书链（工具链实战）" class="headerlink" title="5.6 动手验证：tcpdump 抓握手、openssl 验证书链（工具链实战）"></a>5.6 动手验证：tcpdump 抓握手、openssl 验证书链（工具链实战）</h3><p><strong>实验 1：抓一次真实的 TCP 三次握手</strong></p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 终端 1：抓本机到 example.com:443 的流量（-c 5 抓满自动退出）</span></span><br><span class="line">$ <span class="built_in">sudo</span> tcpdump -nn -i en0 <span class="string">&#x27;tcp port 443 and host 93.184.216.34&#x27;</span> -c 5</span><br><span class="line"><span class="comment"># 终端 2：发起一个 HTTPS 请求</span></span><br><span class="line">$ curl -s https://example.com &gt; /dev/null</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：终端 1 依次出现 <code>Flags [S]</code> → <code>Flags [S.]</code> → <code>Flags [.]</code> 三包，seq&#x2F;ack 逐个递推。</p>
+<p><strong>判定标准</strong>：<code>ack</code> 值恒等于「对方 seq + 1」——看到这个递推关系，序列号体系就吃透了；对照本文 5.2 的握手表逐包核对。</p>
+<p><strong>实验 2：证书链验证</strong></p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">$ <span class="built_in">echo</span> | openssl s_client -connect example.com:443 -servername example.com 2&gt;/dev/null \</span><br><span class="line">    | grep -E <span class="string">&quot;Verify return|subject=|issuer=&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：<code>Verify return code: 0 (ok)</code>；subject 是 example.com、issuer 是它的 CA（如 DigiCert）而非根 CA——看到「leaf ← 中间 CA」的链就对了。</p>
+<p><strong>判定标准</strong>：<code>return code 0</code> + 链上有中间 CA。再把目标换成 <code>https://self-signed.badssl.com</code>，会看到 <code>verify error: self-signed certificate</code>——两种结果对照，本文 5.5 的证书链机制就闭环了。</p>
+<p><strong>收尾</strong>：tcpdump 用 <code>-c 5</code> 自动退出，无需手动 kill。</p>
 <hr>
-<blockquote>
-<p>至此 Java 基础五章结束（版本演进、基础、集合、IO、网络基础）。并发与 JVM 见本文姊妹篇。</p>
-</blockquote>
+<h2 id="6-总结与避坑清单"><a href="#6-总结与避坑清单" class="headerlink" title="6. 总结与避坑清单"></a>6. 总结与避坑清单</h2><h3 id="6-1-面试速答表"><a href="#6-1-面试速答表" class="headerlink" title="6.1 面试速答表"></a>6.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th align="left">问题</th>
+<th align="left">一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">生产基线选哪个版本？</td>
+<td align="left">新项目 JDK 21（要虚拟线程）或 17（生态保守）；8 存量项目一步到位 17；非 LTS 一律不碰</td>
+</tr>
+<tr>
+<td align="left">Lambda 是匿名类语法糖吗？</td>
+<td align="left">不是——编译期生成 <code>invokedynamic</code> 调用点，运行期由 <code>LambdaMetafactory</code> 生成实现类</td>
+</tr>
+<tr>
+<td align="left">equals&#x2F;hashCode 契约是什么？</td>
+<td align="left"><code>equals</code> 为 true 则 <code>hashCode</code> 必相等；违反导致 HashMap 重复存储、查不到</td>
+</tr>
+<tr>
+<td align="left"><code>new String(&quot;a&quot;) + new String(&quot;a&quot;)</code> 几个对象？</td>
+<td align="left">JDK 8：6 个（含 StringBuilder 的 char[]，不含则 5）；JDK 15+ 走 StringConcatFactory，不再建 StringBuilder</td>
+</tr>
+<tr>
+<td align="left">checked 还是 unchecked？</td>
+<td align="left">「可恢复的外部环境问题」用 checked，编程错误一律 unchecked；跨层用自定义 RuntimeException + 统一异常处理</td>
+</tr>
+<tr>
+<td align="left">泛型擦除是怎么回事？</td>
+<td align="left">编译期把类型参数替换为边界类型 + 调用处插入强转；类结构元数据（Signature）里保留泛型，反射可绕回</td>
+</tr>
+<tr>
+<td align="left">动态代理两种实现怎么选？</td>
+<td align="left">JDK 代理要求接口（代理类只能 extends Proxy）；CGLIB 生成子类（final 类不行）；Spring Boot 2.x 起默认 CGLIB</td>
+</tr>
+<tr>
+<td align="left">为什么不用 Java 原生序列化？</td>
+<td align="left">安全（反序列化 RCE 重灾区）、慢、版本脆弱、跨语言差；对外 JSON、对内 protobuf</td>
+</tr>
+<tr>
+<td align="left">ArrayList 还是 LinkedList？</td>
+<td align="left">90% 场景 ArrayList；LinkedList 的 O(1) 是理论值，缓存不友好，实测随机访问慢一个数量级</td>
+</tr>
+<tr>
+<td align="left">HashMap 为什么 8 转树、6 退化？</td>
+<td align="left">泊松分布下链表到 8 的概率是六千万分之一（针对 hash 攻击的兜底）；6 与 8 留缓冲防树化抖动</td>
+</tr>
+<tr>
+<td align="left">扩容为什么不用重新取模？</td>
+<td align="left">容量是 2 的幂，新下标只可能是 i 或 i+oldCap，按 <code>(e.hash &amp; oldCap)</code> 拆高低位链表即可</td>
+</tr>
+<tr>
+<td align="left">CHM 怎么做到并发读无锁？</td>
+<td align="left">volatile + CAS 写空桶、synchronized 锁桶头、扩容期间 ForwardingNode 转发；size 用分片计数</td>
+</tr>
+<tr>
+<td align="left">五大 IO 模型怎么区分？</td>
+<td align="left">看「等数据」与「拷贝数据」两个阶段阻塞在哪：阻塞 &#x2F; 非阻塞 &#x2F; 多路复用 &#x2F; 信号驱动 &#x2F; 异步</td>
+</tr>
+<tr>
+<td align="left">epoll 为什么快？</td>
+<td align="left">就绪事件由内核回调挂入就绪链表（O(1) 取走），不是 select 的全量扫描（O(n)）；mmap 免拷贝</td>
+</tr>
+<tr>
+<td align="left">LT 和 ET 怎么选？</td>
+<td align="left">LT 事件不丢（Netty 默认）；ET 一次一通知（Redis 单线程配循环读）；自研入门用 LT</td>
+</tr>
+<tr>
+<td align="left">三次握手为什么不能两次？</td>
+<td align="left">两次无法让服务器在分配资源前确认「连接是客户端真心想建立的」——失效旧 SYN 会白占资源（SYN Flood）</td>
+</tr>
+<tr>
+<td align="left">TIME_WAIT 为什么等 2MSL？</td>
+<td align="left">① 保证最后 ACK 丢了还能重收 FIN；② 让旧连接报文在网络中消亡，防新连接吃脏数据</td>
+</tr>
+<tr>
+<td align="left">粘包&#x2F;半包怎么解决？</td>
+<td align="left">TCP 是字节流没有消息边界；应用层定边界：定长 &#x2F; 分隔符 &#x2F; 长度字段（Netty <code>LengthFieldBasedFrameDecoder</code>）</td>
+</tr>
+<tr>
+<td align="left">401 和 403 什么区别？</td>
+<td align="left">401 是「你是谁」没解决（未认证）；403 是「你是谁知道了但没权限」</td>
+</tr>
+<tr>
+<td align="left">跨域接口为什么有 OPTIONS？</td>
+<td align="left">JSON 请求触发 CORS 预检：先 OPTIONS 确认服务端允许列表，再发真实请求——这是正常现象</td>
+</tr>
+</tbody></table>
+<h3 id="6-2-实战避坑清单"><a href="#6-2-实战避坑清单" class="headerlink" title="6.2 实战避坑清单"></a>6.2 实战避坑清单</h3><table>
+<thead>
+<tr>
+<th align="left">症状</th>
+<th align="left">原因</th>
+<th align="left">处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">HashSet 出现两个「相同」对象</td>
+<td align="left">只重写 equals 没重写 hashCode</td>
+<td align="left">两个一起重写（字段一致），生产用 Lombok <code>@EqualsAndHashCode</code></td>
+</tr>
+<tr>
+<td align="left">HashMap 的 key 突然查不到</td>
+<td align="left">参与 hashCode 的字段被改（可变 key）</td>
+<td align="left">key 用不可变对象（String&#x2F;Integer&#x2F;record）</td>
+</tr>
+<tr>
+<td align="left">循环拼接字符串越来越慢</td>
+<td align="left"><code>+</code> 每次迭代新建 StringBuilder，O(n²) 拷贝</td>
+<td align="left">循环外复用 StringBuilder，或用 <code>StringJoiner</code>&#x2F;<code>Collectors.joining</code></td>
+</tr>
+<tr>
+<td align="left">遍历集合时 remove 抛 ConcurrentModificationException</td>
+<td align="left">fail-fast 迭代器检测到 modCount 变化</td>
+<td align="left">用 <code>iterator.remove()</code>，或过滤后重建集合</td>
+</tr>
+<tr>
+<td align="left">并发 put 后 size 不对</td>
+<td align="left">HashMap 线程不安全（读改写竞态覆盖）</td>
+<td align="left">换 ConcurrentHashMap；计数用 <code>compute</code>&#x2F;<code>merge</code>，别用「get+put」</td>
+</tr>
+<tr>
+<td align="left">服务大量 CLOSE_WAIT 只增不减</td>
+<td align="left">应用收到 FIN 后没 close（连接泄漏 &#x2F; 流未关）</td>
+<td align="left"><code>lsof -i</code> + <code>jstack</code> 定位未关闭连接，检查 try-with-resources</td>
+</tr>
+<tr>
+<td align="left">高并发短连接服务端口耗尽</td>
+<td align="left">主动关闭方过多，TIME_WAIT 挂 60s 堆积</td>
+<td align="left">连接池 &#x2F; keep-alive 复用连接；不要暴力调小 <code>tcp_fin_timeout</code></td>
+</tr>
+<tr>
+<td align="left">NIO 服务器偶发丢数据</td>
+<td align="left">ET 模式 read 循环少判 EAGAIN，事件不再通知</td>
+<td align="left">循环读到返回 0 &#x2F; EAGAIN；入门阶段用 LT</td>
+</tr>
+<tr>
+<td align="left">接口偶发超时、上游报 504</td>
+<td align="left">连接池太小或后端线程池排队</td>
+<td align="left">先 <code>ss -lnt</code> 看连接与 TIME_WAIT 分布，再查应用线程池水位</td>
+</tr>
+<tr>
+<td align="left">证书链不完整（chain incomplete）</td>
+<td align="left">服务器只下发 leaf 证书，没带中间 CA</td>
+<td align="left"><code>openssl s_client</code> 确认后拼接 leaf + 中间 CA 下发</td>
+</tr>
+<tr>
+<td align="left">JWT 会话无法主动踢人</td>
+<td align="left">无状态 Token 天然无法注销</td>
+<td align="left">敏感操作改 Session &#x2F; 黑名单；JWT 只放非敏感身份信息</td>
+</tr>
+</tbody></table>
+<h3 id="6-3-工具速查表"><a href="#6-3-工具速查表" class="headerlink" title="6.3 工具速查表"></a>6.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th align="left">工具</th>
+<th align="left">看什么</th>
+<th align="left">判定标准</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left"><code>java --version</code> &#x2F; <code>jshell</code></td>
+<td align="left">当前 JDK 版本、快速验证 API 行为</td>
+<td align="left">生产基线只允许 LTS</td>
+</tr>
+<tr>
+<td align="left"><code>javap -c &lt;class&gt;</code></td>
+<td align="left">字节码：<code>invokedynamic</code>、字符串拼接链</td>
+<td align="left">出现 invokedynamic 即 Lambda &#x2F; 新拼接实现</td>
+</tr>
+<tr>
+<td align="left"><code>jcmd &lt;pid&gt; Thread.dump_to_file -format=json</code></td>
+<td align="left">虚拟线程转储</td>
+<td align="left">虚拟线程数 &#x3D; 业务并发量，载体线程 ≈ CPU 核数</td>
+</tr>
+<tr>
+<td align="left"><code>tcpdump -nn -i en0 &#39;tcp port 443&#39; -c 5</code></td>
+<td align="left">真实握手 &#x2F; 挥手包</td>
+<td align="left"><code>[S] → [S.] → [.]</code> 三包顺序，ack &#x3D; 对方 seq + 1</td>
+</tr>
+<tr>
+<td align="left"><code>ss -lnt</code> &#x2F; <code>lsof -i</code></td>
+<td align="left">连接状态分布、端口占用</td>
+<td align="left">大量 CLOSE_WAIT &#x3D; 代码 bug；大量 TIME_WAIT &#x3D; 连接复用问题</td>
+</tr>
+<tr>
+<td align="left"><code>jstack &lt;pid&gt;</code></td>
+<td align="left">线程栈（配合 lsof 定位泄漏连接）</td>
+<td align="left">找「持有连接但不 close」的调用栈</td>
+</tr>
+<tr>
+<td align="left"><code>openssl s_client -connect &lt;host&gt;:443 -servername &lt;host&gt;</code></td>
+<td align="left">证书链、TLS 版本</td>
+<td align="left"><code>Verify return code: 0</code> + 链上有中间 CA</td>
+</tr>
+<tr>
+<td align="left"><code>curl -v &lt;url&gt;</code></td>
+<td align="left">请求 &#x2F; 响应报文、跨域头</td>
+<td align="left">跨域接口应先看到 OPTIONS 200 再真实请求</td>
+</tr>
+</tbody></table>
+<p><strong>实操建议</strong>：</p>
+<ol>
+<li>新项目按本文 1.5 决策树定 JDK 基线（推荐 21），升级 8→17&#x2F;21 前先跑「必查清单」：<code>-XX:</code> 参数、内部 API、字节码库版本。</li>
+<li>实体类统一用 record（不可变、自带 equals&#x2F;hashCode&#x2F;toString）或 Lombok 生成，杜绝手写 equals&#x2F;hashCode 不一致。</li>
+<li>生产集合选型先问并发：任何被多线程共享的 Map 一律 ConcurrentHashMap，计数一律 <code>compute</code>&#x2F;<code>merge</code>。</li>
+<li>接手 NIO&#x2F;Netty 项目先立规矩：IO 线程零阻塞操作、read 必须循环读到 0&#x2F;EAGAIN、半包用 LengthFieldBasedFrameDecoder。</li>
+<li>上线前用 <code>ss -lnt</code> 和 <code>jstack</code> 各扫一次连接状态，CLOSE_WAIT 与 TIME_WAIT 的分布先有基线，出问题才能对比。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告（Java 并发编程）</strong>：本文 3.4 的 ConcurrentHashMap 只是「并发容器」的冰山一角——CAS 为什么比锁快、AQS 怎么统一了同步器、线程池的七个参数怎么算，都在姊妹篇《Java 并发编程》里展开；而 1.4 的虚拟线程，正是并发篇「一请求一线程」终局的伏笔。</p>
 
       
     </div>
@@ -6358,14 +6712,14 @@
       <i class="fa fa-chart-line"></i>
     </span>
       <span>Word count total: </span>
-    <span title="Word count total">601k</span>
+    <span title="Word count total">605k</span>
   </span>
   <span class="post-meta-item">
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
       <span>Reading time total &asymp;</span>
-    <span title="Reading time total">36:27</span>
+    <span title="Reading time total">36:41</span>
   </span>
 </div>
   <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
