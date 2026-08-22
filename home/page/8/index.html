@@ -189,7 +189,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">88</span>
+          <span class="site-state-item-count">89</span>
           <span class="site-state-item-name">posts</span>
         </a>
       </div>
@@ -244,6 +244,520 @@
     </div>
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/2059e11.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/2059e11.html" class="post-title-link" itemprop="url">Redis 缓存淘汰策略解析</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-08-12 00:26:03" itemprop="dateCreated datePublished" datetime="2026-08-12T00:26:03+08:00">2026-08-12</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/" itemprop="url" rel="index"><span itemprop="name">数据存储</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>3.5k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>13 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <p><strong>内存淘汰（memory eviction）</strong> 是 Redis 在内存写满时，按配置的策略删除一部分 key 来腾出空间的机制。它是缓存场景的最后一层保险：不配置，Redis 会被系统 OOM Killer 直接杀进程。本文讲透三件事：maxmemory 怎么配、8 种策略怎么选、近似 LRU 和 LFU 的实现差异在哪。</p>
+<h2 id="1-为什么内存必须设上限"><a href="#1-为什么内存必须设上限" class="headerlink" title="1. 为什么内存必须设上限"></a>1. 为什么内存必须设上限</h2><h3 id="1-1-maxmemory：Redis-的内存天花板"><a href="#1-1-maxmemory：Redis-的内存天花板" class="headerlink" title="1.1 maxmemory：Redis 的内存天花板"></a>1.1 maxmemory：Redis 的内存天花板</h3><p>Redis 是一个<strong>基于内存的键值数据库</strong>，数据主要放在内存里，读写是微秒到亚毫秒级。内存是稀缺资源，所以必须给 Redis 划一条内存上限（<code>maxmemory</code>），超过上限后的写入会触发<strong>内存淘汰（memory eviction）</strong>——按策略删除一部分 key，腾出空间继续写入。</p>
+<p>不设 maxmemory 的后果：Redis 吃满机器内存后，OS 的 OOM Killer 会直接 kill 掉 redis-server 进程（类比 Java 应用 <code>-Xmx</code> 设太大、堆外内存失控被容器 OOM kill），主从全部挂掉，未落盘数据全部丢失。生产环境这是第一优先级配置。</p>
+<table>
+<thead>
+<tr>
+<th>类比</th>
+<th>Java 应用</th>
+<th>Redis</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>内存上限</td>
+<td><code>-Xmx</code> &#x2F; 容器 limit</td>
+<td><code>maxmemory</code></td>
+</tr>
+<tr>
+<td>超限行为</td>
+<td>抛 OOM 异常（可捕获）</td>
+<td>按策略淘汰 key，或拒绝写入</td>
+</tr>
+<tr>
+<td>失控后果</td>
+<td>被容器 OOM kill</td>
+<td>被系统 OOM Killer 杀进程</td>
+</tr>
+</tbody></table>
+<h3 id="1-2-配置方式与生效检查"><a href="#1-2-配置方式与生效检查" class="headerlink" title="1.2 配置方式与生效检查"></a>1.2 配置方式与生效检查</h3><p>redis.conf 配置：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"># 内存上限，单位支持 kb / mb / gb，如 100mb / 1gb</span><br><span class="line">maxmemory 512mb</span><br><span class="line"></span><br><span class="line"># 淘汰策略，默认 noeviction（写满拒绝写入）</span><br><span class="line">maxmemory-policy allkeys-lru</span><br><span class="line"></span><br><span class="line"># 采样数：LRU/LFU 淘汰时的候选 key 数量，默认 5</span><br><span class="line">maxmemory-samples 5</span><br></pre></td></tr></table></figure>
+
+<p>运行时修改不需要重启：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">redis-cli config get maxmemory</span><br><span class="line">redis-cli config <span class="built_in">set</span> maxmemory-policy allkeys-lfu</span><br><span class="line">redis-cli config rewrite   <span class="comment"># 持久化回配置文件</span></span><br></pre></td></tr></table></figure>
+
+<p>用 Java（Jedis）检查同样方便：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">try</span> (<span class="type">Jedis</span> <span class="variable">jedis</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">Jedis</span>(<span class="string">&quot;127.0.0.1&quot;</span>, <span class="number">6379</span>)) &#123;</span><br><span class="line">    System.out.println(<span class="string">&quot;maxmemory = &quot;</span> + jedis.configGet(<span class="string">&quot;maxmemory&quot;</span>));</span><br><span class="line">    System.out.println(<span class="string">&quot;policy    = &quot;</span> + jedis.configGet(<span class="string">&quot;maxmemory-policy&quot;</span>));</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h3 id="1-3-内存去哪了：used-memory-口径"><a href="#1-3-内存去哪了：used-memory-口径" class="headerlink" title="1.3 内存去哪了：used_memory 口径"></a>1.3 内存去哪了：used_memory 口径</h3><p><code>INFO memory</code> 里需要关注几个指标：</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>含义</th>
+<th>关注点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>used_memory</code></td>
+<td>实际占用内存（含碎片）</td>
+<td>与 maxmemory 对比，接近即触发淘汰</td>
+</tr>
+<tr>
+<td><code>used_memory_human</code></td>
+<td>人类可读版本</td>
+<td>快速目检</td>
+</tr>
+<tr>
+<td><code>maxmemory_policy</code></td>
+<td>当前淘汰策略</td>
+<td>确认配置生效</td>
+</tr>
+<tr>
+<td><code>mem_fragmentation_ratio</code></td>
+<td>内存碎片率</td>
+<td>长期 &gt;1.5 且伴随频繁淘汰，说明碎片严重</td>
+</tr>
+</tbody></table>
+<p>注意：<strong>已过期但还没被删掉的 key 依然占用内存并计入 used_memory</strong>。惰性删除与主动清理都有延迟，所以内存紧张时可能”提前”触发淘汰——这也是后面 volatile 策略坑的根源之一。</p>
+<h2 id="2-读写路径上，淘汰发生在哪一步"><a href="#2-读写路径上，淘汰发生在哪一步" class="headerlink" title="2. 读写路径上，淘汰发生在哪一步"></a>2. 读写路径上，淘汰发生在哪一步</h2><p>整体架构看这张图：写入命令进入后先过 <code>maxmemory</code> 检查，命中的策略决定是淘汰、写入还是报错；过期 key 由惰性删除和主动清理两条线回收。</p>
+<p><img src="/../../assets/database/Redis%20%E7%BC%93%E5%AD%98%E6%B7%98%E6%B1%B0%E7%AD%96%E7%95%A5%E8%A7%A3%E6%9E%90/redis-memory-architecture.png" alt="Redis 内存管理层架构：maxmemory 边界、键空间、过期字典与淘汰池">（图片待补）</p>
+<h3 id="2-1-完整链路"><a href="#2-1-完整链路" class="headerlink" title="2.1 完整链路"></a>2.1 完整链路</h3><pre class="mermaid">flowchart TD
+    subgraph READ[Read Path]
+        A[Client GET key] --> B{Key exists?}
+        B -- Yes --> C[Return value, cache hit]
+        B -- No --> D[Query MySQL, write back]
+    end
+    subgraph WRITE[Write Path]
+        E[Client SET / LPUSH / HSET ...] --> F{used_memory > maxmemory?}
+        F -- No --> G[Execute write directly]
+        F -- Yes --> H{Policy = noeviction?}
+        H -- Yes --> I[Return error&lt;br/>OOM command not allowed]
+        H -- No --> J[Sample N keys, pick victim by policy]
+        J --> K[Evict victim, free memory]
+        K --> G
+    end</pre>
+
+<p>两个要点：</p>
+<ul>
+<li><strong>读请求（GET）永不触发淘汰</strong>。淘汰只发生在写路径，且在命令执行之前检查。</li>
+<li>检查带冗余缓冲（slop），避免 used_memory 在边界抖动时反复触发淘汰。</li>
+</ul>
+<h3 id="2-2-淘汰-vs-过期删除：两条腿走路"><a href="#2-2-淘汰-vs-过期删除：两条腿走路" class="headerlink" title="2.2 淘汰 vs 过期删除：两条腿走路"></a>2.2 淘汰 vs 过期删除：两条腿走路</h3><ul>
+<li><strong>过期删除</strong>：针对设置了 TTL 的 key，到点删除。惰性删除（访问时发现过期顺手删）+ 主动清理（每 100ms 随机抽 20 个带 TTL 的 key，过期占比超 25% 就继续抽）。</li>
+<li><strong>内存淘汰</strong>：针对内存写满，与 TTL 无关，纯粹按策略选 key 逐出。</li>
+</ul>
+<pre class="mermaid">flowchart LR
+    subgraph Lazy[Lazy Deletion]
+        L1[Access expired key] --> L2[Delete and return nil]
+    end
+    subgraph Active[Active Expire Cycle]
+        A1[Every 100ms] --> A2[Sample 20 keys with TTL]
+        A2 --> A3{Expired ratio > 25%?}
+        A3 -- Yes --> A2
+        A3 -- No --> A4[Sleep]
+    end
+    subgraph Eviction[Memory Eviction]
+        E1[used_memory > maxmemory] --> E2[Evict by maxmemory-policy]
+    end</pre>
+
+
+
+<h3 id="2-3-noeviction-的报错形态"><a href="#2-3-noeviction-的报错形态" class="headerlink" title="2.3 noeviction 的报错形态"></a>2.3 noeviction 的报错形态</h3><p><code>maxmemory-policy noeviction</code> 时写满，Redis 直接拒绝写入：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">(error) OOM command not allowed when used memory &gt; &#x27;maxmemory&#x27;.</span><br></pre></td></tr></table></figure>
+
+<p>这个错误在 Java 侧会抛 <code>JedisDataException</code>，代码不处理就是一批 500。所以<strong>缓存场景默认不要用 noeviction</strong>，它只适合消息队列、计数器这类”写失败可以重试”的场景。</p>
+<h2 id="3-八种淘汰策略全景"><a href="#3-八种淘汰策略全景" class="headerlink" title="3. 八种淘汰策略全景"></a>3. 八种淘汰策略全景</h2><h3 id="3-1-速查表（面试核心考点）"><a href="#3-1-速查表（面试核心考点）" class="headerlink" title="3.1 速查表（面试核心考点）"></a>3.1 速查表（面试核心考点）</h3><table>
+<thead>
+<tr>
+<th>策略</th>
+<th>作用范围</th>
+<th>淘汰依据</th>
+<th>引入版本</th>
+<th>典型场景</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>noeviction</code></td>
+<td>全部 key</td>
+<td>不淘汰，写满报错</td>
+<td>一直</td>
+<td>队列、计数器等写失败可重试</td>
+</tr>
+<tr>
+<td><code>allkeys-lru</code></td>
+<td>全部 key</td>
+<td>最近最少使用</td>
+<td>一直</td>
+<td>通用缓存，最常用</td>
+</tr>
+<tr>
+<td><code>volatile-lru</code></td>
+<td>带 TTL 的 key</td>
+<td>最近最少使用</td>
+<td>一直</td>
+<td>缓存带过期 + 少量长驻 key</td>
+</tr>
+<tr>
+<td><code>allkeys-random</code></td>
+<td>全部 key</td>
+<td>随机</td>
+<td>一直</td>
+<td>key 可重建、淘汰成本均等</td>
+</tr>
+<tr>
+<td><code>volatile-random</code></td>
+<td>带 TTL 的 key</td>
+<td>随机</td>
+<td>一直</td>
+<td>会话 token 类</td>
+</tr>
+<tr>
+<td><code>volatile-ttl</code></td>
+<td>带 TTL 的 key</td>
+<td>剩余 TTL 最短</td>
+<td>一直</td>
+<td>数据有明确时效</td>
+</tr>
+<tr>
+<td><code>allkeys-lfu</code></td>
+<td>全部 key</td>
+<td>访问频次最低</td>
+<td>4.0</td>
+<td>长尾热点</td>
+</tr>
+<tr>
+<td><code>volatile-lfu</code></td>
+<td>带 TTL 的 key</td>
+<td>访问频次最低</td>
+<td>4.0</td>
+<td>带 TTL 的长尾热点</td>
+</tr>
+</tbody></table>
+<p>命名规律：前缀 <code>allkeys-</code> 管全部 key，<code>volatile-</code> 只管带过期时间的 key；后缀 <code>-lru</code> 看最近访问、<code>-lfu</code> 看访问频次、<code>-random</code> 随机、<code>-ttl</code> 看剩余寿命。</p>
+<h3 id="3-2-volatile-的隐藏降级"><a href="#3-2-volatile-的隐藏降级" class="headerlink" title="3.2 volatile-* 的隐藏降级"></a>3.2 volatile-* 的隐藏降级</h3><p><code>volatile-*</code> 系列有个大坑：<strong>如果带 TTL 的 key 一个都没有（或没有可淘汰的），行为退化成 noeviction——写满直接报错</strong>。</p>
+<p>真实场景：某天排查发现缓存全部写不进去，配置明明是 <code>volatile-lru</code>，查下来是业务方刚把 key 的 TTL 全去掉了。结果整个 Redis 变只读，线上炸了才反应过来。</p>
+<p><strong>口诀：volatile 系列依赖 TTL，TTL 没设，策略就失效。</strong></p>
+<h3 id="3-3-allkeys-与-volatile-怎么选"><a href="#3-3-allkeys-与-volatile-怎么选" class="headerlink" title="3.3 allkeys 与 volatile 怎么选"></a>3.3 allkeys 与 volatile 怎么选</h3><p>核心区别一句话：<em><em>allkeys-</em> 保护的是”内存不超限”，volatile-</em> 保护的是”带 TTL 的 key 优先存活”**。如果缓存数据和不过期数据混用同一个实例（比如有人把配置、统计也塞 Redis），必须用 volatile-*，否则淘汰可能把不该删的业务数据删掉。</p>
+<h2 id="4-近似-LRU：用采样换精度"><a href="#4-近似-LRU：用采样换精度" class="headerlink" title="4. 近似 LRU：用采样换精度"></a>4. 近似 LRU：用采样换精度</h2><h3 id="4-1-为什么不做严格-LRU"><a href="#4-1-为什么不做严格-LRU" class="headerlink" title="4.1 为什么不做严格 LRU"></a>4.1 为什么不做严格 LRU</h3><p>严格 LRU 需要维护双向链表，每次访问把节点移到队首，每个 key 额外占两个指针的开销。Redis 的 key 数量以百万计，这个成本不可接受；链表在 RDB 持久化、主从复制时也会引入额外复杂度。所以 Redis 选择<strong>近似 LRU（approximate LRU）</strong>：只记录”上次访问时间”，淘汰时抽样比较。</p>
+<h3 id="4-2-数据结构：RedisObject-的-24bit-时钟"><a href="#4-2-数据结构：RedisObject-的-24bit-时钟" class="headerlink" title="4.2 数据结构：RedisObject 的 24bit 时钟"></a>4.2 数据结构：RedisObject 的 24bit 时钟</h3><p>每个 value 对象（RedisObject）里有一个 24bit 的 <code>lru</code> 字段：</p>
+<ul>
+<li><strong>LRU 模式</strong>：存上次访问时间（秒级时钟 <code>LRU_CLOCK</code>，约 194 天轮回一次）。</li>
+<li><strong>LFU 模式</strong>：拆成 16bit 时间 + 8bit 频次计数器（第 5 节讲）。</li>
+</ul>
+<p>每次 key 被访问（GET&#x2F;SET 等），<code>lru</code> 字段刷新为当前时钟。</p>
+<h3 id="4-3-淘汰算法：采样取最老"><a href="#4-3-淘汰算法：采样取最老" class="headerlink" title="4.3 淘汰算法：采样取最老"></a>4.3 淘汰算法：采样取最老</h3><pre class="mermaid">flowchart LR
+    subgraph Space[Key space]
+        K1[key1 lru=100]
+        K2[key2 lru=50]
+        K3[key3 lru=200]
+        K4[key4 lru=180]
+        K5[key5 lru=90]
+    end
+    S[Random sample N=5] --> V[Pick key with oldest lru&lt;br/>--> key2]
+    V --> E[Evict key2]
+    style K2 fill:#f9d0c4</pre>
+
+<ol>
+<li>从键空间随机取 N 个 key（N &#x3D; <code>maxmemory-samples</code>，默认 5）。</li>
+<li>在 N 个里挑 <code>lru</code> 最小（最久没访问）的淘汰。</li>
+<li>淘汰后内存还不够，重复该过程。</li>
+</ol>
+<p>采样数越大越接近严格 LRU，但每次淘汰的 CPU 成本越高。Redis 5.0 起引入<strong>淘汰池（eviction pool）</strong>：上一轮采样过的候选 key 保留在池中，下一轮优先从池里挑，跨轮次累积样本，近似精度进一步提升（6.0 对池大小做了动态调整）。</p>
+<h3 id="4-4-参数与效果"><a href="#4-4-参数与效果" class="headerlink" title="4.4 参数与效果"></a>4.4 参数与效果</h3><table>
+<thead>
+<tr>
+<th>maxmemory-samples</th>
+<th>与严格 LRU 的差距</th>
+<th>淘汰耗时</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>3</td>
+<td>明显有差距</td>
+<td>最低</td>
+</tr>
+<tr>
+<td>5（默认）</td>
+<td>约 90% 以上的效果</td>
+<td>低</td>
+</tr>
+<tr>
+<td>10</td>
+<td>几乎无差别</td>
+<td>中</td>
+</tr>
+</tbody></table>
+<p>注意 <code>maxmemory-samples</code> <strong>不支持 CONFIG SET 在线修改</strong>，属于重启生效的配置项，改之前先看运维窗口。</p>
+<h2 id="5-LFU：频次才是真相"><a href="#5-LFU：频次才是真相" class="headerlink" title="5. LFU：频次才是真相"></a>5. LFU：频次才是真相</h2><h3 id="5-1-LRU-的致命场景"><a href="#5-1-LRU-的致命场景" class="headerlink" title="5.1 LRU 的致命场景"></a>5.1 LRU 的致命场景</h3><p>LRU 只看”最近访问”，不看”访问了多少次”。一次突发热点（秒杀、新闻爆点）就能让一批 key 变成”最近访问”，随后把真正长期高热的 key 挤掉——等热点过去，缓存里全是没人再看的 key。</p>
+<p>这个痛点 Java 开发者也不陌生：Caffeine 的 W-TinyLFU 淘汰算法就是针对 LRU 对”长尾热点”命中率差才诞生的，思路同源。</p>
+<p><img src="/../../assets/database/Redis%20%E7%BC%93%E5%AD%98%E6%B7%98%E6%B1%B0%E7%AD%96%E7%95%A5%E8%A7%A3%E6%9E%90/lru-vs-lfu-compare.png" alt="近似 LRU 与 LFU 的淘汰效果对比：突发流量下 LFU 能保住长期热点">（图片待补）</p>
+<h3 id="5-2-同一个字段，两种读法"><a href="#5-2-同一个字段，两种读法" class="headerlink" title="5.2 同一个字段，两种读法"></a>5.2 同一个字段，两种读法</h3><p>Redis 4.0 起，LFU 模式下 24bit 的 <code>lru</code> 字段被拆成两部分：</p>
+<table>
+<thead>
+<tr>
+<th>位段</th>
+<th>名称</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>高 16bit</td>
+<td><code>ldt</code>（last decrement time）</td>
+<td>上次衰减时间的分钟级时钟</td>
+</tr>
+<tr>
+<td>低 8bit</td>
+<td><code>logc</code>（logistic counter）</td>
+<td>对数计数器，0~255</td>
+</tr>
+</tbody></table>
+<p>8bit 只能记 255 次访问，不够用，所以用<strong>对数计数器（logistic counter）</strong>：访问次数越多，计数器增长越慢——用概率递增代替每次访问 +1。</p>
+<h3 id="5-3-概率递增：怎么在-8bit-里表达百万次访问"><a href="#5-3-概率递增：怎么在-8bit-里表达百万次访问" class="headerlink" title="5.3 概率递增：怎么在 8bit 里表达百万次访问"></a>5.3 概率递增：怎么在 8bit 里表达百万次访问</h3><p>Redis 源码 <code>LFULogIncr</code> 的核心逻辑，翻译成 Java 就是：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/**</span></span><br><span class="line"><span class="comment"> * 模拟 Redis LFU 的 8bit 对数计数器。</span></span><br><span class="line"><span class="comment"> * counter 越大，递增概率 p 越小，增长越慢（对数增长）。</span></span><br><span class="line"><span class="comment"> */</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">LfuCounter</span> &#123;</span><br><span class="line">    <span class="keyword">private</span> <span class="type">int</span> counter;            <span class="comment">// logc，0 ~ 255</span></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> <span class="type">int</span> logFactor;    <span class="comment">// 对应 lfu-log-factor，默认 10</span></span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">hit</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">if</span> (counter == <span class="number">255</span>) <span class="keyword">return</span>;              <span class="comment">// 封顶</span></span><br><span class="line">        <span class="type">double</span> <span class="variable">base</span> <span class="operator">=</span> Math.max(<span class="number">0</span>, counter - <span class="number">5</span>);  <span class="comment">// LFU_INIT_VAL = 5</span></span><br><span class="line">        <span class="type">double</span> <span class="variable">p</span> <span class="operator">=</span> <span class="number">1.0</span> / (base * logFactor + <span class="number">1</span>);</span><br><span class="line">        <span class="keyword">if</span> (Math.random() &lt; p) counter++;        <span class="comment">// 概率递增</span></span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="type">int</span> <span class="title function_">value</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> counter;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>前 5 次访问（<code>base=0</code>，p&#x3D;1）必增；越往后 p 越小。最终 255 的计数器可以代表几十万到百万级的真实访问量。</p>
+<h3 id="5-4-衰减：避免”曾经热过”的-key-霸占缓存"><a href="#5-4-衰减：避免”曾经热过”的-key-霸占缓存" class="headerlink" title="5.4 衰减：避免”曾经热过”的 key 霸占缓存"></a>5.4 衰减：避免”曾经热过”的 key 霸占缓存</h3><p>LFU 只有递增没有衰减，一个 key 早年火过一次就会一直霸占缓存（访问量早已回落也不淘汰）。所以 <code>ldt</code> 出场：每隔 <code>lfu-decay-time</code> 分钟（默认 1），<code>logc</code> 减半，让热度随时间冷却，冷门但持续访问的 key 才有机会浮现。</p>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>默认值</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>lfu-log-factor</code></td>
+<td>10</td>
+<td>计数器增长速度。越大增长越慢、能表达更大的访问量；越小越容易被高访问 key 快速顶到 255</td>
+</tr>
+<tr>
+<td><code>lfu-decay-time</code></td>
+<td>1</td>
+<td>计数器减半的间隔（分钟），0 表示不衰减</td>
+</tr>
+</tbody></table>
+<p><code>lfu-log-factor</code> 不同取值下，计数器到达某值需要的真实访问次数（Redis 官方文档数据）：</p>
+<table>
+<thead>
+<tr>
+<th>factor</th>
+<th>100 次</th>
+<th>1000 次</th>
+<th>10 万次</th>
+<th>100 万次</th>
+<th>1000 万次</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>0</td>
+<td>104</td>
+<td>255</td>
+<td>255</td>
+<td>255</td>
+<td>255</td>
+</tr>
+<tr>
+<td>1</td>
+<td>18</td>
+<td>49</td>
+<td>255</td>
+<td>255</td>
+<td>255</td>
+</tr>
+<tr>
+<td>10（默认）</td>
+<td>10</td>
+<td>18</td>
+<td>142</td>
+<td>255</td>
+<td>255</td>
+</tr>
+<tr>
+<td>100</td>
+<td>8</td>
+<td>11</td>
+<td>49</td>
+<td>143</td>
+<td>255</td>
+</tr>
+</tbody></table>
+<p>高频热点 key 容易顶到 255——所有 key 都是 255 就分不出高下，这时调大 factor 拉开差距。</p>
+<h3 id="5-5-观测与排查"><a href="#5-5-观测与排查" class="headerlink" title="5.5 观测与排查"></a>5.5 观测与排查</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 查看某个 key 的访问频次（必须先启用 LFU 策略）</span></span><br><span class="line">redis-cli config <span class="built_in">set</span> maxmemory-policy allkeys-lfu</span><br><span class="line">redis-cli object freq hot:user:1001</span><br><span class="line"></span><br><span class="line"><span class="comment"># 扫描全库输出热点 key 清单（同样是 LFU 前置）</span></span><br><span class="line">redis-cli --hotkeys</span><br></pre></td></tr></table></figure>
+
+<h2 id="6-实战选型：项目里到底配什么"><a href="#6-实战选型：项目里到底配什么" class="headerlink" title="6. 实战选型：项目里到底配什么"></a>6. 实战选型：项目里到底配什么</h2><h3 id="6-1-决策表"><a href="#6-1-决策表" class="headerlink" title="6.1 决策表"></a>6.1 决策表</h3><table>
+<thead>
+<tr>
+<th>业务形态</th>
+<th>推荐策略</th>
+<th>理由</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>通用缓存（读多写少、key 同质化）</td>
+<td><code>allkeys-lru</code></td>
+<td>简单可靠，80% 的场景首选</td>
+</tr>
+<tr>
+<td>部分 key 长期高频（榜单、用户画像）</td>
+<td><code>allkeys-lfu</code></td>
+<td>长尾热点命中率更高</td>
+</tr>
+<tr>
+<td>全部 key 带 TTL、生命周期短（验证码、会话）</td>
+<td><code>volatile-lru</code> &#x2F; <code>volatile-ttl</code></td>
+<td>只淘汰缓存，不碰长驻数据</td>
+</tr>
+<tr>
+<td>缓存与持久数据混用同一实例</td>
+<td><code>volatile-lru</code></td>
+<td>保护不过期数据不被淘汰</td>
+</tr>
+<tr>
+<td>key 均可重建、淘汰成本均等</td>
+<td><code>allkeys-random</code></td>
+<td>淘汰开销最小</td>
+</tr>
+<tr>
+<td>数据不能丢，写失败要立刻感知</td>
+<td><code>noeviction</code></td>
+<td>用异常暴露容量问题</td>
+</tr>
+</tbody></table>
+<p><strong>选型口诀：没把握就 allkeys-lru；有长尾热点换 allkeys-lfu；混用持久数据必须 volatile。</strong></p>
+<h3 id="6-2-三个真实场景"><a href="#6-2-三个真实场景" class="headerlink" title="6.2 三个真实场景"></a>6.2 三个真实场景</h3><ul>
+<li><strong>登录 token（TTL 短、无差别）</strong>：<code>volatile-random</code> 即可，谁被淘汰无所谓，反正过期快。</li>
+<li><strong>电商秒杀（短时突发热点）</strong>：用 <code>allkeys-lru</code>。LFU 会把秒杀 key 的计数器顶到高位，热点过后长期霸占缓存，反而有害。</li>
+<li><strong>用户画像&#x2F;推荐位（长期频次差异大）</strong>：<code>allkeys-lfu</code>，避免一波流量把常驻热 key 挤掉。</li>
+</ul>
+<h3 id="6-3-验证：用数据说话"><a href="#6-3-验证：用数据说话" class="headerlink" title="6.3 验证：用数据说话"></a>6.3 验证：用数据说话</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 观察淘汰量：持续增长说明容量吃紧或策略不匹配</span></span><br><span class="line">redis-cli info stats | grep evicted_keys</span><br><span class="line"></span><br><span class="line"><span class="comment"># 内存全景</span></span><br><span class="line">redis-cli info memory | grep -E <span class="string">&quot;used_memory|maxmemory|fragmentation&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p>上线后观察两天：<code>evicted_keys</code> 平稳且被淘汰的都是冷 key，说明策略选对了；如果出现热 key 被淘汰（业务告警）或 <code>evicted_keys</code> 陡增，先扩 <code>maxmemory</code>，再考虑换策略。</p>
+<h3 id="6-4-避坑清单（面试也常问）"><a href="#6-4-避坑清单（面试也常问）" class="headerlink" title="6.4 避坑清单（面试也常问）"></a>6.4 避坑清单（面试也常问）</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>缓存写满后大量写入报 OOM</td>
+<td>策略是 <code>noeviction</code>，或 <code>volatile-*</code> 但 key 没带 TTL</td>
+<td>换成 <code>allkeys-lru</code>，或给 key 补 TTL</td>
+</tr>
+<tr>
+<td>突发流量后热 key 命中率骤降</td>
+<td>LRU 被”一波流”污染</td>
+<td>评估换 <code>allkeys-lfu</code></td>
+</tr>
+<tr>
+<td>写入延迟毛刺明显</td>
+<td>每次写前都要先淘汰，可能多轮采样删除</td>
+<td>提高 maxmemory 余量，或写操作错峰</td>
+</tr>
+<tr>
+<td>主从行为不一致</td>
+<td>淘汰只在主节点触发</td>
+<td>正常现象，从库同步主库数据；不要只在从库配不同策略</td>
+</tr>
+<tr>
+<td>内存碎片率长期偏高</td>
+<td>频繁淘汰 + 大 key 释放</td>
+<td>开启 <code>activedefrag</code>，或检查内存分配策略</td>
+</tr>
+</tbody></table>
+<h2 id="7-总结与实操建议"><a href="#7-总结与实操建议" class="headerlink" title="7. 总结与实操建议"></a>7. 总结与实操建议</h2><p>三个收获：淘汰只发生在写路径、<code>volatile-*</code> 依赖 TTL 且可能静默降级、LRU 看”最近” LFU 看”频次”，两者的实现都是近似方案（采样 + 概率计数）。</p>
+<p>实操建议按优先级：</p>
+<ol>
+<li>**先设 <code>maxmemory</code>**，这是 Redis 生产环境的第一道保险，没有上限，策略都是空谈。</li>
+<li><strong>默认 <code>allkeys-lru</code> 起步</strong>，出问题再换，不要一上来就 LFU——LFU 有 <code>lfu-log-factor</code> 和 <code>lfu-decay-time</code> 两个参数要调。</li>
+<li>**缓存与存储数据混用的实例必须用 <code>volatile-*</code>**。</li>
+<li><strong>上线后盯 <code>evicted_keys</code> 和命中率</strong>，策略选对的标准是”被淘汰的都是冷 key”。</li>
+</ol>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -2166,1324 +2680,8 @@ flowchart LR
 
 
 
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/5e9c8515.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="知行栈">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | 知行栈">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/5e9c8515.html" class="post-title-link" itemprop="url">Zeus-Doc 性能压测实战</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-
-      <time title="Created: 2026-08-06 23:56:08" itemprop="dateCreated datePublished" datetime="2026-08-06T23:56:08+08:00">2026-08-06</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">In</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/%E9%A1%B9%E7%9B%AE%E5%AE%9E%E6%88%98/" itemprop="url" rel="index"><span itemprop="name">项目实战</span></a>
-        </span>
-    </span>
-
-  
-    <span class="post-meta-break"></span>
-    <span class="post-meta-item" title="Word count in article">
-      <span class="post-meta-item-icon">
-        <i class="far fa-file-word"></i>
-      </span>
-      <span class="post-meta-item-text">Word count in article: </span>
-      <span>4.9k</span>
-    </span>
-    <span class="post-meta-item" title="Reading time">
-      <span class="post-meta-item-icon">
-        <i class="far fa-clock"></i>
-      </span>
-      <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>18 mins.</span>
-    </span>
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="Zeus-Doc-性能压测报告"><a href="#Zeus-Doc-性能压测报告" class="headerlink" title="Zeus-Doc 性能压测报告"></a>Zeus-Doc 性能压测报告</h1><blockquote>
-<p>版本：1.0.0 ｜ 更新日期：2026-07-31 ｜ 数据性质：除特别说明外均为合理模拟数据</p>
-<p>相关文档：《01-系统架构》｜《04-线程与锁分析》｜《07-部署运维》</p>
-</blockquote>
-<hr>
-<h2 id="一、压测环境说明"><a href="#一、压测环境说明" class="headerlink" title="一、压测环境说明"></a>一、压测环境说明</h2><h3 id="1-1-机器配置"><a href="#1-1-机器配置" class="headerlink" title="1.1 机器配置"></a>1.1 机器配置</h3><table>
-<thead>
-<tr>
-<th>角色</th>
-<th>规格</th>
-<th>数量</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>压测机</td>
-<td>8C 16G</td>
-<td>1</td>
-<td>JMeter Master，独立部署避免互相干扰</td>
-</tr>
-<tr>
-<td>应用服务器</td>
-<td>8C 16G</td>
-<td>3</td>
-<td>K8s Pod，doc-service 部署 3 副本</td>
-</tr>
-<tr>
-<td>MySQL</td>
-<td>16C 64G</td>
-<td>1 主 2 从</td>
-<td>8.0.33，SSD 3TB</td>
-</tr>
-<tr>
-<td>Redis</td>
-<td>8C 16G</td>
-<td>3</td>
-<td>Redis 7.x（redis:7-alpine 镜像）主从 + 哨兵</td>
-</tr>
-<tr>
-<td>ES</td>
-<td>8C 32G</td>
-<td>3</td>
-<td>8.13.4，集群</td>
-</tr>
-<tr>
-<td>RocketMQ</td>
-<td>4C 8G</td>
-<td>3</td>
-<td>5.x，DLedger</td>
-</tr>
-</tbody></table>
-<blockquote>
-<p>注：本表为主压测环境（8C 16G ×3）；补充验证环境（4C 8G ×3，见附A）用于 Tomcat 调优拐点、连接池拐点等补充验证，两环境规格不同、场景不同，数据不直接可比。</p>
-</blockquote>
-<h3 id="1-2-软件版本"><a href="#1-2-软件版本" class="headerlink" title="1.2 软件版本"></a>1.2 软件版本</h3><table>
-<thead>
-<tr>
-<th>组件</th>
-<th>版本</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>JDK</td>
-<td>Oracle JDK 17.0.11</td>
-</tr>
-<tr>
-<td>Spring Boot</td>
-<td>3.2.5</td>
-</tr>
-<tr>
-<td>Spring Cloud</td>
-<td>2023.0.1</td>
-</tr>
-<tr>
-<td>Tomcat</td>
-<td>10.1.24（内嵌）</td>
-</tr>
-<tr>
-<td>MySQL</td>
-<td>8.0.33</td>
-</tr>
-<tr>
-<td>Redis</td>
-<td>7.x（redis:7-alpine 镜像）</td>
-</tr>
-<tr>
-<td>HikariCP</td>
-<td>5.1.0</td>
-</tr>
-<tr>
-<td>JMeter</td>
-<td>5.6.3</td>
-</tr>
-</tbody></table>
-<h3 id="1-3-JVM-启动参数"><a href="#1-3-JVM-启动参数" class="headerlink" title="1.3 JVM 启动参数"></a>1.3 JVM 启动参数</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">-Xms2g -Xmx2g -XX:+UseG1GC -XX:MaxGCPauseMillis=200</span><br><span class="line">-XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/data/logs/zeus-doc-oom.hprof</span><br><span class="line">-Xlog:gc*:file=/data/logs/zeus-doc-gc.log:time,uptime:filecount=10,filesize=50M</span><br></pre></td></tr></table></figure>
-
-<blockquote>
-<p>配置源于 <code>application.yml:119-123</code> 注释。</p>
-</blockquote>
-<h3 id="1-4-Tomcat-默认参数（application-yml-3-11）"><a href="#1-4-Tomcat-默认参数（application-yml-3-11）" class="headerlink" title="1.4 Tomcat 默认参数（application.yml:3-11）"></a>1.4 Tomcat 默认参数（application.yml:3-11）</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">max-threads: 200</span><br><span class="line">min-spare-threads: 20</span><br><span class="line">max-connections: 10000</span><br><span class="line">accept-count: 100</span><br><span class="line">connection-timeout: 20000</span><br></pre></td></tr></table></figure>
-
-<hr>
-<h2 id="二、JMeter-测试计划"><a href="#二、JMeter-测试计划" class="headerlink" title="二、JMeter 测试计划"></a>二、JMeter 测试计划</h2><h3 id="2-1-测试场景"><a href="#2-1-测试场景" class="headerlink" title="2.1 测试场景"></a>2.1 测试场景</h3><table>
-<thead>
-<tr>
-<th>场景</th>
-<th>接口</th>
-<th>目标</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>S1 文档读</td>
-<td><code>GET /docs/&#123;id&#125;</code></td>
-<td>验证三级缓存命中率</td>
-</tr>
-<tr>
-<td>S2 文档写</td>
-<td><code>POST /docs/&#123;id&#125;/save</code></td>
-<td>验证线程池隔离</td>
-</tr>
-<tr>
-<td>S3 协同编辑</td>
-<td>WebSocket <code>ws://collab/ws</code></td>
-<td>验证长连接承载</td>
-</tr>
-<tr>
-<td>S4 全文检索</td>
-<td><code>GET /search?q=xxx</code></td>
-<td>验证 ES 查询 RT</td>
-</tr>
-<tr>
-<td>S5 文档删除</td>
-<td><code>DELETE /docs/&#123;id&#125;</code></td>
-<td>验证 TCC 事务成功率</td>
-</tr>
-</tbody></table>
-<h3 id="2-2-阶梯加压策略"><a href="#2-2-阶梯加压策略" class="headerlink" title="2.2 阶梯加压策略"></a>2.2 阶梯加压策略</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">阶梯加压：100 → 500 → 1000 → 3000 并发</span><br><span class="line">每阶梯持续 5 分钟，Ramp-up 60 秒</span><br><span class="line">监控指标：TPS / RT(avg,P95,P99) / 错误率 / GC / CPU / 内存</span><br></pre></td></tr></table></figure>
-
-<p>JMeter 线程组配置：Thread Group → Stepping Thread Group 插件，逐步递增并发，观察拐点。</p>
-<hr>
-<h2 id="三、压测图表与数据（模拟数据）"><a href="#三、压测图表与数据（模拟数据）" class="headerlink" title="三、压测图表与数据（模拟数据）"></a>三、压测图表与数据（模拟数据）</h2><h3 id="3-1-图表-1：WebSocket-连接数随时间变化曲线"><a href="#3-1-图表-1：WebSocket-连接数随时间变化曲线" class="headerlink" title="3.1 图表 1：WebSocket 连接数随时间变化曲线"></a>3.1 图表 1：WebSocket 连接数随时间变化曲线</h3><p><strong>场景 S3 协同编辑，单节点 collab-service</strong>：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">连接数(千)</span><br><span class="line">  6 |                                              * * * *  (5.8k 触发预警)</span><br><span class="line">  5 |                                  * * * * *</span><br><span class="line">  4 |                      * * * * *</span><br><span class="line">  3 |          * * * * *</span><br><span class="line">  2 |* * * * *</span><br><span class="line">  1 |*</span><br><span class="line">  0 +--------------------------------------------------------</span><br><span class="line">     0min    5min   10min   15min   20min   25min   30min</span><br><span class="line">     100     500    1000    2000    3500    5000    5800</span><br><span class="line">     并发阶梯  100    500     1000           3000</span><br></pre></td></tr></table></figure>
-
-<table>
-<thead>
-<tr>
-<th>时间</th>
-<th>并发用户</th>
-<th>在线连接</th>
-<th>消息广播 TPS</th>
-<th>CPU</th>
-<th>内存</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>5min</td>
-<td>100</td>
-<td>98</td>
-<td>320</td>
-<td>18%</td>
-<td>0.9G</td>
-</tr>
-<tr>
-<td>10min</td>
-<td>500</td>
-<td>497</td>
-<td>1650</td>
-<td>35%</td>
-<td>1.3G</td>
-</tr>
-<tr>
-<td>15min</td>
-<td>1000</td>
-<td>995</td>
-<td>3300</td>
-<td>52%</td>
-<td>1.8G</td>
-</tr>
-<tr>
-<td>20min</td>
-<td>2000</td>
-<td>1990</td>
-<td>6800</td>
-<td>71%</td>
-<td>2.4G</td>
-</tr>
-<tr>
-<td>25min</td>
-<td>3500</td>
-<td>3490</td>
-<td>11900</td>
-<td>88%</td>
-<td>3.1G</td>
-</tr>
-<tr>
-<td>30min</td>
-<td>5800</td>
-<td>5800</td>
-<td>19800</td>
-<td>97%</td>
-<td>3.6G</td>
-</tr>
-</tbody></table>
-<p><strong>结论</strong>：单节点 WebSocket 稳定承载 5000 连接（CPU 88%），5800 时 CPU 接近饱和，建议单节点上限 5000，超过则水平扩容。Netty bossGroup 1 线程、workerGroup 默认 2×CPU。</p>
-<h3 id="3-2-图表-2：接口-TPS-与-RT-散点图"><a href="#3-2-图表-2：接口-TPS-与-RT-散点图" class="headerlink" title="3.2 图表 2：接口 TPS 与 RT 散点图"></a>3.2 图表 2：接口 TPS 与 RT 散点图</h3><p><strong>场景 S1 文档读（命中三级缓存），max-threads&#x3D;200</strong>：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">RT(ms)</span><br><span class="line">800 |                               x (3000并发 P99=820)</span><br><span class="line">600 |                        x</span><br><span class="line">400 |                  x</span><br><span class="line">200 |           x</span><br><span class="line">100 |     x</span><br><span class="line"> 50 | x x                          x(回源DB尖刺)</span><br><span class="line">  0 +----+----+----+----+----+----+----→ TPS</span><br><span class="line">     500  1000 1500 2000 2500 3000 3500</span><br><span class="line">     100  500  1000 1500 2000 2500 3000 并发</span><br></pre></td></tr></table></figure>
-
-<table>
-<thead>
-<tr>
-<th>并发</th>
-<th>TPS</th>
-<th>avg RT</th>
-<th>P95 RT</th>
-<th>P99 RT</th>
-<th>错误率</th>
-<th>L1命中率</th>
-<th>L2命中率</th>
-<th>DB回源</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>100</td>
-<td>1850</td>
-<td>8ms</td>
-<td>15ms</td>
-<td>22ms</td>
-<td>0%</td>
-<td>78%</td>
-<td>19%</td>
-<td>3%</td>
-</tr>
-<tr>
-<td>500</td>
-<td>3200</td>
-<td>14ms</td>
-<td>28ms</td>
-<td>45ms</td>
-<td>0%</td>
-<td>82%</td>
-<td>16%</td>
-<td>2%</td>
-</tr>
-<tr>
-<td>1000</td>
-<td>4100</td>
-<td>22ms</td>
-<td>48ms</td>
-<td>80ms</td>
-<td>0%</td>
-<td>85%</td>
-<td>13%</td>
-<td>2%</td>
-</tr>
-<tr>
-<td>2000</td>
-<td>4650</td>
-<td>38ms</td>
-<td>95ms</td>
-<td>180ms</td>
-<td>0.02%</td>
-<td>87%</td>
-<td>11%</td>
-<td>2%</td>
-</tr>
-<tr>
-<td>3000</td>
-<td>4800</td>
-<td>62ms</td>
-<td>210ms</td>
-<td>820ms</td>
-<td>0.15%</td>
-<td>88%</td>
-<td>10%</td>
-<td>2%</td>
-</tr>
-</tbody></table>
-<p><strong>结论</strong>：</p>
-<ul>
-<li>TPS 在并发 2000-3000 区间趋于饱和（拐点 4650→4800），P99 从 180ms 飙升到 820ms，出现长尾；</li>
-<li>三级缓存命中率稳定，L1 Caffeine 占 85%+，DB 回源率恒定 2%（互斥锁有效防击穿）；</li>
-<li>3000 并发时错误率 0.15%，主要为热点降级返回 null 与少量连接超时。</li>
-</ul>
-<h3 id="3-3-图表-3：Tomcat-调优前后对比柱状图"><a href="#3-3-图表-3：Tomcat-调优前后对比柱状图" class="headerlink" title="3.3 图表 3：Tomcat 调优前后对比柱状图"></a>3.3 图表 3：Tomcat 调优前后对比柱状图</h3><p><strong>场景 S1，固定 2000 并发，对比 max-threads 不同取值</strong>：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">TPS</span><br><span class="line">5000 |          ████  (200=4650)</span><br><span class="line">4500 |      ████████████  (100=4400 / 200=4650)</span><br><span class="line">4000 |  ███████████████████  (50=3950)</span><br><span class="line">3500 |  ████</span><br><span class="line">     +--------------------------------→ max-threads</span><br><span class="line">        50      100     200     500</span><br><span class="line"></span><br><span class="line">错误率%</span><br><span class="line">0.6 |  ████  (50=0.55%)</span><br><span class="line">0.3 |        ████  (100=0.18%)</span><br><span class="line">0.1 |              ████  (200=0.02%)</span><br><span class="line">0.2 |                      ████  (500=0.12% 长尾GC)</span><br><span class="line">   +--------------------------------→ max-threads</span><br><span class="line">      50      100     200     500</span><br></pre></td></tr></table></figure>
-
-<table>
-<thead>
-<tr>
-<th>max-threads</th>
-<th>TPS</th>
-<th>P95 RT</th>
-<th>P99 RT</th>
-<th>错误率</th>
-<th>CPU</th>
-<th>GC 次数&#x2F;分</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>50</td>
-<td>3950</td>
-<td>380ms</td>
-<td>950ms</td>
-<td>0.55%</td>
-<td>45%</td>
-<td>2</td>
-</tr>
-<tr>
-<td>100</td>
-<td>4400</td>
-<td>150ms</td>
-<td>320ms</td>
-<td>0.18%</td>
-<td>68%</td>
-<td>4</td>
-</tr>
-<tr>
-<td>200</td>
-<td>4650</td>
-<td>95ms</td>
-<td>180ms</td>
-<td>0.02%</td>
-<td>82%</td>
-<td>6</td>
-</tr>
-<tr>
-<td>500</td>
-<td>4620</td>
-<td>110ms</td>
-<td>260ms</td>
-<td>0.12%</td>
-<td>91%</td>
-<td>11</td>
-</tr>
-</tbody></table>
-<blockquote>
-<p>注：本表为主压测环境（8C 16G ×3）下文档读（详情）接口 2000 并发场景；附B「B.1 max-threads 对比表格」为补充验证环境（4C 8G ×3）下文档详情接口 500 并发场景，环境与并发不同，两处 TPS（4650 vs 5680）不直接可比。</p>
-</blockquote>
-<p><strong>关键发现</strong>：</p>
-<ul>
-<li>max-threads&#x3D;50 时线程不足，请求排队，P99 高达 950ms，错误率 0.55%（连接超时）；</li>
-<li>max-threads&#x3D;200 为最优点，TPS 4650 达峰，错误率最低 0.02%；</li>
-<li>max-threads&#x3D;500 反而下降：线程过多导致上下文切换加剧，GC 频次翻倍（6→11 次&#x2F;分），P99 反升至 260ms。</li>
-</ul>
-<h3 id="3-4-推荐最佳参数组合"><a href="#3-4-推荐最佳参数组合" class="headerlink" title="3.4 推荐最佳参数组合"></a>3.4 推荐最佳参数组合</h3><table>
-<thead>
-<tr>
-<th>参数</th>
-<th>推荐值</th>
-<th>理由</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>max-threads</td>
-<td>200</td>
-<td>TPS 峰值，错误率最低，CPU 82% 留余量</td>
-</tr>
-<tr>
-<td>min-spare-threads</td>
-<td>20</td>
-<td>突发流量预热</td>
-</tr>
-<tr>
-<td>max-connections</td>
-<td>10000</td>
-<td>NIO 接收队列充足</td>
-</tr>
-<tr>
-<td>accept-count</td>
-<td>100</td>
-<td>排队不宜过长，快速失败优于长时间等待</td>
-</tr>
-<tr>
-<td>HikariCP maximum-pool-size</td>
-<td>50</td>
-<td>DB 连接数 &#x3D; max-threads 的 1&#x2F;4 即可（IO 等待期间释放）</td>
-</tr>
-</tbody></table>
-<hr>
-<h2 id="四、串行-vs-CompletableFuture-并行-RT-对比"><a href="#四、串行-vs-CompletableFuture-并行-RT-对比" class="headerlink" title="四、串行 vs CompletableFuture 并行 RT 对比"></a>四、串行 vs CompletableFuture 并行 RT 对比</h2><h3 id="4-1-场景"><a href="#4-1-场景" class="headerlink" title="4.1 场景"></a>4.1 场景</h3><p>文档详情页需聚合三路数据：文档正文（doc 服务）、分享状态（doc 服务）、审计摘要（audit 服务）。</p>
-<table>
-<thead>
-<tr>
-<th>方案</th>
-<th>实现</th>
-<th>RT</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>串行</td>
-<td>三次 Feign 顺序调用</td>
-<td>45ms + 60ms + 80ms &#x3D; 185ms</td>
-</tr>
-<tr>
-<td>并行</td>
-<td>CompletableFuture + doc-executor 并发</td>
-<td>max(45,60,80) + 调度 5ms &#x3D; 85ms</td>
-</tr>
-</tbody></table>
-<h3 id="4-2-并行实现要点"><a href="#4-2-并行实现要点" class="headerlink" title="4.2 并行实现要点"></a>4.2 并行实现要点</h3><ul>
-<li>使用 <code>doc-executor</code> 线程池（core&#x3D;8），避免无界创建线程；</li>
-<li>用 <code>TtlExecutorUtil.wrap</code> 包装（<code>ThreadPoolConfig.java:103</code>），保证 UserContext 跨线程传递；</li>
-<li>设置总超时 200ms（<code>CompletableFuture.get(200ms)</code>），单路超时不拖累整体。</li>
-</ul>
-<h3 id="4-3-压测对比（模拟数据，1000-并发）"><a href="#4-3-压测对比（模拟数据，1000-并发）" class="headerlink" title="4.3 压测对比（模拟数据，1000 并发）"></a>4.3 压测对比（模拟数据，1000 并发）</h3><table>
-<thead>
-<tr>
-<th>方案</th>
-<th>avg RT</th>
-<th>P99 RT</th>
-<th>TPS</th>
-<th>doc-executor 活跃线程</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>串行</td>
-<td>186ms</td>
-<td>420ms</td>
-<td>2100</td>
-<td>0</td>
-</tr>
-<tr>
-<td>并行</td>
-<td>88ms</td>
-<td>195ms</td>
-<td>4350</td>
-<td>6-8</td>
-</tr>
-<tr>
-<td>并行（无超时）</td>
-<td>92ms</td>
-<td>580ms</td>
-<td>3800</td>
-<td>8（堆积风险）</td>
-</tr>
-</tbody></table>
-<p>并行方案 TPS 提升 107%，但必须设置超时，否则某路慢调用会拖垮线程池。</p>
-<hr>
-<h2 id="五、压测结论与最佳实践"><a href="#五、压测结论与最佳实践" class="headerlink" title="五、压测结论与最佳实践"></a>五、压测结论与最佳实践</h2><h3 id="5-1-核心结论"><a href="#5-1-核心结论" class="headerlink" title="5.1 核心结论"></a>5.1 核心结论</h3><ol>
-<li><strong>三级缓存有效</strong>：L1 Caffeine 命中率 85%+，DB 回源率恒定 2%，互斥锁成功防御击穿；</li>
-<li><strong>Tomcat max-threads&#x3D;200 为最优</strong>：并非越大越好，500 时上下文切换反噬；</li>
-<li><strong>WebSocket 单节点 5000 上限</strong>：超过需水平扩容；</li>
-<li><strong>并行聚合 RT 减半</strong>：CompletableFuture + 线程池隔离是 IO 密集聚合的有效手段；</li>
-<li><strong>TCC 事务无失败</strong>：删除场景 TCC 成功率 100%（3000 并发内），Try 阶段幂等保障到位。</li>
-</ol>
-<h3 id="5-2-容量规划建议"><a href="#5-2-容量规划建议" class="headerlink" title="5.2 容量规划建议"></a>5.2 容量规划建议</h3><table>
-<thead>
-<tr>
-<th>业务量</th>
-<th>推荐部署</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>500 QPS</td>
-<td>doc-service 1 副本，max-threads&#x3D;200</td>
-</tr>
-<tr>
-<td>2000 QPS</td>
-<td>doc-service 2 副本 + Redis 主从</td>
-</tr>
-<tr>
-<td>5000 QPS</td>
-<td>doc-service 4 副本 + Sentinel 限流 + 热点降级</td>
-</tr>
-<tr>
-<td>万人协同</td>
-<td>collab-service 3 副本，一致性哈希路由</td>
-</tr>
-</tbody></table>
-<h3 id="5-3-后续优化方向"><a href="#5-3-后续优化方向" class="headerlink" title="5.3 后续优化方向"></a>5.3 后续优化方向</h3><ul>
-<li>L1 Caffeine 改用 W-TinyLFU 策略（已开启 recordStats，待观察命中率）；</li>
-<li>接入 Sentinel 集群限流，替代单机 Redis Lua；</li>
-<li>长尾 P99 优化：排查 3000 并发时 GC 抖动，详见《05-JVM 调优报告》。</li>
-</ul>
-<hr>
-<h2 id="六、压测风险与回滚"><a href="#六、压测风险与回滚" class="headerlink" title="六、压测风险与回滚"></a>六、压测风险与回滚</h2><ul>
-<li>压测流量打「压测标记」Header，审计服务识别后写入独立压测库，避免污染生产数据；</li>
-<li>热点降级阈值（QPS&gt;100）在压测期间临时调高到 500，避免误降级干扰结果；</li>
-<li>压测结束立即恢复配置，K8s HPA 监控 5 分钟无异常后收尾。</li>
-</ul>
-<hr>
-<h2 id="七、连接池压测：HikariCP"><a href="#七、连接池压测：HikariCP" class="headerlink" title="七、连接池压测：HikariCP"></a>七、连接池压测：HikariCP</h2><p>固定 <code>max-threads=200</code>，调整 HikariCP <code>maximum-pool-size</code>，压测文档保存接口：</p>
-<h3 id="7-1-拐点曲线（模拟数据）"><a href="#7-1-拐点曲线（模拟数据）" class="headerlink" title="7.1 拐点曲线（模拟数据）"></a>7.1 拐点曲线（模拟数据）</h3><table>
-<thead>
-<tr>
-<th>maximum-pool-size</th>
-<th>TPS</th>
-<th>平均 RT</th>
-<th>99 线 RT</th>
-<th>DB 等待时间</th>
-<th>错误率</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>10</td>
-<td>820</td>
-<td>240ms</td>
-<td>680ms</td>
-<td>180ms</td>
-<td>0.5%</td>
-</tr>
-<tr>
-<td>20</td>
-<td>1450</td>
-<td>130ms</td>
-<td>320ms</td>
-<td>80ms</td>
-<td>0.1%</td>
-</tr>
-<tr>
-<td>50</td>
-<td>1850</td>
-<td>105ms</td>
-<td>220ms</td>
-<td>12ms</td>
-<td>0.05%</td>
-</tr>
-<tr>
-<td>100</td>
-<td>1880</td>
-<td>108ms</td>
-<td>235ms</td>
-<td>5ms</td>
-<td>0.05%</td>
-</tr>
-<tr>
-<td>200</td>
-<td>1820</td>
-<td>125ms</td>
-<td>280ms</td>
-<td>3ms</td>
-<td>0.08%</td>
-</tr>
-<tr>
-<td>500</td>
-<td>1620</td>
-<td>180ms</td>
-<td>420ms</td>
-<td>2ms</td>
-<td>0.15%</td>
-</tr>
-</tbody></table>
-<blockquote>
-<p>模拟数据。配置位置：<code>application-sharding.yml:21</code>（<code>hikari.maximum-pool-size</code>）。</p>
-</blockquote>
-<h3 id="7-2-拐点曲线图"><a href="#7-2-拐点曲线图" class="headerlink" title="7.2 拐点曲线图"></a>7.2 拐点曲线图</h3><pre class="mermaid">xychart-beta
-    title "HikariCP 连接数 TPS 拐点（模拟数据）"
-    x-axis ["10", "20", "50", "100", "200", "500"]
-    y-axis "TPS" 0 --> 2000
-    line [820, 1450, 1850, 1880, 1820, 1620]</pre>
-
-<p><strong>拐点分析：</strong></p>
-<ul>
-<li><code>pool-size=50</code> 处 TPS 达峰（1850），RT 最低；</li>
-<li><code>pool-size&gt;100</code> 后 TPS 下降，原因是：DB 端并发连接过多，锁争用加剧（行锁等待），<code>InnoDB</code> 事务调度开销变大；</li>
-<li>经验公式：<code>pool-size = ((核心数 × 2) + 有效磁盘数)</code>。4C+SSD ≈ 9，但 IO 等待型业务可适当放大到 50。</li>
-</ul>
-<p><strong>最佳值：</strong> <code>maximum-pool-size=50</code>（当前配置 <code>application-sharding.yml:21</code>），4 分片共 200 连接。</p>
-<hr>
-<h2 id="八、综合结论与最佳参数推荐"><a href="#八、综合结论与最佳参数推荐" class="headerlink" title="八、综合结论与最佳参数推荐"></a>八、综合结论与最佳参数推荐</h2><h3 id="8-1-推荐生产参数"><a href="#8-1-推荐生产参数" class="headerlink" title="8.1 推荐生产参数"></a>8.1 推荐生产参数</h3><table>
-<thead>
-<tr>
-<th>组件</th>
-<th>参数</th>
-<th>推荐值</th>
-<th>配置位置</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>Tomcat</td>
-<td>max-threads</td>
-<td>200</td>
-<td><code>application.yml:6</code></td>
-</tr>
-<tr>
-<td>Tomcat</td>
-<td>max-connections</td>
-<td>10000</td>
-<td><code>application.yml:8</code></td>
-</tr>
-<tr>
-<td>Tomcat</td>
-<td>accept-count</td>
-<td>100</td>
-<td><code>application.yml:9</code></td>
-</tr>
-<tr>
-<td>HikariCP</td>
-<td>maximum-pool-size</td>
-<td>50&#x2F;分片</td>
-<td><code>application-sharding.yml:21</code></td>
-</tr>
-<tr>
-<td>HikariCP</td>
-<td>minimum-idle</td>
-<td>10</td>
-<td><code>application-sharding.yml:22</code></td>
-</tr>
-<tr>
-<td>doc-executor</td>
-<td>core&#x2F;max&#x2F;queue</td>
-<td>8&#x2F;16&#x2F;2000</td>
-<td><code>application.yml:84-87</code></td>
-</tr>
-<tr>
-<td>audit-executor</td>
-<td>core&#x2F;max&#x2F;queue</td>
-<td>2&#x2F;4&#x2F;500</td>
-<td><code>application.yml:88-91</code></td>
-</tr>
-<tr>
-<td>search-sync-executor</td>
-<td>core&#x2F;max&#x2F;queue</td>
-<td>4&#x2F;8&#x2F;1000</td>
-<td><code>application.yml:92-95</code></td>
-</tr>
-<tr>
-<td>export-executor</td>
-<td>core&#x2F;max&#x2F;queue</td>
-<td>2&#x2F;4&#x2F;200</td>
-<td><code>application.yml:96-99</code></td>
-</tr>
-<tr>
-<td>Netty Worker</td>
-<td>CPU*2</td>
-<td>8</td>
-<td><code>NettyWebSocketServer.java:53</code></td>
-</tr>
-<tr>
-<td>Netty SO_BACKLOG</td>
-<td>8192</td>
-<td>8192</td>
-<td><code>NettyWebSocketServer.java:58</code></td>
-</tr>
-<tr>
-<td>JVM</td>
-<td>-Xms&#x2F;-Xmx</td>
-<td>2g&#x2F;2g</td>
-<td><code>application.yml:120</code></td>
-</tr>
-<tr>
-<td>JVM</td>
-<td>GC</td>
-<td>G1GC</td>
-<td><code>application.yml:121</code></td>
-</tr>
-</tbody></table>
-<h3 id="8-2-性能达成指标"><a href="#8-2-性能达成指标" class="headerlink" title="8.2 性能达成指标"></a>8.2 性能达成指标</h3><table>
-<thead>
-<tr>
-<th>指标</th>
-<th>目标</th>
-<th>实测</th>
-<th>达成</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>文档详情 TPS</td>
-<td>≥5000</td>
-<td>5680</td>
-<td>是</td>
-</tr>
-<tr>
-<td>文档详情 99 线 RT</td>
-<td>≤100ms</td>
-<td>52ms</td>
-<td>是</td>
-</tr>
-<tr>
-<td>文档保存 TPS</td>
-<td>≥1500</td>
-<td>1850</td>
-<td>是</td>
-</tr>
-<tr>
-<td>搜索 99 线 RT</td>
-<td>≤200ms</td>
-<td>130ms</td>
-<td>是</td>
-</tr>
-<tr>
-<td>WebSocket 并发</td>
-<td>≥5000</td>
-<td>5000</td>
-<td>是</td>
-</tr>
-<tr>
-<td>审计写入 TPS</td>
-<td>≥8000</td>
-<td>8800</td>
-<td>是</td>
-</tr>
-</tbody></table>
-<h3 id="8-3-调优经验总结"><a href="#8-3-调优经验总结" class="headerlink" title="8.3 调优经验总结"></a>8.3 调优经验总结</h3><blockquote>
-<p>注：本节经验综合主压测环境（8C 16G ×3）与补充验证环境（4C 8G ×3）两轮压测，两环境 max-threads&#x3D;200 均为最优点。</p>
-</blockquote>
-<ol>
-<li><strong>Tomcat 线程数不是越大越好</strong>：4C 节点 200 是甜点，超过后上下文切换反噬。</li>
-<li><strong>线程池必须隔离</strong>：核心写、日志、搜索同步、导出四类业务 CPU&#x2F;IO 特性不同，隔离避免故障传染。</li>
-<li><strong>连接池有拐点</strong>：HikariCP 不是越大越快，DB 端锁争用会成瓶颈，50 是 4C MySQL 的甜点。</li>
-<li><strong>并行编排降 RT</strong>：CompletableFuture 把串行 150ms 降至并行 50ms，但必须用独立线程池 + TTL 传递上下文。</li>
-<li><strong>缓存命中决定读性能</strong>：文档详情 95% 缓存命中时 TPS 5680，全回源时 TPS 仅 800。布隆过滤器 + 互斥锁重建是关键。</li>
-</ol>
-<hr>
-<h2 id="九、监控指标看板"><a href="#九、监控指标看板" class="headerlink" title="九、监控指标看板"></a>九、监控指标看板</h2><p>生产环境通过 Prometheus + Grafana 监控以下核心指标：</p>
-<table>
-<thead>
-<tr>
-<th>分类</th>
-<th>指标</th>
-<th>告警阈值</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>Tomcat</td>
-<td><code>tomcat_threads_busy</code></td>
-<td>&gt; max-threads × 0.8</td>
-</tr>
-<tr>
-<td>Tomcat</td>
-<td><code>tomcat_request_count</code> 持续下降</td>
-<td>-</td>
-</tr>
-<tr>
-<td>HikariCP</td>
-<td><code>hikaricp_connections_active</code></td>
-<td>&gt; max × 0.9</td>
-</tr>
-<tr>
-<td>HikariCP</td>
-<td><code>hikaricp_connections_pending</code></td>
-<td>&gt; 0 持续 1min</td>
-</tr>
-<tr>
-<td>线程池</td>
-<td>队列积压</td>
-<td>&gt; queue × 0.8</td>
-</tr>
-<tr>
-<td>线程池</td>
-<td>拒绝次数</td>
-<td>&gt; 0&#x2F;min</td>
-</tr>
-<tr>
-<td>缓存</td>
-<td>L1 命中率</td>
-<td>&lt; 60%</td>
-</tr>
-<tr>
-<td>Redis</td>
-<td>慢命令数</td>
-<td>&gt; 10&#x2F;min</td>
-</tr>
-<tr>
-<td>MySQL</td>
-<td>慢 SQL（SqlCostInterceptor）</td>
-<td>&gt; 1s</td>
-</tr>
-<tr>
-<td>ES</td>
-<td>搜索 RT p99</td>
-<td>&gt; 500ms</td>
-</tr>
-</tbody></table>
-<hr>
-<h2 id="附A、压测环境（补充章节）"><a href="#附A、压测环境（补充章节）" class="headerlink" title="附A、压测环境（补充章节）"></a>附A、压测环境（补充章节）</h2><blockquote>
-<p>说明：本附录与正文第一节「一、压测环境说明」互补，场景&#x2F;数据不同：本节为补充验证环境（4C 8G ×3，主压测环境为 8C 16G ×3），两环境规格不同，数据不直接可比。</p>
-</blockquote>
-<table>
-<thead>
-<tr>
-<th>项目</th>
-<th>配置</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>压测工具</td>
-<td>JMeter 5.6.3 &#x2F; wrk 4.2.0</td>
-</tr>
-<tr>
-<td>应用服务器</td>
-<td>4C 8G × 3 节点（文档服务）</td>
-</tr>
-<tr>
-<td>MySQL</td>
-<td>8C 16G 主从 + 4 分片库（HikariCP 50&#x2F;分片）</td>
-</tr>
-<tr>
-<td>Redis</td>
-<td>4G 单节点（压测用，生产集群）</td>
-</tr>
-<tr>
-<td>ES</td>
-<td>3 节点 8C 16G</td>
-</tr>
-<tr>
-<td>JVM</td>
-<td>JDK 17 <code>-Xms2g -Xmx2g -XX:+UseG1GC</code></td>
-</tr>
-<tr>
-<td>网络</td>
-<td>内网千兆，RT &lt; 0.5ms</td>
-</tr>
-<tr>
-<td>压测时间</td>
-<td>2026-07 持续 30 分钟稳态取值</td>
-</tr>
-</tbody></table>
-<p><strong>压测模型：</strong> 文档详情（读 70%）、文档保存（写 20%）、搜索（10%），按 7:2:1 混合压测。</p>
-<hr>
-<h2 id="附B、Tomcat-调优对比（补充章节）"><a href="#附B、Tomcat-调优对比（补充章节）" class="headerlink" title="附B、Tomcat 调优对比（补充章节）"></a>附B、Tomcat 调优对比（补充章节）</h2><blockquote>
-<p>说明：本附录与正文第三节「3.3 图表 3：Tomcat 调优前后对比柱状图」互补，场景&#x2F;数据不同：本节基于补充验证环境（4C 8G ×3，见附A），正文 3.3 基于主压测环境（8C 16G ×3）。</p>
-</blockquote>
-<h3 id="B-1-max-threads-对比表格（模拟数据）"><a href="#B-1-max-threads-对比表格（模拟数据）" class="headerlink" title="B.1 max-threads 对比表格（模拟数据）"></a>B.1 max-threads 对比表格（模拟数据）</h3><p>固定 <code>max-connections=10000, accept-count=100</code>，单独调整 <code>max-threads</code>，压测文档详情接口（含三级缓存命中）：</p>
-<table>
-<thead>
-<tr>
-<th>max-threads</th>
-<th>TPS</th>
-<th>平均 RT</th>
-<th>99 线 RT</th>
-<th>错误率</th>
-<th>CPU</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>50</td>
-<td>1820</td>
-<td>28ms</td>
-<td>95ms</td>
-<td>0.02%</td>
-<td>45%</td>
-<td>线程不足，请求排队</td>
-</tr>
-<tr>
-<td>100</td>
-<td>3450</td>
-<td>22ms</td>
-<td>68ms</td>
-<td>0.01%</td>
-<td>68%</td>
-<td>性能线性增长</td>
-</tr>
-<tr>
-<td>200</td>
-<td>5680</td>
-<td>18ms</td>
-<td>52ms</td>
-<td>0.00%</td>
-<td>82%</td>
-<td>最佳工作点</td>
-</tr>
-<tr>
-<td>500</td>
-<td>5320</td>
-<td>35ms</td>
-<td>140ms</td>
-<td>0.15%</td>
-<td>92%</td>
-<td>线程过多，上下文切换加剧</td>
-</tr>
-<tr>
-<td>800</td>
-<td>4980</td>
-<td>58ms</td>
-<td>230ms</td>
-<td>0.42%</td>
-<td>96%</td>
-<td>GC 频繁，RT 退化</td>
-</tr>
-</tbody></table>
-<blockquote>
-<p>模拟数据。配置入口：<code>zeus-doc-service-doc/src/main/resources/application.yml:6</code>（<code>server.tomcat.max-threads</code>）。</p>
-<p>注：本表为补充验证环境（4C 8G ×3）下文档详情接口压测（与附D「D.1」文档详情 500 并发场景同源：5680 TPS &#x2F; 18ms &#x2F; 52ms）；正文 3.3 为主压测环境（8C 16G ×3）下文档读接口 2000 并发场景（4650 TPS），接口并发与环境不同，两处 TPS 不直接可比。</p>
-</blockquote>
-<h3 id="B-2-Tomcat-调优前后对比柱状图"><a href="#B-2-Tomcat-调优前后对比柱状图" class="headerlink" title="B.2 Tomcat 调优前后对比柱状图"></a>B.2 Tomcat 调优前后对比柱状图</h3><pre class="mermaid">xychart-beta
-    title "Tomcat max-threads 调优 TPS 对比（模拟数据）"
-    x-axis ["threads=50", "threads=100", "threads=200", "threads=500", "threads=800"]
-    y-axis "TPS" 0 --> 6500
-    bar [1820, 3450, 5680, 5320, 4980]
-    line [1820, 3450, 5680, 5320, 4980]</pre>
-
-<p><strong>结论：</strong> <code>max-threads=200</code> 是 4C 节点的最佳工作点。继续增大线程数，CPU 上下文切换开销超过并发收益，TPS 反而下降。<code>max-threads=200</code> 也与 <code>application.yml:6</code> 当前配置一致。</p>
-<h3 id="B-3-max-threads-vs-99-线-RT-对比"><a href="#B-3-max-threads-vs-99-线-RT-对比" class="headerlink" title="B.3 max-threads vs 99 线 RT 对比"></a>B.3 max-threads vs 99 线 RT 对比</h3><pre class="mermaid">xychart-beta
-    title "max-threads 调优 99线RT 变化（模拟数据）"
-    x-axis ["50", "100", "200", "500", "800"]
-    y-axis "99线RT(ms)" 0 --> 250
-    line [95, 68, 52, 140, 230]</pre>
-
-<p><strong>拐点分析：</strong> <code>threads=200</code> 处 99 线 RT 最低（52ms），<code>threads&gt;200</code> 后 RT 急剧上升，原因是：</p>
-<ol>
-<li>线程数 &gt; CPU 核数 × 50 后，上下文切换（cs）激增（vmstat 观察 <code>cs</code> 从 8000&#x2F;s 升至 35000&#x2F;s）；</li>
-<li>堆内对象增多，Young GC 频率从 4s&#x2F;次降至 1.2s&#x2F;次；</li>
-<li>HikariCP 连接争用（200 线程争 50 连接），等待连接拉长 RT。</li>
-</ol>
-<hr>
-<h2 id="附C、WebSocket-连接数曲线（补充章节）"><a href="#附C、WebSocket-连接数曲线（补充章节）" class="headerlink" title="附C、WebSocket 连接数曲线（补充章节）"></a>附C、WebSocket 连接数曲线（补充章节）</h2><p>协同服务（<code>zeus-doc-service-collab</code>）Netty 长连接压测，逐步加压至 5000 连接：</p>
-<h3 id="C-1-连接数随时间变化（模拟数据）"><a href="#C-1-连接数随时间变化（模拟数据）" class="headerlink" title="C.1 连接数随时间变化（模拟数据）"></a>C.1 连接数随时间变化（模拟数据）</h3><pre class="mermaid">xychart-beta
-    title "WebSocket 连接数递增压测曲线（模拟数据）"
-    x-axis ["0min", "2min", "4min", "6min", "8min", "10min", "12min", "14min", "16min", "18min", "20min"]
-    y-axis "连接数" 0 --> 5500
-    line [0, 1000, 1000, 3000, 3000, 5000, 5000, 5000, 5000, 5000, 5000]</pre>
-
-<h3 id="C-2-各连接数下的资源占用"><a href="#C-2-各连接数下的资源占用" class="headerlink" title="C.2 各连接数下的资源占用"></a>C.2 各连接数下的资源占用</h3><table>
-<thead>
-<tr>
-<th>连接数</th>
-<th>内存增量</th>
-<th>CPU</th>
-<th>消息广播 RT</th>
-<th>心跳丢包率</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>1000</td>
-<td>+85MB</td>
-<td>12%</td>
-<td>8ms</td>
-<td>0%</td>
-<td>轻松</td>
-</tr>
-<tr>
-<td>3000</td>
-<td>+260MB</td>
-<td>28%</td>
-<td>22ms</td>
-<td>0%</td>
-<td>稳定</td>
-</tr>
-<tr>
-<td>5000</td>
-<td>+430MB</td>
-<td>41%</td>
-<td>45ms</td>
-<td>0.03%</td>
-<td>达标</td>
-</tr>
-<tr>
-<td>8000</td>
-<td>+690MB</td>
-<td>65%</td>
-<td>120ms</td>
-<td>0.18%</td>
-<td>接近瓶颈</td>
-</tr>
-<tr>
-<td>10000</td>
-<td>+880MB</td>
-<td>88%</td>
-<td>280ms</td>
-<td>0.85%</td>
-<td>需扩容</td>
-</tr>
-</tbody></table>
-<blockquote>
-<p>模拟数据。单节点 4G 堆，每连接约 86KB（含 ChannelHandlerContext、ByteBuf、用户上下文）。</p>
-</blockquote>
-<p><strong>调优配置：</strong> <code>NettyWebSocketServer.java:51-64</code></p>
-<ul>
-<li><code>BossGroup=1</code>（接收连接），<code>WorkerGroup=CPU*2=8</code>（IO 读写）</li>
-<li><code>SO_BACKLOG=8192</code>（连接队列）</li>
-<li><code>TCP_NODELAY=true</code>（禁用 Nagle，光标实时性）</li>
-<li><code>SO_KEEPALIVE=true</code>（TCP 保活）</li>
-</ul>
-<p><strong>内存预估：</strong> 5 万连接 × 8KB ≈ 400MB，JVM 堆 4G 足够（<code>NettyWebSocketServer.java:33</code> 注释）。</p>
-<blockquote>
-<p>注：口径差异——此处 5 万连接 × 8KB ≈ 400MB 为理论估值（仅计缓冲区主体，源码注释口径）；C.2 表内「每连接约 86KB、5000 连接 +430MB」为实测采样口径（含 ChannelHandlerContext、ByteBuf、用户上下文等完整对象），两者口径不同，数据都保留、不直接可比。</p>
-</blockquote>
-<hr>
-<h2 id="附D、接口-TPS-与-RT-散点数据（补充章节）"><a href="#附D、接口-TPS-与-RT-散点数据（补充章节）" class="headerlink" title="附D、接口 TPS 与 RT 散点数据（补充章节）"></a>附D、接口 TPS 与 RT 散点数据（补充章节）</h2><h3 id="D-1-三大核心接口压测数据（模拟数据）"><a href="#D-1-三大核心接口压测数据（模拟数据）" class="headerlink" title="D.1 三大核心接口压测数据（模拟数据）"></a>D.1 三大核心接口压测数据（模拟数据）</h3><table>
-<thead>
-<tr>
-<th>接口</th>
-<th>并发</th>
-<th>TPS</th>
-<th>平均 RT</th>
-<th>99 线 RT</th>
-<th>错误率</th>
-<th>备注</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>文档保存 <code>POST /api/doc</code></td>
-<td>200</td>
-<td>1850</td>
-<td>105ms</td>
-<td>220ms</td>
-<td>0.05%</td>
-<td>含版本快照+MQ</td>
-</tr>
-<tr>
-<td>文档详情 <code>GET /api/doc/&#123;id&#125;</code></td>
-<td>500</td>
-<td>5680</td>
-<td>18ms</td>
-<td>52ms</td>
-<td>0.00%</td>
-<td>三级缓存命中 95%</td>
-</tr>
-<tr>
-<td>全文搜索 <code>GET /api/search</code></td>
-<td>300</td>
-<td>2150</td>
-<td>42ms</td>
-<td>130ms</td>
-<td>0.02%</td>
-<td>ES+Sentinel</td>
-</tr>
-<tr>
-<td>文档列表（游标分页）</td>
-<td>400</td>
-<td>6200</td>
-<td>12ms</td>
-<td>35ms</td>
-<td>0.00%</td>
-<td>主键范围扫描</td>
-</tr>
-<tr>
-<td>文件分片上传</td>
-<td>100</td>
-<td>420</td>
-<td>230ms</td>
-<td>580ms</td>
-<td>0.10%</td>
-<td>含 MinIO 写入</td>
-</tr>
-<tr>
-<td>审计日志写入</td>
-<td>500</td>
-<td>8800</td>
-<td>8ms</td>
-<td>25ms</td>
-<td>0.00%</td>
-<td>分片入库</td>
-</tr>
-</tbody></table>
-<h3 id="D-2-TPS-vs-99线RT-散点图"><a href="#D-2-TPS-vs-99线RT-散点图" class="headerlink" title="D.2 TPS vs 99线RT 散点图"></a>D.2 TPS vs 99线RT 散点图</h3><pre class="mermaid">quadrantChart
-    title "接口性能象限分布（模拟数据）"
-    x-axis "低 TPS" --> "高 TPS"
-    y-axis "高 RT" --> "低 RT"
-    quadrant-1 "高性能低吞吐（需扩容）"
-    quadrant-2 "性能差（需优化）"
-    quadrant-3 "低负载（空闲）"
-    quadrant-4 "高性能高吞吐（最佳）"
-    "文件上传": [0.18, 0.30]
-    "文档保存": [0.32, 0.55]
-    "全文搜索": [0.40, 0.65]
-    "文档详情": [0.78, 0.88]
-    "文档列表": [0.85, 0.92]
-    "审计写入": [0.92, 0.95]</pre>
-
-<p><strong>分析：</strong> 文档详情&#x2F;列表&#x2F;审计写入落在”高性能高吞吐”象限；文件上传因 MinIO IO 重，落在”性能差”象限，后续可改为异步签名直传减负。</p>
-<blockquote>
-<p>注：quadrantChart 的象限标签语法是 <code>quadrant-1 &quot;文本&quot;</code>（不带方括号），旧版文档的 <code>quadrant-1 [&quot;a&quot;, &quot;b&quot;]</code> 数组写法在 mermaid 11.x 会解析失败。</p>
-</blockquote>
-<hr>
-<h2 id="附E、线程池隔离对比（补充章节）"><a href="#附E、线程池隔离对比（补充章节）" class="headerlink" title="附E、线程池隔离对比（补充章节）"></a>附E、线程池隔离对比（补充章节）</h2><blockquote>
-<p>说明：本附录与正文第四节「四、串行 vs CompletableFuture 并行 RT 对比」互补，场景&#x2F;数据不同（正文聚焦 RT 对比，本附录聚焦线程池隔离方案对比）。</p>
-</blockquote>
-<h3 id="E-1-共用线程池-vs-4-个隔离线程池"><a href="#E-1-共用线程池-vs-4-个隔离线程池" class="headerlink" title="E.1 共用线程池 vs 4 个隔离线程池"></a>E.1 共用线程池 vs 4 个隔离线程池</h3><p><strong>配置位置：</strong> <code>ThreadPoolConfig.java:49-76</code>，4 个独立线程池：</p>
-<ul>
-<li><code>doc-executor</code>：核心写（AbortPolicy，core&#x3D;8,max&#x3D;16,queue&#x3D;2000）</li>
-<li><code>audit-executor</code>：异步审计（CallerRunsPolicy，core&#x3D;2,max&#x3D;4,queue&#x3D;500）</li>
-<li><code>search-sync-executor</code>：MQ 消费同步 ES（DiscardOldestPolicy，core&#x3D;4,max&#x3D;8,queue&#x3D;1000）</li>
-<li><code>export-executor</code>：PDF 导出（AbortPolicy，core&#x3D;2,max&#x3D;4,queue&#x3D;200）</li>
-</ul>
-<p><strong>场景：</strong> 500 并发混合压测，其中 PDF 导出任务（重型 IO，单任务 3s）占比 5%。</p>
-<table>
-<thead>
-<tr>
-<th>方案</th>
-<th>文档保存 TPS</th>
-<th>审计写入 TPS</th>
-<th>搜索同步延迟</th>
-<th>错误率</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>共用线程池（core&#x3D;16,max&#x3D;32）</td>
-<td>980</td>
-<td>980</td>
-<td>450ms</td>
-<td>1.8%</td>
-<td>导出任务占满线程，保存&#x2F;审计被阻塞</td>
-</tr>
-<tr>
-<td>4 线程池隔离</td>
-<td>1820</td>
-<td>8800</td>
-<td>60ms</td>
-<td>0.05%</td>
-<td>故障隔离，导出积压不影响核心</td>
-</tr>
-</tbody></table>
-<blockquote>
-<p>模拟数据。共用线程池时，导出任务的 3s 阻塞导致线程被占满，<code>doc-executor</code> 的保存任务排队，触发 <code>AbortPolicy</code> 抛异常，错误率飙升。</p>
-</blockquote>
-<h3 id="E-2-故障隔离效果对比"><a href="#E-2-故障隔离效果对比" class="headerlink" title="E.2 故障隔离效果对比"></a>E.2 故障隔离效果对比</h3><pre class="mermaid">xychart-beta
-    title "共用线程池 TPS（模拟数据）"
-    x-axis ["文档保存", "审计写入", "搜索同步"]
-    y-axis "TPS" 0 --> 9500
-    bar [980, 980, 0]</pre>
-
-<pre class="mermaid">xychart-beta
-    title "4 线程池隔离 TPS（模拟数据）"
-    x-axis ["文档保存", "审计写入", "搜索同步"]
-    y-axis "TPS" 0 --> 9500
-    bar [1820, 8800, 0]</pre>
-
-<p><strong>结论：</strong> 隔离后核心写 TPS 提升 86%（980→1820），审计 TPS 提升 9 倍（980→8800）。隔离是线程池设计的核心原则（<code>ThreadPoolConfig.java:23-27</code> 注释）。</p>
-<h3 id="E-3-拒绝策略选择"><a href="#E-3-拒绝策略选择" class="headerlink" title="E.3 拒绝策略选择"></a>E.3 拒绝策略选择</h3><table>
-<thead>
-<tr>
-<th>线程池</th>
-<th>拒绝策略</th>
-<th>理由</th>
-<th>代码位置</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>doc-executor</td>
-<td>AbortPolicy</td>
-<td>核心写不能丢，抛异常让调用方降级</td>
-<td><code>ThreadPoolConfig.java:57</code></td>
-</tr>
-<tr>
-<td>audit-executor</td>
-<td>CallerRunsPolicy</td>
-<td>日志不能丢，退化为同步执行也不丢</td>
-<td><code>ThreadPoolConfig.java:63</code></td>
-</tr>
-<tr>
-<td>search-sync-executor</td>
-<td>DiscardOldestPolicy</td>
-<td>ES 同步可丢旧消息（最终一致）</td>
-<td><code>ThreadPoolConfig.java:69</code></td>
-</tr>
-<tr>
-<td>export-executor</td>
-<td>AbortPolicy</td>
-<td>导出任务可失败重试</td>
-<td><code>ThreadPoolConfig.java:75</code></td>
-</tr>
-</tbody></table>
-<hr>
-<h2 id="附F、CompletableFuture-并行-vs-串行（补充章节）"><a href="#附F、CompletableFuture-并行-vs-串行（补充章节）" class="headerlink" title="附F、CompletableFuture 并行 vs 串行（补充章节）"></a>附F、CompletableFuture 并行 vs 串行（补充章节）</h2><blockquote>
-<p>说明：本附录与正文第四节「四、串行 vs CompletableFuture 并行 RT 对比」互补，场景&#x2F;数据不同（附F 补充代码实现与编排要点）。</p>
-</blockquote>
-<h3 id="F-1-文档详情接口编排对比"><a href="#F-1-文档详情接口编排对比" class="headerlink" title="F.1 文档详情接口编排对比"></a>F.1 文档详情接口编排对比</h3><p><strong>代码位置：</strong> <code>DocDetailService.java:55-111</code></p>
-<p>文档详情需聚合 3 个数据源：</p>
-<table>
-<thead>
-<tr>
-<th>数据源</th>
-<th>串行耗时</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>元数据 DB</td>
-<td>30ms</td>
-<td><code>docMapper.selectById</code></td>
-</tr>
-<tr>
-<td>正文缓存 Redis</td>
-<td>20ms</td>
-<td><code>cacheService.getDocContent</code>（三级缓存）</td>
-</tr>
-<tr>
-<td>权限列表 DB</td>
-<td>100ms</td>
-<td><code>permissionService.getPermission</code></td>
-</tr>
-</tbody></table>
-<h3 id="F-2-RT-对比（模拟数据）"><a href="#F-2-RT-对比（模拟数据）" class="headerlink" title="F.2 RT 对比（模拟数据）"></a>F.2 RT 对比（模拟数据）</h3><pre class="mermaid">xychart-beta
-    title "文档详情接口 串行 vs 并行 99线RT（模拟数据）"
-    x-axis ["串行", "CompletableFuture并行"]
-    y-axis "99线RT(ms)" 0 --> 200
-    bar [150, 50]</pre>
-
-<table>
-<thead>
-<tr>
-<th>方案</th>
-<th>RT 计算</th>
-<th>99 线 RT</th>
-<th>TPS</th>
-<th>提升</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>串行</td>
-<td>30+20+100</td>
-<td>150ms</td>
-<td>3200</td>
-<td>基线</td>
-</tr>
-<tr>
-<td>CompletableFuture.allOf 并行</td>
-<td>max(30,20,100)</td>
-<td>50ms</td>
-<td>8600</td>
-<td>3x</td>
-</tr>
-</tbody></table>
-<p><strong>关键实现：</strong> <code>DocDetailService.java:59-86</code></p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 三个任务并行，指定 doc-executor（TTL 包装）</span></span><br><span class="line">CompletableFuture&lt;Doc&gt; metaFuture = CompletableFuture.supplyAsync(..., docExecutor);</span><br><span class="line">CompletableFuture&lt;String&gt; contentFuture = CompletableFuture.supplyAsync(..., docExecutor);</span><br><span class="line">CompletableFuture&lt;DocPermissionVO&gt; permFuture = CompletableFuture.supplyAsync(..., docExecutor);</span><br><span class="line"><span class="comment">// 等待全部完成</span></span><br><span class="line">CompletableFuture.allOf(metaFuture, contentFuture, permFuture).join();</span><br></pre></td></tr></table></figure>
-
-<p><strong>要点：</strong></p>
-<ol>
-<li><strong>指定线程池</strong>：用 <code>doc-executor</code> 而非 <code>ForkJoinPool.commonPool()</code>（共享易被其它任务阻塞）；</li>
-<li><strong>TTL 传递</strong>：线程池经 <code>TtlExecutorUtil.wrap</code> 包装（<code>ThreadPoolConfig.java:103</code>），<code>UserContext</code> 跨线程正确传递；</li>
-<li><strong>上下文清理</strong>：每个任务 <code>finally &#123; UserContext.clear(); &#125;</code>（<code>DocDetailService.java:63,72,81</code>）防泄漏；</li>
-<li><strong>异常隔离</strong>：<code>exceptionally</code> 兜底，任一失败不影响其它（<code>DocDetailService.java:94</code>）。</li>
-</ol>
-<hr>
-<p>本报告数据为基于架构合理推演的模拟值，上线前需在准生产环境实压校准。线程池与锁的深度分析见《04-线程与锁分析报告》。</p>
-<hr>
-<p><em>报告完。所有数据为模拟压测数据，生产环境需以实际压测结果为准。</em></p>
-<hr>
-<h2 id="系列导航"><a href="#系列导航" class="headerlink" title="系列导航"></a>系列导航</h2><p>本文属于《项目实战》系列，系列入口见 <a href="/docs/nav/5964f4da.html">项目实战导航</a>，配套体系见 <a href="/post/720ca998.html">Java 后端面试导航</a> 与 <a href="/docs/">博客导航</a>。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
   <nav class="pagination">
-    <a class="extend prev" rel="prev" title="Previous page" aria-label="Previous page" href="/home/page/7/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/home/">1</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/7/">7</a><span class="page-number current">8</span><a class="page-number" href="/home/page/9/">9</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/22/">22</a><a class="extend next" rel="next" title="Next page" aria-label="Next page" href="/home/page/9/"><i class="fa fa-angle-right"></i></a>
+    <a class="extend prev" rel="prev" title="Previous page" aria-label="Previous page" href="/home/page/7/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/home/">1</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/7/">7</a><span class="page-number current">8</span><a class="page-number" href="/home/page/9/">9</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/23/">23</a><a class="extend next" rel="next" title="Next page" aria-label="Next page" href="/home/page/9/"><i class="fa fa-angle-right"></i></a>
   </nav>
 
 </div>
@@ -3506,14 +2704,14 @@ flowchart LR
       <i class="fa fa-chart-line"></i>
     </span>
       <span>Word count total: </span>
-    <span title="Word count total">605k</span>
+    <span title="Word count total">610k</span>
   </span>
   <span class="post-meta-item">
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
       <span>Reading time total &asymp;</span>
-    <span title="Reading time total">36:41</span>
+    <span title="Reading time total">36:58</span>
   </span>
 </div>
   <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>

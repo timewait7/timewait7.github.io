@@ -189,7 +189,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">88</span>
+          <span class="site-state-item-count">89</span>
           <span class="site-state-item-name">posts</span>
         </a>
       </div>
@@ -244,6 +244,496 @@
     </div>
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/url-shortener-2025.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/url-shortener-2025.html" class="post-title-link" itemprop="url">短链系统设计：从方法论到落地</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-08-13 20:00:00" itemprop="dateCreated datePublished" datetime="2026-08-13T20:00:00+08:00">2026-08-13</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E7%B3%BB%E7%BB%9F%E8%AE%BE%E8%AE%A1/" itemprop="url" rel="index"><span itemprop="name">系统设计</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>3.3k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>12 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <p><strong>「设计一个短链系统」是系统设计题的常青树——它看着简单（不就是个映射吗），但面试官真正在考的是三件事：长 URL 怎么变成 7 位短码（发号与进制转换）、短码怎么存（分表 + 缓存分层）、跳转用 301 还是 302（状态码背后的业务意图）。</strong> 秒杀篇讲的是「写」场景（削峰、防超卖），短链篇讲的是「读」场景（缓存、布隆、热点）——两篇合起来，方法论的两个极端就都有了。读完你能在面试现场把这道题从头推到尾，并且说清每个选择的理由。</p>
+<blockquote>
+<p>联动：本文是 <a href="/post/53a2d197.html">系统设计方法论</a>（需求澄清&#x2F;容量估算&#x2F;评估权衡）的第二个完整案例；与 <a href="/post/a10bd761.html">秒杀系统设计</a>（写场景）对照形成读写双案例；缓存分层与布隆过滤器复用 <a href="/post/bae4ff13.html">Redis 深度解析</a>；发号器与分表复用 <a href="/post/mysql-ha-2025.html">MySQL 高可用与分库分表实战</a>、<a href="/post/9787b587.html">分布式系统核心理论</a>（分布式 ID）。</p>
+</blockquote>
+<h2 id="1-定位：这道题考什么"><a href="#1-定位：这道题考什么" class="headerlink" title="1. 定位：这道题考什么"></a>1. 定位：这道题考什么</h2><p><strong>短链系统的需求一句话：输入任意长 URL，输出 7 位短码；访问短链时重定向到原长 URL</strong>（如 <code>t.cn/Ab3dE9</code> → 长链接）。</p>
+<p><strong>它为什么高频</strong>：短链表面是「字符串映射」，实际覆盖了系统设计的<strong>读路径全部考点</strong>——容量估算、哈希与冲突、发号器、分库分表、缓存分层、布隆过滤器、热点防护、301&#x2F;302 语义。<strong>一题考完「读场景」所有基本功</strong>，这是它和秒杀（写场景）互补的原因。</p>
+<p><strong>与秒杀的核心对照（面试立论用）</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>秒杀（<a href="/post/a10bd761.html">上一案例</a>）</th>
+<th>短链</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>场景类型</td>
+<td>写密集（下单）</td>
+<td><strong>读密集（跳转）</strong></td>
+</tr>
+<tr>
+<td>核心矛盾</td>
+<td>瞬时流量洪峰</td>
+<td>热点 key 与缓存击穿</td>
+</tr>
+<tr>
+<td>关键中间件</td>
+<td>Redis 预扣 + MQ 削峰</td>
+<td>Redis 缓存 + 布隆过滤器</td>
+</tr>
+<tr>
+<td>容量估算重点</td>
+<td>峰值 QPS（10 万级）</td>
+<td>总量与读放大（百万级）</td>
+</tr>
+</tbody></table>
+<h2 id="2-需求澄清与容量估算（方法论第一步）"><a href="#2-需求澄清与容量估算（方法论第一步）" class="headerlink" title="2. 需求澄清与容量估算（方法论第一步）"></a>2. 需求澄清与容量估算（方法论第一步）</h2><p><strong>面试先做需求澄清，别急着画架构</strong>——短链的四个关键问题：</p>
+<table>
+<thead>
+<tr>
+<th>问题</th>
+<th>默认假设（可主动询问）</th>
+<th>影响</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>每天新增多少长链接？</td>
+<td>1000 万条&#x2F;天</td>
+<td>决定发号器吞吐与表容量</td>
+</tr>
+<tr>
+<td>短链跳转 QPS？</td>
+<td>峰值 2 万 QPS</td>
+<td>决定缓存层级与热点策略</td>
+</tr>
+<tr>
+<td>短码长度？</td>
+<td>7 位（字母+数字 62 进制）</td>
+<td>决定容量上限</td>
+</tr>
+<tr>
+<td>数据保存多久？</td>
+<td>长期（10 年）</td>
+<td>决定总量与淘汰策略</td>
+</tr>
+</tbody></table>
+<p><strong>容量估算（写出数字，面试加分）</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">日新增 1000 万 → 年新增 36.5 亿 → 10 年 365 亿条</span><br><span class="line">7 位 62 进制容量：62^7 ≈ 3.5 万亿 ≫ 365 亿    ✅ 容量充足</span><br><span class="line">跳转峰值 2 万 QPS，读:写 ≈ 20:1（短链被反复访问）   → 读是主要矛盾</span><br><span class="line">单条记录 ~200B → 365 亿条 ≈ 7.3TB（10 年）   → 必须分表（≥64 张）</span><br></pre></td></tr></table></figure>
+
+<p><strong>因果链</strong>：容量估算的结论直接决定架构——「总量 365 亿 → 单表扛不住 → 分 64 表；读 2 万 QPS → DB 扛不住 → 缓存扛 90%」——<strong>每一步架构决策都是上一步数字的推论</strong>，这是方法论的核心（完整流程见 <a href="/post/53a2d197.html">系统设计方法论</a>）。</p>
+<h2 id="3-核心机制一：短码生成——发号器-62-进制"><a href="#3-核心机制一：短码生成——发号器-62-进制" class="headerlink" title="3. 核心机制一：短码生成——发号器 + 62 进制"></a>3. 核心机制一：短码生成——发号器 + 62 进制</h2><h3 id="3-1-为什么不用-MD5-截断"><a href="#3-1-为什么不用-MD5-截断" class="headerlink" title="3.1 为什么不用 MD5 截断"></a>3.1 为什么不用 MD5 截断</h3><table>
+<thead>
+<tr>
+<th>方案</th>
+<th>问题</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>MD5 长 URL 截 7 位</td>
+<td><strong>哈希冲突</strong>概率随数据量上升，冲突要重算（循环）</td>
+</tr>
+<tr>
+<td>随机短码</td>
+<td>碰撞检测麻烦，每次生成要查重</td>
+</tr>
+<tr>
+<td><strong>发号器 + 62 进制</strong></td>
+<td><strong>无冲突</strong>（号唯一）、可预测、可支持批量</td>
+</tr>
+</tbody></table>
+<p><strong>短码 &#x3D; 发号器拿到的自增 ID，转成 62 进制</strong>：<code>ID=1 → &quot;1&quot;</code>，<code>ID=1000000 → &quot;4c92&quot;</code>……7 位最多 62^7≈3.5 万亿个短码，<strong>用不完</strong>。</p>
+<h3 id="3-2-发号器三方案（面试核心）"><a href="#3-2-发号器三方案（面试核心）" class="headerlink" title="3.2 发号器三方案（面试核心）"></a>3.2 发号器三方案（面试核心）</h3><table>
+<thead>
+<tr>
+<th>方案</th>
+<th>机制</th>
+<th>优缺点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Redis INCR</td>
+<td>单 key 自增</td>
+<td>简单；Redis 挂影响发号，可持久化兜底</td>
+</tr>
+<tr>
+<td><strong>DB 号段</strong>（segment）</td>
+<td>每次取一批号（如 1 万），内存发完再取</td>
+<td>无网络往返、DB 压力小，<strong>生产主流</strong></td>
+</tr>
+<tr>
+<td>雪花算法</td>
+<td>时间戳+机器号+序列号</td>
+<td>无序、不可预测；但短码要「短」反而用它少见</td>
+</tr>
+</tbody></table>
+<p><strong>因果链</strong>：发号器选型的关键是「发号频率 &#x3D; 写入频率 &#x3D; 日增 1000 万」——<strong>每次取号都打 Redis&#x2F;DB 会打死存储，号段模式把「1 万次取号」合并成「1 次 DB 查询」</strong>（与 MQ 批量消费同一个思想：批量换吞吐）。<strong>面试答发号器：「DB 号段 + 内存发号」是标准答案，补一句『发号是写路径唯一瓶颈，所以必须批量』就是完整逻辑</strong>。</p>
+<h3 id="3-3-动手验证：号段发号的最小实现"><a href="#3-3-动手验证：号段发号的最小实现" class="headerlink" title="3.3 动手验证：号段发号的最小实现"></a>3.3 动手验证：号段发号的最小实现</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 核心：批量取号，内存发放（伪代码）</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">IdSegmentAllocator</span> &#123;</span><br><span class="line">    <span class="keyword">private</span> <span class="type">long</span> current;    <span class="comment">// 内存当前号</span></span><br><span class="line">    <span class="keyword">private</span> <span class="type">long</span> max;        <span class="comment">// 本批上限</span></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> JdbcTemplate jdbc;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="type">long</span> <span class="title function_">nextId</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">synchronized</span> (<span class="built_in">this</span>) &#123;</span><br><span class="line">            <span class="keyword">if</span> (current &gt;= max) &#123;           <span class="comment">// 本批耗尽 → 取新号段</span></span><br><span class="line">                jdbc.update(<span class="string">&quot;UPDATE id_segment SET max_id = max_id + 10000 WHERE biz = &#x27;short_url&#x27;&quot;</span>);</span><br><span class="line">                current = jdbc.queryForObject(</span><br><span class="line">                    <span class="string">&quot;SELECT max_id FROM id_segment WHERE biz = &#x27;short_url&#x27;&quot;</span>, Long.class);</span><br><span class="line">                max = current + <span class="number">10000</span>;</span><br><span class="line">            &#125;</span><br><span class="line">            <span class="keyword">return</span> current++;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>观察点：前 1 万次调用只触发 1 次 DB 更新（<code>UPDATE ... + 10000</code>），之后全部内存返回。判定标准：能说出「DB 压力 &#x3D; 日增 1000 万 ÷ 号段 1 万 &#x3D; 每天 1000 次写」——<strong>发号从「每秒 115 次」降到「每天 1000 次」，这就是号段的威力</strong>。</p>
+<h2 id="4-核心机制二：存储与读取——分表-缓存分层"><a href="#4-核心机制二：存储与读取——分表-缓存分层" class="headerlink" title="4. 核心机制二：存储与读取——分表 + 缓存分层"></a>4. 核心机制二：存储与读取——分表 + 缓存分层</h2><h3 id="4-1-存储设计"><a href="#4-1-存储设计" class="headerlink" title="4.1 存储设计"></a>4.1 存储设计</h3><table>
+<thead>
+<tr>
+<th>层</th>
+<th>方案</th>
+<th>理由</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>主表</td>
+<td>MySQL，按短码 hash 分 <strong>64 表</strong>（<code>short_url_0</code> ~ <code>short_url_63</code>）</td>
+<td>10 年 365 亿条，单表 ~5.7 亿超阈值</td>
+</tr>
+<tr>
+<td>路由</td>
+<td><code>hash(short_code) % 64</code>（或按 ID 段路由）</td>
+<td>短码定表，读路径直查</td>
+</tr>
+<tr>
+<td>冗余</td>
+<td>主从 + 读写分离</td>
+<td>读多写少，从库扛查询</td>
+</tr>
+<tr>
+<td>索引</td>
+<td>短码唯一索引</td>
+<td>跳转按短码精确查</td>
+</tr>
+</tbody></table>
+<p><strong>为什么分 64 表而不是 4 表</strong>：10 年数据量 × 单表 5.7 亿超红线（MySQL 单表 5000 万经验线）——<strong>分表数 &#x3D; 总量 ÷ 单表容量，先把十年算完再定</strong>（细节见 <a href="/post/mysql-ha-2025.html">MySQL 高可用与分库分表实战</a>）。</p>
+<h3 id="4-2-缓存分层与布隆过滤器"><a href="#4-2-缓存分层与布隆过滤器" class="headerlink" title="4.2 缓存分层与布隆过滤器"></a>4.2 缓存分层与布隆过滤器</h3><pre class="mermaid">flowchart LR
+    C["客户端"] -->|短链访问 2W QPS| NG["网关/本地缓存&lt;br/>(Caffeine, 毫秒级)"]
+    NG -->|未命中| R["Redis 缓存&lt;br/>(命中率 ~95%)"]
+    R -->|未命中| BF{布隆过滤器&lt;br/>短码存在?}
+    BF -->|不存在| E["直接返回 404&lt;br/>(拦掉无效短码)"]
+    BF -->|可能存在| DB[("MySQL 分表")]
+    DB -->|回填| R
+    R -->|回填| NG</pre>
+
+<p><strong>因果链（这一层是全题精华）</strong>：缓存未命中的请求会打到 DB——但<strong>无效短码（用户乱拼的）每次都不存在，会绕开缓存直接打 DB（缓存穿透）</strong>，2 万 QPS 里若有 10% 无效请求，DB 每秒要扛 2000 次无效查询 → <strong>布隆过滤器在 DB 前拦一层：不存在直接 404，存在才放行</strong>。布隆的代价是「可能误判存在」但不误判不存在——<strong>宁放行一次空查，不放过一次真查</strong>（布隆过滤器原理与实现见 <a href="/post/bae4ff13.html">Redis 深度解析</a>）。</p>
+<h3 id="4-3-动手验证：布隆拦截无效短码"><a href="#4-3-动手验证：布隆拦截无效短码" class="headerlink" title="4.3 动手验证：布隆拦截无效短码"></a>4.3 动手验证：布隆拦截无效短码</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># Redis 布隆（RedisBloom 模块）</span></span><br><span class="line">docker run -d -p 6379:6379 redislabs/rebloom:2.6.0</span><br><span class="line">redis-cli BF.RESERVE short_url_filter 0.01 1000000000   <span class="comment"># 误判率 1%，容量 10 亿</span></span><br><span class="line">redis-cli BF.ADD short_url_filter <span class="string">&quot;Ab3dE9&quot;</span>              <span class="comment"># 写入短码时同步加</span></span><br><span class="line">redis-cli BF.EXISTS short_url_filter <span class="string">&quot;Ab3dE9&quot;</span>           <span class="comment"># → 1（存在）</span></span><br><span class="line">redis-cli BF.EXISTS short_url_filter <span class="string">&quot;Xx9Fz1&quot;</span>           <span class="comment"># → 0（不存在，直接 404）</span></span><br></pre></td></tr></table></figure>
+
+<p>观察点：无效短码在布隆层即被拦，DB 零压力；写入短链时 <code>BF.ADD</code> 与 DB 同步（失败可容忍——误判只是多查一次）。判定标准：能说出布隆过滤器的取舍——<strong>「不存在的必拦，存在的可能漏拦（误判），所以它只防穿透、不防击穿」</strong>。</p>
+<h2 id="5-核心机制三：301-vs-302-与热点防护"><a href="#5-核心机制三：301-vs-302-与热点防护" class="headerlink" title="5. 核心机制三：301 vs 302 与热点防护"></a>5. 核心机制三：301 vs 302 与热点防护</h2><h3 id="5-1-301-还是-302（面试高频追问）"><a href="#5-1-301-还是-302（面试高频追问）" class="headerlink" title="5.1 301 还是 302（面试高频追问）"></a>5.1 301 还是 302（面试高频追问）</h3><table>
+<thead>
+<tr>
+<th>状态码</th>
+<th>语义</th>
+<th>对短链的影响</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>301</strong></td>
+<td>永久重定向</td>
+<td>浏览器&#x2F;客户端<strong>缓存跳转结果</strong>，下次直接访问长链——<strong>后续请求不经过我们</strong>，但<strong>无法统计点击量</strong>、无法修改跳转目标</td>
+</tr>
+<tr>
+<td><strong>302</strong></td>
+<td>临时重定向</td>
+<td>每次访问都先打我们的服务——<strong>可以统计、可以改目标</strong>，但服务压力大</td>
+</tr>
+</tbody></table>
+<p><strong>面试标准答案：选 302</strong>——短链是营销&#x2F;内容运营工具，<strong>点击统计和可修改性是产品刚需</strong>，牺牲一点服务压力换这两个能力。<strong>因果链：301 把控制权交给了客户端缓存，302 把每次访问留在自己手里——「要数据就要 302」</strong>。</p>
+<h3 id="5-2-热点短链防护"><a href="#5-2-热点短链防护" class="headerlink" title="5.2 热点短链防护"></a>5.2 热点短链防护</h3><p>短链符合「二八定律」：20% 的短链扛 80% 的点击（爆款链接）。防护层次：</p>
+<table>
+<thead>
+<tr>
+<th>层</th>
+<th>手段</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>本地缓存</td>
+<td>Caffeine 短 TTL（秒级），挡住大部分热点</td>
+</tr>
+<tr>
+<td>Redis</td>
+<td>热点 key 天然被缓存吸收；单 key 打爆加本地缓存兜底</td>
+</tr>
+<tr>
+<td>热点识别</td>
+<td>计数器识别 topN 热点 → 加大本地缓存 TTL</td>
+</tr>
+<tr>
+<td>限流</td>
+<td>网关限流保护后端（见 <a href="/post/a10bd761.html">秒杀篇</a> 的限流章节）</td>
+</tr>
+</tbody></table>
+<p><strong>因果链</strong>：读场景的雪崩风险是「热点 key 过期瞬间，大量请求同时打到 DB」——<strong>本地缓存（Caffeine）是第一层盾：Redis 挂了热点还在本地挡着</strong>。面试答「读场景高可用」的标准句式：「多级缓存 + 热点识别 + 网关限流」。</p>
+<h2 id="6-完整架构图（读路径全景）"><a href="#6-完整架构图（读路径全景）" class="headerlink" title="6. 完整架构图（读路径全景）"></a>6. 完整架构图（读路径全景）</h2><pre class="mermaid">flowchart LR
+    U["用户"] -->|"t.cn/Ab3dE9"| LB["负载均衡"]
+    LB --> W["短链服务集群"]
+    W --> C1["Caffeine 本地缓存"]
+    W --> R["Redis（短码→长链）"]
+    W --> BF["布隆过滤器"]
+    W --> DB[("MySQL 64 表")]
+    R -->|回填| C1
+    DB -->|回填| R
+    DB --> ID["发号器&lt;br/>(DB 号段)"]
+    ID -->|"长链写入时取号"| DB
+    W -->|302| U
+    U --> L["长 URL 目标站"]</pre>
+
+<p><strong>完整链路</strong>：写入（长链 → 发号取号 → 62 进制转短码 → 落 64 表 → 布隆 ADD → 缓存回填）；读取（短码 → 本地缓存 → Redis → 布隆 → DB → 逐级回填 → 302 跳转）。</p>
+<h2 id="7-面试应答：短链六连问"><a href="#7-面试应答：短链六连问" class="headerlink" title="7. 面试应答：短链六连问"></a>7. 面试应答：短链六连问</h2><h3 id="7-1-完整话术"><a href="#7-1-完整话术" class="headerlink" title="7.1 完整话术"></a>7.1 完整话术</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>回答要点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>短码怎么生成？</td>
+<td>发号器（DB 号段）取自增 ID → 62 进制转 7 位短码，无冲突</td>
+</tr>
+<tr>
+<td>为什么不用 MD5？</td>
+<td>截断有冲突率，冲突处理复杂；发号器确定性无冲突</td>
+</tr>
+<tr>
+<td>数据怎么存？</td>
+<td>按总量算分表（10 年 365 亿 → 64 表），短码唯一索引，主从读写分离</td>
+</tr>
+<tr>
+<td>缓存穿透怎么防？</td>
+<td>布隆过滤器拦无效短码：不存在必拦，存在可能误判放行</td>
+</tr>
+<tr>
+<td>301 还是 302？</td>
+<td>302：要点击统计与可修改性，每次访问留在自己手里</td>
+</tr>
+<tr>
+<td>热点怎么防？</td>
+<td>多级缓存（Caffeine + Redis）+ 热点识别 + 网关限流</td>
+</tr>
+<tr>
+<td>发号器挂了怎么办？</td>
+<td>号段模式 DB 压力极小；DB 用主从，主挂从顶上（号段不丢）</td>
+</tr>
+</tbody></table>
+<h3 id="7-2-深挖：与秒杀的双案例对照（跨篇联动）"><a href="#7-2-深挖：与秒杀的双案例对照（跨篇联动）" class="headerlink" title="7.2 深挖：与秒杀的双案例对照（跨篇联动）"></a>7.2 深挖：与秒杀的双案例对照（跨篇联动）</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>秒杀（写场景）</th>
+<th>短链（读场景）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>核心矛盾</td>
+<td>瞬时洪峰（写放大）</td>
+<td>热点 + 穿透（读放大）</td>
+</tr>
+<tr>
+<td>第一防线</td>
+<td>限流（令牌桶&#x2F;双层）</td>
+<td>多级缓存（Caffeine→Redis）</td>
+</tr>
+<tr>
+<td>中间件</td>
+<td>MQ 削峰 + Redis 预扣</td>
+<td>布隆过滤器 + Redis</td>
+</tr>
+<tr>
+<td>容量重点</td>
+<td>峰值 QPS 与库存原子性</td>
+<td>总量 × 生命周期与命中率</td>
+</tr>
+<tr>
+<td>最终兜底</td>
+<td>对账 + 降级</td>
+<td>302 语义 + 限流</td>
+</tr>
+</tbody></table>
+<p><strong>一句话：秒杀教你怎么扛「一分钟的十万并发」，短链教你怎么扛「十年的每天两万」——一个是打（洪峰），一个是磨（长尾）</strong>。面试把两篇的对照讲出来，等于证明「方法论不是背的，是用的」。</p>
+<h2 id="8-总结"><a href="#8-总结" class="headerlink" title="8. 总结"></a>8. 总结</h2><h3 id="8-1-面试速答表"><a href="#8-1-面试速答表" class="headerlink" title="8.1 面试速答表"></a>8.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>短码生成方案？</td>
+<td>发号器（DB 号段）→ 62 进制，无冲突、可批量</td>
+</tr>
+<tr>
+<td>号段发号原理？</td>
+<td>一次取 1 万号内存发放，DB 压力从每秒降到每天</td>
+</tr>
+<tr>
+<td>为什么 64 张表？</td>
+<td>10 年 365 亿条 ÷ 单表 5.7 亿超线，分表数由总量反推</td>
+</tr>
+<tr>
+<td>缓存穿透怎么防？</td>
+<td>布隆过滤器：不存在的必拦，存在的可能放行</td>
+</tr>
+<tr>
+<td>301 vs 302？</td>
+<td>302：要统计与可改目标；301 把控制权交给客户端</td>
+</tr>
+<tr>
+<td>热点怎么护？</td>
+<td>本地缓存 + 热点识别 + 限流，Redis 挂热点仍挡得住</td>
+</tr>
+<tr>
+<td>缓存击穿怎么防？</td>
+<td>热点 key 永不过期 + 重建互斥锁（Redis 深度解析的经典方案）</td>
+</tr>
+</tbody></table>
+<h3 id="8-2-实战避坑表"><a href="#8-2-实战避坑表" class="headerlink" title="8.2 实战避坑表"></a>8.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>短码偶尔跳错</td>
+<td>62 进制实现有歧义字符</td>
+<td>去掉 0&#x2F;O、1&#x2F;l&#x2F;I 等易混字符</td>
+</tr>
+<tr>
+<td>无效短码打爆 DB</td>
+<td>缓存穿透</td>
+<td>布隆过滤器（先写后读，注意写入同步）</td>
+</tr>
+<tr>
+<td>热点链接雪崩</td>
+<td>热点 key 过期同时回源</td>
+<td>本地缓存 + 互斥重建 + 热点识别</td>
+</tr>
+<tr>
+<td>发号器并发重复</td>
+<td>号段分配无锁</td>
+<td>内存分配 synchronized&#x2F;乐观锁，DB 唯一索引兜底</td>
+</tr>
+<tr>
+<td>改短链跳转目标</td>
+<td>301 被客户端缓存</td>
+<td>业务上不给改（301）或用 302 保修改能力</td>
+</tr>
+<tr>
+<td>短码被遍历</td>
+<td>顺序号可预测</td>
+<td>号段偏移加盐（如 ID×随机步长）或哈希混淆</td>
+</tr>
+</tbody></table>
+<h3 id="8-3-工具速查表"><a href="#8-3-工具速查表" class="headerlink" title="8.3 工具速查表"></a>8.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>RedisBloom（BF.* 命令）</td>
+<td>布隆过滤器落地</td>
+</tr>
+<tr>
+<td>Caffeine &#x2F; Guava Cache</td>
+<td>本地缓存第一层</td>
+</tr>
+<tr>
+<td>MySQL 分表（sharding-key 路由）</td>
+<td>64 表路由</td>
+</tr>
+<tr>
+<td>Nginx&#x2F;Gateway 限流</td>
+<td>网关层保护</td>
+</tr>
+<tr>
+<td>链路监控（Prometheus+grafana）</td>
+<td>命中率&#x2F;回源率监控</td>
+</tr>
+</tbody></table>
+<h3 id="8-4-本篇定位"><a href="#8-4-本篇定位" class="headerlink" title="8.4 本篇定位"></a>8.4 本篇定位</h3><p>短链篇是系统设计「读场景」案例，与秒杀篇（写场景）形成完整闭环；「高性能&#x2F;高可用&#x2F;熔断限流降级」三个子导航页的具体机制（缓存分层、冗余、限流算法）在秒杀与短链两篇中均已落地，导航页将补充「内容已并入案例正文」的跳转说明。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -1852,521 +2342,8 @@
 
 
 
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/es-query-2025.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="知行栈">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | 知行栈">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/es-query-2025.html" class="post-title-link" itemprop="url">ES 查询优化与实战：深度分页、聚合与双写一致性</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-
-      <time title="Created: 2026-08-13 16:00:00" itemprop="dateCreated datePublished" datetime="2026-08-13T16:00:00+08:00">2026-08-13</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">In</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/" itemprop="url" rel="index"><span itemprop="name">数据存储</span></a>
-        </span>
-    </span>
-
-  
-    <span class="post-meta-break"></span>
-    <span class="post-meta-item" title="Word count in article">
-      <span class="post-meta-item-icon">
-        <i class="far fa-file-word"></i>
-      </span>
-      <span class="post-meta-item-text">Word count in article: </span>
-      <span>3.7k</span>
-    </span>
-    <span class="post-meta-item" title="Reading time">
-      <span class="post-meta-item-icon">
-        <i class="far fa-clock"></i>
-      </span>
-      <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>14 mins.</span>
-    </span>
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <p><strong>搜索系统上生产的三道坎：分页超过 1 万条怎么办？聚合为什么慢？MySQL 和 ES 数据不一致怎么收场？</strong> 原理篇讲了 ES 为什么快、数据怎么存，本文解决「怎么查得快、查得准、查得全」：深度分页的正确姿势（search_after&#x2F;scroll 的选择）、聚合的代价模型、以及双写一致性的三种架构方案。读完你能在设计评审上说清「为什么 ES 分页只支持前 1 万条」「聚合上亿数据用什么策略」，并给 MySQL→ES 同步画出一张完整的架构图。</p>
-<blockquote>
-<p>联动：本文是 <a href="/post/es-deep-2025.html">ES 原理深挖</a>（写入链路&#x2F;分片&#x2F;集群健康）的实战续篇；双写一致性与 <a href="/post/9787b587.html">分布式系统核心理论</a> 的最终一致性呼应；本地消息表方案与 <a href="/post/rocketmq-2025.html">RocketMQ 原理与实践</a> 的事务消息是同一思路的两条实现路径。</p>
-</blockquote>
-<h2 id="1-定位：这篇实战什么"><a href="#1-定位：这篇实战什么" class="headerlink" title="1. 定位：这篇实战什么"></a>1. 定位：这篇实战什么</h2><p>原理篇回答「数据怎么存、怎么不丢」，本文回答三个「查询与同步」问题：</p>
-<table>
-<thead>
-<tr>
-<th>场景</th>
-<th>表面现象</th>
-<th>本文答案</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>分页翻到第 2 万条</td>
-<td>报错 <code>Result window is too large</code></td>
-<td>§2：from+size 的代价模型，search_after&#x2F;scroll 的分工</td>
-</tr>
-<tr>
-<td>聚合查询跑几秒</td>
-<td>大基数聚合内存爆炸</td>
-<td>§3：聚合原理与高基数应对</td>
-</tr>
-<tr>
-<td>MySQL 改了 ES 没变</td>
-<td>双写失败&#x2F;不一致</td>
-<td>§4：三种同步方案与最终一致性兜底</td>
-</tr>
-</tbody></table>
-<p><strong>因果链主线</strong>：ES 的查询优化不是「调参玄学」，是<strong>「一切查询都要在多个分片上并行执行」这个架构事实的推论</strong>——深度分页贵在「每个分片都要取全量再排序」，聚合贵在「每个分片先算局部再归并」，双写难在「两个系统没有同一事务」。<strong>记住「分片并行」这四个字，所有查询优化的理由都能自己推出来</strong>。</p>
-<h2 id="2-深度分页：from-size-为什么-1-万行内"><a href="#2-深度分页：from-size-为什么-1-万行内" class="headerlink" title="2. 深度分页：from+size 为什么 1 万行内"></a>2. 深度分页：from+size 为什么 1 万行内</h2><h3 id="2-1-代价模型：每个分片都要白干"><a href="#2-1-代价模型：每个分片都要白干" class="headerlink" title="2.1 代价模型：每个分片都要白干"></a>2.1 代价模型：每个分片都要白干</h3><p><code>GET /orders/_search?from=10000&amp;size=10</code> 为什么被拒绝（默认 <code>max_result_window: 10000</code>）？看它在 3 分片集群上的执行路径：</p>
-<pre class="mermaid">sequenceDiagram
-    participant C as 协调节点
-    participant S1 as 分片1
-    participant S2 as 分片2
-    participant S3 as 分片3
-    C->>S1: 取 from+size=10010 条
-    C->>S2: 取 from+size=10010 条
-    C->>S3: 取 from+size=10010 条
-    Note over S1: 各分片按 score 排序取前 10010
-    S1-->>C: 10010 条
-    S2-->>C: 10010 条
-    S3-->>C: 10010 条
-    Note over C: 归并 30030 条，排序，丢弃前 10000 条
-    C-->>C: 最终返回 10 条</pre>
-
-<p><strong>因果链</strong>：from+size 的代价是 <strong>O(from+size) × 分片数</strong>——翻到第 10 万条，每个分片都要取 10 万条到协调节点排序。这不是「ES 蠢」，是<strong>分布式查询的必然</strong>：谁也不知道全局前 10 万条分布在哪个分片，只能每片都取。<strong>这个模型下「深度分页」不是功能缺失，是代价不可接受</strong>，所以 ES 用 <code>max_result_window</code> 直接拦住。</p>
-<p><strong>三个方案的定位（面试核心）</strong>：</p>
-<table>
-<thead>
-<tr>
-<th>方案</th>
-<th>适用场景</th>
-<th>原理</th>
-<th>缺点</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>from+size</td>
-<td>前 10000 条（翻前 100 页）</td>
-<td>每片取全量排序再归并</td>
-<td>深翻页 O(from+size)×分片</td>
-</tr>
-<tr>
-<td><strong>search_after</strong></td>
-<td>实时滚动（下翻 2 万+条）</td>
-<td>记住上页最后一条的排序值，只取「比它大」的</td>
-<td>不能随机跳页、依赖排序值稳定</td>
-</tr>
-<tr>
-<td><strong>scroll</strong></td>
-<td>全量导出（导入导出&#x2F;批处理）</td>
-<td>生成快照游标，每次取一段</td>
-<td>快照期间数据不变、游标耗内存</td>
-</tr>
-</tbody></table>
-<p><strong>search_after 与 scroll 的核心区别一句话：search_after 是「活的」（每次重新查询，新数据能看到），scroll 是「死的」（固定快照，新写入不可见）</strong>。导出数据用 scroll（要一致性快照），实时翻页用 search_after（要新数据），两者用途完全不同。</p>
-<h3 id="2-2-动手验证：复现报错与-search-after-翻页"><a href="#2-2-动手验证：复现报错与-search-after-翻页" class="headerlink" title="2.2 动手验证：复现报错与 search_after 翻页"></a>2.2 动手验证：复现报错与 search_after 翻页</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 造 15000 条数据</span></span><br><span class="line"><span class="keyword">for</span> i <span class="keyword">in</span> $(<span class="built_in">seq</span> 1 15000); <span class="keyword">do</span> curl -s -X POST <span class="string">&quot;localhost:9200/big/_doc&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> \</span><br><span class="line">  -d <span class="string">&quot;&#123;\&quot;n\&quot;:<span class="variable">$i</span>&#125;&quot;</span> --user elastic:PASSWORD &gt; /dev/null; <span class="keyword">done</span></span><br><span class="line">curl -s -X POST <span class="string">&quot;localhost:9200/big/_refresh&quot;</span> --user elastic:PASSWORD</span><br><span class="line"></span><br><span class="line"><span class="comment"># 1. 深翻页直接报错（默认窗口 10000）</span></span><br><span class="line">curl <span class="string">&quot;localhost:9200/big/_search?size=10&amp;from=10001&quot;</span> --user elastic:PASSWORD</span><br><span class="line"><span class="comment"># → Result window is too large, from + size must be less than or equal to [10000]</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. search_after：取第一页，拿最后一个 sort 值，再翻下一页</span></span><br><span class="line">curl -s <span class="string">&quot;localhost:9200/big/_search&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> -d \</span><br><span class="line">  <span class="string">&#x27;&#123;&quot;size&quot;:10,&quot;sort&quot;:[&#123;&quot;n&quot;:&quot;asc&quot;&#125;]&#125;&#x27;</span> --user elastic:PASSWORD</span><br><span class="line"><span class="comment"># → 记下最后一行的 &quot;sort&quot;:[n]</span></span><br><span class="line">curl -s <span class="string">&quot;localhost:9200/big/_search&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> -d \</span><br><span class="line">  <span class="string">&#x27;&#123;&quot;size&quot;:10,&quot;sort&quot;:[&#123;&quot;n&quot;:&quot;asc&quot;&#125;],&quot;search_after&quot;:[14991]&#125;&#x27;</span> --user elastic:PASSWORD</span><br></pre></td></tr></table></figure>
-
-<p>观察点：from&#x3D;10001 被拒绝；search_after 用上页的 sort 值无缝续翻。判定标准：亲手触发 <code>Result window is too large</code> 并改用 search_after 绕过，理解「不是不能翻，是不能用 from 翻」。</p>
-<h3 id="2-3-避坑：search-after-的排序值陷阱"><a href="#2-3-避坑：search-after-的排序值陷阱" class="headerlink" title="2.3 避坑：search_after 的排序值陷阱"></a>2.3 避坑：search_after 的排序值陷阱</h3><table>
-<thead>
-<tr>
-<th>坑</th>
-<th>表现</th>
-<th>解法</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>排序值有并列</td>
-<td>重复&#x2F;漏条</td>
-<td>加唯一字段作 tie-breaker（如 <code>_id</code>）</td>
-</tr>
-<tr>
-<td>排序字段有 null</td>
-<td>排序不稳定</td>
-<td>用 <code>missing:_last</code> 固定空值位置</td>
-</tr>
-<tr>
-<td>索引时间戳排序</td>
-<td>翻页中途新数据插入</td>
-<td>search_after 能看见（这是特性）；需要冻结视图则用 scroll</td>
-</tr>
-<tr>
-<td>多字段复合排序</td>
-<td>遗漏某字段就乱序</td>
-<td>sort 数组里所有字段都要有值</td>
-</tr>
-</tbody></table>
-<p><strong>因果链</strong>：search_after 的正确性建立在「排序值能唯一定位一条记录」上——<strong>排序值并列时它只知道「比这个值大」，不知道「比这条记录靠后」</strong>，所以必须加唯一字段 tie-breaker。这个细节是面试官最爱追问的：「search_after 有重复数据怎么办？」</p>
-<h2 id="3-聚合：先局部后归并"><a href="#3-聚合：先局部后归并" class="headerlink" title="3. 聚合：先局部后归并"></a>3. 聚合：先局部后归并</h2><h3 id="3-1-聚合的两步模型"><a href="#3-1-聚合的两步模型" class="headerlink" title="3.1 聚合的两步模型"></a>3.1 聚合的两步模型</h3><p><strong>聚合 &#x3D; 每个分片先算局部结果（bucket&#x2F;metrics），协调节点再归并成全局结果</strong>——与搜索的「每片取 topN 再归并」是同一架构，但代价模型完全不同：</p>
-<table>
-<thead>
-<tr>
-<th>维度</th>
-<th>搜索</th>
-<th>聚合</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>分片结果</td>
-<td>每片 topN（量可控）</td>
-<td>每片全部 bucket（量&#x3D;基数）</td>
-</tr>
-<tr>
-<td>归并成本</td>
-<td>O(topN × 分片数)</td>
-<td>O(bucket 数 × 分片数)</td>
-</tr>
-<tr>
-<td>内存压力</td>
-<td>排序堆</td>
-<td><strong>bucket 全部驻留内存</strong></td>
-</tr>
-</tbody></table>
-<p><strong>聚合慢的真正原因：高基数聚合（如按 user_id 分桶）每个分片都要建几百万个 bucket 存内存，协调节点再合并——基数 × 分片数 &#x3D; 内存爆炸</strong>。这就是为什么「聚合上亿日志按 IP 分桶」会 OOM。</p>
-<h3 id="3-2-三招应对高基数聚合"><a href="#3-2-三招应对高基数聚合" class="headerlink" title="3.2 三招应对高基数聚合"></a>3.2 三招应对高基数聚合</h3><table>
-<thead>
-<tr>
-<th>手段</th>
-<th>机制</th>
-<th>适用</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><strong>近似聚合</strong>（cardinality）</td>
-<td>HyperLogLog，固定内存算基数</td>
-<td>只数「多少个」，不要明细</td>
-</tr>
-<tr>
-<td><strong>date_histogram</strong></td>
-<td>按时间分桶（桶数可控）</td>
-<td>日志趋势分析</td>
-</tr>
-<tr>
-<td><strong>前置预聚合</strong></td>
-<td>写入时把明细聚成汇总（rollup）</td>
-<td>上亿数据的固定报表</td>
-</tr>
-</tbody></table>
-<p><strong>因果链</strong>：<code>cardinality</code> 是近似值（误差 1% 左右）但内存恒定——<strong>HLL 用「丢了明细换固定内存」</strong>。做报表&#x2F;去重计数选它；要精确值或明细，只能 rollup 或分片预计算。<strong>面试答「聚合优化」的标准句式：「高基数聚合先问三个问题——能近似吗（cardinality）、能按时间降维吗（date_histogram）、能预计算吗（rollup）」</strong>。</p>
-<h3 id="3-3-动手验证：看聚合的执行与内存"><a href="#3-3-动手验证：看聚合的执行与内存" class="headerlink" title="3.3 动手验证：看聚合的执行与内存"></a>3.3 动手验证：看聚合的执行与内存</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 按标签聚合（低基数，快）</span></span><br><span class="line">curl -s <span class="string">&quot;localhost:9200/orders/_search&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> -d \</span><br><span class="line">  <span class="string">&#x27;&#123;&quot;size&quot;:0,&quot;aggs&quot;:&#123;&quot;by_tag&quot;:&#123;&quot;terms&quot;:&#123;&quot;field&quot;:&quot;tag.keyword&quot;,&quot;size&quot;:10&#125;&#125;&#125;&#125;&#x27;</span> --user elastic:PASSWORD</span><br><span class="line"></span><br><span class="line"><span class="comment"># 精确计数 vs 近似计数（对比 hits 和 errors 字段）</span></span><br><span class="line">curl -s <span class="string">&quot;localhost:9200/big/_search&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> -d \</span><br><span class="line">  <span class="string">&#x27;&#123;&quot;size&quot;:0,&quot;aggs&quot;:&#123;&quot;exact&quot;:&#123;&quot;cardinality&quot;:&#123;&quot;field&quot;:&quot;n&quot;&#125;&#125;&#125;&#125;&#x27;</span> --user elastic:PASSWORD</span><br><span class="line"></span><br><span class="line"><span class="comment"># 聚合慢时看节点堆内存（GC 指标）</span></span><br><span class="line">curl <span class="string">&quot;localhost:9200/_cat/nodes?v&amp;h=name,heap.percent,heap.max&quot;</span> --user elastic:PASSWORD</span><br></pre></td></tr></table></figure>
-
-<p>观察点：<code>cardinality</code> 返回的 <code>value</code> 与真实值可能有 ±1% 偏差（<code>HLL</code> 精度参数 <code>precision_threshold</code> 默认 3000）。判定标准：能解释「为什么聚合比搜索更容易打爆内存」，并说出近似聚合的代价（不精确）。</p>
-<h2 id="4-MySQL-与-ES-双写一致性：三种方案与最终兜底"><a href="#4-MySQL-与-ES-双写一致性：三种方案与最终兜底" class="headerlink" title="4. MySQL 与 ES 双写一致性：三种方案与最终兜底"></a>4. MySQL 与 ES 双写一致性：三种方案与最终兜底</h2><h3 id="4-1-为什么难：两个系统没有同一事务"><a href="#4-1-为什么难：两个系统没有同一事务" class="headerlink" title="4.1 为什么难：两个系统没有同一事务"></a>4.1 为什么难：两个系统没有同一事务</h3><p>MySQL 写成功、ES 写失败，数据就不一致了——<strong>根源是「跨系统无原子性」：MySQL 事务管不了 ES，ES 没有事务</strong>。所有方案的本质都是在回答同一个问题：<strong>怎么把「一次业务写」变成「两次可靠写」</strong>。</p>
-<h3 id="4-2-三种方案对比"><a href="#4-2-三种方案对比" class="headerlink" title="4.2 三种方案对比"></a>4.2 三种方案对比</h3><pre class="mermaid">flowchart LR
-    subgraph A["方案一：应用双写"]
-        App["业务应用"] -->|1. 写 MySQL| M1[(MySQL)]
-        App -->|2. 写 ES（可能失败）| E1[(ES)]
-    end
-    subgraph B["方案二：binlog 订阅（Canal）"]
-        M2[(MySQL)] -->|binlog| C2[Canal]
-        C2 -->|解析/转换| MQ2[(MQ)]
-        MQ2 --> W2[同步服务]
-        W2 --> E2[(ES)]
-    end
-    subgraph C["方案三：本地消息表"]
-        M3[(MySQL)] -->|同事务写消息表| T3[本地消息表]
-        T3 -->|定时扫/事务消息| MQ3[(MQ)]
-        MQ3 --> W3[同步服务]
-        W3 --> E3[(ES)]
-    end</pre>
-
-<table>
-<thead>
-<tr>
-<th>维度</th>
-<th>应用双写</th>
-<th>binlog 订阅（Canal）</th>
-<th>本地消息表</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>一致性时机</td>
-<td>实时（尽力而为）</td>
-<td>近实时（秒级延迟）</td>
-<td>近实时</td>
-</tr>
-<tr>
-<td>与业务解耦</td>
-<td>❌ 侵入业务代码</td>
-<td>✅ 完全解耦</td>
-<td>半解耦（要写消息表）</td>
-</tr>
-<tr>
-<td>对 MySQL 的感知</td>
-<td>无</td>
-<td>只认 binlog（支持 ROW 格式）</td>
-<td>无</td>
-</tr>
-<tr>
-<td>丢失风险</td>
-<td>应用崩溃即丢</td>
-<td>低（Canal 有 offset）</td>
-<td>低（消息表和业务同事务）</td>
-</tr>
-<tr>
-<td>改造量</td>
-<td>最小（但最脆弱）</td>
-<td>中等（Canal+MQ+同步服务）</td>
-<td>中等</td>
-</tr>
-<tr>
-<td>生产推荐</td>
-<td>小流量临时方案</td>
-<td><strong>主流方案</strong></td>
-<td>无 MQ 时的替代</td>
-</tr>
-</tbody></table>
-<p><strong>因果链</strong>：三种方案的演进逻辑是「把「双写」从业务代码里一步步挪出来」——双写侵入业务（方案一）→ 用 binlog 当「MySQL 的变化通知」（方案二，业务无感知）→ 用同事务消息表保证「消息不丢」（方案三，比 Canal 简单但要多写一张表）。<strong>方案二是生产主流：Canal 订阅 binlog → MQ 削峰 → 同步服务写 ES</strong>，延迟秒级、业务零侵入、Canal 挂了对主库无影响。</p>
-<h3 id="4-3-最终一致性兜底：对账与修复"><a href="#4-3-最终一致性兜底：对账与修复" class="headerlink" title="4.3 最终一致性兜底：对账与修复"></a>4.3 最终一致性兜底：对账与修复</h3><p>即使有 Canal，<strong>同步服务崩溃&#x2F;ES 集群故障仍会造成短暂不一致</strong>——所以生产必须加兜底层：</p>
-<table>
-<thead>
-<tr>
-<th>层</th>
-<th>手段</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>重试</td>
-<td>同步失败进重试队列，指数退避</td>
-<td>解决瞬时故障</td>
-</tr>
-<tr>
-<td>对账</td>
-<td>定时任务对比 MySQL 与 ES 数据量&#x2F;版本号</td>
-<td>发现长期不一致</td>
-</tr>
-<tr>
-<td>兜底</td>
-<td>每日全量重建索引（reindex）</td>
-<td>修复一切历史遗留</td>
-</tr>
-</tbody></table>
-<p><strong>因果链</strong>：同步方案保证「绝大多数时间一致」，对账任务保证「发现不一致」，全量重建保证「最终一定一致」——<strong>三层叠加才是完整的最终一致性</strong>。面试答双写问题，说出「Canal + 重试 + 对账 + 定期重建」四件套，比只说 Canal 高一个档次。</p>
-<h3 id="4-4-动手验证：体验「双写」的脆弱"><a href="#4-4-动手验证：体验「双写」的脆弱" class="headerlink" title="4.4 动手验证：体验「双写」的脆弱"></a>4.4 动手验证：体验「双写」的脆弱</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 模拟最朴素的双写失败（不用真实 MySQL，看思路）：</span></span><br><span class="line"><span class="comment"># 1. MySQL 事务已提交，2. ES 写入报错（先故意关掉 ES 的写入）</span></span><br><span class="line">curl -X PUT <span class="string">&quot;localhost:9200/orders/_settings&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> \</span><br><span class="line">  -d <span class="string">&#x27;&#123;&quot;index.blocks.write&quot;: true&#125;&#x27;</span> --user elastic:PASSWORD</span><br><span class="line"><span class="comment"># 业务代码里：DB 成功 → ES 报错（index.blocks.write 拒绝写入）→ 数据不一致</span></span><br><span class="line">curl -X POST <span class="string">&quot;localhost:9200/orders/_doc/1&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> \</span><br><span class="line">  -d <span class="string">&#x27;&#123;&quot;title&quot;:&quot;x&quot;&#125;&#x27;</span> --user elastic:PASSWORD   <span class="comment"># → blocked by [FORBIDDEN/12/index write]</span></span><br><span class="line"><span class="comment"># 解除写入阻塞</span></span><br><span class="line">curl -X PUT <span class="string">&quot;localhost:9200/orders/_settings&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> \</span><br><span class="line">  -d <span class="string">&#x27;&#123;&quot;index.blocks.write&quot;: false&#125;&#x27;</span> --user elastic:PASSWORD</span><br></pre></td></tr></table></figure>
-
-<p>观察点：ES 拒绝写入但业务侧 MySQL 已提交——<strong>「DB 成功、ES 失败」的现场，双写方案必须自己处理这种不一致</strong>（重试&#x2F;补偿&#x2F;消息队列）。判定标准：理解双写方案为何脆弱——<strong>两个系统任何一方抖动，都需要人工或兜底层收尾</strong>。</p>
-<h2 id="5-面试应答：查询优化四连问"><a href="#5-面试应答：查询优化四连问" class="headerlink" title="5. 面试应答：查询优化四连问"></a>5. 面试应答：查询优化四连问</h2><h3 id="5-1-完整话术"><a href="#5-1-完整话术" class="headerlink" title="5.1 完整话术"></a>5.1 完整话术</h3><table>
-<thead>
-<tr>
-<th>面试题</th>
-<th>回答要点</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>深度分页怎么做？</td>
-<td>from+size 只能前 1 万条（代价 O(from+size)×分片）；实时滚动用 search_after（记住排序值续翻）；全量导出用 scroll（快照游标）</td>
-</tr>
-<tr>
-<td>search_after 和 scroll 区别？</td>
-<td>search_after 重新查询（能看到新数据）、不能跳页；scroll 固定快照（数据冻结）、适合导出</td>
-</tr>
-<tr>
-<td>聚合慢怎么办？</td>
-<td>高基数&#x3D;内存爆炸；先问能近似吗（cardinality&#x2F;HLL）、能时间降维吗（date_histogram）、能预聚合吗（rollup）</td>
-</tr>
-<tr>
-<td>MySQL 与 ES 怎么同步？</td>
-<td>生产用 binlog 订阅（Canal→MQ→同步服务），加重试+对账+定期重建兜底；双写只适合小流量</td>
-</tr>
-</tbody></table>
-<h3 id="5-2-深挖：与-MySQL-分页-主从的对照（跨篇联动）"><a href="#5-2-深挖：与-MySQL-分页-主从的对照（跨篇联动）" class="headerlink" title="5.2 深挖：与 MySQL 分页&#x2F;主从的对照（跨篇联动）"></a>5.2 深挖：与 MySQL 分页&#x2F;主从的对照（跨篇联动）</h3><table>
-<thead>
-<tr>
-<th>维度</th>
-<th>MySQL</th>
-<th>ES</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>分页</td>
-<td>limit 深翻页要扫全表（<a href="/post/629ad3df.html">MySQL 索引原理与实战</a>）</td>
-<td>from+size 深翻页每片全量取（代价模型相同）</td>
-</tr>
-<tr>
-<td>大数据分页正解</td>
-<td>游标&#x2F;书签（where id &gt; last）</td>
-<td>search_after（排序值书签）</td>
-</tr>
-<tr>
-<td>异步同步</td>
-<td>主从 binlog 复制（<a href="/post/mysql-ha-2025.html">MySQL 高可用</a>）</td>
-<td>Canal 订阅 binlog 同步 ES</td>
-</tr>
-<tr>
-<td>一致性保障</td>
-<td>半同步&#x2F;GTID</td>
-<td>重试+对账+重建</td>
-</tr>
-</tbody></table>
-<p><strong>一句话：MySQL 深分页用「书签」绕开 LIMIT 扫描，ES 用 search_after 绕开 from+size——「记住上次的位置，而不是从头上重新数」是分页优化的共同思想</strong>；ES 的 Canal 同步本质上就是「把 MySQL 的 binlog 复制架构搬到了 ES 侧」。跨库答出这层对照，面试是明显的差异化加分。</p>
-<h2 id="6-总结"><a href="#6-总结" class="headerlink" title="6. 总结"></a>6. 总结</h2><h3 id="6-1-面试速答表"><a href="#6-1-面试速答表" class="headerlink" title="6.1 面试速答表"></a>6.1 面试速答表</h3><table>
-<thead>
-<tr>
-<th>面试题</th>
-<th>一句话答案</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>为什么 ES 分页限制 1 万条？</td>
-<td>深度分页代价 O(from+size)×分片数，每片白取全量再归并，干脆限制</td>
-</tr>
-<tr>
-<td>search_after 怎么用？</td>
-<td>用上页最后一条的排序值续翻，实时数据可见；排序加唯一字段 tie-breaker</td>
-</tr>
-<tr>
-<td>scroll 适合什么？</td>
-<td>全量导出&#x2F;批处理，固定快照游标，游标期间数据不可变</td>
-</tr>
-<tr>
-<td>聚合为什么慢？</td>
-<td>高基数 bucket 全驻内存，基数×分片数爆炸</td>
-</tr>
-<tr>
-<td>高基数聚合怎么办？</td>
-<td>cardinality 近似、date_histogram 降维、rollup 预聚合</td>
-</tr>
-<tr>
-<td>MySQL→ES 怎么同步？</td>
-<td>Canal 订阅 binlog → MQ → 同步服务；重试+对账+定期重建兜底</td>
-</tr>
-<tr>
-<td>双写方案为什么不好？</td>
-<td>业务侵入 + 两个系统无同一事务，任何一方失败都要手工收尾</td>
-</tr>
-</tbody></table>
-<h3 id="6-2-实战避坑表"><a href="#6-2-实战避坑表" class="headerlink" title="6.2 实战避坑表"></a>6.2 实战避坑表</h3><table>
-<thead>
-<tr>
-<th>症状</th>
-<th>原因</th>
-<th>处理</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>Result window is too large</code></td>
-<td>from+size 超 1 万</td>
-<td>改 search_after&#x2F;scroll，不要只调 max_result_window（治标不治本）</td>
-</tr>
-<tr>
-<td>search_after 翻页重复&#x2F;漏条</td>
-<td>排序值并列</td>
-<td>sort 加唯一字段 tie-breaker</td>
-</tr>
-<tr>
-<td>聚合 OOM</td>
-<td>高基数 bucket</td>
-<td>换 cardinality&#x2F;date_histogram&#x2F;rollup</td>
-</tr>
-<tr>
-<td>ES 数据少一条</td>
-<td>双写&#x2F;同步失败</td>
-<td>查重试队列；对账任务对比；必要时重建索引</td>
-</tr>
-<tr>
-<td>同步延迟大</td>
-<td>MQ 积压&#x2F;同步服务瓶颈</td>
-<td>监控消费 lag，扩同步服务并发</td>
-</tr>
-<tr>
-<td>Canal 挂了对主库的影响</td>
-<td>无（旁路解析 binlog）</td>
-<td>放心重启，offset 续传</td>
-</tr>
-</tbody></table>
-<h3 id="6-3-工具速查表"><a href="#6-3-工具速查表" class="headerlink" title="6.3 工具速查表"></a>6.3 工具速查表</h3><table>
-<thead>
-<tr>
-<th>工具&#x2F;API</th>
-<th>用途</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>max_result_window</code>（settings）</td>
-<td>分页窗口上限，生产不建议调大</td>
-</tr>
-<tr>
-<td><code>search_after</code> &#x2F; <code>scroll</code></td>
-<td>深翻页两件套（活视图&#x2F;快照）</td>
-</tr>
-<tr>
-<td><code>cardinality</code> &#x2F; <code>date_histogram</code></td>
-<td>聚合降内存两招</td>
-</tr>
-<tr>
-<td><code>_cat/nodes?v&amp;h=name,heap.percent</code></td>
-<td>聚合 OOM 前观察堆内存</td>
-</tr>
-<tr>
-<td>Canal（阿帕奇&#x2F;阿里）</td>
-<td>binlog 订阅，MySQL→ES 主流同步件</td>
-</tr>
-<tr>
-<td>对账任务 + 重建索引</td>
-<td>最终一致性兜底两层</td>
-</tr>
-</tbody></table>
-<h3 id="6-4-下一篇预告"><a href="#6-4-下一篇预告" class="headerlink" title="6.4 下一篇预告"></a>6.4 下一篇预告</h3><p>查询篇解决「怎么查得对」，下一篇《分布式事务：从 2PC 到 Seata》解决「怎么写得对」——<strong>MySQL 事务管不了 ES，同样管不了多个微服务</strong>：2PC 为什么是「协调者的单点赌博」、TCC 为什么是「业务三阶段」、Saga 为什么是「一条补偿链」，以及 Seata 的 AT 模式怎么用全局锁做到「业务无侵入」——分布式一致性的最后一块拼图。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
   <nav class="pagination">
-    <a class="extend prev" rel="prev" title="Previous page" aria-label="Previous page" href="/home/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/home/">1</a><span class="page-number current">2</span><a class="page-number" href="/home/page/3/">3</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/22/">22</a><a class="extend next" rel="next" title="Next page" aria-label="Next page" href="/home/page/3/"><i class="fa fa-angle-right"></i></a>
+    <a class="extend prev" rel="prev" title="Previous page" aria-label="Previous page" href="/home/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/home/">1</a><span class="page-number current">2</span><a class="page-number" href="/home/page/3/">3</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/23/">23</a><a class="extend next" rel="next" title="Next page" aria-label="Next page" href="/home/page/3/"><i class="fa fa-angle-right"></i></a>
   </nav>
 
 </div>
@@ -2389,14 +2366,14 @@
       <i class="fa fa-chart-line"></i>
     </span>
       <span>Word count total: </span>
-    <span title="Word count total">605k</span>
+    <span title="Word count total">610k</span>
   </span>
   <span class="post-meta-item">
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
       <span>Reading time total &asymp;</span>
-    <span title="Reading time total">36:41</span>
+    <span title="Reading time total">36:58</span>
   </span>
 </div>
   <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>

@@ -189,7 +189,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">88</span>
+          <span class="site-state-item-count">89</span>
           <span class="site-state-item-name">posts</span>
         </a>
       </div>
@@ -244,6 +244,389 @@
     </div>
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/22c01f5.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/22c01f5.html" class="post-title-link" itemprop="url">Linux 资源排查实战</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-08-12 23:50:00" itemprop="dateCreated datePublished" datetime="2026-08-12T23:50:00+08:00">2026-08-12</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/" itemprop="url" rel="index"><span itemprop="name">操作系统</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>2.9k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>11 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <p><strong>资源排查是「指标 → 机制 → 根因」的翻译工作</strong>：<code>top</code>、<code>vmstat</code>、<code>iostat</code> 暴露的是现象，机制在前四篇（切换成本、页表与缺页、页缓存与 fsync、epoll 等待），根因藏在两者的交叉处。本文把操作系统系列的六件套工具（ps&#x2F;top&#x2F;vmstat&#x2F;iostat&#x2F;strace&#x2F;ss + jstack&#x2F;jstat）收拢成 CPU、内存、IO、连接四类故障的定位流程，用三个真实案例走完「症状 → 工具 → 根因 → 处理」全链路。</p>
+<blockquote>
+<p><strong>系列地图（操作系统）收官</strong>：① 进程与线程（执行单元与调度）→ ② 内存管理（地址空间与物理内存）→ ③ 文件系统与磁盘 IO（数据落盘）→ ④ IO 模型（等待数据的方式）→ ⑤ <strong>本文：把前四篇的机制变成排查工具链</strong>。</p>
+</blockquote>
+<h2 id="1-排查方法论：先全局，再局部"><a href="#1-排查方法论：先全局，再局部" class="headerlink" title="1. 排查方法论：先全局，再局部"></a>1. 排查方法论：先全局，再局部</h2><h3 id="1-1-四类故障的入口"><a href="#1-1-四类故障的入口" class="headerlink" title="1.1 四类故障的入口"></a>1.1 四类故障的入口</h3><table>
+<thead>
+<tr>
+<th>故障面</th>
+<th>第一眼指标</th>
+<th>入口命令</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>CPU</td>
+<td>load、%us&#x2F;%sy</td>
+<td><code>top</code>、<code>vmstat 1</code></td>
+</tr>
+<tr>
+<td>内存</td>
+<td>available、si&#x2F;so</td>
+<td><code>free -h</code>、<code>vmstat 1</code></td>
+</tr>
+<tr>
+<td>IO</td>
+<td>%util、await、bo</td>
+<td><code>iostat -x 1</code>、<code>vmstat 1</code></td>
+</tr>
+<tr>
+<td>连接</td>
+<td>estab、TIME_WAIT、fd</td>
+<td><code>ss -s</code>、<code>ulimit -n</code></td>
+</tr>
+</tbody></table>
+<p>排查原则：<strong>先全局扫描定方向（30 秒），再钻局部锁根因</strong>。全局扫描就是一套固定命令：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">uptime</span>                      <span class="comment"># load：R + D 状态进程数，1/5/15 分钟</span></span><br><span class="line">free -h                     <span class="comment"># available、swap 使用</span></span><br><span class="line">vmstat 1 3                  <span class="comment"># r/b 队列、cs 切换、si/so、us/sy</span></span><br><span class="line">iostat -x 1 2               <span class="comment"># %util、await、rrqm/s</span></span><br><span class="line">ss -s                       <span class="comment"># 连接总数与状态分布</span></span><br><span class="line">dmesg | <span class="built_in">tail</span> -20            <span class="comment"># OOM/段错误等内核级事件（经常被忽略的第一现场）</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>load 高不等于 CPU 忙</strong>：load &#x3D; 可运行（R）+ 不可中断（D）进程数。R 多说明 CPU 排队（换更好的机器&#x2F;降并发），D 多说明进程卡在 IO&#x2F;内核（盘、锁、swap）——方向完全不同，这是第一个要翻译的指标。</p>
+<h3 id="1-2-动手验证：跑一次完整的全局扫描"><a href="#1-2-动手验证：跑一次完整的全局扫描" class="headerlink" title="1.2 动手验证：跑一次完整的全局扫描"></a>1.2 动手验证：跑一次完整的全局扫描</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">yes</span> &gt; /dev/null &amp;           <span class="comment"># 造一个 CPU 打满的进程（用完 kill）</span></span><br><span class="line"><span class="built_in">dd</span> <span class="keyword">if</span>=/dev/zero of=/tmp/x bs=1M count=512 &amp;   <span class="comment"># 造写盘</span></span><br><span class="line"><span class="built_in">uptime</span>; free -h; vmstat 1 3; iostat -x 1 2</span><br><span class="line"><span class="built_in">kill</span> %1 %2</span><br></pre></td></tr></table></figure>
+
+<p>对照输出理解每一列：<code>r</code>（就绪队列）、<code>b</code>（阻塞在 IO）、<code>cs</code>（切换&#x2F;秒，第 1 篇）、<code>si/so</code>（换页，第 2 篇）、<code>bo</code>（刷盘块数，第 3 篇）、<code>us/sy</code>（用户&#x2F;内核时间占比）。<strong>一个命令序列，四篇机制全覆盖</strong>——这就是工具链收拢的含义。</p>
+<h2 id="2-CPU-类故障：谁在烧核"><a href="#2-CPU-类故障：谁在烧核" class="headerlink" title="2. CPU 类故障：谁在烧核"></a>2. CPU 类故障：谁在烧核</h2><h3 id="2-1-定位流程"><a href="#2-1-定位流程" class="headerlink" title="2.1 定位流程"></a>2.1 定位流程</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">top                        <span class="comment"># 1. 哪个进程 CPU 高</span></span><br><span class="line">top -Hp &lt;pid&gt;              <span class="comment"># 2. 哪个线程在烧（PID 列实为 TID）</span></span><br><span class="line"><span class="built_in">printf</span> <span class="string">&#x27;%x&#x27;</span> &lt;tid&gt;          <span class="comment"># 3. TID 转十六进制（jstack 用 nid=0x 匹配）</span></span><br><span class="line">jstack &lt;pid&gt; | grep -A 30 <span class="string">&#x27;nid=0x&lt;hex&gt;&#x27;</span>   <span class="comment"># 4. 线程在干什么</span></span><br><span class="line">jstat -gcutil &lt;pid&gt; 1000   <span class="comment"># 5. 排除 GC 线程（GC 频率高也是 CPU 杀手）</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="2-2-深挖：Java-服务-CPU-100-的两张脸"><a href="#2-2-深挖：Java-服务-CPU-100-的两张脸" class="headerlink" title="2.2 深挖：Java 服务 CPU 100% 的两张脸"></a>2.2 深挖：Java 服务 CPU 100% 的两张脸</h3><p><strong>业务线程在烧</strong>：<code>top -Hp</code> 看到业务线程（如 <code>http-nio-*</code>）长时间 RUNNABLE，jstack 定位到热点方法（大循环、正则回溯、序列化）。<strong>GC 线程在烧</strong>：<code>jstat</code> 显示 <code>FGCT</code>（Full GC 累计时间）持续增长——此时烧核的不是业务代码而是回收本身（堆过小、对象泄漏）。同一症状（CPU 高）两种根因，分岔点就在 <code>top -Hp</code> 后线程是谁。</p>
+<h3 id="2-3-动手验证：模拟一次-CPU-打满并定位"><a href="#2-3-动手验证：模拟一次-CPU-打满并定位" class="headerlink" title="2.3 动手验证：模拟一次 CPU 打满并定位"></a>2.3 动手验证：模拟一次 CPU 打满并定位</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// BusyCpu.java：单线程死循环</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">BusyCpu</span> &#123; <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] a)</span> &#123; <span class="keyword">while</span> (<span class="literal">true</span>) &#123;&#125; &#125; &#125;</span><br></pre></td></tr></table></figure>
+
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">java BusyCpu &amp;</span><br><span class="line">top -Hp $(pgrep -f BusyCpu)      <span class="comment"># 看到 1 个线程 ~100%</span></span><br><span class="line">tid=$(top -Hbn1 -p $(pgrep -f BusyCpu) | awk <span class="string">&#x27;NR&gt;7&#123;print $1; exit&#125;&#x27;</span>)</span><br><span class="line">jstack $(pgrep -f BusyCpu) | grep -A5 <span class="string">&quot;nid=0x<span class="subst">$(printf &#x27;%x&#x27; $tid)</span>&quot;</span></span><br><span class="line"><span class="comment"># 栈顶就是 while(true) 所在行——一次完整的「CPU 高 → 线程 → 代码行」定位</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>判定标准</strong>：%us 高 &#x3D; 用户态（业务&#x2F;GC），%sy 高 &#x3D; 内核态（切换过多、syscall 密集，回看第 1 篇 §3.4）；GC 占用超过 20% 时间，先解决内存问题再谈代码优化。</p>
+<h2 id="3-内存类故障：RSS-去了哪"><a href="#3-内存类故障：RSS-去了哪" class="headerlink" title="3. 内存类故障：RSS 去了哪"></a>3. 内存类故障：RSS 去了哪</h2><h3 id="3-1-定位流程"><a href="#3-1-定位流程" class="headerlink" title="3.1 定位流程"></a>3.1 定位流程</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">free -h                       <span class="comment"># 1. available、swap</span></span><br><span class="line">vmstat 1                      <span class="comment"># 2. si/so：是否在换页</span></span><br><span class="line">dmesg | grep -i killed        <span class="comment"># 3. 是否被 OOM Killer 杀过</span></span><br><span class="line"><span class="built_in">cat</span> /proc/&lt;pid&gt;/status | grep -E <span class="string">&#x27;VmRSS|VmSwap&#x27;</span>   <span class="comment"># 4. 单进程 RSS</span></span><br><span class="line">jcmd &lt;pid&gt; VM.native_memory summary   <span class="comment"># 5. JVM 堆外明细（需 -XX:NativeMemoryTracking）</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="3-2-深挖：容器里的观测陷阱"><a href="#3-2-深挖：容器里的观测陷阱" class="headerlink" title="3.2 深挖：容器里的观测陷阱"></a>3.2 深挖：容器里的观测陷阱</h3><p>容器内跑 <code>top</code>&#x2F;<code>free</code> 看到的是<strong>宿主机视角</strong>（除非容器发行版做了 cgroup 感知），<code>free</code> 的 available 是整机的。容器真实的消耗要看：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cat</span> /sys/fs/cgroup/memory.current          <span class="comment"># cgroup v2：容器实际占用</span></span><br><span class="line"><span class="built_in">cat</span> /sys/fs/cgroup/memory.max              <span class="comment"># 容器内存上限（K8s limits.memory）</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>线上「容器内存告警但容器内 free 显示充足」就是这么来的</strong>——观测错了层。反过来，宿主机内存告警先查每个 cgroup 的 <code>memory.current</code>，按容器排行，而不是按 <code>top</code> 的 RSS（top 会漏掉 cgroup 层的统计口径差异）。</p>
+<h3 id="3-3-动手验证：把容器内存顶到上限"><a href="#3-3-动手验证：把容器内存顶到上限" class="headerlink" title="3.3 动手验证：把容器内存顶到上限"></a>3.3 动手验证：把容器内存顶到上限</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">docker run --memory=256m --<span class="built_in">rm</span> -it openjdk:17 \</span><br><span class="line">  java -XX:MaxRAMPercentage=75 -<span class="built_in">cp</span> . AllocMem   <span class="comment"># 持续分配直到被杀</span></span><br><span class="line">dmesg | <span class="built_in">tail</span> -5        <span class="comment"># Killed process ... java（第 2 篇 §4.3 的现场再现）</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>判定标准</strong>：si&#x2F;so 非零 &#x3D; swap 在救场（性能已崩）；被 OOM Killer 杀且日志里 <code>oom_score_adj</code> 高 &#x3D; 容器限额问题而非代码泄漏——先分清「谁定的上限」，再谈优化。</p>
+<h2 id="4-IO-类故障：盘是真的忙吗"><a href="#4-IO-类故障：盘是真的忙吗" class="headerlink" title="4. IO 类故障：盘是真的忙吗"></a>4. IO 类故障：盘是真的忙吗</h2><h3 id="4-1-定位流程"><a href="#4-1-定位流程" class="headerlink" title="4.1 定位流程"></a>4.1 定位流程</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">iostat -x 1                <span class="comment"># 1. %util、await、w/s</span></span><br><span class="line">vmstat 1                   <span class="comment"># 2. b 列（阻塞在 IO 的进程数）、bo</span></span><br><span class="line">pidstat -d 1               <span class="comment"># 3. 哪个进程在写（KB_READ/KB_WRT）</span></span><br><span class="line">ps -eo pid,<span class="built_in">stat</span>,cmd | grep <span class="string">&#x27;^ *[0-9]* D&#x27;</span>   <span class="comment"># 4. D 状态进程：卡在 IO</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="4-2-深挖：iowait-高的三种真相"><a href="#4-2-深挖：iowait-高的三种真相" class="headerlink" title="4.2 深挖：iowait 高的三种真相"></a>4.2 深挖：iowait 高的三种真相</h3><table>
+<thead>
+<tr>
+<th>现象</th>
+<th>真相</th>
+<th>验证</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>%util 100%、await 高</td>
+<td>盘真忙</td>
+<td>iostat 看磁盘型号与队列</td>
+</tr>
+<tr>
+<td>%util 不高但 iowait 高</td>
+<td>盘没忙，是<strong>进程在等</strong>（锁、swap、网络）</td>
+<td>vmstat 的 b 列 + pidstat -d 对账</td>
+</tr>
+<tr>
+<td>NVMe 上 %util 100%</td>
+<td>现代盘并发高，util 定义过时，不代表饱和</td>
+<td>看 avgqu-sz 与延迟分布</td>
+</tr>
+</tbody></table>
+<p><strong>IO 高不一定是 IO 问题</strong>：swap 换页（内存问题）和锁等待（并发问题）都会表现为「进程 D 状态&#x2F;阻塞」，但盘根本不忙——翻译指标时先排除这两类伪装。</p>
+<h3 id="4-3-动手验证：压一次盘并解读"><a href="#4-3-动手验证：压一次盘并解读" class="headerlink" title="4.3 动手验证：压一次盘并解读"></a>4.3 动手验证：压一次盘并解读</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">dd</span> <span class="keyword">if</span>=/dev/zero of=/tmp/iotest bs=1M count=2048 oflag=direct &amp;</span><br><span class="line">iostat -x 1 5     <span class="comment"># 观察 %util 冲到 100、await 升高、w/s 与 bs 匹配</span></span><br><span class="line"><span class="built_in">kill</span> %1</span><br></pre></td></tr></table></figure>
+
+<p>对照第 3 篇：<code>oflag=direct</code> 绕过页缓存（§2.3），所以 %util 真实反映磁盘；去掉 oflag 再跑，%util 大幅下降——<strong>同一份写入，缓冲与否差出一倍磁盘占用</strong>，这就是「先查请求模式，再骂盘慢」的实操依据。</p>
+<h2 id="5-连接类故障：TIME-WAIT-与端口耗尽"><a href="#5-连接类故障：TIME-WAIT-与端口耗尽" class="headerlink" title="5. 连接类故障：TIME_WAIT 与端口耗尽"></a>5. 连接类故障：TIME_WAIT 与端口耗尽</h2><h3 id="5-1-高并发短连接的经典事故"><a href="#5-1-高并发短连接的经典事故" class="headerlink" title="5.1 高并发短连接的经典事故"></a>5.1 高并发短连接的经典事故</h3><p><strong>TIME_WAIT 是主动关闭方的收尾状态（持续 2MSL ≈ 60 秒）</strong>：短连接服务（每请求一个连接，连接由服务端主动关闭）高并发时，TIME_WAIT 连接堆积，占满本地端口范围（<code>/proc/sys/net/ipv4/ip_local_port_range</code>，默认约 2.8 万个）——新连接没有可用本地端口，<code>ss -s</code> 里 <code>timewait</code> 数量暴涨 + 业务报连接失败。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">ss -s                          <span class="comment"># timewait 计数</span></span><br><span class="line">sysctl net.ipv4.ip_local_port_range</span><br><span class="line">ss -tan | awk <span class="string">&#x27;$1==&quot;TIME-WAIT&quot;&#123;c++&#125; END&#123;print c&#125;&#x27;</span>   <span class="comment"># 精确统计</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="5-2-深挖：为什么连接要复用"><a href="#5-2-深挖：为什么连接要复用" class="headerlink" title="5.2 深挖：为什么连接要复用"></a>5.2 深挖：为什么连接要复用</h3><p>TIME_WAIT 设计的本意是防「迟到旧报文污染新连接」（第 4 篇 TCP 状态机的安全收尾）。生产解法不是调小端口而是<strong>连接复用</strong>：HTTP keep-alive &#x2F; 连接池把「短连接」变「长连接」——这正好呼应第 4 篇：连接数是 fd 数、是线程数的直接消耗者，复用连接等于同时省掉 TIME_WAIT、fd 和握手开销（三次握手也是一次 RTT）。<strong>连接池参数（maxTotal&#x2F;minIdle）背后的机制，就是 TIME_WAIT 与端口范围</strong>。</p>
+<h2 id="6-真实案例复盘：三次「症状-→-工具-→-根因」"><a href="#6-真实案例复盘：三次「症状-→-工具-→-根因」" class="headerlink" title="6. 真实案例复盘：三次「症状 → 工具 → 根因」"></a>6. 真实案例复盘：三次「症状 → 工具 → 根因」</h2><h3 id="6-1-案例一：TPS-上不去，cs-每秒-30-万"><a href="#6-1-案例一：TPS-上不去，cs-每秒-30-万" class="headerlink" title="6.1 案例一：TPS 上不去，cs 每秒 30 万"></a>6.1 案例一：TPS 上不去，cs 每秒 30 万</h3><table>
+<thead>
+<tr>
+<th>环节</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>症状</td>
+<td>8 核机器 TPS 卡 4000，压测曲线有平台期</td>
+</tr>
+<tr>
+<td>工具</td>
+<td><code>vmstat 1</code> 看到 cs 30 万+（第 1 篇 §3.4 的判定标准：8 核 × 2 万 &#x3D; 16 万已超标）；<code>pidstat -w</code> 每个 worker 上万次非自愿切换</td>
+</tr>
+<tr>
+<td>根因</td>
+<td>线程池 300 线程远超核数，大量时间在抢时间片</td>
+</tr>
+<tr>
+<td>处理</td>
+<td>线程池缩到 64，cs 降到 5 万，TPS 升到 9000</td>
+</tr>
+</tbody></table>
+<h3 id="6-2-案例二：容器里-Java-无日志消失"><a href="#6-2-案例二：容器里-Java-无日志消失" class="headerlink" title="6.2 案例二：容器里 Java 无日志消失"></a>6.2 案例二：容器里 Java 无日志消失</h3><table>
+<thead>
+<tr>
+<th>环节</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>症状</td>
+<td>K8s pod 重启，应用无异常日志</td>
+</tr>
+<tr>
+<td>工具</td>
+<td><code>dmesg</code> 找到 <code>Killed process ... java, oom_score_adj=1000</code>（第 2 篇 §4.3）；cgroup 核对 limits.memory&#x3D;1g</td>
+</tr>
+<tr>
+<td>根因</td>
+<td>只设了 <code>-Xmx1g</code>，RSS &#x3D; 堆 + Metaspace + 直接内存 &gt; 1g，被 cgroup 限杀</td>
+</tr>
+<tr>
+<td>处理</td>
+<td>改 <code>-XX:MaxRAMPercentage=75</code>，观察 <code>memory.current</code> 稳定在限额 80% 以内</td>
+</tr>
+</tbody></table>
+<h3 id="6-3-案例三：写日志把磁盘打满"><a href="#6-3-案例三：写日志把磁盘打满" class="headerlink" title="6.3 案例三：写日志把磁盘打满"></a>6.3 案例三：写日志把磁盘打满</h3><table>
+<thead>
+<tr>
+<th>环节</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>症状</td>
+<td>高峰期应用卡顿，<code>iostat</code> %util 100%，但盘是 NVMe 不该这么慢</td>
+</tr>
+<tr>
+<td>工具</td>
+<td><code>pidstat -d</code> 锁定日志进程；<code>iostat</code> 里 w&#x2F;s 突刺与业务时间轴吻合（第 3 篇 §2.4 回写风暴特征）；<code>strace</code> 看到大量 fsync</td>
+</tr>
+<tr>
+<td>根因</td>
+<td>logback <code>immediateFlush=true</code> 逐条 fsync（第 3 篇 §4.1 的百倍差）+ 脏页阈值触发批量回写</td>
+</tr>
+<tr>
+<td>处理</td>
+<td><code>immediateFlush=false</code> + 批量刷，%util 从 100% 降到 20%</td>
+</tr>
+</tbody></table>
+<p>三个案例的共同模式：<strong>入口指标 → 对应篇目的机制 → 参数&#x2F;架构修正</strong>——工具只是入口，判断力来自「这个指标背后是哪一层机制」。</p>
+<h2 id="7-总结：操作系统系列收官"><a href="#7-总结：操作系统系列收官" class="headerlink" title="7. 总结：操作系统系列收官"></a>7. 总结：操作系统系列收官</h2><h3 id="7-1-六件套工具总表"><a href="#7-1-六件套工具总表" class="headerlink" title="7.1 六件套工具总表"></a>7.1 六件套工具总表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>判定标准</th>
+<th>对应篇目</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>top</code> &#x2F; <code>top -Hp</code></td>
+<td>进程&#x2F;线程 CPU</td>
+<td>%sy 高查切换与 syscall</td>
+<td>① ④</td>
+</tr>
+<tr>
+<td><code>vmstat 1</code></td>
+<td>cs、si&#x2F;so、r&#x2F;b、us&#x2F;sy</td>
+<td>cs &gt; 核数×2 万&#x2F;秒；si&#x2F;so 非零即事故</td>
+<td>① ②</td>
+</tr>
+<tr>
+<td><code>free -h</code> &#x2F; cgroup</td>
+<td>available、容器真实占用</td>
+<td>看 available 不看 free；容器看 memory.current</td>
+<td>②</td>
+</tr>
+<tr>
+<td><code>iostat -x</code></td>
+<td>%util、await、w&#x2F;s</td>
+<td>util 高先排除 swap 与锁</td>
+<td>③</td>
+</tr>
+<tr>
+<td><code>strace -c</code></td>
+<td>syscall 类型与次数</td>
+<td>读&#x2F;写&#x2F;futex 计数异常</td>
+<td>① ③</td>
+</tr>
+<tr>
+<td><code>ss -s</code> &#x2F; <code>ulimit -n</code></td>
+<td>连接状态、fd 配额</td>
+<td>timewait 堆积查端口与连接复用</td>
+<td>④</td>
+</tr>
+<tr>
+<td><code>jstack</code> &#x2F; <code>jstat</code></td>
+<td>Java 线程栈、GC</td>
+<td>CPU 高先分「业务线程 vs GC」</td>
+<td>① ②</td>
+</tr>
+</tbody></table>
+<h3 id="7-2-面试速答表"><a href="#7-2-面试速答表" class="headerlink" title="7.2 面试速答表"></a>7.2 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>load 高代表什么？</td>
+<td>R + D 状态进程数；R 多 CPU 排队，D 多 IO&#x2F;内核阻塞，方向不同</td>
+</tr>
+<tr>
+<td>CPU 高怎么定位？</td>
+<td>top → top -Hp → TID 转 hex → jstack 匹配 nid；先排除 GC</td>
+</tr>
+<tr>
+<td>容器里 top 显示的内存是？</td>
+<td>宿主机视角；容器真实占用看 cgroup memory.current</td>
+</tr>
+<tr>
+<td>iowait 高就是盘慢？</td>
+<td>不一定——swap 换页和锁等待也会伪装成 IO 阻塞，先看盘 util</td>
+</tr>
+<tr>
+<td>TIME_WAIT 堆积怎么办？</td>
+<td>连接复用（keep-alive&#x2F;连接池）优于调端口；TIME_WAIT 是安全收尾</td>
+</tr>
+<tr>
+<td>排查第一件事是什么？</td>
+<td>全局扫描 + dmesg（内核级事件经常被忽略）</td>
+</tr>
+</tbody></table>
+<h3 id="7-3-系列收官：五篇一条链"><a href="#7-3-系列收官：五篇一条链" class="headerlink" title="7.3 系列收官：五篇一条链"></a>7.3 系列收官：五篇一条链</h3><table>
+<thead>
+<tr>
+<th>篇目</th>
+<th>一句话核心</th>
+<th>给你的能力</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>① 进程与线程</td>
+<td>进程管资源、线程管执行、调度管时间</td>
+<td>线程池大小、虚拟线程选型有依据</td>
+</tr>
+<tr>
+<td>② 内存管理</td>
+<td>地址空间是承诺、RSS 是现实</td>
+<td>OOM 排查、容器内存配置不再靠猜</td>
+</tr>
+<tr>
+<td>③ 文件系统</td>
+<td>write 返回 ≠ 落盘，fsync 是取舍点</td>
+<td>刷盘策略、零拷贝选型有依据</td>
+</tr>
+<tr>
+<td>④ IO 模型</td>
+<td>等待数据的方式决定架构</td>
+<td>线程模型、连接上限有依据</td>
+</tr>
+<tr>
+<td>⑤ 本文</td>
+<td>指标要翻译回机制</td>
+<td>故障定位从「试」变成「推」</td>
+</tr>
+</tbody></table>
+<p>实操建议（收尾三件事）：</p>
+<ol>
+<li>把第 1 节的全盘扫描命令存成 <code>sos.sh</code>，任何故障先跑一遍再说话——30 秒定方向。</li>
+<li>每次排障记录「症状 → 工具 → 根因 → 处理」四行，积累成自己的判定标准表。</li>
+<li>回到第 1 篇的结论：<strong>所有性能问题的本质都是「资源与机制的错配」</strong>——切换成本、缺页、fsync、唤醒，选对机制比调大资源重要。</li>
+</ol>
+<blockquote>
+<p><strong>命令速查联动</strong>：本文讲「指标怎么翻译成机制」，命令本身的用法见 <a href="/post/82734d8.html">Linux 基础与 Shell 编程</a>（速查手册，§8 有完整定位流程）——排查现场两篇配合：本文定方向，速查篇查命令。</p>
+</blockquote>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -2050,500 +2433,8 @@
 
 
 
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/aa1ba544.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="知行栈">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | 知行栈">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/aa1ba544.html" class="post-title-link" itemprop="url">内存管理：虚拟内存与分页</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-
-      <time title="Created: 2026-08-12 22:00:00" itemprop="dateCreated datePublished" datetime="2026-08-12T22:00:00+08:00">2026-08-12</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">In</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/" itemprop="url" rel="index"><span itemprop="name">操作系统</span></a>
-        </span>
-    </span>
-
-  
-    <span class="post-meta-break"></span>
-    <span class="post-meta-item" title="Word count in article">
-      <span class="post-meta-item-icon">
-        <i class="far fa-file-word"></i>
-      </span>
-      <span class="post-meta-item-text">Word count in article: </span>
-      <span>3.9k</span>
-    </span>
-    <span class="post-meta-item" title="Reading time">
-      <span class="post-meta-item-icon">
-        <i class="far fa-clock"></i>
-      </span>
-      <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>14 mins.</span>
-    </span>
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <p><strong>虚拟内存（virtual memory）是操作系统给每个进程提供的「独立、连续、看似无限」的内存假象</strong>：进程以为自己独占整个地址空间，实际数据散落在物理内存各页上，由内核统一映射。它是进程隔离的地基，也是 JVM 内存问题（堆外泄漏、容器被杀、OOM）的总根源。本文讲三件事：地址空间怎么组织、虚拟地址怎么翻译成物理地址、内存不够了会发生什么——并对照 Redis RDB 快照、大页、容器内存限制这些真实技术，看它们怎么建立在本节的机制上。</p>
-<blockquote>
-<p><strong>系列地图（操作系统）</strong>：① 进程与线程（执行单元与调度）→ ② <strong>内存管理（本文：地址空间与物理内存）</strong> → ③ 文件系统与磁盘 IO（数据落盘）→ ④ IO 模型（等待数据的方式）→ ⑤ Linux 资源排查实战（工具收拢）。本文的页缓存是 ③ 的读写地基（页表项指向它），本文的缺页与换页是 ④ 之前「一切等待」的物理背景。</p>
-</blockquote>
-<h2 id="1-虚拟内存：给每个进程一座孤岛"><a href="#1-虚拟内存：给每个进程一座孤岛" class="headerlink" title="1. 虚拟内存：给每个进程一座孤岛"></a>1. 虚拟内存：给每个进程一座孤岛</h2><h3 id="1-1-为什么需要虚拟内存"><a href="#1-1-为什么需要虚拟内存" class="headerlink" title="1.1 为什么需要虚拟内存"></a>1.1 为什么需要虚拟内存</h3><p>没有虚拟内存的时代（实模式），程序直接访问物理地址：两个程序必须约好各占哪段，一个野指针就能改掉别的程序的数据。虚拟内存一次性解决三件事：</p>
-<table>
-<thead>
-<tr>
-<th>问题</th>
-<th>虚拟内存的解法</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>隔离</td>
-<td>每个进程有自己的地址空间，A 进程地址 0x1000 和 B 进程地址 0x1000 是两页不同的物理内存</td>
-</tr>
-<tr>
-<td>连续性</td>
-<td>物理内存碎片化没关系，虚拟地址连续、映射到哪都行</td>
-</tr>
-<tr>
-<td>按需加载</td>
-<td>程序 100MB，先只映射用到的几页——未访问的代码和数据可以一直留在磁盘上</td>
-</tr>
-</tbody></table>
-<p><strong>地址空间是「地址的集合」，不是「内存的集合」</strong>——进程里看到的一大片地址，大部分没有对应的物理页，一访问就缺页（第 2 节讲）。</p>
-<h3 id="1-2-地址空间布局"><a href="#1-2-地址空间布局" class="headerlink" title="1.2 地址空间布局"></a>1.2 地址空间布局</h3><p>x86-64 下用户空间是低位的 128TB（内核占高 128TB）。从低到高：</p>
-<pre class="mermaid">flowchart TD
-    subgraph Low["Low address (0x0)"]
-        TEXT["Text (code) segment"]
-        DATA["Data / BSS&lt;br/>initialized &amp; uninitialized globals"]
-        HEAP["Heap&lt;br/>grows upward (brk / mmap)"]
-    end
-    subgraph High["High address (0x7fff...)"]
-        STACK["Stack&lt;br/>grows downward"]
-        ENV["Environment &amp; argv&lt;br/>+ vdso"]
-    end
-    HEAP --- GAP["Huge unmapped gap&lt;br/>(accessed = segfault)"]
-    GAP --- STACK</pre>
-
-<p>要点：<strong>堆向上长、栈向下长，中间是巨大的未映射空洞</strong>——<code>new</code> 的对象在堆，局部变量和调用帧在栈，两者相撞叫栈溢出或堆溢出。地址空间底部有随机化（ASLR），每次启动程序布局都变，防攻击者猜地址。</p>
-<h3 id="1-3-动手验证：看-JVM-的真实地址空间"><a href="#1-3-动手验证：看-JVM-的真实地址空间" class="headerlink" title="1.3 动手验证：看 JVM 的真实地址空间"></a>1.3 动手验证：看 JVM 的真实地址空间</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">pmap -x &lt;jvm_pid&gt;          <span class="comment"># 进程虚拟内存地图：地址、大小、RSS、映射名</span></span><br><span class="line"><span class="built_in">cat</span> /proc/&lt;jvm_pid&gt;/maps   <span class="comment"># 更原始的版本</span></span><br><span class="line">ps -eo pid,vsz,rss,cmd     <span class="comment"># VSZ=虚拟内存总量，RSS=实际驻留物理内存</span></span><br></pre></td></tr></table></figure>
-
-<p>看一个 <code>-Xmx2g</code> 的 Java 进程，<code>pmap</code> 输出的规律：</p>
-<table>
-<thead>
-<tr>
-<th>映射</th>
-<th>是什么</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>[heap]</code> 或大块 <code>[anon]</code></td>
-<td>JVM 堆（Java 8+ 用匿名 mmap 分配，不叫 heap）</td>
-</tr>
-<tr>
-<td><code>[stack]</code></td>
-<td>主线程栈</td>
-</tr>
-<tr>
-<td><code>[anon]</code> 小块堆叠</td>
-<td>每个线程的栈（-Xss，默认 1MB 虚拟）、Metaspace、JIT code cache</td>
-</tr>
-<tr>
-<td><code>libjvm.so</code> 等</td>
-<td>JVM 本体、依赖库</td>
-</tr>
-</tbody></table>
-<p><strong>对照 <code>ps</code> 的 VSZ 和 RSS</strong>：<code>-Xmx2g</code> 的进程 VSZ 常有 4-5GB（预留的地址空间），RSS 才是真占用的物理内存——内存监控看 RSS，别被 VSZ 吓到；反之容器内存限制看的是 RSS，<code>-Xmx</code> 设太大不代表 RSS 一定大，但 RSS 会超过 <code>-Xmx</code>（堆外还有东西，第 4 节展开）。</p>
-<h2 id="2-分页与地址转换"><a href="#2-分页与地址转换" class="headerlink" title="2. 分页与地址转换"></a>2. 分页与地址转换</h2><h3 id="2-1-页表：地址翻译的字典"><a href="#2-1-页表：地址翻译的字典" class="headerlink" title="2.1 页表：地址翻译的字典"></a>2.1 页表：地址翻译的字典</h3><p>物理内存按 <strong>4KB 一页</strong>切成页帧；每个进程维护一张<strong>页表</strong>，记录「虚拟页号 → 物理页帧号」。进程切换时换页表——这就是第 1 篇说的「进程切换比线程切换贵」的根源。</p>
-<p>问题：进程地址空间 128TB，一张扁平页表要 128TB&#x2F;4KB &#x3D; 340 亿条记录，装不下。解法是<strong>多级页表</strong>（x86-64 四级）：只有用到的地址区间才在低层分配表项，未映射区间不占内存。</p>
-<table>
-<thead>
-<tr>
-<th>层级</th>
-<th>名称</th>
-<th>每项覆盖</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>L4</td>
-<td>PML4（页目录指针的指针）</td>
-<td>512GB</td>
-</tr>
-<tr>
-<td>L3</td>
-<td>PDPT（页目录指针）</td>
-<td>1GB</td>
-</tr>
-<tr>
-<td>L2</td>
-<td>PD（页目录）</td>
-<td>2MB</td>
-</tr>
-<tr>
-<td>L1</td>
-<td>PT（页表）</td>
-<td>4KB</td>
-</tr>
-</tbody></table>
-<p>一个 4KB 页的转换要查 4 级表（4 次内存访问），所以必须有缓存——<strong>TLB（Translation Lookaside Buffer）</strong>，CPU 内置的页表缓存。命中就免掉 4 次访问，未命中才走完整路径。</p>
-<p><strong>深挖：大页（HugePages）就是从页表结构里长出来的优化</strong>。页越大，页表条目越少、TLB 命中率越高：2MB 大页把 4KB 页的条目数缩 512 倍。ES、MySQL 这类内存大户在生产上常开内核 <code>vm.nr_hugepages</code> + JVM 的 <code>-XX:+UseLargePages</code>——代价是内存按大页粒度预留、分配更粗放，配置错反而浪费。理解了页表与 TLB，这个参数的来龙去脉就清楚了。</p>
-<h3 id="2-2-转换流程与缺页"><a href="#2-2-转换流程与缺页" class="headerlink" title="2.2 转换流程与缺页"></a>2.2 转换流程与缺页</h3><pre class="mermaid">flowchart TD
-    CPU["CPU issues virtual address"] --> TLB{"TLB hit?"}
-    TLB -- Yes --> PHYS["Physical address, done"]
-    TLB -- No --> WALK["Walk 4-level page table (4 memory accesses)"]
-    WALK --> PRESENT{"PTE present?"}
-    PRESENT -- Yes --> CACHE["Fill TLB, done"]
-    PRESENT -- No --> FAULT["Page fault (trap to kernel)"]
-    FAULT --> MINOR{"Page already in RAM?&lt;br/>(page cache / lazy alloc / COW)"}
-    MINOR -- Yes --> FIX["Build PTE, return to user&lt;br/>minor fault (~1µs)"]
-    MINOR -- No --> IO["Read page from disk (swap / file)&lt;br/>major fault (ms level)"]
-    IO --> FIX</pre>
-
-<p>缺页分两种，代价差三个数量级：</p>
-<table>
-<thead>
-<tr>
-<th>类型</th>
-<th>触发</th>
-<th>代价</th>
-<th>常见来源</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>minor fault</td>
-<td>页已在物理内存，只是页表项没建</td>
-<td>微秒级</td>
-<td>JVM 启动、首次 new 对象、fork 写时拷贝</td>
-</tr>
-<tr>
-<td>major fault</td>
-<td>页要<strong>从磁盘读</strong></td>
-<td>毫秒级</td>
-<td>冷数据首次访问、swap 换回、内存映射文件</td>
-</tr>
-</tbody></table>
-<p><strong>JVM 启动慢的本质是海量 minor fault</strong>：<code>-Xms</code> 设小、启动后再扩堆，每次扩容都要建页表项；生产建议 <code>-Xms = -Xmx</code>，一次到位，既省 minor fault 也避免堆抖动（老生常谈，根因在这里）。</p>
-<p><strong>深挖：写时拷贝（COW）与 Redis RDB 快照</strong>。<code>fork()</code> 不复制父进程的内存，而是把页表项标为只读、父子共享；子进程一写才复制那一页（触发 minor fault）。Redis 的 RDB 持久化就是这么拍的：fork 出子进程，子进程把共享内存顺序写进文件，主进程照常服务——写时复制保证子进程看到的是「fork 那一刻」的一致数据。<strong>所以 RDB 既不阻塞服务、又能拍到一致快照，靠的全是 COW</strong>。</p>
-<p>代价与坑（大实例 Redis 的必修课）：</p>
-<table>
-<thead>
-<tr>
-<th>现象</th>
-<th>根因</th>
-<th>处理</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>fork 瞬间卡顿几十到几百 ms</td>
-<td>fork 要复制整个页表（条目数 &#x3D; 内存&#x2F;4KB）</td>
-<td>观察 <code>INFO persistence</code> 的 <code>last_fork_usec</code></td>
-</tr>
-<tr>
-<td>快照期间内存翻倍风险</td>
-<td>写多时 COW 复制页多</td>
-<td>内存至少留出数据集 2 倍的余量</td>
-</tr>
-<tr>
-<td>频繁 RDB 拖垮服务</td>
-<td>每次 fork 的页表复制 + COW 高峰</td>
-<td>大实例降 RDB 频率，换主从全量同步</td>
-</tr>
-</tbody></table>
-<p>Java 侧同样受 COW 影响：<code>-Xms = -Xmx</code> 的另一层收益是减少启动后的堆扩缩——每次扩堆重建页表、GC 频繁触碰页，都是 minor fault 的代价。</p>
-<h3 id="2-3-页面置换：内存不够了踢谁出去"><a href="#2-3-页面置换：内存不够了踢谁出去" class="headerlink" title="2.3 页面置换：内存不够了踢谁出去"></a>2.3 页面置换：内存不够了踢谁出去</h3><p>物理页不够时，要把一些页换出（写回磁盘或丢弃）。置换算法：</p>
-<table>
-<thead>
-<tr>
-<th>算法</th>
-<th>思路</th>
-<th>问题</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>FIFO</td>
-<td>先进来先踢</td>
-<td>可能踢掉正热的页（Belady 异常）</td>
-</tr>
-<tr>
-<td>LRU</td>
-<td>最久没用的先踢</td>
-<td>理想但不现实（每页维护访问时间成本太高）</td>
-</tr>
-<tr>
-<td>时钟&#x2F;第二次机会</td>
-<td>FIFO + 访问位，被访问过的页放行一轮</td>
-<td>工程上的近似 LRU</td>
-</tr>
-</tbody></table>
-<p>Linux 用<strong>双链表近似 LRU</strong>（active&#x2F;inactive 两条 LRU 链表，页在链表间升降），配合内存水位线（<code>/proc/sys/vm/watermark</code> 相关）决定何时开始回收。Java 视角不用记细节，记住结论：<strong>页面置换对应用不可见，但「频繁换页」是性能灾难</strong>（见 2.4 的观测方法）。</p>
-<h3 id="2-4-动手验证：观测缺页与页缓存"><a href="#2-4-动手验证：观测缺页与页缓存" class="headerlink" title="2.4 动手验证：观测缺页与页缓存"></a>2.4 动手验证：观测缺页与页缓存</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">ps -o minflt,majflt,cmd -p &lt;pid&gt;      <span class="comment"># 累计 minor/major fault（只增不减）</span></span><br><span class="line"><span class="keyword">time</span> -v &lt;命令&gt;                        <span class="comment"># 报告运行时的 major page faults</span></span><br><span class="line">vmstat 1                              <span class="comment"># si/so：每秒换入/换出页数（swap 活动）</span></span><br></pre></td></tr></table></figure>
-
-<p>页缓存实验（感受「第二次读很快」）：</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">dd</span> <span class="keyword">if</span>=/dev/zero of=/tmp/1g.bin bs=1M count=1024   <span class="comment"># 造一个 1GB 文件</span></span><br><span class="line"><span class="built_in">dd</span> <span class="keyword">if</span>=/tmp/1g.bin of=/dev/null bs=1M              <span class="comment"># 第一次读：从磁盘，几秒</span></span><br><span class="line"><span class="built_in">dd</span> <span class="keyword">if</span>=/tmp/1g.bin of=/dev/null bs=1M              <span class="comment"># 第二次读：全在 page cache，亚秒级</span></span><br><span class="line">free -h                                           <span class="comment"># 观察 buff/cache 列的变化</span></span><br></pre></td></tr></table></figure>
-
-<p><strong>判定标准</strong>：<code>vmstat 1</code> 里 si&#x2F;so 长期非零 &#x3D; swap 在频繁换页，性能必崩（容器里这是配置事故，见 3.4）；<code>time -v</code> 的 major faults 很大 &#x3D; 冷启动加载太多数据，考虑预热（应用启动时主动 touch 关键数据）。</p>
-<h2 id="3-内存分配与回收"><a href="#3-内存分配与回收" class="headerlink" title="3. 内存分配与回收"></a>3. 内存分配与回收</h2><h3 id="3-1-malloc-的两个来源：brk-与-mmap"><a href="#3-1-malloc-的两个来源：brk-与-mmap" class="headerlink" title="3.1 malloc 的两个来源：brk 与 mmap"></a>3.1 malloc 的两个来源：brk 与 mmap</h3><p>进程向内核要内存只有两条路：</p>
-<table>
-<thead>
-<tr>
-<th>途径</th>
-<th>机制</th>
-<th>适用</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>brk</code></td>
-<td>移动堆顶指针，扩展&#x2F;收缩堆</td>
-<td>小分配（malloc 默认），快</td>
-</tr>
-<tr>
-<td><code>mmap</code>（匿名）</td>
-<td>直接映射一段新地址空间</td>
-<td>大分配（&gt;128KB），用完立刻可释放</td>
-</tr>
-</tbody></table>
-<p>malloc 的策略：小块走 brk 堆（复用、碎片由 malloc 自己管），大块走 mmap（还给内核干脆）。JVM 的堆就是一次大匿名 mmap 拿下来的，<code>-Xms/-Xmx</code> 控制这段区域。</p>
-<h3 id="3-2-内核侧：伙伴系统与-slab"><a href="#3-2-内核侧：伙伴系统与-slab" class="headerlink" title="3.2 内核侧：伙伴系统与 slab"></a>3.2 内核侧：伙伴系统与 slab</h3><p>内核把物理页切块管理：<strong>伙伴系统</strong>按 2 的幂次维护空闲页（要 3 页给 4 页、要 5 页给 8 页），<strong>slab</strong> 为频繁创建的小对象（task_struct、inode）建专属缓存。这两层对应用透明，但解释了「内存碎片」和「内核内存占用」的来源——容器里 <code>free</code> 的 used 包含了内核 slab，排查内存高时可 <code>cat /proc/meminfo | grep Slab</code>。</p>
-<h3 id="3-3-回收与-swap"><a href="#3-3-回收与-swap" class="headerlink" title="3.3 回收与 swap"></a>3.3 回收与 swap</h3><p>物理内存吃紧时按顺序回收：<strong>页缓存</strong>（干净页直接丢，脏页先回写）→ <strong>匿名页换出到 swap</strong>。注意 swap 是「匿名页（堆、栈）的磁盘后备」，页缓存不需要 swap——<code>free -h</code> 里 Swap 列全 0 只说明没换出过匿名页。</p>
-<p>容器时代（K8s）的共识是<strong>节点禁用 swap</strong>：换页延迟毫秒级，对服务不可接受，K8s 也默认要求 <code>swapoff</code>。Java 应用在 swap 环境下 GC 停顿会被放大（GC 要访问的页被换出去了）。</p>
-<h3 id="3-4-动手验证：free-的正确读法"><a href="#3-4-动手验证：free-的正确读法" class="headerlink" title="3.4 动手验证：free 的正确读法"></a>3.4 动手验证：free 的正确读法</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">free -h</span><br><span class="line">swapon --show          <span class="comment"># 没有输出 = swap 已禁用（K8s 节点必须这样）</span></span><br><span class="line"><span class="built_in">cat</span> /proc/meminfo | grep -E <span class="string">&#x27;Slab|Mapped|SwapTotal&#x27;</span></span><br></pre></td></tr></table></figure>
-
-<p><code>free -h</code> 输出解读：<code>used</code> 里含 Slab 等内核占用；<code>buff/cache</code> 是页缓存（可随时丢弃，不是泄漏，<strong>别因为 cache 高就慌</strong>）；看真实可用内存用 <code>available</code> 列（缓存可回收部分算进去）。线上「内存不足」告警，先看 <code>available</code> 而不是 <code>free</code>。</p>
-<h2 id="4-OOM：从-JVM-到内核"><a href="#4-OOM：从-JVM-到内核" class="headerlink" title="4. OOM：从 JVM 到内核"></a>4. OOM：从 JVM 到内核</h2><h3 id="4-1-JVM-内存全景：堆只是冰山一角"><a href="#4-1-JVM-内存全景：堆只是冰山一角" class="headerlink" title="4.1 JVM 内存全景：堆只是冰山一角"></a>4.1 JVM 内存全景：堆只是冰山一角</h3><p><code>-Xmx</code> 只是 JVM 堆上限，进程的 RSS 由五块组成：</p>
-<table>
-<thead>
-<tr>
-<th>组成</th>
-<th>控制参数</th>
-<th>典型值</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>堆</td>
-<td><code>-Xmx</code></td>
-<td>按业务</td>
-</tr>
-<tr>
-<td>Metaspace</td>
-<td><code>-XX:MaxMetaspaceSize</code></td>
-<td>默认无上限，类太多会涨到几百 MB</td>
-</tr>
-<tr>
-<td>线程栈</td>
-<td><code>-Xss</code>（默认 1MB 虚拟）</td>
-<td>1000 线程 ≈ 1GB 虚拟内存</td>
-</tr>
-<tr>
-<td>直接内存</td>
-<td><code>-XX:MaxDirectMemorySize</code>（默认 &#x3D; 堆大小）</td>
-<td>Netty&#x2F;BufferPool 场景</td>
-</tr>
-<tr>
-<td>JIT code cache + GC 结构</td>
-<td><code>-XX:ReservedCodeCacheSize</code> 等</td>
-<td>200MB 上下</td>
-</tr>
-</tbody></table>
-<p>所以 <code>-Xmx1g</code> 的进程 RSS 到 1.5g 是正常的；<strong>容器里只设 <code>-Xmx</code> 不管堆外，就是「被 OOM Killer 杀」的经典剧本</strong>——正确姿势是 <code>-XX:MaxRAMPercentage=75</code> 之类按容器内存百分比给堆。</p>
-<h3 id="4-2-判定链路：谁杀了我的进程"><a href="#4-2-判定链路：谁杀了我的进程" class="headerlink" title="4.2 判定链路：谁杀了我的进程"></a>4.2 判定链路：谁杀了我的进程</h3><pre class="mermaid">flowchart TD
-    ALLOC["App requests memory (malloc / mmap)"] --> OVER{"overcommit allowed?"}
-    OVER -- No --> FAIL["malloc returns NULL&lt;br/>(rare, overcommit_memory=2)"]
-    OVER -- Yes --> CG{"cgroup memory limit hit?"}
-    CG -- Yes --> RECLAIM{"Reclaim succeeded?&lt;br/>(cache drop / swap)"}
-    RECLAIM -- No --> KILL["OOM Killer picks victim by oom_score&lt;br/>and SIGKILLs it"]
-    CG -- No --> OK["Allocation succeeds"]</pre>
-
-<p>三层机制：<strong>overcommit</strong>（内核敢不敢超量承诺虚拟内存，Linux 默认启发式）→ <strong>cgroup 限制</strong>（容器内存上限，K8s <code>limits.memory</code>）→ <strong>OOM Killer</strong>（真不够时按 <code>oom_score</code> 选杀，占内存越大、存活越短、<code>oom_score_adj</code> 越高的先死——容器里的进程 <code>oom_score_adj</code> 会被调高，这就是「容器里 JVM 先被杀」的原因之一）。</p>
-<h3 id="4-3-动手验证：找到被杀现场"><a href="#4-3-动手验证：找到被杀现场" class="headerlink" title="4.3 动手验证：找到被杀现场"></a>4.3 动手验证：找到被杀现场</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">dmesg | grep -i -E <span class="string">&#x27;killed process|oom&#x27;</span>          <span class="comment"># 内核日志里的行凶记录</span></span><br><span class="line">journalctl -k | grep -i <span class="string">&#x27;killed process&#x27;</span>          <span class="comment"># 有 systemd 时</span></span><br><span class="line"><span class="built_in">cat</span> /proc/&lt;pid&gt;/oom_score                          <span class="comment"># 进程当前被选中概率（0-1000）</span></span><br></pre></td></tr></table></figure>
-
-<p>真实输出长这样（dmesg）：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">java invoked oom-killer: gfp_mask=0x..., order=0, oom_score_adj=1000</span><br><span class="line">Killed process 12345 (java), total-vm:4194304kB, anon-rss:1572864kB</span><br></pre></td></tr></table></figure>
-
-<p>容器限内存实验（有 Docker 可试）：</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">docker run --memory=512m --<span class="built_in">rm</span> openjdk:17 \</span><br><span class="line">  java -XX:+PrintFlagsFinal -version 2&gt;/dev/null | grep MaxRAMPercentage</span><br><span class="line"><span class="comment"># 默认 MaxRAMPercentage=25：只有 128MB 堆——堆外照样杀</span></span><br></pre></td></tr></table></figure>
-
-<p>直接内存泄漏复现（Netty&#x2F;自研 BufferPool 的老坑）：</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 循环分配 DirectByteBuffer 不释放：报 OutOfMemoryError: Direct buffer memory</span></span><br><span class="line"><span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; <span class="number">10_000_000</span>; i++) &#123;</span><br><span class="line">    ByteBuffer.allocateDirect(<span class="number">1024</span> * <span class="number">1024</span>);  <span class="comment">// 1MB 堆外</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>排查链路</strong>：进程被杀 → 先看 dmesg 确认是谁（OOM Killer 还是容器健康检查）→ <code>free -h</code> 看宿主机 vs 容器内 → RSS 超出部分拆解（堆 + Metaspace + 直接内存 + 线程栈）→ 堆内就调 <code>-Xmx</code>&#x2F;排查泄漏，堆外就查 DirectByteBuffer&#x2F;线程数。</p>
-<h2 id="5-总结与避坑清单"><a href="#5-总结与避坑清单" class="headerlink" title="5. 总结与避坑清单"></a>5. 总结与避坑清单</h2><h3 id="5-1-面试速答表"><a href="#5-1-面试速答表" class="headerlink" title="5.1 面试速答表"></a>5.1 面试速答表</h3><table>
-<thead>
-<tr>
-<th>面试题</th>
-<th>一句话答案</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>虚拟内存解决了什么问题？</td>
-<td>隔离（进程地址独立）、连续（碎片无所谓）、按需加载（没访问的页不占物理内存）</td>
-</tr>
-<tr>
-<td>为什么用多级页表？</td>
-<td>扁平页表 128TB 空间要 340 亿条记录；多级只给用到的区间建表项</td>
-</tr>
-<tr>
-<td>TLB 是什么？</td>
-<td>页表项的 CPU 缓存，命中免掉 4 次内存访问</td>
-</tr>
-<tr>
-<td>minor&#x2F;major fault 区别？</td>
-<td>minor 页已在内存只差建表项（微秒级）；major 要从磁盘读（毫秒级）</td>
-</tr>
-<tr>
-<td>JVM 为什么内存监控要盯 RSS 不是 VSZ？</td>
-<td>VSZ 是地址空间承诺，RSS 才是物理驻留；堆外（Metaspace&#x2F;直接内存&#x2F;线程栈）都会撑大 RSS</td>
-</tr>
-<tr>
-<td>容器里 JVM 为什么老被 OOM 杀？</td>
-<td>只设 -Xmx 不管堆外 + 容器进程 oom_score_adj 高；用 -XX:MaxRAMPercentage 按容器内存给堆</td>
-</tr>
-</tbody></table>
-<h3 id="5-2-实战避坑清单"><a href="#5-2-实战避坑清单" class="headerlink" title="5.2 实战避坑清单"></a>5.2 实战避坑清单</h3><table>
-<thead>
-<tr>
-<th>症状</th>
-<th>原因</th>
-<th>处理</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>容器内 Java 进程无日志消失</td>
-<td>OOM Killer 按 cgroup 限制选杀</td>
-<td>dmesg 找记录；-XX:MaxRAMPercentage&#x3D;75；查堆外内存</td>
-</tr>
-<tr>
-<td>服务启动后 RSS 缓慢上涨直到被杀</td>
-<td>直接内存泄漏（Netty ByteBuf 未回收）</td>
-<td>盯 <code>jcmd &lt;pid&gt; VM.native_memory summary</code>；MaxDirectMemorySize 设上限</td>
-</tr>
-<tr>
-<td>堆没满、GC 正常但内存告警</td>
-<td>Metaspace 或线程数爆炸</td>
-<td>jstat 看 Metaspace；pstree 数线程，-Xss 按需调</td>
-</tr>
-<tr>
-<td>突然性能雪崩，si&#x2F;so 非零</td>
-<td>swap 开了且在换页</td>
-<td>节点 swapoff；JVM 加 -Xms&#x3D;-Xmx 减抖动</td>
-</tr>
-<tr>
-<td>free 显示 used 高、free 列低</td>
-<td>大概率是页缓存，不是泄漏</td>
-<td>看 available 列；别清缓存，缓存本来就是用来用的</td>
-</tr>
-</tbody></table>
-<h3 id="5-3-工具速查表"><a href="#5-3-工具速查表" class="headerlink" title="5.3 工具速查表"></a>5.3 工具速查表</h3><table>
-<thead>
-<tr>
-<th>工具</th>
-<th>看什么</th>
-<th>对应本节概念</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>pmap -x &lt;pid&gt;</code></td>
-<td>进程地址空间地图</td>
-<td>1. 地址空间布局</td>
-</tr>
-<tr>
-<td><code>ps -eo pid,vsz,rss</code></td>
-<td>虚拟 vs 物理占用</td>
-<td>1. 虚拟内存</td>
-</tr>
-<tr>
-<td><code>vmstat 1</code>（si&#x2F;so）</td>
-<td>swap 换页活动</td>
-<td>2. 缺页、3. 回收</td>
-</tr>
-<tr>
-<td><code>time -v &lt;cmd&gt;</code></td>
-<td>major fault 计数</td>
-<td>2. 缺页</td>
-</tr>
-<tr>
-<td><code>free -h</code> &#x2F; <code>/proc/meminfo</code></td>
-<td>页缓存、slab、swap</td>
-<td>3. 回收</td>
-</tr>
-<tr>
-<td><code>dmesg | grep -i killed</code></td>
-<td>OOM Killer 记录</td>
-<td>4. OOM 链路</td>
-</tr>
-<tr>
-<td><code>jcmd &lt;pid&gt; VM.native_memory</code></td>
-<td>JVM 堆外明细</td>
-<td>4. JVM 内存全景</td>
-</tr>
-</tbody></table>
-<p>四个收获：<strong>地址空间是承诺、RSS 是现实</strong>；缺页是「懒」的代价（minor 微秒、major 毫秒）；内存回收的顺序是页缓存 → swap → 杀进程；JVM 的 OOM 从来不只是 <code>-Xmx</code> 的事。</p>
-<p>实操建议：</p>
-<ol>
-<li>容器里 JVM 一律 <code>-XX:MaxRAMPercentage=75</code> + <code>-Xms=-Xmx</code>，先保住别被杀。</li>
-<li>进程被杀先查 <code>dmesg</code>，别猜——是 OOM Killer 还是健康检查，处理方向完全不同。</li>
-<li>用 <code>jcmd &lt;pid&gt; VM.native_memory summary</code>（需 <code>-XX:NativeMemoryTracking=summary</code>）定期对账堆外内存，直接内存泄漏能在 RSS 崩之前发现。</li>
-</ol>
-<hr>
-<p><strong>下一篇预告</strong>：地址空间里的「页缓存」是文件读写的加速层，脏页回写与 fsync 决定了「write 返回 ≠ 落盘」——第 3 篇《文件系统与磁盘 IO》讲 inode、页缓存与磁盘延迟，以及 MySQL&#x2F;ES&#x2F;Kafka 的刷盘策略怎么在取舍。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
   <nav class="pagination">
-    <a class="extend prev" rel="prev" title="Previous page" aria-label="Previous page" href="/home/page/5/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/home/">1</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/5/">5</a><span class="page-number current">6</span><a class="page-number" href="/home/page/7/">7</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/22/">22</a><a class="extend next" rel="next" title="Next page" aria-label="Next page" href="/home/page/7/"><i class="fa fa-angle-right"></i></a>
+    <a class="extend prev" rel="prev" title="Previous page" aria-label="Previous page" href="/home/page/5/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/home/">1</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/5/">5</a><span class="page-number current">6</span><a class="page-number" href="/home/page/7/">7</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/23/">23</a><a class="extend next" rel="next" title="Next page" aria-label="Next page" href="/home/page/7/"><i class="fa fa-angle-right"></i></a>
   </nav>
 
 </div>
@@ -2566,14 +2457,14 @@
       <i class="fa fa-chart-line"></i>
     </span>
       <span>Word count total: </span>
-    <span title="Word count total">605k</span>
+    <span title="Word count total">610k</span>
   </span>
   <span class="post-meta-item">
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
       <span>Reading time total &asymp;</span>
-    <span title="Reading time total">36:41</span>
+    <span title="Reading time total">36:58</span>
   </span>
 </div>
   <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>

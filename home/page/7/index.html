@@ -189,7 +189,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">88</span>
+          <span class="site-state-item-count">89</span>
           <span class="site-state-item-name">posts</span>
         </a>
       </div>
@@ -244,6 +244,498 @@
     </div>
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/aa1ba544.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/aa1ba544.html" class="post-title-link" itemprop="url">内存管理：虚拟内存与分页</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-08-12 22:00:00" itemprop="dateCreated datePublished" datetime="2026-08-12T22:00:00+08:00">2026-08-12</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/" itemprop="url" rel="index"><span itemprop="name">操作系统</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>3.9k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>14 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <p><strong>虚拟内存（virtual memory）是操作系统给每个进程提供的「独立、连续、看似无限」的内存假象</strong>：进程以为自己独占整个地址空间，实际数据散落在物理内存各页上，由内核统一映射。它是进程隔离的地基，也是 JVM 内存问题（堆外泄漏、容器被杀、OOM）的总根源。本文讲三件事：地址空间怎么组织、虚拟地址怎么翻译成物理地址、内存不够了会发生什么——并对照 Redis RDB 快照、大页、容器内存限制这些真实技术，看它们怎么建立在本节的机制上。</p>
+<blockquote>
+<p><strong>系列地图（操作系统）</strong>：① 进程与线程（执行单元与调度）→ ② <strong>内存管理（本文：地址空间与物理内存）</strong> → ③ 文件系统与磁盘 IO（数据落盘）→ ④ IO 模型（等待数据的方式）→ ⑤ Linux 资源排查实战（工具收拢）。本文的页缓存是 ③ 的读写地基（页表项指向它），本文的缺页与换页是 ④ 之前「一切等待」的物理背景。</p>
+</blockquote>
+<h2 id="1-虚拟内存：给每个进程一座孤岛"><a href="#1-虚拟内存：给每个进程一座孤岛" class="headerlink" title="1. 虚拟内存：给每个进程一座孤岛"></a>1. 虚拟内存：给每个进程一座孤岛</h2><h3 id="1-1-为什么需要虚拟内存"><a href="#1-1-为什么需要虚拟内存" class="headerlink" title="1.1 为什么需要虚拟内存"></a>1.1 为什么需要虚拟内存</h3><p>没有虚拟内存的时代（实模式），程序直接访问物理地址：两个程序必须约好各占哪段，一个野指针就能改掉别的程序的数据。虚拟内存一次性解决三件事：</p>
+<table>
+<thead>
+<tr>
+<th>问题</th>
+<th>虚拟内存的解法</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>隔离</td>
+<td>每个进程有自己的地址空间，A 进程地址 0x1000 和 B 进程地址 0x1000 是两页不同的物理内存</td>
+</tr>
+<tr>
+<td>连续性</td>
+<td>物理内存碎片化没关系，虚拟地址连续、映射到哪都行</td>
+</tr>
+<tr>
+<td>按需加载</td>
+<td>程序 100MB，先只映射用到的几页——未访问的代码和数据可以一直留在磁盘上</td>
+</tr>
+</tbody></table>
+<p><strong>地址空间是「地址的集合」，不是「内存的集合」</strong>——进程里看到的一大片地址，大部分没有对应的物理页，一访问就缺页（第 2 节讲）。</p>
+<h3 id="1-2-地址空间布局"><a href="#1-2-地址空间布局" class="headerlink" title="1.2 地址空间布局"></a>1.2 地址空间布局</h3><p>x86-64 下用户空间是低位的 128TB（内核占高 128TB）。从低到高：</p>
+<pre class="mermaid">flowchart TD
+    subgraph Low["Low address (0x0)"]
+        TEXT["Text (code) segment"]
+        DATA["Data / BSS&lt;br/>initialized &amp; uninitialized globals"]
+        HEAP["Heap&lt;br/>grows upward (brk / mmap)"]
+    end
+    subgraph High["High address (0x7fff...)"]
+        STACK["Stack&lt;br/>grows downward"]
+        ENV["Environment &amp; argv&lt;br/>+ vdso"]
+    end
+    HEAP --- GAP["Huge unmapped gap&lt;br/>(accessed = segfault)"]
+    GAP --- STACK</pre>
+
+<p>要点：<strong>堆向上长、栈向下长，中间是巨大的未映射空洞</strong>——<code>new</code> 的对象在堆，局部变量和调用帧在栈，两者相撞叫栈溢出或堆溢出。地址空间底部有随机化（ASLR），每次启动程序布局都变，防攻击者猜地址。</p>
+<h3 id="1-3-动手验证：看-JVM-的真实地址空间"><a href="#1-3-动手验证：看-JVM-的真实地址空间" class="headerlink" title="1.3 动手验证：看 JVM 的真实地址空间"></a>1.3 动手验证：看 JVM 的真实地址空间</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">pmap -x &lt;jvm_pid&gt;          <span class="comment"># 进程虚拟内存地图：地址、大小、RSS、映射名</span></span><br><span class="line"><span class="built_in">cat</span> /proc/&lt;jvm_pid&gt;/maps   <span class="comment"># 更原始的版本</span></span><br><span class="line">ps -eo pid,vsz,rss,cmd     <span class="comment"># VSZ=虚拟内存总量，RSS=实际驻留物理内存</span></span><br></pre></td></tr></table></figure>
+
+<p>看一个 <code>-Xmx2g</code> 的 Java 进程，<code>pmap</code> 输出的规律：</p>
+<table>
+<thead>
+<tr>
+<th>映射</th>
+<th>是什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>[heap]</code> 或大块 <code>[anon]</code></td>
+<td>JVM 堆（Java 8+ 用匿名 mmap 分配，不叫 heap）</td>
+</tr>
+<tr>
+<td><code>[stack]</code></td>
+<td>主线程栈</td>
+</tr>
+<tr>
+<td><code>[anon]</code> 小块堆叠</td>
+<td>每个线程的栈（-Xss，默认 1MB 虚拟）、Metaspace、JIT code cache</td>
+</tr>
+<tr>
+<td><code>libjvm.so</code> 等</td>
+<td>JVM 本体、依赖库</td>
+</tr>
+</tbody></table>
+<p><strong>对照 <code>ps</code> 的 VSZ 和 RSS</strong>：<code>-Xmx2g</code> 的进程 VSZ 常有 4-5GB（预留的地址空间），RSS 才是真占用的物理内存——内存监控看 RSS，别被 VSZ 吓到；反之容器内存限制看的是 RSS，<code>-Xmx</code> 设太大不代表 RSS 一定大，但 RSS 会超过 <code>-Xmx</code>（堆外还有东西，第 4 节展开）。</p>
+<h2 id="2-分页与地址转换"><a href="#2-分页与地址转换" class="headerlink" title="2. 分页与地址转换"></a>2. 分页与地址转换</h2><h3 id="2-1-页表：地址翻译的字典"><a href="#2-1-页表：地址翻译的字典" class="headerlink" title="2.1 页表：地址翻译的字典"></a>2.1 页表：地址翻译的字典</h3><p>物理内存按 <strong>4KB 一页</strong>切成页帧；每个进程维护一张<strong>页表</strong>，记录「虚拟页号 → 物理页帧号」。进程切换时换页表——这就是第 1 篇说的「进程切换比线程切换贵」的根源。</p>
+<p>问题：进程地址空间 128TB，一张扁平页表要 128TB&#x2F;4KB &#x3D; 340 亿条记录，装不下。解法是<strong>多级页表</strong>（x86-64 四级）：只有用到的地址区间才在低层分配表项，未映射区间不占内存。</p>
+<table>
+<thead>
+<tr>
+<th>层级</th>
+<th>名称</th>
+<th>每项覆盖</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>L4</td>
+<td>PML4（页目录指针的指针）</td>
+<td>512GB</td>
+</tr>
+<tr>
+<td>L3</td>
+<td>PDPT（页目录指针）</td>
+<td>1GB</td>
+</tr>
+<tr>
+<td>L2</td>
+<td>PD（页目录）</td>
+<td>2MB</td>
+</tr>
+<tr>
+<td>L1</td>
+<td>PT（页表）</td>
+<td>4KB</td>
+</tr>
+</tbody></table>
+<p>一个 4KB 页的转换要查 4 级表（4 次内存访问），所以必须有缓存——<strong>TLB（Translation Lookaside Buffer）</strong>，CPU 内置的页表缓存。命中就免掉 4 次访问，未命中才走完整路径。</p>
+<p><strong>深挖：大页（HugePages）就是从页表结构里长出来的优化</strong>。页越大，页表条目越少、TLB 命中率越高：2MB 大页把 4KB 页的条目数缩 512 倍。ES、MySQL 这类内存大户在生产上常开内核 <code>vm.nr_hugepages</code> + JVM 的 <code>-XX:+UseLargePages</code>——代价是内存按大页粒度预留、分配更粗放，配置错反而浪费。理解了页表与 TLB，这个参数的来龙去脉就清楚了。</p>
+<h3 id="2-2-转换流程与缺页"><a href="#2-2-转换流程与缺页" class="headerlink" title="2.2 转换流程与缺页"></a>2.2 转换流程与缺页</h3><pre class="mermaid">flowchart TD
+    CPU["CPU issues virtual address"] --> TLB{"TLB hit?"}
+    TLB -- Yes --> PHYS["Physical address, done"]
+    TLB -- No --> WALK["Walk 4-level page table (4 memory accesses)"]
+    WALK --> PRESENT{"PTE present?"}
+    PRESENT -- Yes --> CACHE["Fill TLB, done"]
+    PRESENT -- No --> FAULT["Page fault (trap to kernel)"]
+    FAULT --> MINOR{"Page already in RAM?&lt;br/>(page cache / lazy alloc / COW)"}
+    MINOR -- Yes --> FIX["Build PTE, return to user&lt;br/>minor fault (~1µs)"]
+    MINOR -- No --> IO["Read page from disk (swap / file)&lt;br/>major fault (ms level)"]
+    IO --> FIX</pre>
+
+<p>缺页分两种，代价差三个数量级：</p>
+<table>
+<thead>
+<tr>
+<th>类型</th>
+<th>触发</th>
+<th>代价</th>
+<th>常见来源</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>minor fault</td>
+<td>页已在物理内存，只是页表项没建</td>
+<td>微秒级</td>
+<td>JVM 启动、首次 new 对象、fork 写时拷贝</td>
+</tr>
+<tr>
+<td>major fault</td>
+<td>页要<strong>从磁盘读</strong></td>
+<td>毫秒级</td>
+<td>冷数据首次访问、swap 换回、内存映射文件</td>
+</tr>
+</tbody></table>
+<p><strong>JVM 启动慢的本质是海量 minor fault</strong>：<code>-Xms</code> 设小、启动后再扩堆，每次扩容都要建页表项；生产建议 <code>-Xms = -Xmx</code>，一次到位，既省 minor fault 也避免堆抖动（老生常谈，根因在这里）。</p>
+<p><strong>深挖：写时拷贝（COW）与 Redis RDB 快照</strong>。<code>fork()</code> 不复制父进程的内存，而是把页表项标为只读、父子共享；子进程一写才复制那一页（触发 minor fault）。Redis 的 RDB 持久化就是这么拍的：fork 出子进程，子进程把共享内存顺序写进文件，主进程照常服务——写时复制保证子进程看到的是「fork 那一刻」的一致数据。<strong>所以 RDB 既不阻塞服务、又能拍到一致快照，靠的全是 COW</strong>。</p>
+<p>代价与坑（大实例 Redis 的必修课）：</p>
+<table>
+<thead>
+<tr>
+<th>现象</th>
+<th>根因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>fork 瞬间卡顿几十到几百 ms</td>
+<td>fork 要复制整个页表（条目数 &#x3D; 内存&#x2F;4KB）</td>
+<td>观察 <code>INFO persistence</code> 的 <code>last_fork_usec</code></td>
+</tr>
+<tr>
+<td>快照期间内存翻倍风险</td>
+<td>写多时 COW 复制页多</td>
+<td>内存至少留出数据集 2 倍的余量</td>
+</tr>
+<tr>
+<td>频繁 RDB 拖垮服务</td>
+<td>每次 fork 的页表复制 + COW 高峰</td>
+<td>大实例降 RDB 频率，换主从全量同步</td>
+</tr>
+</tbody></table>
+<p>Java 侧同样受 COW 影响：<code>-Xms = -Xmx</code> 的另一层收益是减少启动后的堆扩缩——每次扩堆重建页表、GC 频繁触碰页，都是 minor fault 的代价。</p>
+<h3 id="2-3-页面置换：内存不够了踢谁出去"><a href="#2-3-页面置换：内存不够了踢谁出去" class="headerlink" title="2.3 页面置换：内存不够了踢谁出去"></a>2.3 页面置换：内存不够了踢谁出去</h3><p>物理页不够时，要把一些页换出（写回磁盘或丢弃）。置换算法：</p>
+<table>
+<thead>
+<tr>
+<th>算法</th>
+<th>思路</th>
+<th>问题</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>FIFO</td>
+<td>先进来先踢</td>
+<td>可能踢掉正热的页（Belady 异常）</td>
+</tr>
+<tr>
+<td>LRU</td>
+<td>最久没用的先踢</td>
+<td>理想但不现实（每页维护访问时间成本太高）</td>
+</tr>
+<tr>
+<td>时钟&#x2F;第二次机会</td>
+<td>FIFO + 访问位，被访问过的页放行一轮</td>
+<td>工程上的近似 LRU</td>
+</tr>
+</tbody></table>
+<p>Linux 用<strong>双链表近似 LRU</strong>（active&#x2F;inactive 两条 LRU 链表，页在链表间升降），配合内存水位线（<code>/proc/sys/vm/watermark</code> 相关）决定何时开始回收。Java 视角不用记细节，记住结论：<strong>页面置换对应用不可见，但「频繁换页」是性能灾难</strong>（见 2.4 的观测方法）。</p>
+<h3 id="2-4-动手验证：观测缺页与页缓存"><a href="#2-4-动手验证：观测缺页与页缓存" class="headerlink" title="2.4 动手验证：观测缺页与页缓存"></a>2.4 动手验证：观测缺页与页缓存</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">ps -o minflt,majflt,cmd -p &lt;pid&gt;      <span class="comment"># 累计 minor/major fault（只增不减）</span></span><br><span class="line"><span class="keyword">time</span> -v &lt;命令&gt;                        <span class="comment"># 报告运行时的 major page faults</span></span><br><span class="line">vmstat 1                              <span class="comment"># si/so：每秒换入/换出页数（swap 活动）</span></span><br></pre></td></tr></table></figure>
+
+<p>页缓存实验（感受「第二次读很快」）：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">dd</span> <span class="keyword">if</span>=/dev/zero of=/tmp/1g.bin bs=1M count=1024   <span class="comment"># 造一个 1GB 文件</span></span><br><span class="line"><span class="built_in">dd</span> <span class="keyword">if</span>=/tmp/1g.bin of=/dev/null bs=1M              <span class="comment"># 第一次读：从磁盘，几秒</span></span><br><span class="line"><span class="built_in">dd</span> <span class="keyword">if</span>=/tmp/1g.bin of=/dev/null bs=1M              <span class="comment"># 第二次读：全在 page cache，亚秒级</span></span><br><span class="line">free -h                                           <span class="comment"># 观察 buff/cache 列的变化</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>判定标准</strong>：<code>vmstat 1</code> 里 si&#x2F;so 长期非零 &#x3D; swap 在频繁换页，性能必崩（容器里这是配置事故，见 3.4）；<code>time -v</code> 的 major faults 很大 &#x3D; 冷启动加载太多数据，考虑预热（应用启动时主动 touch 关键数据）。</p>
+<h2 id="3-内存分配与回收"><a href="#3-内存分配与回收" class="headerlink" title="3. 内存分配与回收"></a>3. 内存分配与回收</h2><h3 id="3-1-malloc-的两个来源：brk-与-mmap"><a href="#3-1-malloc-的两个来源：brk-与-mmap" class="headerlink" title="3.1 malloc 的两个来源：brk 与 mmap"></a>3.1 malloc 的两个来源：brk 与 mmap</h3><p>进程向内核要内存只有两条路：</p>
+<table>
+<thead>
+<tr>
+<th>途径</th>
+<th>机制</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>brk</code></td>
+<td>移动堆顶指针，扩展&#x2F;收缩堆</td>
+<td>小分配（malloc 默认），快</td>
+</tr>
+<tr>
+<td><code>mmap</code>（匿名）</td>
+<td>直接映射一段新地址空间</td>
+<td>大分配（&gt;128KB），用完立刻可释放</td>
+</tr>
+</tbody></table>
+<p>malloc 的策略：小块走 brk 堆（复用、碎片由 malloc 自己管），大块走 mmap（还给内核干脆）。JVM 的堆就是一次大匿名 mmap 拿下来的，<code>-Xms/-Xmx</code> 控制这段区域。</p>
+<h3 id="3-2-内核侧：伙伴系统与-slab"><a href="#3-2-内核侧：伙伴系统与-slab" class="headerlink" title="3.2 内核侧：伙伴系统与 slab"></a>3.2 内核侧：伙伴系统与 slab</h3><p>内核把物理页切块管理：<strong>伙伴系统</strong>按 2 的幂次维护空闲页（要 3 页给 4 页、要 5 页给 8 页），<strong>slab</strong> 为频繁创建的小对象（task_struct、inode）建专属缓存。这两层对应用透明，但解释了「内存碎片」和「内核内存占用」的来源——容器里 <code>free</code> 的 used 包含了内核 slab，排查内存高时可 <code>cat /proc/meminfo | grep Slab</code>。</p>
+<h3 id="3-3-回收与-swap"><a href="#3-3-回收与-swap" class="headerlink" title="3.3 回收与 swap"></a>3.3 回收与 swap</h3><p>物理内存吃紧时按顺序回收：<strong>页缓存</strong>（干净页直接丢，脏页先回写）→ <strong>匿名页换出到 swap</strong>。注意 swap 是「匿名页（堆、栈）的磁盘后备」，页缓存不需要 swap——<code>free -h</code> 里 Swap 列全 0 只说明没换出过匿名页。</p>
+<p>容器时代（K8s）的共识是<strong>节点禁用 swap</strong>：换页延迟毫秒级，对服务不可接受，K8s 也默认要求 <code>swapoff</code>。Java 应用在 swap 环境下 GC 停顿会被放大（GC 要访问的页被换出去了）。</p>
+<h3 id="3-4-动手验证：free-的正确读法"><a href="#3-4-动手验证：free-的正确读法" class="headerlink" title="3.4 动手验证：free 的正确读法"></a>3.4 动手验证：free 的正确读法</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">free -h</span><br><span class="line">swapon --show          <span class="comment"># 没有输出 = swap 已禁用（K8s 节点必须这样）</span></span><br><span class="line"><span class="built_in">cat</span> /proc/meminfo | grep -E <span class="string">&#x27;Slab|Mapped|SwapTotal&#x27;</span></span><br></pre></td></tr></table></figure>
+
+<p><code>free -h</code> 输出解读：<code>used</code> 里含 Slab 等内核占用；<code>buff/cache</code> 是页缓存（可随时丢弃，不是泄漏，<strong>别因为 cache 高就慌</strong>）；看真实可用内存用 <code>available</code> 列（缓存可回收部分算进去）。线上「内存不足」告警，先看 <code>available</code> 而不是 <code>free</code>。</p>
+<h2 id="4-OOM：从-JVM-到内核"><a href="#4-OOM：从-JVM-到内核" class="headerlink" title="4. OOM：从 JVM 到内核"></a>4. OOM：从 JVM 到内核</h2><h3 id="4-1-JVM-内存全景：堆只是冰山一角"><a href="#4-1-JVM-内存全景：堆只是冰山一角" class="headerlink" title="4.1 JVM 内存全景：堆只是冰山一角"></a>4.1 JVM 内存全景：堆只是冰山一角</h3><p><code>-Xmx</code> 只是 JVM 堆上限，进程的 RSS 由五块组成：</p>
+<table>
+<thead>
+<tr>
+<th>组成</th>
+<th>控制参数</th>
+<th>典型值</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>堆</td>
+<td><code>-Xmx</code></td>
+<td>按业务</td>
+</tr>
+<tr>
+<td>Metaspace</td>
+<td><code>-XX:MaxMetaspaceSize</code></td>
+<td>默认无上限，类太多会涨到几百 MB</td>
+</tr>
+<tr>
+<td>线程栈</td>
+<td><code>-Xss</code>（默认 1MB 虚拟）</td>
+<td>1000 线程 ≈ 1GB 虚拟内存</td>
+</tr>
+<tr>
+<td>直接内存</td>
+<td><code>-XX:MaxDirectMemorySize</code>（默认 &#x3D; 堆大小）</td>
+<td>Netty&#x2F;BufferPool 场景</td>
+</tr>
+<tr>
+<td>JIT code cache + GC 结构</td>
+<td><code>-XX:ReservedCodeCacheSize</code> 等</td>
+<td>200MB 上下</td>
+</tr>
+</tbody></table>
+<p>所以 <code>-Xmx1g</code> 的进程 RSS 到 1.5g 是正常的；<strong>容器里只设 <code>-Xmx</code> 不管堆外，就是「被 OOM Killer 杀」的经典剧本</strong>——正确姿势是 <code>-XX:MaxRAMPercentage=75</code> 之类按容器内存百分比给堆。</p>
+<h3 id="4-2-判定链路：谁杀了我的进程"><a href="#4-2-判定链路：谁杀了我的进程" class="headerlink" title="4.2 判定链路：谁杀了我的进程"></a>4.2 判定链路：谁杀了我的进程</h3><pre class="mermaid">flowchart TD
+    ALLOC["App requests memory (malloc / mmap)"] --> OVER{"overcommit allowed?"}
+    OVER -- No --> FAIL["malloc returns NULL&lt;br/>(rare, overcommit_memory=2)"]
+    OVER -- Yes --> CG{"cgroup memory limit hit?"}
+    CG -- Yes --> RECLAIM{"Reclaim succeeded?&lt;br/>(cache drop / swap)"}
+    RECLAIM -- No --> KILL["OOM Killer picks victim by oom_score&lt;br/>and SIGKILLs it"]
+    CG -- No --> OK["Allocation succeeds"]</pre>
+
+<p>三层机制：<strong>overcommit</strong>（内核敢不敢超量承诺虚拟内存，Linux 默认启发式）→ <strong>cgroup 限制</strong>（容器内存上限，K8s <code>limits.memory</code>）→ <strong>OOM Killer</strong>（真不够时按 <code>oom_score</code> 选杀，占内存越大、存活越短、<code>oom_score_adj</code> 越高的先死——容器里的进程 <code>oom_score_adj</code> 会被调高，这就是「容器里 JVM 先被杀」的原因之一）。</p>
+<h3 id="4-3-动手验证：找到被杀现场"><a href="#4-3-动手验证：找到被杀现场" class="headerlink" title="4.3 动手验证：找到被杀现场"></a>4.3 动手验证：找到被杀现场</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">dmesg | grep -i -E <span class="string">&#x27;killed process|oom&#x27;</span>          <span class="comment"># 内核日志里的行凶记录</span></span><br><span class="line">journalctl -k | grep -i <span class="string">&#x27;killed process&#x27;</span>          <span class="comment"># 有 systemd 时</span></span><br><span class="line"><span class="built_in">cat</span> /proc/&lt;pid&gt;/oom_score                          <span class="comment"># 进程当前被选中概率（0-1000）</span></span><br></pre></td></tr></table></figure>
+
+<p>真实输出长这样（dmesg）：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">java invoked oom-killer: gfp_mask=0x..., order=0, oom_score_adj=1000</span><br><span class="line">Killed process 12345 (java), total-vm:4194304kB, anon-rss:1572864kB</span><br></pre></td></tr></table></figure>
+
+<p>容器限内存实验（有 Docker 可试）：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">docker run --memory=512m --<span class="built_in">rm</span> openjdk:17 \</span><br><span class="line">  java -XX:+PrintFlagsFinal -version 2&gt;/dev/null | grep MaxRAMPercentage</span><br><span class="line"><span class="comment"># 默认 MaxRAMPercentage=25：只有 128MB 堆——堆外照样杀</span></span><br></pre></td></tr></table></figure>
+
+<p>直接内存泄漏复现（Netty&#x2F;自研 BufferPool 的老坑）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 循环分配 DirectByteBuffer 不释放：报 OutOfMemoryError: Direct buffer memory</span></span><br><span class="line"><span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; <span class="number">10_000_000</span>; i++) &#123;</span><br><span class="line">    ByteBuffer.allocateDirect(<span class="number">1024</span> * <span class="number">1024</span>);  <span class="comment">// 1MB 堆外</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>排查链路</strong>：进程被杀 → 先看 dmesg 确认是谁（OOM Killer 还是容器健康检查）→ <code>free -h</code> 看宿主机 vs 容器内 → RSS 超出部分拆解（堆 + Metaspace + 直接内存 + 线程栈）→ 堆内就调 <code>-Xmx</code>&#x2F;排查泄漏，堆外就查 DirectByteBuffer&#x2F;线程数。</p>
+<h2 id="5-总结与避坑清单"><a href="#5-总结与避坑清单" class="headerlink" title="5. 总结与避坑清单"></a>5. 总结与避坑清单</h2><h3 id="5-1-面试速答表"><a href="#5-1-面试速答表" class="headerlink" title="5.1 面试速答表"></a>5.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>虚拟内存解决了什么问题？</td>
+<td>隔离（进程地址独立）、连续（碎片无所谓）、按需加载（没访问的页不占物理内存）</td>
+</tr>
+<tr>
+<td>为什么用多级页表？</td>
+<td>扁平页表 128TB 空间要 340 亿条记录；多级只给用到的区间建表项</td>
+</tr>
+<tr>
+<td>TLB 是什么？</td>
+<td>页表项的 CPU 缓存，命中免掉 4 次内存访问</td>
+</tr>
+<tr>
+<td>minor&#x2F;major fault 区别？</td>
+<td>minor 页已在内存只差建表项（微秒级）；major 要从磁盘读（毫秒级）</td>
+</tr>
+<tr>
+<td>JVM 为什么内存监控要盯 RSS 不是 VSZ？</td>
+<td>VSZ 是地址空间承诺，RSS 才是物理驻留；堆外（Metaspace&#x2F;直接内存&#x2F;线程栈）都会撑大 RSS</td>
+</tr>
+<tr>
+<td>容器里 JVM 为什么老被 OOM 杀？</td>
+<td>只设 -Xmx 不管堆外 + 容器进程 oom_score_adj 高；用 -XX:MaxRAMPercentage 按容器内存给堆</td>
+</tr>
+</tbody></table>
+<h3 id="5-2-实战避坑清单"><a href="#5-2-实战避坑清单" class="headerlink" title="5.2 实战避坑清单"></a>5.2 实战避坑清单</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>容器内 Java 进程无日志消失</td>
+<td>OOM Killer 按 cgroup 限制选杀</td>
+<td>dmesg 找记录；-XX:MaxRAMPercentage&#x3D;75；查堆外内存</td>
+</tr>
+<tr>
+<td>服务启动后 RSS 缓慢上涨直到被杀</td>
+<td>直接内存泄漏（Netty ByteBuf 未回收）</td>
+<td>盯 <code>jcmd &lt;pid&gt; VM.native_memory summary</code>；MaxDirectMemorySize 设上限</td>
+</tr>
+<tr>
+<td>堆没满、GC 正常但内存告警</td>
+<td>Metaspace 或线程数爆炸</td>
+<td>jstat 看 Metaspace；pstree 数线程，-Xss 按需调</td>
+</tr>
+<tr>
+<td>突然性能雪崩，si&#x2F;so 非零</td>
+<td>swap 开了且在换页</td>
+<td>节点 swapoff；JVM 加 -Xms&#x3D;-Xmx 减抖动</td>
+</tr>
+<tr>
+<td>free 显示 used 高、free 列低</td>
+<td>大概率是页缓存，不是泄漏</td>
+<td>看 available 列；别清缓存，缓存本来就是用来用的</td>
+</tr>
+</tbody></table>
+<h3 id="5-3-工具速查表"><a href="#5-3-工具速查表" class="headerlink" title="5.3 工具速查表"></a>5.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>对应本节概念</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>pmap -x &lt;pid&gt;</code></td>
+<td>进程地址空间地图</td>
+<td>1. 地址空间布局</td>
+</tr>
+<tr>
+<td><code>ps -eo pid,vsz,rss</code></td>
+<td>虚拟 vs 物理占用</td>
+<td>1. 虚拟内存</td>
+</tr>
+<tr>
+<td><code>vmstat 1</code>（si&#x2F;so）</td>
+<td>swap 换页活动</td>
+<td>2. 缺页、3. 回收</td>
+</tr>
+<tr>
+<td><code>time -v &lt;cmd&gt;</code></td>
+<td>major fault 计数</td>
+<td>2. 缺页</td>
+</tr>
+<tr>
+<td><code>free -h</code> &#x2F; <code>/proc/meminfo</code></td>
+<td>页缓存、slab、swap</td>
+<td>3. 回收</td>
+</tr>
+<tr>
+<td><code>dmesg | grep -i killed</code></td>
+<td>OOM Killer 记录</td>
+<td>4. OOM 链路</td>
+</tr>
+<tr>
+<td><code>jcmd &lt;pid&gt; VM.native_memory</code></td>
+<td>JVM 堆外明细</td>
+<td>4. JVM 内存全景</td>
+</tr>
+</tbody></table>
+<p>四个收获：<strong>地址空间是承诺、RSS 是现实</strong>；缺页是「懒」的代价（minor 微秒、major 毫秒）；内存回收的顺序是页缓存 → swap → 杀进程；JVM 的 OOM 从来不只是 <code>-Xmx</code> 的事。</p>
+<p>实操建议：</p>
+<ol>
+<li>容器里 JVM 一律 <code>-XX:MaxRAMPercentage=75</code> + <code>-Xms=-Xmx</code>，先保住别被杀。</li>
+<li>进程被杀先查 <code>dmesg</code>，别猜——是 OOM Killer 还是健康检查，处理方向完全不同。</li>
+<li>用 <code>jcmd &lt;pid&gt; VM.native_memory summary</code>（需 <code>-XX:NativeMemoryTracking=summary</code>）定期对账堆外内存，直接内存泄漏能在 RSS 崩之前发现。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告</strong>：地址空间里的「页缓存」是文件读写的加速层，脏页回写与 fsync 决定了「write 返回 ≠ 落盘」——第 3 篇《文件系统与磁盘 IO》讲 inode、页缓存与磁盘延迟，以及 MySQL&#x2F;ES&#x2F;Kafka 的刷盘策略怎么在取舍。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -2109,522 +2601,8 @@
 
 
 
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/2059e11.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="知行栈">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | 知行栈">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/2059e11.html" class="post-title-link" itemprop="url">Redis 缓存淘汰策略解析</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-
-      <time title="Created: 2026-08-12 00:26:03" itemprop="dateCreated datePublished" datetime="2026-08-12T00:26:03+08:00">2026-08-12</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">In</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/" itemprop="url" rel="index"><span itemprop="name">数据存储</span></a>
-        </span>
-    </span>
-
-  
-    <span class="post-meta-break"></span>
-    <span class="post-meta-item" title="Word count in article">
-      <span class="post-meta-item-icon">
-        <i class="far fa-file-word"></i>
-      </span>
-      <span class="post-meta-item-text">Word count in article: </span>
-      <span>3.5k</span>
-    </span>
-    <span class="post-meta-item" title="Reading time">
-      <span class="post-meta-item-icon">
-        <i class="far fa-clock"></i>
-      </span>
-      <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>13 mins.</span>
-    </span>
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <p><strong>内存淘汰（memory eviction）</strong> 是 Redis 在内存写满时，按配置的策略删除一部分 key 来腾出空间的机制。它是缓存场景的最后一层保险：不配置，Redis 会被系统 OOM Killer 直接杀进程。本文讲透三件事：maxmemory 怎么配、8 种策略怎么选、近似 LRU 和 LFU 的实现差异在哪。</p>
-<h2 id="1-为什么内存必须设上限"><a href="#1-为什么内存必须设上限" class="headerlink" title="1. 为什么内存必须设上限"></a>1. 为什么内存必须设上限</h2><h3 id="1-1-maxmemory：Redis-的内存天花板"><a href="#1-1-maxmemory：Redis-的内存天花板" class="headerlink" title="1.1 maxmemory：Redis 的内存天花板"></a>1.1 maxmemory：Redis 的内存天花板</h3><p>Redis 是一个<strong>基于内存的键值数据库</strong>，数据主要放在内存里，读写是微秒到亚毫秒级。内存是稀缺资源，所以必须给 Redis 划一条内存上限（<code>maxmemory</code>），超过上限后的写入会触发<strong>内存淘汰（memory eviction）</strong>——按策略删除一部分 key，腾出空间继续写入。</p>
-<p>不设 maxmemory 的后果：Redis 吃满机器内存后，OS 的 OOM Killer 会直接 kill 掉 redis-server 进程（类比 Java 应用 <code>-Xmx</code> 设太大、堆外内存失控被容器 OOM kill），主从全部挂掉，未落盘数据全部丢失。生产环境这是第一优先级配置。</p>
-<table>
-<thead>
-<tr>
-<th>类比</th>
-<th>Java 应用</th>
-<th>Redis</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>内存上限</td>
-<td><code>-Xmx</code> &#x2F; 容器 limit</td>
-<td><code>maxmemory</code></td>
-</tr>
-<tr>
-<td>超限行为</td>
-<td>抛 OOM 异常（可捕获）</td>
-<td>按策略淘汰 key，或拒绝写入</td>
-</tr>
-<tr>
-<td>失控后果</td>
-<td>被容器 OOM kill</td>
-<td>被系统 OOM Killer 杀进程</td>
-</tr>
-</tbody></table>
-<h3 id="1-2-配置方式与生效检查"><a href="#1-2-配置方式与生效检查" class="headerlink" title="1.2 配置方式与生效检查"></a>1.2 配置方式与生效检查</h3><p>redis.conf 配置：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"># 内存上限，单位支持 kb / mb / gb，如 100mb / 1gb</span><br><span class="line">maxmemory 512mb</span><br><span class="line"></span><br><span class="line"># 淘汰策略，默认 noeviction（写满拒绝写入）</span><br><span class="line">maxmemory-policy allkeys-lru</span><br><span class="line"></span><br><span class="line"># 采样数：LRU/LFU 淘汰时的候选 key 数量，默认 5</span><br><span class="line">maxmemory-samples 5</span><br></pre></td></tr></table></figure>
-
-<p>运行时修改不需要重启：</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">redis-cli config get maxmemory</span><br><span class="line">redis-cli config <span class="built_in">set</span> maxmemory-policy allkeys-lfu</span><br><span class="line">redis-cli config rewrite   <span class="comment"># 持久化回配置文件</span></span><br></pre></td></tr></table></figure>
-
-<p>用 Java（Jedis）检查同样方便：</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">try</span> (<span class="type">Jedis</span> <span class="variable">jedis</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">Jedis</span>(<span class="string">&quot;127.0.0.1&quot;</span>, <span class="number">6379</span>)) &#123;</span><br><span class="line">    System.out.println(<span class="string">&quot;maxmemory = &quot;</span> + jedis.configGet(<span class="string">&quot;maxmemory&quot;</span>));</span><br><span class="line">    System.out.println(<span class="string">&quot;policy    = &quot;</span> + jedis.configGet(<span class="string">&quot;maxmemory-policy&quot;</span>));</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<h3 id="1-3-内存去哪了：used-memory-口径"><a href="#1-3-内存去哪了：used-memory-口径" class="headerlink" title="1.3 内存去哪了：used_memory 口径"></a>1.3 内存去哪了：used_memory 口径</h3><p><code>INFO memory</code> 里需要关注几个指标：</p>
-<table>
-<thead>
-<tr>
-<th>指标</th>
-<th>含义</th>
-<th>关注点</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>used_memory</code></td>
-<td>实际占用内存（含碎片）</td>
-<td>与 maxmemory 对比，接近即触发淘汰</td>
-</tr>
-<tr>
-<td><code>used_memory_human</code></td>
-<td>人类可读版本</td>
-<td>快速目检</td>
-</tr>
-<tr>
-<td><code>maxmemory_policy</code></td>
-<td>当前淘汰策略</td>
-<td>确认配置生效</td>
-</tr>
-<tr>
-<td><code>mem_fragmentation_ratio</code></td>
-<td>内存碎片率</td>
-<td>长期 &gt;1.5 且伴随频繁淘汰，说明碎片严重</td>
-</tr>
-</tbody></table>
-<p>注意：<strong>已过期但还没被删掉的 key 依然占用内存并计入 used_memory</strong>。惰性删除与主动清理都有延迟，所以内存紧张时可能”提前”触发淘汰——这也是后面 volatile 策略坑的根源之一。</p>
-<h2 id="2-读写路径上，淘汰发生在哪一步"><a href="#2-读写路径上，淘汰发生在哪一步" class="headerlink" title="2. 读写路径上，淘汰发生在哪一步"></a>2. 读写路径上，淘汰发生在哪一步</h2><p>整体架构看这张图：写入命令进入后先过 <code>maxmemory</code> 检查，命中的策略决定是淘汰、写入还是报错；过期 key 由惰性删除和主动清理两条线回收。</p>
-<p><img src="/../../assets/database/Redis%20%E7%BC%93%E5%AD%98%E6%B7%98%E6%B1%B0%E7%AD%96%E7%95%A5%E8%A7%A3%E6%9E%90/redis-memory-architecture.png" alt="Redis 内存管理层架构：maxmemory 边界、键空间、过期字典与淘汰池">（图片待补）</p>
-<h3 id="2-1-完整链路"><a href="#2-1-完整链路" class="headerlink" title="2.1 完整链路"></a>2.1 完整链路</h3><pre class="mermaid">flowchart TD
-    subgraph READ[Read Path]
-        A[Client GET key] --> B{Key exists?}
-        B -- Yes --> C[Return value, cache hit]
-        B -- No --> D[Query MySQL, write back]
-    end
-    subgraph WRITE[Write Path]
-        E[Client SET / LPUSH / HSET ...] --> F{used_memory > maxmemory?}
-        F -- No --> G[Execute write directly]
-        F -- Yes --> H{Policy = noeviction?}
-        H -- Yes --> I[Return error&lt;br/>OOM command not allowed]
-        H -- No --> J[Sample N keys, pick victim by policy]
-        J --> K[Evict victim, free memory]
-        K --> G
-    end</pre>
-
-<p>两个要点：</p>
-<ul>
-<li><strong>读请求（GET）永不触发淘汰</strong>。淘汰只发生在写路径，且在命令执行之前检查。</li>
-<li>检查带冗余缓冲（slop），避免 used_memory 在边界抖动时反复触发淘汰。</li>
-</ul>
-<h3 id="2-2-淘汰-vs-过期删除：两条腿走路"><a href="#2-2-淘汰-vs-过期删除：两条腿走路" class="headerlink" title="2.2 淘汰 vs 过期删除：两条腿走路"></a>2.2 淘汰 vs 过期删除：两条腿走路</h3><ul>
-<li><strong>过期删除</strong>：针对设置了 TTL 的 key，到点删除。惰性删除（访问时发现过期顺手删）+ 主动清理（每 100ms 随机抽 20 个带 TTL 的 key，过期占比超 25% 就继续抽）。</li>
-<li><strong>内存淘汰</strong>：针对内存写满，与 TTL 无关，纯粹按策略选 key 逐出。</li>
-</ul>
-<pre class="mermaid">flowchart LR
-    subgraph Lazy[Lazy Deletion]
-        L1[Access expired key] --> L2[Delete and return nil]
-    end
-    subgraph Active[Active Expire Cycle]
-        A1[Every 100ms] --> A2[Sample 20 keys with TTL]
-        A2 --> A3{Expired ratio > 25%?}
-        A3 -- Yes --> A2
-        A3 -- No --> A4[Sleep]
-    end
-    subgraph Eviction[Memory Eviction]
-        E1[used_memory > maxmemory] --> E2[Evict by maxmemory-policy]
-    end</pre>
-
-
-
-<h3 id="2-3-noeviction-的报错形态"><a href="#2-3-noeviction-的报错形态" class="headerlink" title="2.3 noeviction 的报错形态"></a>2.3 noeviction 的报错形态</h3><p><code>maxmemory-policy noeviction</code> 时写满，Redis 直接拒绝写入：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">(error) OOM command not allowed when used memory &gt; &#x27;maxmemory&#x27;.</span><br></pre></td></tr></table></figure>
-
-<p>这个错误在 Java 侧会抛 <code>JedisDataException</code>，代码不处理就是一批 500。所以<strong>缓存场景默认不要用 noeviction</strong>，它只适合消息队列、计数器这类”写失败可以重试”的场景。</p>
-<h2 id="3-八种淘汰策略全景"><a href="#3-八种淘汰策略全景" class="headerlink" title="3. 八种淘汰策略全景"></a>3. 八种淘汰策略全景</h2><h3 id="3-1-速查表（面试核心考点）"><a href="#3-1-速查表（面试核心考点）" class="headerlink" title="3.1 速查表（面试核心考点）"></a>3.1 速查表（面试核心考点）</h3><table>
-<thead>
-<tr>
-<th>策略</th>
-<th>作用范围</th>
-<th>淘汰依据</th>
-<th>引入版本</th>
-<th>典型场景</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>noeviction</code></td>
-<td>全部 key</td>
-<td>不淘汰，写满报错</td>
-<td>一直</td>
-<td>队列、计数器等写失败可重试</td>
-</tr>
-<tr>
-<td><code>allkeys-lru</code></td>
-<td>全部 key</td>
-<td>最近最少使用</td>
-<td>一直</td>
-<td>通用缓存，最常用</td>
-</tr>
-<tr>
-<td><code>volatile-lru</code></td>
-<td>带 TTL 的 key</td>
-<td>最近最少使用</td>
-<td>一直</td>
-<td>缓存带过期 + 少量长驻 key</td>
-</tr>
-<tr>
-<td><code>allkeys-random</code></td>
-<td>全部 key</td>
-<td>随机</td>
-<td>一直</td>
-<td>key 可重建、淘汰成本均等</td>
-</tr>
-<tr>
-<td><code>volatile-random</code></td>
-<td>带 TTL 的 key</td>
-<td>随机</td>
-<td>一直</td>
-<td>会话 token 类</td>
-</tr>
-<tr>
-<td><code>volatile-ttl</code></td>
-<td>带 TTL 的 key</td>
-<td>剩余 TTL 最短</td>
-<td>一直</td>
-<td>数据有明确时效</td>
-</tr>
-<tr>
-<td><code>allkeys-lfu</code></td>
-<td>全部 key</td>
-<td>访问频次最低</td>
-<td>4.0</td>
-<td>长尾热点</td>
-</tr>
-<tr>
-<td><code>volatile-lfu</code></td>
-<td>带 TTL 的 key</td>
-<td>访问频次最低</td>
-<td>4.0</td>
-<td>带 TTL 的长尾热点</td>
-</tr>
-</tbody></table>
-<p>命名规律：前缀 <code>allkeys-</code> 管全部 key，<code>volatile-</code> 只管带过期时间的 key；后缀 <code>-lru</code> 看最近访问、<code>-lfu</code> 看访问频次、<code>-random</code> 随机、<code>-ttl</code> 看剩余寿命。</p>
-<h3 id="3-2-volatile-的隐藏降级"><a href="#3-2-volatile-的隐藏降级" class="headerlink" title="3.2 volatile-* 的隐藏降级"></a>3.2 volatile-* 的隐藏降级</h3><p><code>volatile-*</code> 系列有个大坑：<strong>如果带 TTL 的 key 一个都没有（或没有可淘汰的），行为退化成 noeviction——写满直接报错</strong>。</p>
-<p>真实场景：某天排查发现缓存全部写不进去，配置明明是 <code>volatile-lru</code>，查下来是业务方刚把 key 的 TTL 全去掉了。结果整个 Redis 变只读，线上炸了才反应过来。</p>
-<p><strong>口诀：volatile 系列依赖 TTL，TTL 没设，策略就失效。</strong></p>
-<h3 id="3-3-allkeys-与-volatile-怎么选"><a href="#3-3-allkeys-与-volatile-怎么选" class="headerlink" title="3.3 allkeys 与 volatile 怎么选"></a>3.3 allkeys 与 volatile 怎么选</h3><p>核心区别一句话：<em><em>allkeys-</em> 保护的是”内存不超限”，volatile-</em> 保护的是”带 TTL 的 key 优先存活”**。如果缓存数据和不过期数据混用同一个实例（比如有人把配置、统计也塞 Redis），必须用 volatile-*，否则淘汰可能把不该删的业务数据删掉。</p>
-<h2 id="4-近似-LRU：用采样换精度"><a href="#4-近似-LRU：用采样换精度" class="headerlink" title="4. 近似 LRU：用采样换精度"></a>4. 近似 LRU：用采样换精度</h2><h3 id="4-1-为什么不做严格-LRU"><a href="#4-1-为什么不做严格-LRU" class="headerlink" title="4.1 为什么不做严格 LRU"></a>4.1 为什么不做严格 LRU</h3><p>严格 LRU 需要维护双向链表，每次访问把节点移到队首，每个 key 额外占两个指针的开销。Redis 的 key 数量以百万计，这个成本不可接受；链表在 RDB 持久化、主从复制时也会引入额外复杂度。所以 Redis 选择<strong>近似 LRU（approximate LRU）</strong>：只记录”上次访问时间”，淘汰时抽样比较。</p>
-<h3 id="4-2-数据结构：RedisObject-的-24bit-时钟"><a href="#4-2-数据结构：RedisObject-的-24bit-时钟" class="headerlink" title="4.2 数据结构：RedisObject 的 24bit 时钟"></a>4.2 数据结构：RedisObject 的 24bit 时钟</h3><p>每个 value 对象（RedisObject）里有一个 24bit 的 <code>lru</code> 字段：</p>
-<ul>
-<li><strong>LRU 模式</strong>：存上次访问时间（秒级时钟 <code>LRU_CLOCK</code>，约 194 天轮回一次）。</li>
-<li><strong>LFU 模式</strong>：拆成 16bit 时间 + 8bit 频次计数器（第 5 节讲）。</li>
-</ul>
-<p>每次 key 被访问（GET&#x2F;SET 等），<code>lru</code> 字段刷新为当前时钟。</p>
-<h3 id="4-3-淘汰算法：采样取最老"><a href="#4-3-淘汰算法：采样取最老" class="headerlink" title="4.3 淘汰算法：采样取最老"></a>4.3 淘汰算法：采样取最老</h3><pre class="mermaid">flowchart LR
-    subgraph Space[Key space]
-        K1[key1 lru=100]
-        K2[key2 lru=50]
-        K3[key3 lru=200]
-        K4[key4 lru=180]
-        K5[key5 lru=90]
-    end
-    S[Random sample N=5] --> V[Pick key with oldest lru&lt;br/>--> key2]
-    V --> E[Evict key2]
-    style K2 fill:#f9d0c4</pre>
-
-<ol>
-<li>从键空间随机取 N 个 key（N &#x3D; <code>maxmemory-samples</code>，默认 5）。</li>
-<li>在 N 个里挑 <code>lru</code> 最小（最久没访问）的淘汰。</li>
-<li>淘汰后内存还不够，重复该过程。</li>
-</ol>
-<p>采样数越大越接近严格 LRU，但每次淘汰的 CPU 成本越高。Redis 5.0 起引入<strong>淘汰池（eviction pool）</strong>：上一轮采样过的候选 key 保留在池中，下一轮优先从池里挑，跨轮次累积样本，近似精度进一步提升（6.0 对池大小做了动态调整）。</p>
-<h3 id="4-4-参数与效果"><a href="#4-4-参数与效果" class="headerlink" title="4.4 参数与效果"></a>4.4 参数与效果</h3><table>
-<thead>
-<tr>
-<th>maxmemory-samples</th>
-<th>与严格 LRU 的差距</th>
-<th>淘汰耗时</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>3</td>
-<td>明显有差距</td>
-<td>最低</td>
-</tr>
-<tr>
-<td>5（默认）</td>
-<td>约 90% 以上的效果</td>
-<td>低</td>
-</tr>
-<tr>
-<td>10</td>
-<td>几乎无差别</td>
-<td>中</td>
-</tr>
-</tbody></table>
-<p>注意 <code>maxmemory-samples</code> <strong>不支持 CONFIG SET 在线修改</strong>，属于重启生效的配置项，改之前先看运维窗口。</p>
-<h2 id="5-LFU：频次才是真相"><a href="#5-LFU：频次才是真相" class="headerlink" title="5. LFU：频次才是真相"></a>5. LFU：频次才是真相</h2><h3 id="5-1-LRU-的致命场景"><a href="#5-1-LRU-的致命场景" class="headerlink" title="5.1 LRU 的致命场景"></a>5.1 LRU 的致命场景</h3><p>LRU 只看”最近访问”，不看”访问了多少次”。一次突发热点（秒杀、新闻爆点）就能让一批 key 变成”最近访问”，随后把真正长期高热的 key 挤掉——等热点过去，缓存里全是没人再看的 key。</p>
-<p>这个痛点 Java 开发者也不陌生：Caffeine 的 W-TinyLFU 淘汰算法就是针对 LRU 对”长尾热点”命中率差才诞生的，思路同源。</p>
-<p><img src="/../../assets/database/Redis%20%E7%BC%93%E5%AD%98%E6%B7%98%E6%B1%B0%E7%AD%96%E7%95%A5%E8%A7%A3%E6%9E%90/lru-vs-lfu-compare.png" alt="近似 LRU 与 LFU 的淘汰效果对比：突发流量下 LFU 能保住长期热点">（图片待补）</p>
-<h3 id="5-2-同一个字段，两种读法"><a href="#5-2-同一个字段，两种读法" class="headerlink" title="5.2 同一个字段，两种读法"></a>5.2 同一个字段，两种读法</h3><p>Redis 4.0 起，LFU 模式下 24bit 的 <code>lru</code> 字段被拆成两部分：</p>
-<table>
-<thead>
-<tr>
-<th>位段</th>
-<th>名称</th>
-<th>含义</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>高 16bit</td>
-<td><code>ldt</code>（last decrement time）</td>
-<td>上次衰减时间的分钟级时钟</td>
-</tr>
-<tr>
-<td>低 8bit</td>
-<td><code>logc</code>（logistic counter）</td>
-<td>对数计数器，0~255</td>
-</tr>
-</tbody></table>
-<p>8bit 只能记 255 次访问，不够用，所以用<strong>对数计数器（logistic counter）</strong>：访问次数越多，计数器增长越慢——用概率递增代替每次访问 +1。</p>
-<h3 id="5-3-概率递增：怎么在-8bit-里表达百万次访问"><a href="#5-3-概率递增：怎么在-8bit-里表达百万次访问" class="headerlink" title="5.3 概率递增：怎么在 8bit 里表达百万次访问"></a>5.3 概率递增：怎么在 8bit 里表达百万次访问</h3><p>Redis 源码 <code>LFULogIncr</code> 的核心逻辑，翻译成 Java 就是：</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/**</span></span><br><span class="line"><span class="comment"> * 模拟 Redis LFU 的 8bit 对数计数器。</span></span><br><span class="line"><span class="comment"> * counter 越大，递增概率 p 越小，增长越慢（对数增长）。</span></span><br><span class="line"><span class="comment"> */</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">LfuCounter</span> &#123;</span><br><span class="line">    <span class="keyword">private</span> <span class="type">int</span> counter;            <span class="comment">// logc，0 ~ 255</span></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> <span class="type">int</span> logFactor;    <span class="comment">// 对应 lfu-log-factor，默认 10</span></span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">hit</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">if</span> (counter == <span class="number">255</span>) <span class="keyword">return</span>;              <span class="comment">// 封顶</span></span><br><span class="line">        <span class="type">double</span> <span class="variable">base</span> <span class="operator">=</span> Math.max(<span class="number">0</span>, counter - <span class="number">5</span>);  <span class="comment">// LFU_INIT_VAL = 5</span></span><br><span class="line">        <span class="type">double</span> <span class="variable">p</span> <span class="operator">=</span> <span class="number">1.0</span> / (base * logFactor + <span class="number">1</span>);</span><br><span class="line">        <span class="keyword">if</span> (Math.random() &lt; p) counter++;        <span class="comment">// 概率递增</span></span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="type">int</span> <span class="title function_">value</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> counter;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>前 5 次访问（<code>base=0</code>，p&#x3D;1）必增；越往后 p 越小。最终 255 的计数器可以代表几十万到百万级的真实访问量。</p>
-<h3 id="5-4-衰减：避免”曾经热过”的-key-霸占缓存"><a href="#5-4-衰减：避免”曾经热过”的-key-霸占缓存" class="headerlink" title="5.4 衰减：避免”曾经热过”的 key 霸占缓存"></a>5.4 衰减：避免”曾经热过”的 key 霸占缓存</h3><p>LFU 只有递增没有衰减，一个 key 早年火过一次就会一直霸占缓存（访问量早已回落也不淘汰）。所以 <code>ldt</code> 出场：每隔 <code>lfu-decay-time</code> 分钟（默认 1），<code>logc</code> 减半，让热度随时间冷却，冷门但持续访问的 key 才有机会浮现。</p>
-<table>
-<thead>
-<tr>
-<th>参数</th>
-<th>默认值</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>lfu-log-factor</code></td>
-<td>10</td>
-<td>计数器增长速度。越大增长越慢、能表达更大的访问量；越小越容易被高访问 key 快速顶到 255</td>
-</tr>
-<tr>
-<td><code>lfu-decay-time</code></td>
-<td>1</td>
-<td>计数器减半的间隔（分钟），0 表示不衰减</td>
-</tr>
-</tbody></table>
-<p><code>lfu-log-factor</code> 不同取值下，计数器到达某值需要的真实访问次数（Redis 官方文档数据）：</p>
-<table>
-<thead>
-<tr>
-<th>factor</th>
-<th>100 次</th>
-<th>1000 次</th>
-<th>10 万次</th>
-<th>100 万次</th>
-<th>1000 万次</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>0</td>
-<td>104</td>
-<td>255</td>
-<td>255</td>
-<td>255</td>
-<td>255</td>
-</tr>
-<tr>
-<td>1</td>
-<td>18</td>
-<td>49</td>
-<td>255</td>
-<td>255</td>
-<td>255</td>
-</tr>
-<tr>
-<td>10（默认）</td>
-<td>10</td>
-<td>18</td>
-<td>142</td>
-<td>255</td>
-<td>255</td>
-</tr>
-<tr>
-<td>100</td>
-<td>8</td>
-<td>11</td>
-<td>49</td>
-<td>143</td>
-<td>255</td>
-</tr>
-</tbody></table>
-<p>高频热点 key 容易顶到 255——所有 key 都是 255 就分不出高下，这时调大 factor 拉开差距。</p>
-<h3 id="5-5-观测与排查"><a href="#5-5-观测与排查" class="headerlink" title="5.5 观测与排查"></a>5.5 观测与排查</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 查看某个 key 的访问频次（必须先启用 LFU 策略）</span></span><br><span class="line">redis-cli config <span class="built_in">set</span> maxmemory-policy allkeys-lfu</span><br><span class="line">redis-cli object freq hot:user:1001</span><br><span class="line"></span><br><span class="line"><span class="comment"># 扫描全库输出热点 key 清单（同样是 LFU 前置）</span></span><br><span class="line">redis-cli --hotkeys</span><br></pre></td></tr></table></figure>
-
-<h2 id="6-实战选型：项目里到底配什么"><a href="#6-实战选型：项目里到底配什么" class="headerlink" title="6. 实战选型：项目里到底配什么"></a>6. 实战选型：项目里到底配什么</h2><h3 id="6-1-决策表"><a href="#6-1-决策表" class="headerlink" title="6.1 决策表"></a>6.1 决策表</h3><table>
-<thead>
-<tr>
-<th>业务形态</th>
-<th>推荐策略</th>
-<th>理由</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>通用缓存（读多写少、key 同质化）</td>
-<td><code>allkeys-lru</code></td>
-<td>简单可靠，80% 的场景首选</td>
-</tr>
-<tr>
-<td>部分 key 长期高频（榜单、用户画像）</td>
-<td><code>allkeys-lfu</code></td>
-<td>长尾热点命中率更高</td>
-</tr>
-<tr>
-<td>全部 key 带 TTL、生命周期短（验证码、会话）</td>
-<td><code>volatile-lru</code> &#x2F; <code>volatile-ttl</code></td>
-<td>只淘汰缓存，不碰长驻数据</td>
-</tr>
-<tr>
-<td>缓存与持久数据混用同一实例</td>
-<td><code>volatile-lru</code></td>
-<td>保护不过期数据不被淘汰</td>
-</tr>
-<tr>
-<td>key 均可重建、淘汰成本均等</td>
-<td><code>allkeys-random</code></td>
-<td>淘汰开销最小</td>
-</tr>
-<tr>
-<td>数据不能丢，写失败要立刻感知</td>
-<td><code>noeviction</code></td>
-<td>用异常暴露容量问题</td>
-</tr>
-</tbody></table>
-<p><strong>选型口诀：没把握就 allkeys-lru；有长尾热点换 allkeys-lfu；混用持久数据必须 volatile。</strong></p>
-<h3 id="6-2-三个真实场景"><a href="#6-2-三个真实场景" class="headerlink" title="6.2 三个真实场景"></a>6.2 三个真实场景</h3><ul>
-<li><strong>登录 token（TTL 短、无差别）</strong>：<code>volatile-random</code> 即可，谁被淘汰无所谓，反正过期快。</li>
-<li><strong>电商秒杀（短时突发热点）</strong>：用 <code>allkeys-lru</code>。LFU 会把秒杀 key 的计数器顶到高位，热点过后长期霸占缓存，反而有害。</li>
-<li><strong>用户画像&#x2F;推荐位（长期频次差异大）</strong>：<code>allkeys-lfu</code>，避免一波流量把常驻热 key 挤掉。</li>
-</ul>
-<h3 id="6-3-验证：用数据说话"><a href="#6-3-验证：用数据说话" class="headerlink" title="6.3 验证：用数据说话"></a>6.3 验证：用数据说话</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 观察淘汰量：持续增长说明容量吃紧或策略不匹配</span></span><br><span class="line">redis-cli info stats | grep evicted_keys</span><br><span class="line"></span><br><span class="line"><span class="comment"># 内存全景</span></span><br><span class="line">redis-cli info memory | grep -E <span class="string">&quot;used_memory|maxmemory|fragmentation&quot;</span></span><br></pre></td></tr></table></figure>
-
-<p>上线后观察两天：<code>evicted_keys</code> 平稳且被淘汰的都是冷 key，说明策略选对了；如果出现热 key 被淘汰（业务告警）或 <code>evicted_keys</code> 陡增，先扩 <code>maxmemory</code>，再考虑换策略。</p>
-<h3 id="6-4-避坑清单（面试也常问）"><a href="#6-4-避坑清单（面试也常问）" class="headerlink" title="6.4 避坑清单（面试也常问）"></a>6.4 避坑清单（面试也常问）</h3><table>
-<thead>
-<tr>
-<th>症状</th>
-<th>原因</th>
-<th>处理</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>缓存写满后大量写入报 OOM</td>
-<td>策略是 <code>noeviction</code>，或 <code>volatile-*</code> 但 key 没带 TTL</td>
-<td>换成 <code>allkeys-lru</code>，或给 key 补 TTL</td>
-</tr>
-<tr>
-<td>突发流量后热 key 命中率骤降</td>
-<td>LRU 被”一波流”污染</td>
-<td>评估换 <code>allkeys-lfu</code></td>
-</tr>
-<tr>
-<td>写入延迟毛刺明显</td>
-<td>每次写前都要先淘汰，可能多轮采样删除</td>
-<td>提高 maxmemory 余量，或写操作错峰</td>
-</tr>
-<tr>
-<td>主从行为不一致</td>
-<td>淘汰只在主节点触发</td>
-<td>正常现象，从库同步主库数据；不要只在从库配不同策略</td>
-</tr>
-<tr>
-<td>内存碎片率长期偏高</td>
-<td>频繁淘汰 + 大 key 释放</td>
-<td>开启 <code>activedefrag</code>，或检查内存分配策略</td>
-</tr>
-</tbody></table>
-<h2 id="7-总结与实操建议"><a href="#7-总结与实操建议" class="headerlink" title="7. 总结与实操建议"></a>7. 总结与实操建议</h2><p>三个收获：淘汰只发生在写路径、<code>volatile-*</code> 依赖 TTL 且可能静默降级、LRU 看”最近” LFU 看”频次”，两者的实现都是近似方案（采样 + 概率计数）。</p>
-<p>实操建议按优先级：</p>
-<ol>
-<li>**先设 <code>maxmemory</code>**，这是 Redis 生产环境的第一道保险，没有上限，策略都是空谈。</li>
-<li><strong>默认 <code>allkeys-lru</code> 起步</strong>，出问题再换，不要一上来就 LFU——LFU 有 <code>lfu-log-factor</code> 和 <code>lfu-decay-time</code> 两个参数要调。</li>
-<li>**缓存与存储数据混用的实例必须用 <code>volatile-*</code>**。</li>
-<li><strong>上线后盯 <code>evicted_keys</code> 和命中率</strong>，策略选对的标准是”被淘汰的都是冷 key”。</li>
-</ol>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
   <nav class="pagination">
-    <a class="extend prev" rel="prev" title="Previous page" aria-label="Previous page" href="/home/page/6/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/home/">1</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/6/">6</a><span class="page-number current">7</span><a class="page-number" href="/home/page/8/">8</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/22/">22</a><a class="extend next" rel="next" title="Next page" aria-label="Next page" href="/home/page/8/"><i class="fa fa-angle-right"></i></a>
+    <a class="extend prev" rel="prev" title="Previous page" aria-label="Previous page" href="/home/page/6/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/home/">1</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/6/">6</a><span class="page-number current">7</span><a class="page-number" href="/home/page/8/">8</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/23/">23</a><a class="extend next" rel="next" title="Next page" aria-label="Next page" href="/home/page/8/"><i class="fa fa-angle-right"></i></a>
   </nav>
 
 </div>
@@ -2647,14 +2625,14 @@
       <i class="fa fa-chart-line"></i>
     </span>
       <span>Word count total: </span>
-    <span title="Word count total">605k</span>
+    <span title="Word count total">610k</span>
   </span>
   <span class="post-meta-item">
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
       <span>Reading time total &asymp;</span>
-    <span title="Reading time total">36:41</span>
+    <span title="Reading time total">36:58</span>
   </span>
 </div>
   <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
