@@ -76,8 +76,6 @@
     <link rel="stylesheet" href="/css/noscript.css">
   </noscript>
 <!-- hexo injector head_end start --><style>
-.post-meta-container ul.breadcrumb { text-transform: uppercase; }
-</style><style>
 /* 菜单链高亮：sub-menu 祖先（同主题 .menu-item-active 的 Pisces 规则） */
 .sub-menu .menu-item a.menu-chain-active {
   border-bottom-color: #fc6423;
@@ -90,6 +88,8 @@
 .main-menu .menu-item a.menu-chain-active {
   background: var(--menu-item-bg-color);
 }
+</style><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
 </style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
 </head>
 
@@ -1986,159 +1986,9 @@
 <li>调用链：<code>DriverManager.getConnection()</code> → <code>Class.forName(driverClass, true, Thread.currentThread().getContextClassLoader())</code>。JDBC 4.0 之后靠 <code>META-INF/services/java.sql.Driver</code> 自动发现驱动，<code>ServiceLoader</code> 同样借助上下文加载器完成加载。</li>
 </ul>
 <p><strong>面试怎么答</strong>：一句话点破本质——“<strong>双亲委派是向下委派，SPI 需要向上借用</strong>，所以引入了线程上下文类加载器”；再举 JDBC 的例子（Bootstrap 加载的 DriverManager 要用 App 加载器加载 MySQL 驱动），最后提一句 Tomcat 和 JDK 9+ 模块化后该机制依旧存在（<code>java.sql</code> 模块在 Platform 层，驱动仍在 classpath）。</p>
-<h2 id="4-性能指标与调优方法论"><a href="#4-性能指标与调优方法论" class="headerlink" title="4. 性能指标与调优方法论"></a>4. 性能指标与调优方法论</h2><p><strong>为什么需要了解</strong>：调优不是”把参数调得好看”，而是”让系统达到业务要求的性能”。不理解 RT&#x2F;TPS 这些指标，就没有量化目标；不会压测，就不知道系统真实容量。这一章先把”指标 → 目标 → 压测验证”的闭环补齐，第 7 章的实战案例全部建立在这套方法论上。</p>
-<h3 id="4-1-RT、TPS、QPS、并发数——四个核心指标"><a href="#4-1-RT、TPS、QPS、并发数——四个核心指标" class="headerlink" title="4.1 RT、TPS、QPS、并发数——四个核心指标"></a>4.1 RT、TPS、QPS、并发数——四个核心指标</h3><p><strong>RT（Response Time，响应时间）</strong>：一个请求从发出到收到完整响应的时间。两个要点：</p>
-<ul>
-<li><strong>看分位值而不是平均值</strong>：平均 RT 会被长尾请求严重污染——1% 的请求耗时 5s，其余 99% 只要 10ms，平均值也会被拉到 60ms 左右，完全反映不了真实体验。业界看 <strong>p95 &#x2F; p99 &#x2F; p999</strong>（95%&#x2F;99%&#x2F;99.9% 的请求分别在多少毫秒内完成），压测报告里”avg&#x3D;45ms, p99&#x3D;180ms”比”avg&#x3D;45ms”信息量大得多。</li>
-<li><strong>RT 要分段定位</strong>：全链路 RT &#x3D; 网络 + 网关 + 应用 + DB&#x2F;缓存 + 下游。调优前先用 traceId&#x2F;日志把耗时拆开，<strong>90% 的”接口慢”慢在 DB 或下游，而不是 JVM</strong>——别一上来就调 GC。</li>
-</ul>
-<p><strong>TPS（Transactions Per Second，每秒事务数）</strong>：每秒完成多少笔业务事务。强调”事务”是<strong>有业务语义的完整操作</strong>（一次下单 &#x3D; 校验 + 扣库存 + 建订单），不是单条 SQL，也不是单个 HTTP 请求。</p>
-<p><strong>QPS（Queries Per Second，每秒查询数）</strong>：每秒完成的读请求数。实践中 QPS 常被泛化为”每秒请求数”（含读含写），与 TPS 混用也没关系——面试讲清楚”<strong>TPS 强调事务完整性，QPS 强调请求吞吐</strong>“即可。</p>
-<p><strong>并发数（Concurrency）</strong>：同一时刻<strong>在途</strong>（已发出、未返回）的请求数，也就是系统同时处理的请求总数。注意它不等于”线程数”——同步模型下一个线程处理一个在途请求，异步模型下（NIO、协程）一个线程可以同时驱动多个在途请求。</p>
-<p><strong>四个指标之间的关系（Little 定律）</strong>：</p>
-<blockquote>
-<p><strong>并发数 &#x3D; TPS × RT</strong></p>
-</blockquote>
-<p>这是排队论 Little 定律的直接应用：系统每秒完成 1000 个事务、每个事务耗时 100ms，则在途请求数 &#x3D; 1000 × 0.1 &#x3D; 100。反过来可反推容量：</p>
-<table>
-<thead>
-<tr>
-<th align="left">RT</th>
-<th align="left">目标 TPS</th>
-<th align="left">需要的并发数</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">50ms</td>
-<td align="left">10,000</td>
-<td align="left">500</td>
-</tr>
-<tr>
-<td align="left">100ms</td>
-<td align="left">5,000</td>
-<td align="left">500</td>
-</tr>
-<tr>
-<td align="left">100ms</td>
-<td align="left">10,000</td>
-<td align="left">1,000</td>
-</tr>
-<tr>
-<td align="left">200ms</td>
-<td align="left">10,000</td>
-<td align="left">2,000</td>
-</tr>
-</tbody></table>
-<p>两个经典用法：</p>
-<ol>
-<li><strong>估算容量</strong>：目标 QPS 10000、压测测得 RT 100ms → 至少需要 1000 个并发槽位（线程池&#x2F;连接池的配置参考）。</li>
-<li><strong>判断瓶颈</strong>：RT 不变、TPS 不再随并发上升 → 已到系统极限；TPS 下降、RT 暴涨 → 某个环节开始排队（线程池打满、连接池耗尽、GC 停顿），<strong>要找瓶颈而不是盲目加线程</strong>。</li>
-</ol>
-<p><strong>面试怎么答</strong>：先报四个定义，再主动给出 Little 定律公式和一个换算例子（”目标 QPS 1 万、RT 100ms，并发就是 1000”），最后补一句”平均 RT 没有意义，看 p99”——公式 + 分位数意识都拿出来，这题就完整了。</p>
-<h3 id="4-2-3S-定理（Speed、Scalability、Stability）"><a href="#4-2-3S-定理（Speed、Scalability、Stability）" class="headerlink" title="4.2 3S 定理（Speed、Scalability、Stability）"></a>4.2 3S 定理（Speed、Scalability、Stability）</h3><p>性能测试的三个维度，简称 <strong>3S</strong>：</p>
-<table>
-<thead>
-<tr>
-<th align="left">维度</th>
-<th align="left">含义</th>
-<th align="left">怎么验证</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left"><strong>Speed（性能）</strong></td>
-<td align="left">单机&#x2F;单实例的处理能力：RT 与吞吐（TPS）</td>
-<td align="left">单机压测，确认 RT 分位值与最大 TPS</td>
-</tr>
-<tr>
-<td align="left"><strong>Scalability（可扩展性）</strong></td>
-<td align="left">加机器，吞吐能否近似线性增长</td>
-<td align="left">1 台 → 2 台 → 4 台压测，画吞吐增长曲线</td>
-</tr>
-<tr>
-<td align="left"><strong>Stability（稳定性）</strong></td>
-<td align="left">长时间运行（72h+）后性能不退化、资源水位稳定</td>
-<td align="left">长稳压测：观察 GC、内存、线程、连接池水位</td>
-</tr>
-</tbody></table>
-<p>三个维度有优先级：<strong>先单机性能（Speed）打底，再验证水平扩展（Scalability），最后长稳（Stability）兜底</strong>。每个维度都有一个经典翻车案例：</p>
-<ul>
-<li><strong>扩展性失败</strong>：1 台机器 TPS 1000，4 台只有 2000 而不是 4000——瓶颈在<strong>共享资源</strong>（DB 连接数、Redis 带宽、分布式锁、热点数据），这就是”加了机器没效果”的真相；</li>
-<li><strong>稳定性失败</strong>：压测 12 小时后 TPS 逐步下滑——典型是<strong>泄漏</strong>：内存泄漏（老年代持续增长）、线程池泄漏（活跃线程只增不降）、连接池泄漏（连接数涨满）。</li>
-</ul>
-<p><strong>面试怎么答</strong>：3S 三个词 + 一句话”先单机性能、再扩展性、后稳定性”，并各举一个翻车案例（加机器吞吐不翻倍 → 查共享资源；长时间压测吞吐下降 → 查泄漏），比单纯背缩写打动人。</p>
-<h3 id="4-3-梯度压测（200-→-500-→-1000-→-2000-→-5000）"><a href="#4-3-梯度压测（200-→-500-→-1000-→-2000-→-5000）" class="headerlink" title="4.3 梯度压测（200 → 500 → 1000 → 2000 → 5000）"></a>4.3 梯度压测（200 → 500 → 1000 → 2000 → 5000）</h3><p><strong>为什么用梯度</strong>：一上来直接上高并发，系统直接雪崩，什么信息都拿不到。梯度压测的意义是**找到”拐点”**——吞吐不再随并发上升、甚至开始下降的那个点，它定义了系统的真实容量。</p>
-<p><strong>标准流程</strong>：</p>
-<ol>
-<li><strong>冒烟压测</strong>：小并发（如 200）跑通链路，确认功能与监控正常；</li>
-<li><strong>梯度加压</strong>：200 → 500 → 1000 → 2000 → 5000 线程逐档施压，每档持续 3~5 分钟（让系统进入稳态），逐档记录 TPS、RT 分位、错误率；</li>
-<li><strong>找拐点</strong>：TPS 曲线从”线性上升”转为”走平或下降”的那一档就是容量上限——继续加压只会让 RT 恶化、错误率飙升；</li>
-<li><strong>资源画像</strong>：每档同步观察 CPU、内存、GC、线程池活跃线程、DB 连接池、MQ 积压，定位瓶颈环节；</li>
-<li><strong>结论输出</strong>：给出”最大支撑 TPS、对应 RT p99、瓶颈在 X”，并<strong>预留 30%~50% 余量</strong>作为生产容量目标——压测极限值直接当线上水位，一个抖动就挂了。</li>
-</ol>
-<p><strong>典型拐点场景</strong>：</p>
-<table>
-<thead>
-<tr>
-<th align="left">现象</th>
-<th align="left">瓶颈</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">TPS 走平但 RT 缓慢上升，CPU 已打满</td>
-<td align="left">计算密集：应用线程&#x2F;GC 是瓶颈</td>
-</tr>
-<tr>
-<td align="left">TPS 走平，活跃线程数打满，RT 陡增</td>
-<td align="left">同步阻塞：下游（DB&#x2F;接口）慢，线程在等</td>
-</tr>
-<tr>
-<td align="left">TPS 下降，GC 停顿变长，老年代持续上升</td>
-<td align="left">内存问题：晋升过快、泄漏</td>
-</tr>
-<tr>
-<td align="left">错误率突然升高，大量超时</td>
-<td align="left">达到某资源上限（连接池耗尽、限流阈值）</td>
-</tr>
-</tbody></table>
-<p><strong>面试怎么答</strong>：讲”梯度 + 拐点 + 余量”三件事——“从 200 逐档加到 5000，每档记录 TPS 和 RT 分位，找到吞吐拐点，按拐点值预留 30~50% 作为容量目标”，再补一句”拐点通常对应一个具体瓶颈（线程池&#x2F;连接池&#x2F;GC），压测的目的就是把它找出来”。</p>
-<h3 id="4-4-压测工具简介（JMeter-wrk-ab）"><a href="#4-4-压测工具简介（JMeter-wrk-ab）" class="headerlink" title="4.4 压测工具简介（JMeter &#x2F; wrk &#x2F; ab）"></a>4.4 压测工具简介（JMeter &#x2F; wrk &#x2F; ab）</h3><table>
-<thead>
-<tr>
-<th align="left">工具</th>
-<th align="left">特点</th>
-<th align="left">适用场景</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left"><strong>JMeter</strong></td>
-<td align="left">GUI 配置测试计划，线程组&#x2F;定时器&#x2F;断言&#x2F;聚合报告插件丰富，支持分布式压测（主控 + 多台施压机）</td>
-<td align="left">完整链路压测、接口回归、需要断言与报表的正式压测</td>
-</tr>
-<tr>
-<td align="left"><strong>wrk</strong></td>
-<td align="left">单机轻量、基于 epoll 多路复用，C 编写，施压机资源占用极低，自带 RT 分位统计（<code>--latency</code>）</td>
-<td align="left">单接口高并发快速压测（网关、单服务）</td>
-</tr>
-<tr>
-<td align="left"><strong>ab</strong>（Apache Bench）</td>
-<td align="left">最简单：<code>-n</code> 请求总数 + <code>-c</code> 并发数，一条命令出结果</td>
-<td align="left">冒烟验证、快速看个大概</td>
-</tr>
-</tbody></table>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># ab：10 万请求、1000 并发</span></span><br><span class="line">ab -n 100000 -c 1000 http://localhost:8080/api/order/list</span><br><span class="line"></span><br><span class="line"><span class="comment"># wrk：8 线程、1000 并发、压 60 秒，--latency 输出 RT 分位（含 p99）</span></span><br><span class="line">wrk -t 8 -c 1000 -d 60s --latency http://localhost:8080/api/order/list</span><br><span class="line"></span><br><span class="line"><span class="comment"># wrk 支持 lua 脚本模拟复杂请求（POST + 随机参数）</span></span><br><span class="line">wrk -t 4 -c 200 -d 60s -s post.lua http://localhost:8080/api/order/create</span><br></pre></td></tr></table></figure>
-
-<figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- post.lua：wrk 请求脚本，POST 一个固定 JSON 请求体</span></span><br><span class="line">wrk.method = <span class="string">&quot;POST&quot;</span></span><br><span class="line">wrk.headers[<span class="string">&quot;Content-Type&quot;</span>] = <span class="string">&quot;application/json&quot;</span></span><br><span class="line">wrk.body = <span class="string">&#x27;&#123;&quot;skuId&quot;:1001,&quot;qty&quot;:2&#125;&#x27;</span></span><br></pre></td></tr></table></figure>
-
-<p><strong>压测的三个纪律</strong>：</p>
-<ol>
-<li><strong>施压机与目标机分离</strong>：施压机资源不够会先把自己压垮，结果失真；并发大时用多台施压机 + JMeter 分布式；</li>
-<li><strong>并发模型要匹配</strong>：wrk&#x2F;ab 的并发是”连接并发”，JMeter 的线程组是”线程并发”，换工具换模型，数字不能直接对比；</li>
-<li><strong>压测要带真实依赖</strong>：单接口 → 核心链路（混合比例）→ 全链路，全链路必须带真实的 DB&#x2F;缓存&#x2F;下游，否则测出的容量和线上无关。</li>
-</ol>
-<p><strong>面试怎么答</strong>：三个工具各一句——“ab 冒烟、wrk 单接口高并发、JMeter 全链路带断言报表”，再强调”施压机和目标机分离、压测要带真实下游依赖”，工具题就过关了。</p>
-<h2 id="5-垃圾回收"><a href="#5-垃圾回收" class="headerlink" title="5. 垃圾回收"></a>5. 垃圾回收</h2><p><strong>为什么需要了解</strong>：GC 是 JVM 面试的重灾区——从”对象怎么算死”到”谁负责收”再到”怎么调”，层层递进。面试官问 GC 的潜台词是：你<strong>能不能定位线上停顿&#x2F;OOM 问题</strong>，而不只是背名词。</p>
-<h3 id="5-1-如何判断对象已死"><a href="#5-1-如何判断对象已死" class="headerlink" title="5.1 如何判断对象已死"></a>5.1 如何判断对象已死</h3><h4 id="引用计数法"><a href="#引用计数法" class="headerlink" title="引用计数法"></a>引用计数法</h4><p>每个对象维护一个计数器，被引用 +1，引用失效 -1，计数为 0 即回收。简单高效，但<strong>无法解决循环引用</strong>：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">A 和 B 互相引用，且不再被任何外部引用：</span><br><span class="line">A → B（A 的计数器 +1）</span><br><span class="line">B → A（B 的计数器 +1）</span><br><span class="line">外部引用断开后：A、B 的计数器都是 1，永远不为 0 → 永远无法回收</span><br></pre></td></tr></table></figure>
+<h2 id="4-垃圾回收"><a href="#4-垃圾回收" class="headerlink" title="4. 垃圾回收"></a>4. 垃圾回收</h2><p><strong>为什么需要了解</strong>：GC 是 JVM 面试的重灾区——从”对象怎么算死”到”谁负责收”再到”怎么调”，层层递进。面试官问 GC 的潜台词是：你<strong>能不能定位线上停顿&#x2F;OOM 问题</strong>，而不只是背名词。</p>
+<h3 id="4-1-如何判断对象已死"><a href="#4-1-如何判断对象已死" class="headerlink" title="4.1 如何判断对象已死"></a>4.1 如何判断对象已死</h3><h4 id="引用计数法"><a href="#引用计数法" class="headerlink" title="引用计数法"></a>引用计数法</h4><p>每个对象维护一个计数器，被引用 +1，引用失效 -1，计数为 0 即回收。简单高效，但<strong>无法解决循环引用</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">A 和 B 互相引用，且不再被任何外部引用：</span><br><span class="line">A → B（B 的计数器 +1）</span><br><span class="line">B → A（A 的计数器 +1）</span><br><span class="line">外部引用断开后：A、B 的计数器都是 1，永远不为 0 → 永远无法回收</span><br></pre></td></tr></table></figure>
 
 <p>这就像两个已经没人要的东西互相”抱着取暖”，谁都不敢收。因此主流 JVM（HotSpot）都不用它，改用可达性分析。</p>
 <h4 id="可达性分析"><a href="#可达性分析" class="headerlink" title="可达性分析"></a>可达性分析</h4><p>从一组称为 <strong>GC Roots</strong> 的根对象出发，沿引用链向下搜索，<strong>不可达</strong>的对象即为垃圾。GC Roots 包括：</p>
@@ -2231,7 +2081,7 @@
 <li><strong><code>ThreadLocal</code> 泄漏的引用层面解释</strong>：<code>ThreadLocalMap</code> 的 <strong>key（ThreadLocal 本身）是弱引用</strong>，但 <strong>value 是强引用</strong>——所以线程池中长期存活的线程里，<code>ThreadLocal</code> 用完不 <code>remove()</code>，value 就永远被强引用着（key 变 null 也没用），这就是经典泄漏点。</li>
 </ol>
 <p><strong>面试怎么答</strong>：引用计数法一句话带过（”有循环引用问题，所以不用”）；可达性分析讲清 GC Roots 的 6~7 类来源；四种引用按”回收时机 + 用途”讲，务必带出虚引用的实际案例（DirectByteBuffer 堆外内存）；最后主动说”finalize 已废弃，JDK 9 弃用、JEP 421 标记移除，现在用 Cleaner 和 try-with-resources”。</p>
-<h3 id="5-2-垃圾收集算法"><a href="#5-2-垃圾收集算法" class="headerlink" title="5.2 垃圾收集算法"></a>5.2 垃圾收集算法</h3><p>漫画式理解三种基本算法（讲给面试官听，比背定义生动得多）：</p>
+<h3 id="4-2-垃圾收集算法"><a href="#4-2-垃圾收集算法" class="headerlink" title="4.2 垃圾收集算法"></a>4.2 垃圾收集算法</h3><p>漫画式理解三种基本算法（讲给面试官听，比背定义生动得多）：</p>
 <p><strong>🗑️ 标记-清除（Mark-Sweep）</strong>：像整理旧书架——先把要留下的书一本本贴上标签（<strong>标记</strong>），然后把没贴标签的统统扔进垃圾桶（<strong>清除</strong>）。问题在于：扔完书之后，书架上空出来的位置<strong>东一块西一块</strong>（内存碎片），下次想放一套大百科（大对象）时，可能找不到连续的空间——单个空位加起来够大，但拼不成一整块。</p>
 <p><strong>📦 标记-复制（Copying）</strong>：干脆把房间一分为二，平时只用一半。要打扫时，把幸存的东西全部搬到另一半，然后把这一半直接清空（顺便全屋无碎片，因为搬过来的时候是紧挨着摆的）。缺点很明显：<strong>一半房间常年空着</strong>（空间利用率 50%）。新生代把它改良成 8:1:1，只浪费 10%，而且幸存对象本来就少，搬起来快——完美契合”朝生夕死”。</p>
 <p><strong>🚚 标记-整理（Mark-Compact）</strong>：把幸存的书一本一本往墙根推，全部挤得整整齐齐，腾出一整块连续空间。解决了碎片问题，代价是<strong>搬运很慢</strong>（所有存活对象都要移动）。适合”幸存者多”的区域——老年代。</p>
@@ -2270,7 +2120,7 @@
 </tbody></table>
 <p><strong>分代收集（为什么这样设计）</strong>：基于两个经验假说——<strong>弱分代假说</strong>（绝大多数对象朝生夕死）和<strong>强分代假说</strong>（熬过多次 GC 的对象更可能继续存活）。于是：<strong>新生代</strong>存活率低 → 复制算法，快、无碎片；<strong>老年代</strong>存活率高 → 标记-清除&#x2F;标记-整理，避免反复搬运。<strong>不同区域用不同算法，整体效率最高</strong>——这就是分代收集的全部理由。G1 之后的收集器在物理上不再连续分代，但”把存活率不同的对象分开处理”的思想没变（Region 逻辑分代）。</p>
 <p><strong>面试怎么答</strong>：先画漫画（三个比喻），再落到对比表，最后一句升华：”分代收集不是一种算法，而是’把对象按存活概率分组，各组用最合适的算法’的工程策略。”把”复制算法只浪费 10% 而不是 50%”讲出来，就能体现你看过源码而非背过八股。</p>
-<h3 id="5-3-经典垃圾收集器"><a href="#5-3-经典垃圾收集器" class="headerlink" title="5.3 经典垃圾收集器"></a>5.3 经典垃圾收集器</h3><h4 id="新生代三剑客：Serial-ParNew-Parallel-Scavenge"><a href="#新生代三剑客：Serial-ParNew-Parallel-Scavenge" class="headerlink" title="新生代三剑客：Serial &#x2F; ParNew &#x2F; Parallel Scavenge"></a>新生代三剑客：Serial &#x2F; ParNew &#x2F; Parallel Scavenge</h4><table>
+<h3 id="4-3-经典垃圾收集器"><a href="#4-3-经典垃圾收集器" class="headerlink" title="4.3 经典垃圾收集器"></a>4.3 经典垃圾收集器</h3><h4 id="新生代三剑客：Serial-ParNew-Parallel-Scavenge"><a href="#新生代三剑客：Serial-ParNew-Parallel-Scavenge" class="headerlink" title="新生代三剑客：Serial &#x2F; ParNew &#x2F; Parallel Scavenge"></a>新生代三剑客：Serial &#x2F; ParNew &#x2F; Parallel Scavenge</h4><table>
 <thead>
 <tr>
 <th align="left">收集器</th>
@@ -2444,7 +2294,7 @@
 </tr>
 </tbody></table>
 <p><strong>面试怎么答</strong>：按”新生代三剑客 → CMS 四阶段与四大缺点 → G1 三件套（Region、RSet&#x2F;SATB、停顿模型）→ ZGC&#x2F;Shenandoah 一句话”的梯度讲。G1 部分主动把 RSet 和 SATB 讲透（这是区分背书和真懂的分水岭），并准确说出版本：CMS JDK 14 移除、G1 JDK 9 默认、ZGC JDK 15 生产可用。</p>
-<h3 id="5-4-GC-日志与调优"><a href="#5-4-GC-日志与调优" class="headerlink" title="5.4 GC 日志与调优"></a>5.4 GC 日志与调优</h3><p><strong>为什么需要了解</strong>：线上 GC 问题的第一步永远是<strong>看日志</strong>。会开日志、看得懂日志、知道下一步调什么，才构成完整的排查闭环。</p>
+<h3 id="4-4-GC-日志与调优"><a href="#4-4-GC-日志与调优" class="headerlink" title="4.4 GC 日志与调优"></a>4.4 GC 日志与调优</h3><p><strong>为什么需要了解</strong>：线上 GC 问题的第一步永远是<strong>看日志</strong>。会开日志、看得懂日志、知道下一步调什么，才构成完整的排查闭环。</p>
 <p><strong>关键参数速查表</strong>：</p>
 <table>
 <thead>
@@ -2547,8 +2397,8 @@
 <li><strong>微调参数（一次只改一个，用日志 A&#x2F;B 对比）</strong>：先定 <code>-Xms=-Xmx</code>（消除扩容抖动）→ 再定新生代（<code>-Xmn</code> 或 <code>-XX:SurvivorRatio</code>，观察 Minor GC 频率与晋升量）→ 最后调 GC 细节（停顿目标 <code>-XX:MaxGCPauseMillis</code>、晋升阈值 <code>-XX:MaxTenuringThreshold</code>、G1 的 <code>-XX:InitiatingHeapOccupancyPercent</code>）。<strong>先看日志再动参数，没有日志依据的调优都是玄学</strong>。</li>
 </ol>
 <p><strong>面试怎么答</strong>：参数能精确说出”<code>-XX:+UseG1GC</code>、<code>-XX:MaxGCPauseMillis=200</code>、<code>-XX:InitiatingHeapOccupancyPercent=45</code>“；日志能当场拆解一行（前 → 后 → 总容量 → 耗时）；调优背出”目标 → 选收集器 → 微调”的顺序，并强调”<code>-Xms</code> 与 <code>-Xmx</code> 相等、一次只改一个参数”的工程纪律。</p>
-<h2 id="6-内存溢出与内存泄漏排查"><a href="#6-内存溢出与内存泄漏排查" class="headerlink" title="6. 内存溢出与内存泄漏排查"></a>6. 内存溢出与内存泄漏排查</h2><p><strong>为什么需要了解</strong>：面试官问 OOM 一般不是要定义，而是想听”<strong>线上服务 OOM 了你怎么办</strong>“的完整排查故事。这一节把工具链和实战流程串成一条线。</p>
-<h3 id="6-1-OOM-的常见类型（heap、metaspace、direct-memory、thread）"><a href="#6-1-OOM-的常见类型（heap、metaspace、direct-memory、thread）" class="headerlink" title="6.1 OOM 的常见类型（heap、metaspace、direct memory、thread）"></a>6.1 OOM 的常见类型（heap、metaspace、direct memory、thread）</h3><table>
+<h2 id="5-内存溢出与内存泄漏排查"><a href="#5-内存溢出与内存泄漏排查" class="headerlink" title="5. 内存溢出与内存泄漏排查"></a>5. 内存溢出与内存泄漏排查</h2><p><strong>为什么需要了解</strong>：面试官问 OOM 一般不是要定义，而是想听”<strong>线上服务 OOM 了你怎么办</strong>“的完整排查故事。这一节把工具链和实战流程串成一条线。</p>
+<h3 id="5-1-OOM-的常见类型（heap、metaspace、direct-memory、thread）"><a href="#5-1-OOM-的常见类型（heap、metaspace、direct-memory、thread）" class="headerlink" title="5.1 OOM 的常见类型（heap、metaspace、direct memory、thread）"></a>5.1 OOM 的常见类型（heap、metaspace、direct memory、thread）</h3><table>
 <thead>
 <tr>
 <th align="left">OOM &#x2F; Error 类型</th>
@@ -2601,7 +2451,7 @@
 </tr>
 </tbody></table>
 <p><strong>面试怎么答</strong>：能对号入座——看到 <code>heap space</code> 查堆和泄漏、看到 <code>Metaspace</code> 查动态代理&#x2F;热部署、看到 <code>native thread</code> 查线程数与系统限制、看到 <code>Direct buffer</code> 查 NIO 缓冲——每一种都能给出”先看参数、再查代码”的下一步。</p>
-<h3 id="6-2-排查工具和方法"><a href="#6-2-排查工具和方法" class="headerlink" title="6.2 排查工具和方法"></a>6.2 排查工具和方法</h3><h4 id="四大命令行工具：jmap-jstack-jstat-jcmd"><a href="#四大命令行工具：jmap-jstack-jstat-jcmd" class="headerlink" title="四大命令行工具：jmap &#x2F; jstack &#x2F; jstat &#x2F; jcmd"></a>四大命令行工具：jmap &#x2F; jstack &#x2F; jstat &#x2F; jcmd</h4><table>
+<h3 id="5-2-排查工具和方法"><a href="#5-2-排查工具和方法" class="headerlink" title="5.2 排查工具和方法"></a>5.2 排查工具和方法</h3><h4 id="四大命令行工具：jmap-jstack-jstat-jcmd"><a href="#四大命令行工具：jmap-jstack-jstat-jcmd" class="headerlink" title="四大命令行工具：jmap &#x2F; jstack &#x2F; jstat &#x2F; jcmd"></a>四大命令行工具：jmap &#x2F; jstack &#x2F; jstat &#x2F; jcmd</h4><table>
 <thead>
 <tr>
 <th align="left">工具</th>
@@ -2687,7 +2537,7 @@
 </tr>
 </tbody></table>
 <p><strong>面试怎么答</strong>：说清”三件套”分工——<strong>jstat 看趋势、jmap 看对象、jstack 看线程</strong>，外加 jcmd 兜底；分析 dump 按 MAT 三步（Leak Suspects → Dominator Tree → Path to GC Roots）；再补一句”生产环境用 Arthas 在线看，不用重启”，工具题就稳了。</p>
-<h3 id="6-3-实战：一个完整的-OOM-排查流程"><a href="#6-3-实战：一个完整的-OOM-排查流程" class="headerlink" title="6.3 实战：一个完整的 OOM 排查流程"></a>6.3 实战：一个完整的 OOM 排查流程</h3><p><strong>故事背景</strong>：某电商订单服务的 JVM 内存告警 “Heap usage &gt; 90%”，每 3 天左右 OOM 重启一次，重启后能撑几天再复发。这是典型的<strong>内存泄漏</strong>（而不是一次性分配过大）——真 OOM 往往几小时内就挂，能”撑几天”说明垃圾回收节节败退。</p>
+<h3 id="5-3-实战：一个完整的-OOM-排查流程"><a href="#5-3-实战：一个完整的-OOM-排查流程" class="headerlink" title="5.3 实战：一个完整的 OOM 排查流程"></a>5.3 实战：一个完整的 OOM 排查流程</h3><p><strong>故事背景</strong>：某电商订单服务的 JVM 内存告警 “Heap usage &gt; 90%”，每 3 天左右 OOM 重启一次，重启后能撑几天再复发。这是典型的<strong>内存泄漏</strong>（而不是一次性分配过大）——真 OOM 往往几小时内就挂，能”撑几天”说明垃圾回收节节败退。</p>
 <p><strong>第一步：识别症状，确认是泄漏而非压力过大</strong></p>
 <figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">jstat -gcutil &lt;pid&gt; 5000</span><br><span class="line"><span class="comment"># S0 S1 E O M CCS YGC YGCT FGC FGCT GCT</span></span><br><span class="line"><span class="comment"># 0.00 0.00 85.23 88.31 ... 1200 45.2 3 120.5 165.7</span></span><br></pre></td></tr></table></figure>
 
@@ -2763,6 +2613,156 @@
 <figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">1. 症状确认：jstat -gcutil 观察 FGC/FGCT 只涨不降 → 泄漏（而非压力）</span><br><span class="line">2. 现场保留：-XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=... （OOM 自动 dump）</span><br><span class="line">3. 复现：小堆参数跑压测/模拟程序，拿到 hprof 文件</span><br><span class="line">4. 分析：MAT 三步——Leak Suspects → Dominator Tree → Path to GC Roots</span><br><span class="line">5. 根因：顺着引用链找到&quot;不该被 GC Roots 持有却持有的地方&quot;（static 集合/ThreadLocal/未关闭资源）</span><br><span class="line">6. 修复：容量上限 + 过期策略 / 弱引用 / remove() / try-with-resources</span><br><span class="line">7. 验证：修复后同样时长，老年代占用曲线平稳、FGC 不增长</span><br></pre></td></tr></table></figure>
 
 <p><strong>面试怎么答</strong>：按七步讲完整个故事，重点不是工具，而是<strong>推理链</strong>——“Full GC 后堆不回落 → 有东西被长期持有 → dump → 引用链指向 static 集合 → 加淘汰策略”。能把”为什么能撑几天才挂”解释成”泄漏速度与堆大小的赛跑”，比背命令更打动人。</p>
+<h2 id="6-性能指标与调优方法论"><a href="#6-性能指标与调优方法论" class="headerlink" title="6. 性能指标与调优方法论"></a>6. 性能指标与调优方法论</h2><p><strong>为什么需要了解</strong>：调优不是”把参数调得好看”，而是”让系统达到业务要求的性能”。不理解 RT&#x2F;TPS 这些指标，就没有量化目标；不会压测，就不知道系统真实容量。这一章先把”指标 → 目标 → 压测验证”的闭环补齐，第 7 章的实战案例全部建立在这套方法论上。</p>
+<h3 id="6-1-RT、TPS、QPS、并发数——四个核心指标"><a href="#6-1-RT、TPS、QPS、并发数——四个核心指标" class="headerlink" title="6.1 RT、TPS、QPS、并发数——四个核心指标"></a>6.1 RT、TPS、QPS、并发数——四个核心指标</h3><p><strong>RT（Response Time，响应时间）</strong>：一个请求从发出到收到完整响应的时间。两个要点：</p>
+<ul>
+<li><strong>看分位值而不是平均值</strong>：平均 RT 会被长尾请求严重污染——1% 的请求耗时 5s，其余 99% 只要 10ms，平均值也会被拉到 60ms 左右，完全反映不了真实体验。业界看 <strong>p95 &#x2F; p99 &#x2F; p999</strong>（95%&#x2F;99%&#x2F;99.9% 的请求分别在多少毫秒内完成），压测报告里”avg&#x3D;45ms, p99&#x3D;180ms”比”avg&#x3D;45ms”信息量大得多。</li>
+<li><strong>RT 要分段定位</strong>：全链路 RT &#x3D; 网络 + 网关 + 应用 + DB&#x2F;缓存 + 下游。调优前先用 traceId&#x2F;日志把耗时拆开，<strong>90% 的”接口慢”慢在 DB 或下游，而不是 JVM</strong>——别一上来就调 GC。</li>
+</ul>
+<p><strong>TPS（Transactions Per Second，每秒事务数）</strong>：每秒完成多少笔业务事务。强调”事务”是<strong>有业务语义的完整操作</strong>（一次下单 &#x3D; 校验 + 扣库存 + 建订单），不是单条 SQL，也不是单个 HTTP 请求。</p>
+<p><strong>QPS（Queries Per Second，每秒查询数）</strong>：每秒完成的读请求数。实践中 QPS 常被泛化为”每秒请求数”（含读含写），与 TPS 混用也没关系——面试讲清楚”<strong>TPS 强调事务完整性，QPS 强调请求吞吐</strong>“即可。</p>
+<p><strong>并发数（Concurrency）</strong>：同一时刻<strong>在途</strong>（已发出、未返回）的请求数，也就是系统同时处理的请求总数。注意它不等于”线程数”——同步模型下一个线程处理一个在途请求，异步模型下（NIO、协程）一个线程可以同时驱动多个在途请求。</p>
+<p><strong>四个指标之间的关系（Little 定律）</strong>：</p>
+<blockquote>
+<p><strong>并发数 &#x3D; TPS × RT</strong></p>
+</blockquote>
+<p>这是排队论 Little 定律的直接应用：系统每秒完成 1000 个事务、每个事务耗时 100ms，则在途请求数 &#x3D; 1000 × 0.1 &#x3D; 100。反过来可反推容量：</p>
+<table>
+<thead>
+<tr>
+<th align="left">RT</th>
+<th align="left">目标 TPS</th>
+<th align="left">需要的并发数</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">50ms</td>
+<td align="left">10,000</td>
+<td align="left">500</td>
+</tr>
+<tr>
+<td align="left">100ms</td>
+<td align="left">5,000</td>
+<td align="left">500</td>
+</tr>
+<tr>
+<td align="left">100ms</td>
+<td align="left">10,000</td>
+<td align="left">1,000</td>
+</tr>
+<tr>
+<td align="left">200ms</td>
+<td align="left">10,000</td>
+<td align="left">2,000</td>
+</tr>
+</tbody></table>
+<p>两个经典用法：</p>
+<ol>
+<li><strong>估算容量</strong>：目标 QPS 10000、压测测得 RT 100ms → 至少需要 1000 个并发槽位（线程池&#x2F;连接池的配置参考）。</li>
+<li><strong>判断瓶颈</strong>：RT 不变、TPS 不再随并发上升 → 已到系统极限；TPS 下降、RT 暴涨 → 某个环节开始排队（线程池打满、连接池耗尽、GC 停顿），<strong>要找瓶颈而不是盲目加线程</strong>。</li>
+</ol>
+<p><strong>面试怎么答</strong>：先报四个定义，再主动给出 Little 定律公式和一个换算例子（”目标 QPS 1 万、RT 100ms，并发就是 1000”），最后补一句”平均 RT 没有意义，看 p99”——公式 + 分位数意识都拿出来，这题就完整了。</p>
+<h3 id="6-2-3S-定理（Speed、Scalability、Stability）"><a href="#6-2-3S-定理（Speed、Scalability、Stability）" class="headerlink" title="6.2 3S 定理（Speed、Scalability、Stability）"></a>6.2 3S 定理（Speed、Scalability、Stability）</h3><p>性能测试的三个维度，简称 <strong>3S</strong>：</p>
+<table>
+<thead>
+<tr>
+<th align="left">维度</th>
+<th align="left">含义</th>
+<th align="left">怎么验证</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left"><strong>Speed（性能）</strong></td>
+<td align="left">单机&#x2F;单实例的处理能力：RT 与吞吐（TPS）</td>
+<td align="left">单机压测，确认 RT 分位值与最大 TPS</td>
+</tr>
+<tr>
+<td align="left"><strong>Scalability（可扩展性）</strong></td>
+<td align="left">加机器，吞吐能否近似线性增长</td>
+<td align="left">1 台 → 2 台 → 4 台压测，画吞吐增长曲线</td>
+</tr>
+<tr>
+<td align="left"><strong>Stability（稳定性）</strong></td>
+<td align="left">长时间运行（72h+）后性能不退化、资源水位稳定</td>
+<td align="left">长稳压测：观察 GC、内存、线程、连接池水位</td>
+</tr>
+</tbody></table>
+<p>三个维度有优先级：<strong>先单机性能（Speed）打底，再验证水平扩展（Scalability），最后长稳（Stability）兜底</strong>。每个维度都有一个经典翻车案例：</p>
+<ul>
+<li><strong>扩展性失败</strong>：1 台机器 TPS 1000，4 台只有 2000 而不是 4000——瓶颈在<strong>共享资源</strong>（DB 连接数、Redis 带宽、分布式锁、热点数据），这就是”加了机器没效果”的真相；</li>
+<li><strong>稳定性失败</strong>：压测 12 小时后 TPS 逐步下滑——典型是<strong>泄漏</strong>：内存泄漏（老年代持续增长）、线程池泄漏（活跃线程只增不降）、连接池泄漏（连接数涨满）。</li>
+</ul>
+<p><strong>面试怎么答</strong>：3S 三个词 + 一句话”先单机性能、再扩展性、后稳定性”，并各举一个翻车案例（加机器吞吐不翻倍 → 查共享资源；长时间压测吞吐下降 → 查泄漏），比单纯背缩写打动人。</p>
+<h3 id="6-3-梯度压测（200-→-500-→-1000-→-2000-→-5000）"><a href="#6-3-梯度压测（200-→-500-→-1000-→-2000-→-5000）" class="headerlink" title="6.3 梯度压测（200 → 500 → 1000 → 2000 → 5000）"></a>6.3 梯度压测（200 → 500 → 1000 → 2000 → 5000）</h3><p><strong>为什么用梯度</strong>：一上来直接上高并发，系统直接雪崩，什么信息都拿不到。梯度压测的意义是**找到”拐点”**——吞吐不再随并发上升、甚至开始下降的那个点，它定义了系统的真实容量。</p>
+<p><strong>标准流程</strong>：</p>
+<ol>
+<li><strong>冒烟压测</strong>：小并发（如 200）跑通链路，确认功能与监控正常；</li>
+<li><strong>梯度加压</strong>：200 → 500 → 1000 → 2000 → 5000 线程逐档施压，每档持续 3~5 分钟（让系统进入稳态），逐档记录 TPS、RT 分位、错误率；</li>
+<li><strong>找拐点</strong>：TPS 曲线从”线性上升”转为”走平或下降”的那一档就是容量上限——继续加压只会让 RT 恶化、错误率飙升；</li>
+<li><strong>资源画像</strong>：每档同步观察 CPU、内存、GC、线程池活跃线程、DB 连接池、MQ 积压，定位瓶颈环节；</li>
+<li><strong>结论输出</strong>：给出”最大支撑 TPS、对应 RT p99、瓶颈在 X”，并<strong>预留 30%~50% 余量</strong>作为生产容量目标——压测极限值直接当线上水位，一个抖动就挂了。</li>
+</ol>
+<p><strong>典型拐点场景</strong>：</p>
+<table>
+<thead>
+<tr>
+<th align="left">现象</th>
+<th align="left">瓶颈</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">TPS 走平但 RT 缓慢上升，CPU 已打满</td>
+<td align="left">计算密集：应用线程&#x2F;GC 是瓶颈</td>
+</tr>
+<tr>
+<td align="left">TPS 走平，活跃线程数打满，RT 陡增</td>
+<td align="left">同步阻塞：下游（DB&#x2F;接口）慢，线程在等</td>
+</tr>
+<tr>
+<td align="left">TPS 下降，GC 停顿变长，老年代持续上升</td>
+<td align="left">内存问题：晋升过快、泄漏</td>
+</tr>
+<tr>
+<td align="left">错误率突然升高，大量超时</td>
+<td align="left">达到某资源上限（连接池耗尽、限流阈值）</td>
+</tr>
+</tbody></table>
+<p><strong>面试怎么答</strong>：讲”梯度 + 拐点 + 余量”三件事——“从 200 逐档加到 5000，每档记录 TPS 和 RT 分位，找到吞吐拐点，按拐点值预留 30~50% 作为容量目标”，再补一句”拐点通常对应一个具体瓶颈（线程池&#x2F;连接池&#x2F;GC），压测的目的就是把它找出来”。</p>
+<h3 id="6-4-压测工具简介（JMeter-wrk-ab）"><a href="#6-4-压测工具简介（JMeter-wrk-ab）" class="headerlink" title="6.4 压测工具简介（JMeter &#x2F; wrk &#x2F; ab）"></a>6.4 压测工具简介（JMeter &#x2F; wrk &#x2F; ab）</h3><table>
+<thead>
+<tr>
+<th align="left">工具</th>
+<th align="left">特点</th>
+<th align="left">适用场景</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left"><strong>JMeter</strong></td>
+<td align="left">GUI 配置测试计划，线程组&#x2F;定时器&#x2F;断言&#x2F;聚合报告插件丰富，支持分布式压测（主控 + 多台施压机）</td>
+<td align="left">完整链路压测、接口回归、需要断言与报表的正式压测</td>
+</tr>
+<tr>
+<td align="left"><strong>wrk</strong></td>
+<td align="left">单机轻量、基于 epoll 多路复用，C 编写，施压机资源占用极低，自带 RT 分位统计（<code>--latency</code>）</td>
+<td align="left">单接口高并发快速压测（网关、单服务）</td>
+</tr>
+<tr>
+<td align="left"><strong>ab</strong>（Apache Bench）</td>
+<td align="left">最简单：<code>-n</code> 请求总数 + <code>-c</code> 并发数，一条命令出结果</td>
+<td align="left">冒烟验证、快速看个大概</td>
+</tr>
+</tbody></table>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># ab：10 万请求、1000 并发</span></span><br><span class="line">ab -n 100000 -c 1000 http://localhost:8080/api/order/list</span><br><span class="line"></span><br><span class="line"><span class="comment"># wrk：8 线程、1000 并发、压 60 秒，--latency 输出 RT 分位（含 p99）</span></span><br><span class="line">wrk -t 8 -c 1000 -d 60s --latency http://localhost:8080/api/order/list</span><br><span class="line"></span><br><span class="line"><span class="comment"># wrk 支持 lua 脚本模拟复杂请求（POST + 随机参数）</span></span><br><span class="line">wrk -t 4 -c 200 -d 60s -s post.lua http://localhost:8080/api/order/create</span><br></pre></td></tr></table></figure>
+
+<figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- post.lua：wrk 请求脚本，POST 一个固定 JSON 请求体</span></span><br><span class="line">wrk.method = <span class="string">&quot;POST&quot;</span></span><br><span class="line">wrk.headers[<span class="string">&quot;Content-Type&quot;</span>] = <span class="string">&quot;application/json&quot;</span></span><br><span class="line">wrk.body = <span class="string">&#x27;&#123;&quot;skuId&quot;:1001,&quot;qty&quot;:2&#125;&#x27;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>压测的三个纪律</strong>：</p>
+<ol>
+<li><strong>施压机与目标机分离</strong>：施压机资源不够会先把自己压垮，结果失真；并发大时用多台施压机 + JMeter 分布式；</li>
+<li><strong>并发模型要匹配</strong>：wrk&#x2F;ab 的并发是”连接并发”，JMeter 的线程组是”线程并发”，换工具换模型，数字不能直接对比；</li>
+<li><strong>压测要带真实依赖</strong>：单接口 → 核心链路（混合比例）→ 全链路，全链路必须带真实的 DB&#x2F;缓存&#x2F;下游，否则测出的容量和线上无关。</li>
+</ol>
+<p><strong>面试怎么答</strong>：三个工具各一句——“ab 冒烟、wrk 单接口高并发、JMeter 全链路带断言报表”，再强调”施压机和目标机分离、压测要带真实下游依赖”，工具题就过关了。</p>
 <h2 id="7-调优实战案例"><a href="#7-调优实战案例" class="headerlink" title="7. 调优实战案例"></a>7. 调优实战案例</h2><p><strong>为什么需要了解</strong>：前面讲的是”是什么、怎么看”，这一章讲”怎么调”。三个案例覆盖三大典型诉求——吞吐量优先（后台批处理）、响应时间优先（在线接口）、稳定性优先（死锁排查），每个案例都遵循第 4 章的方法论：<strong>先定目标 → 选收集器 → 参数微调 → 用日志和监控验证</strong>。</p>
 <h3 id="7-1-吞吐量优先案例（Parallel-Scavenge-Parallel-Old）"><a href="#7-1-吞吐量优先案例（Parallel-Scavenge-Parallel-Old）" class="headerlink" title="7.1 吞吐量优先案例（Parallel Scavenge + Parallel Old）"></a>7.1 吞吐量优先案例（Parallel Scavenge + Parallel Old）</h3><p><strong>场景描述</strong>：后台批处理服务，每天凌晨跑全量报表生成与积分批量计算，运行窗口 2 小时。业务要求：<strong>在窗口期内跑完所有任务，单位时间处理量（吞吐）越高越好</strong>；单次 GC 停顿允许达到秒级（没有人等着它）。堆内存 8G（<code>-Xms8g -Xmx8g</code>），JDK 8。</p>
 <p><strong>选型</strong>：Parallel Scavenge + Parallel Old（<code>-XX:+UseParallelGC</code>）。JDK 8 默认组合，多线程并行回收、不追求低停顿，正是”高吞吐 + 容忍停顿”场景的标准答案。依据是吞吐量公式：</p>
