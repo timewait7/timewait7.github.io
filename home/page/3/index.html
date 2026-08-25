@@ -189,7 +189,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">81</span>
+          <span class="site-state-item-count">82</span>
           <span class="site-state-item-name">posts</span>
         </a>
       </div>
@@ -244,6 +244,506 @@
     </div>
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/mq-select-2025.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/mq-select-2025.html" class="post-title-link" itemprop="url">消息队列选型与核心机制对比</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-08-13 18:00:00" itemprop="dateCreated datePublished" datetime="2026-08-13T18:00:00+08:00">2026-08-13</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E4%B8%AD%E9%97%B4%E4%BB%B6/" itemprop="url" rel="index"><span itemprop="name">中间件</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>3k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>11 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <p><strong>「Kafka、RocketMQ、RabbitMQ 到底选哪个？」——这个问题答不好，是因为顺序搞反了：选型不是选名字，是选「机制」与「场景」的匹配。</strong> 本文先讲透四个核心机制（消息不丢、幂等、顺序、事务消息），再给一张决策树把选型变成套公式：吞吐要多大、延迟要多低、要不要事务消息、团队熟哪个生态。读完你不仅能答「三选一」，还能说清「为什么 Kafka 扛不住强顺序事务、为什么 RabbitMQ 到不了百万级吞吐」——这两个「为什么」才是面试的区分点。</p>
+<blockquote>
+<p>联动：本文是 <a href="/post/688e2513.html">Kafka 原理与实践</a>、<a href="/post/rocketmq-2025.html">RocketMQ 原理与实践</a> 的选型总纲；事务消息与 <a href="/post/dist-tx-2025.html">分布式事务：从 2PC 到 Seata</a> 的本地消息表同源；削峰场景见 <a href="/post/a10bd761.html">秒杀系统设计</a>（MQ 是削峰三件套之一）。</p>
+</blockquote>
+<h2 id="1-定位：MQ-解决什么问题"><a href="#1-定位：MQ-解决什么问题" class="headerlink" title="1. 定位：MQ 解决什么问题"></a>1. 定位：MQ 解决什么问题</h2><table>
+<thead>
+<tr>
+<th>问题</th>
+<th>用 MQ 怎么解</th>
+<th>例子</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>解耦</strong></td>
+<td>下游系统随时加&#x2F;减，上游无感知</td>
+<td>订单系统发消息，短信&#x2F;积分&#x2F;搜索各自订阅</td>
+</tr>
+<tr>
+<td><strong>削峰</strong></td>
+<td>请求先进队列，下游按自己的速率消费</td>
+<td>秒杀 10 万 QPS 进队列，落库 1 万 QPS</td>
+</tr>
+<tr>
+<td><strong>异步</strong></td>
+<td>非核心路径不等响应</td>
+<td>下单后异步发通知，响应从 500ms → 50ms</td>
+</tr>
+</tbody></table>
+<p><strong>因果链</strong>：MQ 的本质是<strong>「缓冲 + 订阅发布」</strong>——缓冲解决削峰（生产者快、消费者慢，中间用队列吸收），订阅发布解决解耦（上游只对 topic 说话，不知道下游是谁）。<strong>面试先答这三个价值，再答选型，顺序不能反</strong>。</p>
+<p><strong>选型的真正前提：先懂「机制」，再谈「选型」</strong>——不知道「不丢消息」靠什么机制保证，选型就是背参数。本文 §2-§5 讲机制，§6 给决策。</p>
+<h2 id="2-三巨头画像：存储模型决定一切"><a href="#2-三巨头画像：存储模型决定一切" class="headerlink" title="2. 三巨头画像：存储模型决定一切"></a>2. 三巨头画像：存储模型决定一切</h2><p><strong>三个 MQ 的一切差异，根源是「消息存哪、怎么组织」</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>Kafka</th>
+<th>RocketMQ</th>
+<th>RabbitMQ</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>存储模型</td>
+<td><strong>分区（Partition）追加日志</strong>，顺序写磁盘</td>
+<td><strong>CommitLog 顺序写</strong>，消费队列是索引</td>
+<td><strong>队列内存&#x2F;磁盘</strong>，按交换机路由</td>
+</tr>
+<tr>
+<td>吞吐</td>
+<td><strong>百万级</strong>（顺序写 + 零拷贝）</td>
+<td>十万级</td>
+<td>万级（单机受队列数限制）</td>
+</tr>
+<tr>
+<td>延迟</td>
+<td>毫秒~秒级（批量攒批）</td>
+<td>毫秒级</td>
+<td>微秒~毫秒级（无攒批）</td>
+</tr>
+<tr>
+<td>消息顺序</td>
+<td><strong>分区内有序</strong>（全局需单分区）</td>
+<td>队列内有序</td>
+<td>单队列有序</td>
+</tr>
+<tr>
+<td>事务消息</td>
+<td>不支持（2.5+ 有试验版）</td>
+<td><strong>原生支持</strong>（半消息+回查）</td>
+<td>弱（插件）</td>
+</tr>
+<tr>
+<td>延迟消息</td>
+<td>不支持</td>
+<td>原生支持（定时层级）</td>
+<td>原生支持</td>
+</tr>
+<tr>
+<td>生态</td>
+<td>日志&#x2F;流处理最强（Flink 对接）</td>
+<td>阿里系电商场景</td>
+<td>AMQP 标准、轻量场景</td>
+</tr>
+</tbody></table>
+<p><strong>记忆锚点一句话</strong>：</p>
+<ul>
+<li><strong>Kafka &#x3D; 日志系统</strong>：顺序写盘 + 批量 &#x3D; 吞吐之王，但「批量」就是「延迟」的代价，且不支持事务消息；</li>
+<li><strong>RocketMQ &#x3D; 电商系统</strong>：为交易场景设计，事务消息、延迟消息、队列有序是原生能力；</li>
+<li><strong>RabbitMQ &#x3D; 消息总线</strong>：AMQP 路由灵活、延迟低，但单机吞吐是万级，集群能力弱。</li>
+</ul>
+<p><strong>面试话术</strong>：先一句话定义「存储模型决定吞吐与能力边界」，再展开三行对比——<strong>「Kafka 分区追加日志所以快，RocketMQ commitlog 所以快且能做事务，RabbitMQ 队列路由所以灵活但慢」</strong>。</p>
+<h2 id="3-核心机制一：消息不丢——三端各守一段"><a href="#3-核心机制一：消息不丢——三端各守一段" class="headerlink" title="3. 核心机制一：消息不丢——三端各守一段"></a>3. 核心机制一：消息不丢——三端各守一段</h2><p><strong>「不丢消息」是三个环节的接力，任何一端漏守都会丢</strong>：</p>
+<pre class="mermaid">flowchart LR
+    P["生产者&lt;br/>ack 机制"] --> B["Broker&lt;br/>持久化"] --> C["消费者&lt;br/>手动 ack"]</pre>
+
+<table>
+<thead>
+<tr>
+<th>环节</th>
+<th>丢法</th>
+<th>守法</th>
+<th>代价</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>生产者→Broker</td>
+<td>发送失败&#x2F;异步发送丢失</td>
+<td><strong>ack 语义</strong>：Kafka <code>acks=all</code>、RocketMQ <code>SYNC_MASTER</code></td>
+<td>吞吐下降（等确认）</td>
+</tr>
+<tr>
+<td>Broker 存储</td>
+<td>机器重启</td>
+<td><strong>持久化</strong>：Kafka 多副本 ISR 同步、RocketMQ 主从同步刷盘</td>
+<td>副本写入开销</td>
+</tr>
+<tr>
+<td>Broker→消费者</td>
+<td>自动 ack 后消费失败</td>
+<td><strong>手动 ack</strong>：处理成功才提交 offset</td>
+<td>可能重复消费（换来不丢）</td>
+</tr>
+</tbody></table>
+<p><strong>因果链核心：不丢与不重是跷跷板</strong>——「处理成功才 ack」保证不丢，但<strong>处理中崩溃 → 消息会被重新投递 → 重复消费</strong>。<strong>结论：MQ 的默认语义是 at-least-once（至少一次），「不丢」靠 ack 守，重复靠消费端幂等兜（§4）</strong>。面试答「怎么不丢消息」必须说全三端 + 一句「代价是可能重复，所以要有幂等」。</p>
+<h2 id="4-核心机制二：重复消费与幂等三法"><a href="#4-核心机制二：重复消费与幂等三法" class="headerlink" title="4. 核心机制二：重复消费与幂等三法"></a>4. 核心机制二：重复消费与幂等三法</h2><p><strong>重复消费是 at-least-once 的必然产物，消费端必须幂等</strong>——三法：</p>
+<table>
+<thead>
+<tr>
+<th>幂等法</th>
+<th>原理</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>唯一键去重</strong></td>
+<td>消息带业务唯一 ID，消费时查&#x2F;写去重表（唯一索引）</td>
+<td>通用首选</td>
+</tr>
+<tr>
+<td><strong>数据库约束</strong></td>
+<td>幂等字段建唯一索引，重复插入直接报错被吞</td>
+<td>落库类消费</td>
+</tr>
+<tr>
+<td><strong>状态机&#x2F;版本号</strong></td>
+<td>处理前校验状态，已处理则跳过</td>
+<td>订单状态流转类</td>
+</tr>
+</tbody></table>
+<p><strong>动手验证：用唯一索引做幂等</strong></p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 消费落库表：业务唯一键 = 订单号 + 事件类型</span></span><br><span class="line"><span class="keyword">CREATE TABLE</span> consume_log (</span><br><span class="line">  biz_id <span class="type">VARCHAR</span>(<span class="number">64</span>) <span class="keyword">NOT NULL</span>,</span><br><span class="line">  event_type <span class="type">VARCHAR</span>(<span class="number">32</span>) <span class="keyword">NOT NULL</span>,</span><br><span class="line">  create_time DATETIME,</span><br><span class="line">  <span class="keyword">PRIMARY KEY</span> (biz_id, event_type)</span><br><span class="line">);</span><br><span class="line"><span class="comment">-- 消费逻辑：先 INSERT 幂等表，成功才执行业务；重复消息 INSERT 主键冲突直接跳过</span></span><br></pre></td></tr></table></figure>
+
+<p>观察点：同一消息投递两次，第二次 INSERT 主键冲突被捕获后直接 return。判定标准：理解「幂等是消费端职责，不是 MQ 职责」——<strong>MQ 只保证 at-least-once，Exactly-once 需要端到端幂等设计</strong>。</p>
+<h2 id="5-核心机制三：顺序消息与事务消息"><a href="#5-核心机制三：顺序消息与事务消息" class="headerlink" title="5. 核心机制三：顺序消息与事务消息"></a>5. 核心机制三：顺序消息与事务消息</h2><h3 id="5-1-顺序消息：分区-队列内有序"><a href="#5-1-顺序消息：分区-队列内有序" class="headerlink" title="5.1 顺序消息：分区&#x2F;队列内有序"></a>5.1 顺序消息：分区&#x2F;队列内有序</h3><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>做法</th>
+<th>代价</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>全局有序</td>
+<td>单分区&#x2F;单队列（吞吐降到单机）</td>
+<td>吞吐损失大，极少用</td>
+</tr>
+<tr>
+<td><strong>分区有序</strong></td>
+<td>同一业务 key 哈希到同一分区（如订单号 → 分区）</td>
+<td>按 key 有序，跨 key 无序</td>
+</tr>
+<tr>
+<td>有序保证</td>
+<td>Kafka：同 key 同分区 + 单消费者线程；RocketMQ：同 key 同队列</td>
+<td>消费端也必须单线程</td>
+</tr>
+</tbody></table>
+<p><strong>因果链</strong>：顺序消息 &#x3D; <strong>「路由同 key 到同分区」+「消费端串行处理」两步缺一不可</strong>——只路由不串行（多线程消费）顺序照样乱。<strong>面试陷阱：很多人只答「同 key 同分区」，漏了「消费端单线程」</strong>，主动补上这句是加分。</p>
+<h3 id="5-2-事务消息：半消息-回查"><a href="#5-2-事务消息：半消息-回查" class="headerlink" title="5.2 事务消息：半消息 + 回查"></a>5.2 事务消息：半消息 + 回查</h3><p><strong>事务消息 &#x3D; 本地事务 + 消息发送的原子性</strong>（与 <a href="/post/dist-tx-2025.html">本地消息表</a> 同思路，但不用业务自己建表）：</p>
+<pre class="mermaid">sequenceDiagram
+    participant P as 生产者
+    participant MQ as MQ
+    participant DB as 业务库
+    P->>MQ: 1. 发送半消息（对消费者不可见）
+    P->>DB: 2. 执行本地事务（写订单）
+    P->>MQ: 3. 提交/回滚半消息
+    MQ-->>P: 4a. 提交 → 消费者可见
+    Note over MQ: 4b. 生产者挂了/超时 → MQ 回查本地事务结果
+    MQ-->>P: 回查（询问本地事务成功没）</pre>
+
+<p><strong>因果链</strong>：<strong>「先发半消息、后提交」把「发消息」和「业务写」变成可对齐的两步</strong>——半消息对消费者不可见，只有本地事务成功后提交才可见；生产者中途挂掉，MQ 通过回查接口（<code>checkLocalTransaction</code>）确认事务结果。<strong>这一机制让 RocketMQ 在「有 MQ 的强一致场景」胜出</strong>（<a href="/post/dist-tx-2025.html">分布式事务选型</a> 的决策树里「有 MQ 且能最终一致」指向它）。</p>
+<h2 id="6-选型决策树"><a href="#6-选型决策树" class="headerlink" title="6. 选型决策树"></a>6. 选型决策树</h2><h3 id="6-1-决策流程"><a href="#6-1-决策流程" class="headerlink" title="6.1 决策流程"></a>6.1 决策流程</h3><pre class="mermaid">flowchart TD
+    Q1{吞吐要求？} -->|百万级/日志流| K[Kafka]
+    Q1 -->|十万级以下| Q2{需要事务消息或延迟消息？}
+    Q2 -->|是| R[RocketMQ]
+    Q2 -->|否| Q3{延迟敏感 + 路由灵活？}
+    Q3 -->|是| RB[RabbitMQ]
+    Q3 -->|否| R2[RocketMQ&lt;br/>Java 生态默认选]</pre>
+
+<h3 id="6-2-决策表"><a href="#6-2-决策表" class="headerlink" title="6.2 决策表"></a>6.2 决策表</h3><table>
+<thead>
+<tr>
+<th>业务特征</th>
+<th>选谁</th>
+<th>理由</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>日志采集 &#x2F; 埋点 &#x2F; 流计算（Flink）</td>
+<td><strong>Kafka</strong></td>
+<td>吞吐之王、分区模型天然支持流处理</td>
+</tr>
+<tr>
+<td>电商订单 &#x2F; 交易链路 &#x2F; 事务消息</td>
+<td><strong>RocketMQ</strong></td>
+<td>事务消息、延迟消息、有序队列原生</td>
+</tr>
+<tr>
+<td>高吞吐 + 强顺序交易（如秒杀库存）</td>
+<td>RocketMQ（Kafka 事务能力弱）</td>
+<td>顺序+事务两者都要时</td>
+</tr>
+<tr>
+<td>内部服务解耦 &#x2F; 轻量异步 &#x2F; 低延迟</td>
+<td><strong>RabbitMQ</strong></td>
+<td>万级吞吐够用、路由灵活、运维简单</td>
+</tr>
+<tr>
+<td>技术栈统一（全 Java 团队）</td>
+<td>RocketMQ</td>
+<td>与 Spring Cloud Alibaba 生态天然整合</td>
+</tr>
+<tr>
+<td>已有大数据平台</td>
+<td>Kafka</td>
+<td>与 Flink&#x2F;Spark&#x2F;ClickHouse 对接最顺</td>
+</tr>
+</tbody></table>
+<p><strong>一句话选型公式：日志&#x2F;流 → Kafka；交易&#x2F;事务 → RocketMQ；轻量解耦 → RabbitMQ；拿不准 → RocketMQ（Java 电商系事实标准）</strong>。</p>
+<h2 id="7-面试应答：MQ-六连问"><a href="#7-面试应答：MQ-六连问" class="headerlink" title="7. 面试应答：MQ 六连问"></a>7. 面试应答：MQ 六连问</h2><h3 id="7-1-完整话术"><a href="#7-1-完整话术" class="headerlink" title="7.1 完整话术"></a>7.1 完整话术</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>回答要点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>为什么用 MQ？</td>
+<td>解耦（订阅发布）、削峰（缓冲）、异步（不等响应）</td>
+</tr>
+<tr>
+<td>怎么选型？</td>
+<td>先定吞吐量级，再对机制：日志流→Kafka，事务&#x2F;延迟→RocketMQ，轻量低延迟→RabbitMQ</td>
+</tr>
+<tr>
+<td>消息丢了怎么办？</td>
+<td>三端接力：producer ack（acks&#x3D;all&#x2F;SYNC_MASTER）、broker 持久化（ISR&#x2F;主从）、consumer 手动 ack</td>
+</tr>
+<tr>
+<td>重复消费怎么办？</td>
+<td>at-least-once 必然重复，消费端幂等：唯一键去重&#x2F;唯一索引&#x2F;状态机</td>
+</tr>
+<tr>
+<td>顺序消息怎么保证？</td>
+<td>同 key 同分区（路由）+ 消费端单线程（串行），两步缺一不可</td>
+</tr>
+<tr>
+<td>事务消息原理？</td>
+<td>半消息对消费者不可见 → 本地事务成功提交 → 失败回滚；超时回查（checkLocalTransaction）</td>
+</tr>
+</tbody></table>
+<h3 id="7-2-深挖：Kafka-为什么做不了事务消息（跨篇联动）"><a href="#7-2-深挖：Kafka-为什么做不了事务消息（跨篇联动）" class="headerlink" title="7.2 深挖：Kafka 为什么做不了事务消息（跨篇联动）"></a>7.2 深挖：Kafka 为什么做不了事务消息（跨篇联动）</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>Kafka</th>
+<th>RocketMQ</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>消费进度</td>
+<td>offset 机制</td>
+<td>消费进度记录</td>
+</tr>
+<tr>
+<td>事务能力</td>
+<td>仅 Producer 端原子性（幂等&#x2F;事务 API 有限）</td>
+<td>半消息+回查完整闭环</td>
+</tr>
+<tr>
+<td>顺序+事务同场景</td>
+<td>单分区牺牲吞吐</td>
+<td>队列内有序+事务消息共存</td>
+</tr>
+<tr>
+<td>典型场景</td>
+<td>日志&#x2F;流&#x2F;数据管道</td>
+<td>交易链路</td>
+</tr>
+</tbody></table>
+<p><strong>一句话：Kafka 的「分区追加日志」模型为吞吐而生，事务需要「先藏后显」的元数据管理（半消息状态），与它的设计目标冲突；RocketMQ 从设计起就是「面向交易」</strong>——所以<strong>秒杀、支付这类「要吞吐又要事务」的场景，选 RocketMQ 而不是 Kafka</strong>（<a href="/post/688e2513.html">Kafka 原理与实践</a> 有分区模型细节）。</p>
+<h2 id="8-总结"><a href="#8-总结" class="headerlink" title="8. 总结"></a>8. 总结</h2><h3 id="8-1-面试速答表"><a href="#8-1-面试速答表" class="headerlink" title="8.1 面试速答表"></a>8.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>MQ 三价值？</td>
+<td>解耦（订阅发布）、削峰（缓冲）、异步（不等响应）</td>
+</tr>
+<tr>
+<td>三选一？</td>
+<td>日志流→Kafka；交易事务→RocketMQ；轻量低延迟→RabbitMQ</td>
+</tr>
+<tr>
+<td>不丢消息？</td>
+<td>三端接力：ack、持久化、手动 ack；代价是可能重复</td>
+</tr>
+<tr>
+<td>重复消费？</td>
+<td>消费端幂等：唯一键去重&#x2F;唯一索引&#x2F;状态机</td>
+</tr>
+<tr>
+<td>顺序消息？</td>
+<td>同 key 同分区 + 消费端单线程，缺一不可</td>
+</tr>
+<tr>
+<td>事务消息？</td>
+<td>半消息先藏 → 本地事务 → 提交可见；挂机回查</td>
+</tr>
+<tr>
+<td>at-least-once 是什么？</td>
+<td>至少一次：不丢但可能重，幂等兜底</td>
+</tr>
+<tr>
+<td>Kafka 为什么吞吐最高？</td>
+<td>分区追加日志顺序写盘 + 批量 + 零拷贝</td>
+</tr>
+</tbody></table>
+<h3 id="8-2-实战避坑表"><a href="#8-2-实战避坑表" class="headerlink" title="8.2 实战避坑表"></a>8.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>消费端收到重复消息</td>
+<td>at-least-once 正常现象</td>
+<td>幂等三法，别怪 MQ</td>
+</tr>
+<tr>
+<td>消息偶尔丢</td>
+<td>自动 ack 后业务失败</td>
+<td>改手动 ack + 重试队列</td>
+</tr>
+<tr>
+<td>顺序乱</td>
+<td>多线程消费 &#x2F; 多分区</td>
+<td>消费端单线程 + 同 key 同分区</td>
+</tr>
+<tr>
+<td>堆积涨到几百万</td>
+<td>消费者处理慢</td>
+<td>扩消费者（注意分区数上限）、批处理</td>
+</tr>
+<tr>
+<td>消息延迟大</td>
+<td>Kafka 攒批参数（linger.ms&#x2F;batch.size）</td>
+<td>调小延迟参数换吞吐</td>
+</tr>
+<tr>
+<td>死信堆积</td>
+<td>消费一直失败</td>
+<td>死信队列 + 告警 + 人工补偿</td>
+</tr>
+</tbody></table>
+<h3 id="8-3-工具速查表"><a href="#8-3-工具速查表" class="headerlink" title="8.3 工具速查表"></a>8.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Kafka CLI（kafka-console-producer&#x2F;consumer）</td>
+<td>消息收发与消费进度验证</td>
+</tr>
+<tr>
+<td><code>kafka-consumer-groups --describe</code></td>
+<td>消费 lag 监控</td>
+</tr>
+<tr>
+<td>RocketMQ 控制台（rocketmq-dashboard）</td>
+<td>topic&#x2F;消费进度&#x2F;死信管理</td>
+</tr>
+<tr>
+<td>RabbitMQ 管理界面</td>
+<td>队列&#x2F;路由&#x2F;连接可视化</td>
+</tr>
+<tr>
+<td>消费端幂等表 + 重试队列</td>
+<td>生产兜底两件套</td>
+</tr>
+</tbody></table>
+<h3 id="8-4-下一篇预告"><a href="#8-4-下一篇预告" class="headerlink" title="8.4 下一篇预告"></a>8.4 下一篇预告</h3><p>MQ 篇解决「异步与解耦的载体」，P1 最后一块拼图《Redis 集群与高可用实战》解决「缓存服务本身怎么不挂」：<strong>主从同步、哨兵自动故障转移、Cluster 分片扩容，从「单机 Redis」升级到「能挂进架构图的高可用缓存层」</strong>——主从为什么要选异步复制、哨兵怎么避免误判、Cluster 槽位迁移时请求怎么处理，部署与原理一次讲清。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -1827,467 +2327,6 @@
 
 
 
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/71aac160.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="知行栈">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | 知行栈">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/71aac160.html" class="post-title-link" itemprop="url">从零实现智能工单 Agent：MCP+RAG 全流程实战</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-
-      <time title="Created: 2026-08-13 13:00:00" itemprop="dateCreated datePublished" datetime="2026-08-13T13:00:00+08:00">2026-08-13</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">In</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/AI%E5%A4%A7%E6%A8%A1%E5%9E%8B/" itemprop="url" rel="index"><span itemprop="name">AI大模型</span></a>
-        </span>
-    </span>
-
-  
-    <span class="post-meta-break"></span>
-    <span class="post-meta-item" title="Word count in article">
-      <span class="post-meta-item-icon">
-        <i class="far fa-file-word"></i>
-      </span>
-      <span class="post-meta-item-text">Word count in article: </span>
-      <span>5.7k</span>
-    </span>
-    <span class="post-meta-item" title="Reading time">
-      <span class="post-meta-item-icon">
-        <i class="far fa-clock"></i>
-      </span>
-      <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>21 mins.</span>
-    </span>
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <p><strong>智能工单 Agent（ITPA）是一个「把 LLM 接进业务系统」的最小完整样板：接收入口（MCP Server）→ 分类判断（LLM）→ 知识检索（RAG）→ 回复生成（LLM）→ 数据落库（MySQL），一条链覆盖 AI 应用的全部核心模式。</strong> 本项目用 TypeScript 从零实现，读者是懂 Java 后端的开发者——每个技术选型都对照你熟悉的 Java 生态（TypeORM≈JPA、Fastify≈Spring Boot、Pino≈Logback）。读完你能复刻一个可运行的 Agent 服务，并理解 MCP 协议、向量检索、结构化输出的完整工程细节。</p>
-<blockquote>
-<p>联动：本文是 <a href="/post/8e39890e-rev1.html">MCP 开发指南</a> 的完整落地案例（协议从概念到代码）、<a href="/post/rag-2026.html">RAG 原理与实践</a> 的工程实现（Embedding&#x2F;检索&#x2F;阈值）、<a href="/post/llm-api-tool-calling-2026.html">LLM API 与工具调用实战</a> 的实战演练（Function Calling&#x2F;JSON 输出）。姊妹篇：Python 版实现见 <a href="/post/f4198aab.html">ticket-agent-mcp(py)</a>，两版结构约 80% 重叠，按熟悉的技术栈选一篇精读。</p>
-</blockquote>
-<h2 id="1-项目定位：解决什么问题"><a href="#1-项目定位：解决什么问题" class="headerlink" title="1. 项目定位：解决什么问题"></a>1. 项目定位：解决什么问题</h2><h3 id="1-1-真实业务痛点"><a href="#1-1-真实业务痛点" class="headerlink" title="1.1 真实业务痛点"></a>1.1 真实业务痛点</h3><p>典型中大型企业客服场景：<strong>每天 500+ 用户工单，涵盖技术问题、账单疑问、账户申诉、产品咨询、投诉反馈五大类</strong>。纯人工处理带来三个核心痛点：</p>
-<table>
-<thead>
-<tr>
-<th>痛点</th>
-<th>表现</th>
-<th>成本</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>响应速度慢</td>
-<td>平均响应 &gt;2 小时</td>
-<td>用户流失</td>
-</tr>
-<tr>
-<td>人力成本高</td>
-<td>客服团队随工单量线性扩张</td>
-<td>工资 × N</td>
-</tr>
-<tr>
-<td>知识资产难沉淀</td>
-<td>老客服的经验无法复制</td>
-<td>培训周期长</td>
-</tr>
-</tbody></table>
-<p>本项目构建的智能工单 Agent 接入企业现有工单系统，自动完成四件事：</p>
-<ol>
-<li><strong>自动分类</strong>：识别工单属于哪一类问题（LLM + 结构化输出）；</li>
-<li><strong>相似检索</strong>：基于向量相似度检索历史已解决工单与 FAQ（RAG）；</li>
-<li><strong>生成回复</strong>：结合检索结果生成可供人工审批的回复草稿（LLM）；</li>
-<li><strong>落库流转</strong>：写入 MySQL，自动分配优先级与状态（工程化）。</li>
-</ol>
-<p><strong>设计定位</strong>：不是「全自动客服」，而是「人审 AI 草稿」——回复生成后必须人工审批才发出。<strong>这是 AI 应用上生产的第一原则：LLM 输出不可直接面对用户，置信度低时降级给人</strong>。</p>
-<h3 id="1-2-为什么用这个项目练手"><a href="#1-2-为什么用这个项目练手" class="headerlink" title="1.2 为什么用这个项目练手"></a>1.2 为什么用这个项目练手</h3><ul>
-<li><strong>全链路覆盖</strong>：HTTP&#x2F;MCP 接入 → 分类 → 向量检索 → LLM 生成 → 数据库落库，一条完整的「请求-处理-响应」链路；</li>
-<li><strong>AI 原生</strong>：真实调用 OpenAI API，理解 embedding&#x2F;chat 两类核心接口；</li>
-<li><strong>生产级复杂度</strong>：JSON Schema 验证（Zod）、结构化日志（Pino）、连接池、健康检查、容器化——不是玩具项目；</li>
-<li><strong>可演进</strong>：从本地 stdio 模式起步，一行配置切到 HTTP 模式的分布式部署。</li>
-</ul>
-<h2 id="2-技术选型：对照-Java-生态看"><a href="#2-技术选型：对照-Java-生态看" class="headerlink" title="2. 技术选型：对照 Java 生态看"></a>2. 技术选型：对照 Java 生态看</h2><table>
-<thead>
-<tr>
-<th>维度</th>
-<th>选型</th>
-<th>Java 类比</th>
-<th>选型理由</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>语言</td>
-<td>TypeScript 5.x</td>
-<td>Java</td>
-<td>静态类型，类型安全接近 Java</td>
-</tr>
-<tr>
-<td>Runtime</td>
-<td><strong>Bun</strong> 1.x</td>
-<td>JVM</td>
-<td>原生 TS、一体化工具链（包管理&#x2F;测试&#x2F;运行），类似 Maven 但更快</td>
-</tr>
-<tr>
-<td>Web 框架</td>
-<td>Fastify</td>
-<td>Spring Boot</td>
-<td>高性能、内置 JSON Schema 验证、插件架构</td>
-</tr>
-<tr>
-<td>ORM</td>
-<td>TypeORM</td>
-<td>JPA&#x2F;Hibernate</td>
-<td>支持 Active Record 与 Data Mapper</td>
-</tr>
-<tr>
-<td>数据库</td>
-<td>MySQL 8.0</td>
-<td>MySQL</td>
-<td>熟悉；向量用 JSON 列存、应用层算相似度</td>
-</tr>
-<tr>
-<td>MCP SDK</td>
-<td><code>@modelcontextprotocol/sdk</code></td>
-<td>—</td>
-<td>Anthropic 官方 TypeScript SDK</td>
-</tr>
-<tr>
-<td>日志</td>
-<td>Pino</td>
-<td>Logback</td>
-<td>结构化 JSON 日志，性能极高</td>
-</tr>
-<tr>
-<td>验证&#x2F;配置</td>
-<td>Zod + dotenv</td>
-<td>Bean Validation + 配置绑定</td>
-<td>运行时配置校验，启动即失败</td>
-</tr>
-<tr>
-<td>测试</td>
-<td>Bun 内置 + Vitest</td>
-<td>JUnit</td>
-<td>开发测试一体化</td>
-</tr>
-<tr>
-<td>容器化</td>
-<td>Docker + Compose</td>
-<td>Docker</td>
-<td>统一部署</td>
-</tr>
-</tbody></table>
-<p><strong>关键决策一：为什么用 Bun 而不是 Node.js？</strong> Bun 把包管理（<code>bun install</code>≈Maven 依赖）、TS 运行（<code>bun run</code>≈直接运行 Java）、测试（<code>bun test</code>≈JUnit）、打包（<code>bun build</code>≈Maven Shade）整合进一个工具链——<strong>Java 开发者最习惯的「一个工具链搞定一切」体验</strong>。启动 10ms（Node 约 100ms），运行时快 2-4 倍。</p>
-<p><strong>关键决策二：为什么 MySQL 存向量而不是上向量数据库？</strong> 数据量小时（万级工单），MySQL JSON 列 + 应用层余弦相似度完全够用——<strong>少一个基础设施，少一类运维问题</strong>。数据量大或需要 ANN 索引时再迁移 HeatWave&#x2F;单独向量库（<a href="/post/vector-db-2026.html">向量数据库原理与实践</a> 已讲选型）。这是「架构演进而非一步到位」的典型。</p>
-<h2 id="3-架构设计：MCP-协议-分层"><a href="#3-架构设计：MCP-协议-分层" class="headerlink" title="3. 架构设计：MCP 协议 + 分层"></a>3. 架构设计：MCP 协议 + 分层</h2><h3 id="3-1-MCP-协议核心原语"><a href="#3-1-MCP-协议核心原语" class="headerlink" title="3.1 MCP 协议核心原语"></a>3.1 MCP 协议核心原语</h3><p>MCP（Model Context Protocol）是 Anthropic 2024 年 11 月推出的开放标准，统一 AI 应用的「工具使用」方式。三个核心原语：</p>
-<table>
-<thead>
-<tr>
-<th>原语</th>
-<th>类比（Java 视角）</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><strong>Tools</strong></td>
-<td>RPC 远程调用</td>
-<td>可被 AI 调用的函数，有明确输入输出 schema</td>
-</tr>
-<tr>
-<td><strong>Resources</strong></td>
-<td>REST 只读资源</td>
-<td>AI 可按需读取的数据源</td>
-</tr>
-<tr>
-<td><strong>Prompts</strong></td>
-<td>模板引擎</td>
-<td>可复用提示词模板，用户可手动调用</td>
-</tr>
-</tbody></table>
-<p>传输方式两种：<strong>STDIO</strong>（本地进程，Claude Desktop 等桌面客户端用）和 <strong>Streamable HTTP</strong>（远程部署）。本项目实现双模式，<code>MCP_TRANSPORT</code> 环境变量切换。</p>
-<h3 id="3-2-分层架构"><a href="#3-2-分层架构" class="headerlink" title="3.2 分层架构"></a>3.2 分层架构</h3><pre class="mermaid">flowchart TD
-    C["MCP Client 层&lt;br/>Claude Desktop / Cursor / HTTP Client"]
-    C -->|"MCP Protocol&lt;br/>JSON-RPC 2.0 over stdio / HTTP"| S["MCP Server 层&lt;br/>Tools: classify / generate / create&lt;br/>Resources: FAQ / history"]
-    S --> V["服务层&lt;br/>ClassificationService&lt;br/>GenerationService&lt;br/>EmbeddingService / RetrievalService"]
-    V --> R["仓储层（Repository 模式）&lt;br/>TicketRepository / FaqRepository / LogRepository"]
-    R --> DB["MySQL 8.0&lt;br/>tickets / faq / processing_logs"]
-    V --> REDIS["Redis&lt;br/>embedding 缓存 / 会话缓存 / 限流计数"]
-    V --> LLM["OpenAI API&lt;br/>text-embedding-3-small&lt;br/>gpt-4o-mini"]</pre>
-
-<p><strong>每一层只做一件事</strong>：MCP 层管协议、服务层管业务（分类&#x2F;生成&#x2F;检索）、仓储层管数据。<strong>这个分层与 Spring 的 Controller → Service → Repository 是同构的——从 Java 转过来的人看这个结构零成本</strong>。依赖注入用手动构造函数注入（简单可控、便于测试），不引 IoC 容器。</p>
-<h2 id="4-数据模型：三张表支撑整个-Agent"><a href="#4-数据模型：三张表支撑整个-Agent" class="headerlink" title="4. 数据模型：三张表支撑整个 Agent"></a>4. 数据模型：三张表支撑整个 Agent</h2><h3 id="4-1-核心实体"><a href="#4-1-核心实体" class="headerlink" title="4.1 核心实体"></a>4.1 核心实体</h3><p><strong>工单表（tickets）</strong>——Agent 处理的对象，分类&#x2F;优先级&#x2F;状态三枚举 + 向量列：</p>
-<figure class="highlight typescript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// src/entities/Ticket.ts</span></span><br><span class="line"><span class="keyword">import</span> &#123; <span class="title class_">Entity</span>, <span class="title class_">PrimaryGeneratedColumn</span>, <span class="title class_">Column</span>, <span class="title class_">CreateDateColumn</span>, <span class="title class_">UpdateDateColumn</span> &#125; <span class="keyword">from</span> <span class="string">&#x27;typeorm&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="keyword">export</span> <span class="keyword">enum</span> <span class="title class_">TicketCategory</span> &#123;</span><br><span class="line">  <span class="variable constant_">TECHNICAL</span> = <span class="string">&#x27;technical&#x27;</span>, <span class="variable constant_">BILLING</span> = <span class="string">&#x27;billing&#x27;</span>, <span class="variable constant_">ACCOUNT</span> = <span class="string">&#x27;account&#x27;</span>,</span><br><span class="line">  <span class="variable constant_">PRODUCT</span> = <span class="string">&#x27;product&#x27;</span>, <span class="variable constant_">COMPLAINT</span> = <span class="string">&#x27;complaint&#x27;</span>,</span><br><span class="line">&#125;</span><br><span class="line"><span class="keyword">export</span> <span class="keyword">enum</span> <span class="title class_">TicketPriority</span> &#123; <span class="variable constant_">LOW</span> = <span class="string">&#x27;low&#x27;</span>, <span class="variable constant_">NORMAL</span> = <span class="string">&#x27;normal&#x27;</span>, <span class="variable constant_">HIGH</span> = <span class="string">&#x27;high&#x27;</span>, <span class="variable constant_">URGENT</span> = <span class="string">&#x27;urgent&#x27;</span> &#125;</span><br><span class="line"><span class="keyword">export</span> <span class="keyword">enum</span> <span class="title class_">TicketStatus</span> &#123; <span class="variable constant_">PENDING</span> = <span class="string">&#x27;pending&#x27;</span>, <span class="variable constant_">PROCESSING</span> = <span class="string">&#x27;processing&#x27;</span>, <span class="variable constant_">RESOLVED</span> = <span class="string">&#x27;resolved&#x27;</span>, <span class="variable constant_">CLOSED</span> = <span class="string">&#x27;closed&#x27;</span> &#125;</span><br><span class="line"></span><br><span class="line"><span class="meta">@Entity</span>(<span class="string">&#x27;tickets&#x27;</span>)</span><br><span class="line"><span class="keyword">export</span> <span class="keyword">class</span> <span class="title class_">Ticket</span> &#123;</span><br><span class="line">  <span class="meta">@PrimaryGeneratedColumn</span>(<span class="string">&#x27;uuid&#x27;</span>)</span><br><span class="line">  <span class="attr">id</span>: <span class="built_in">string</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(&#123; <span class="attr">length</span>: <span class="number">50</span>, <span class="attr">unique</span>: <span class="literal">true</span> &#125;)</span><br><span class="line">  <span class="attr">ticketNumber</span>: <span class="built_in">string</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(&#123; <span class="attr">length</span>: <span class="number">500</span> &#125;)</span><br><span class="line">  <span class="attr">title</span>: <span class="built_in">string</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(<span class="string">&#x27;text&#x27;</span>)</span><br><span class="line">  <span class="attr">content</span>: <span class="built_in">string</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(&#123; <span class="attr">type</span>: <span class="string">&#x27;enum&#x27;</span>, <span class="attr">enum</span>: <span class="title class_">TicketCategory</span>, <span class="attr">default</span>: <span class="title class_">TicketCategory</span>.<span class="property">TECHNICAL</span> &#125;)</span><br><span class="line">  <span class="attr">category</span>: <span class="title class_">TicketCategory</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(&#123; <span class="attr">type</span>: <span class="string">&#x27;enum&#x27;</span>, <span class="attr">enum</span>: <span class="title class_">TicketPriority</span>, <span class="attr">default</span>: <span class="title class_">TicketPriority</span>.<span class="property">NORMAL</span> &#125;)</span><br><span class="line">  <span class="attr">priority</span>: <span class="title class_">TicketPriority</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(&#123; <span class="attr">type</span>: <span class="string">&#x27;enum&#x27;</span>, <span class="attr">enum</span>: <span class="title class_">TicketStatus</span>, <span class="attr">default</span>: <span class="title class_">TicketStatus</span>.<span class="property">PENDING</span> &#125;)</span><br><span class="line">  <span class="attr">status</span>: <span class="title class_">TicketStatus</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(&#123; <span class="attr">nullable</span>: <span class="literal">true</span> &#125;)</span><br><span class="line">  <span class="attr">userId</span>: <span class="built_in">string</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(&#123; <span class="attr">length</span>: <span class="number">200</span>, <span class="attr">nullable</span>: <span class="literal">true</span> &#125;)</span><br><span class="line">  <span class="attr">userEmail</span>: <span class="built_in">string</span>;</span><br><span class="line"></span><br><span class="line">  <span class="comment">// 向量字段：JSON 列存储（MySQL 暂无原生 vector 支持，应用层算相似度）</span></span><br><span class="line">  <span class="meta">@Column</span>(&#123; <span class="attr">type</span>: <span class="string">&#x27;json&#x27;</span>, <span class="attr">nullable</span>: <span class="literal">true</span> &#125;)</span><br><span class="line">  <span class="attr">embedding</span>: <span class="built_in">number</span>[];</span><br><span class="line"></span><br><span class="line">  <span class="meta">@CreateDateColumn</span>()</span><br><span class="line">  <span class="attr">createdAt</span>: <span class="title class_">Date</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@UpdateDateColumn</span>()</span><br><span class="line">  <span class="attr">updatedAt</span>: <span class="title class_">Date</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(&#123; <span class="attr">nullable</span>: <span class="literal">true</span> &#125;)</span><br><span class="line">  <span class="attr">resolvedAt</span>: <span class="title class_">Date</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(&#123; <span class="attr">nullable</span>: <span class="literal">true</span> &#125;)</span><br><span class="line">  <span class="attr">resolvedBy</span>: <span class="built_in">string</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>FAQ 表（faq）</strong>——RAG 的知识库载体（问题 + 答案 + 向量）：</p>
-<figure class="highlight typescript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// src/entities/Faq.ts</span></span><br><span class="line"><span class="meta">@Entity</span>(<span class="string">&#x27;faq&#x27;</span>)</span><br><span class="line"><span class="keyword">export</span> <span class="keyword">class</span> <span class="title class_">Faq</span> &#123;</span><br><span class="line">  <span class="meta">@PrimaryGeneratedColumn</span>(<span class="string">&#x27;uuid&#x27;</span>)</span><br><span class="line">  <span class="attr">id</span>: <span class="built_in">string</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(<span class="string">&#x27;text&#x27;</span>)</span><br><span class="line">  <span class="attr">question</span>: <span class="built_in">string</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(<span class="string">&#x27;text&#x27;</span>)</span><br><span class="line">  <span class="attr">answer</span>: <span class="built_in">string</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(&#123; <span class="attr">length</span>: <span class="number">50</span>, <span class="attr">nullable</span>: <span class="literal">true</span> &#125;)</span><br><span class="line">  <span class="attr">category</span>: <span class="built_in">string</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(<span class="string">&#x27;simple-array&#x27;</span>, &#123; <span class="attr">nullable</span>: <span class="literal">true</span> &#125;)</span><br><span class="line">  <span class="attr">tags</span>: <span class="built_in">string</span>[];</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(&#123; <span class="attr">type</span>: <span class="string">&#x27;json&#x27;</span>, <span class="attr">nullable</span>: <span class="literal">true</span> &#125;)</span><br><span class="line">  <span class="attr">embedding</span>: <span class="built_in">number</span>[];</span><br><span class="line"></span><br><span class="line">  <span class="meta">@CreateDateColumn</span>()</span><br><span class="line">  <span class="attr">createdAt</span>: <span class="title class_">Date</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@UpdateDateColumn</span>()</span><br><span class="line">  <span class="attr">updatedAt</span>: <span class="title class_">Date</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>处理日志表（processing_logs）</strong>——可观测性：每次 AI 调用（分类&#x2F;生成）的入参、出参、延迟、错误全记录：</p>
-<figure class="highlight typescript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// src/entities/ProcessingLog.ts</span></span><br><span class="line"><span class="meta">@Entity</span>(<span class="string">&#x27;processing_logs&#x27;</span>)</span><br><span class="line"><span class="keyword">export</span> <span class="keyword">class</span> <span class="title class_">ProcessingLog</span> &#123;</span><br><span class="line">  <span class="meta">@PrimaryGeneratedColumn</span>()</span><br><span class="line">  <span class="attr">id</span>: <span class="built_in">number</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(<span class="string">&#x27;uuid&#x27;</span>, &#123; <span class="attr">nullable</span>: <span class="literal">true</span> &#125;)</span><br><span class="line">  <span class="attr">ticketId</span>: <span class="built_in">string</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(&#123; <span class="attr">length</span>: <span class="number">50</span> &#125;)</span><br><span class="line">  <span class="attr">operation</span>: <span class="built_in">string</span>; <span class="comment">// classify, generate, create</span></span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(&#123; <span class="attr">type</span>: <span class="string">&#x27;json&#x27;</span>, <span class="attr">nullable</span>: <span class="literal">true</span> &#125;)</span><br><span class="line">  <span class="attr">requestData</span>: <span class="built_in">any</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(&#123; <span class="attr">type</span>: <span class="string">&#x27;json&#x27;</span>, <span class="attr">nullable</span>: <span class="literal">true</span> &#125;)</span><br><span class="line">  <span class="attr">responseData</span>: <span class="built_in">any</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(&#123; <span class="attr">nullable</span>: <span class="literal">true</span> &#125;)</span><br><span class="line">  <span class="attr">latencyMs</span>: <span class="built_in">number</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@Column</span>(&#123; <span class="attr">type</span>: <span class="string">&#x27;text&#x27;</span>, <span class="attr">nullable</span>: <span class="literal">true</span> &#125;)</span><br><span class="line">  <span class="attr">errorMessage</span>: <span class="built_in">string</span>;</span><br><span class="line"></span><br><span class="line">  <span class="meta">@CreateDateColumn</span>()</span><br><span class="line">  <span class="attr">createdAt</span>: <span class="title class_">Date</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>设计要点</strong>：<code>embedding</code> 用 JSON 列存（1536 维 float 数组 ≈ 6KB&#x2F;行，万级数据可接受）；日志表记录每一次 LLM 调用的入参出参——<strong>这是 AI 应用排障的命脉：LLM 输出不可复现，只有日志能还原当时它看到了什么</strong>。</p>
-<h3 id="4-2-建表-SQL-要点"><a href="#4-2-建表-SQL-要点" class="headerlink" title="4.2 建表 SQL 要点"></a>4.2 建表 SQL 要点</h3><figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">CREATE</span> DATABASE IF <span class="keyword">NOT</span> <span class="keyword">EXISTS</span> ticket_agent <span class="keyword">CHARACTER SET</span> utf8mb4 <span class="keyword">COLLATE</span> utf8mb4_unicode_ci;</span><br><span class="line"></span><br><span class="line"><span class="keyword">CREATE TABLE</span> tickets (</span><br><span class="line">    id <span class="type">CHAR</span>(<span class="number">36</span>) <span class="keyword">PRIMARY KEY</span> <span class="keyword">DEFAULT</span> (UUID()),</span><br><span class="line">    ticket_number <span class="type">VARCHAR</span>(<span class="number">50</span>) <span class="keyword">UNIQUE</span> <span class="keyword">NOT NULL</span>,</span><br><span class="line">    title <span class="type">VARCHAR</span>(<span class="number">500</span>) <span class="keyword">NOT NULL</span>,</span><br><span class="line">    content TEXT <span class="keyword">NOT NULL</span>,</span><br><span class="line">    category ENUM(<span class="string">&#x27;technical&#x27;</span>,<span class="string">&#x27;billing&#x27;</span>,<span class="string">&#x27;account&#x27;</span>,<span class="string">&#x27;product&#x27;</span>,<span class="string">&#x27;complaint&#x27;</span>) <span class="keyword">NOT NULL</span>,</span><br><span class="line">    priority ENUM(<span class="string">&#x27;low&#x27;</span>,<span class="string">&#x27;normal&#x27;</span>,<span class="string">&#x27;high&#x27;</span>,<span class="string">&#x27;urgent&#x27;</span>) <span class="keyword">DEFAULT</span> <span class="string">&#x27;normal&#x27;</span>,</span><br><span class="line">    status ENUM(<span class="string">&#x27;pending&#x27;</span>,<span class="string">&#x27;processing&#x27;</span>,<span class="string">&#x27;resolved&#x27;</span>,<span class="string">&#x27;closed&#x27;</span>) <span class="keyword">DEFAULT</span> <span class="string">&#x27;pending&#x27;</span>,</span><br><span class="line">    user_id <span class="type">VARCHAR</span>(<span class="number">100</span>),</span><br><span class="line">    user_email <span class="type">VARCHAR</span>(<span class="number">200</span>),</span><br><span class="line">    embedding JSON,</span><br><span class="line">    created_at <span class="type">TIMESTAMP</span> <span class="keyword">DEFAULT</span> <span class="built_in">CURRENT_TIMESTAMP</span>,</span><br><span class="line">    updated_at <span class="type">TIMESTAMP</span> <span class="keyword">DEFAULT</span> <span class="built_in">CURRENT_TIMESTAMP</span> <span class="keyword">ON</span> <span class="keyword">UPDATE</span> <span class="built_in">CURRENT_TIMESTAMP</span>,</span><br><span class="line">    INDEX idx_category (category),</span><br><span class="line">    INDEX idx_status (status),</span><br><span class="line">    INDEX idx_created_at (created_at)</span><br><span class="line">);</span><br><span class="line"><span class="comment">-- faq、processing_logs 表结构见源码仓库；faq 加 FULLTEXT INDEX 支持关键词兜底</span></span><br></pre></td></tr></table></figure>
-
-<p><strong>索引策略</strong>：状态&#x2F;分类&#x2F;时间三个高频筛选条件建索引；<strong>向量检索不建索引</strong>（应用层全量算，数据量大时换向量库）。</p>
-<h2 id="5-工程基础：配置、日志、数据源"><a href="#5-工程基础：配置、日志、数据源" class="headerlink" title="5. 工程基础：配置、日志、数据源"></a>5. 工程基础：配置、日志、数据源</h2><h3 id="5-1-配置管理（Zod：启动即校验，配置错不让服务起来）"><a href="#5-1-配置管理（Zod：启动即校验，配置错不让服务起来）" class="headerlink" title="5.1 配置管理（Zod：启动即校验，配置错不让服务起来）"></a>5.1 配置管理（Zod：启动即校验，配置错不让服务起来）</h3><figure class="highlight typescript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// src/config/schema.ts —— Zod schema 定义全部配置</span></span><br><span class="line"><span class="keyword">import</span> &#123; z &#125; <span class="keyword">from</span> <span class="string">&#x27;zod&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="keyword">export</span> <span class="keyword">const</span> configSchema = z.<span class="title function_">object</span>(&#123;</span><br><span class="line">  <span class="attr">NODE_ENV</span>: z.<span class="title function_">enum</span>([<span class="string">&#x27;development&#x27;</span>, <span class="string">&#x27;test&#x27;</span>, <span class="string">&#x27;production&#x27;</span>]).<span class="title function_">default</span>(<span class="string">&#x27;development&#x27;</span>),</span><br><span class="line">  <span class="attr">PORT</span>: z.<span class="property">coerce</span>.<span class="title function_">number</span>().<span class="title function_">default</span>(<span class="number">3000</span>),</span><br><span class="line">  <span class="attr">MCP_TRANSPORT</span>: z.<span class="title function_">enum</span>([<span class="string">&#x27;stdio&#x27;</span>, <span class="string">&#x27;http&#x27;</span>]).<span class="title function_">default</span>(<span class="string">&#x27;stdio&#x27;</span>),</span><br><span class="line">  <span class="attr">MCP_HTTP_HOST</span>: z.<span class="title function_">string</span>().<span class="title function_">default</span>(<span class="string">&#x27;127.0.0.1&#x27;</span>),</span><br><span class="line">  <span class="attr">MCP_HTTP_PORT</span>: z.<span class="property">coerce</span>.<span class="title function_">number</span>().<span class="title function_">default</span>(<span class="number">8080</span>),</span><br><span class="line"></span><br><span class="line">  <span class="attr">DB_HOST</span>: z.<span class="title function_">string</span>().<span class="title function_">default</span>(<span class="string">&#x27;localhost&#x27;</span>),</span><br><span class="line">  <span class="attr">DB_PORT</span>: z.<span class="property">coerce</span>.<span class="title function_">number</span>().<span class="title function_">default</span>(<span class="number">3306</span>),</span><br><span class="line">  <span class="attr">DB_USER</span>: z.<span class="title function_">string</span>().<span class="title function_">default</span>(<span class="string">&#x27;root&#x27;</span>),</span><br><span class="line">  <span class="attr">DB_PASSWORD</span>: z.<span class="title function_">string</span>(),</span><br><span class="line">  <span class="attr">DB_NAME</span>: z.<span class="title function_">string</span>().<span class="title function_">default</span>(<span class="string">&#x27;ticket_agent&#x27;</span>),</span><br><span class="line"></span><br><span class="line">  <span class="attr">REDIS_HOST</span>: z.<span class="title function_">string</span>().<span class="title function_">default</span>(<span class="string">&#x27;localhost&#x27;</span>),</span><br><span class="line">  <span class="attr">REDIS_PORT</span>: z.<span class="property">coerce</span>.<span class="title function_">number</span>().<span class="title function_">default</span>(<span class="number">6379</span>),</span><br><span class="line"></span><br><span class="line">  <span class="attr">OPENAI_API_KEY</span>: z.<span class="title function_">string</span>(),</span><br><span class="line">  <span class="attr">OPENAI_MODEL</span>: z.<span class="title function_">string</span>().<span class="title function_">default</span>(<span class="string">&#x27;gpt-4o-mini&#x27;</span>),</span><br><span class="line">  <span class="attr">EMBEDDING_MODEL</span>: z.<span class="title function_">string</span>().<span class="title function_">default</span>(<span class="string">&#x27;text-embedding-3-small&#x27;</span>),</span><br><span class="line"></span><br><span class="line">  <span class="attr">LOG_LEVEL</span>: z.<span class="title function_">enum</span>([<span class="string">&#x27;trace&#x27;</span>,<span class="string">&#x27;debug&#x27;</span>,<span class="string">&#x27;info&#x27;</span>,<span class="string">&#x27;warn&#x27;</span>,<span class="string">&#x27;error&#x27;</span>,<span class="string">&#x27;fatal&#x27;</span>]).<span class="title function_">default</span>(<span class="string">&#x27;info&#x27;</span>),</span><br><span class="line">  <span class="attr">LOG_PRETTY</span>: z.<span class="property">coerce</span>.<span class="title function_">boolean</span>().<span class="title function_">default</span>(<span class="literal">true</span>),</span><br><span class="line">&#125;);</span><br><span class="line"><span class="keyword">export</span> <span class="keyword">type</span> <span class="title class_">Config</span> = z.<span class="property">infer</span>&lt;<span class="keyword">typeof</span> configSchema&gt;;</span><br></pre></td></tr></table></figure>
-
-<figure class="highlight typescript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// src/config/index.ts —— 按环境加载 .env.&#123;profile&#125; + 校验</span></span><br><span class="line"><span class="keyword">import</span> dotenv <span class="keyword">from</span> <span class="string">&#x27;dotenv&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; configSchema, <span class="keyword">type</span> <span class="title class_">Config</span> &#125; <span class="keyword">from</span> <span class="string">&#x27;./schema&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="keyword">const</span> envFile = <span class="string">`.env.<span class="subst">$&#123;process.env.NODE_ENV || <span class="string">&#x27;development&#x27;</span>&#125;</span>`</span>;</span><br><span class="line">dotenv.<span class="title function_">config</span>(&#123; <span class="attr">path</span>: envFile &#125;);</span><br><span class="line">dotenv.<span class="title function_">config</span>(&#123; <span class="attr">path</span>: <span class="string">&#x27;.env&#x27;</span>, <span class="attr">override</span>: <span class="literal">false</span> &#125;);   <span class="comment">// fallback</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">function</span> <span class="title function_">validateConfig</span>(<span class="params"></span>): <span class="title class_">Config</span> &#123;</span><br><span class="line">  <span class="keyword">try</span> &#123;</span><br><span class="line">    <span class="keyword">return</span> configSchema.<span class="title function_">parse</span>(process.<span class="property">env</span>);</span><br><span class="line">  &#125; <span class="keyword">catch</span> (error) &#123;</span><br><span class="line">    <span class="variable language_">console</span>.<span class="title function_">error</span>(<span class="string">&#x27;Invalid configuration:&#x27;</span>, error);</span><br><span class="line">    process.<span class="title function_">exit</span>(<span class="number">1</span>);                                  <span class="comment">// 配置错 → 启动即失败</span></span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br><span class="line"><span class="keyword">export</span> <span class="keyword">const</span> <span class="attr">config</span>: <span class="title class_">Config</span> = <span class="title function_">validateConfig</span>();</span><br></pre></td></tr></table></figure>
-
-<p><strong>为什么值得学</strong>：Java 的 <code>@ConfigurationProperties</code> + 校验是编译期&#x2F;启动期兜底，Zod 把同一能力带到 TS 运行时——<strong>「错误尽早暴露」是工程化第一原则</strong>：配置缺失让服务启动失败，而不是运行到一半才炸。</p>
-<h3 id="5-2-结构化日志（Pino：排障靠它还原现场）"><a href="#5-2-结构化日志（Pino：排障靠它还原现场）" class="headerlink" title="5.2 结构化日志（Pino：排障靠它还原现场）"></a>5.2 结构化日志（Pino：排障靠它还原现场）</h3><figure class="highlight typescript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// src/lib/logger.ts</span></span><br><span class="line"><span class="keyword">import</span> pino <span class="keyword">from</span> <span class="string">&#x27;pino&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; config &#125; <span class="keyword">from</span> <span class="string">&#x27;../config&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="keyword">export</span> <span class="keyword">const</span> logger = <span class="title function_">pino</span>(&#123;</span><br><span class="line">  <span class="attr">level</span>: config.<span class="property">LOG_LEVEL</span>,</span><br><span class="line">  <span class="attr">transport</span>: config.<span class="property">NODE_ENV</span> === <span class="string">&#x27;development&#x27;</span> &amp;&amp; config.<span class="property">LOG_PRETTY</span></span><br><span class="line">    ? &#123; <span class="attr">target</span>: <span class="string">&#x27;pino-pretty&#x27;</span>, <span class="attr">options</span>: &#123; <span class="attr">colorize</span>: <span class="literal">true</span>, <span class="attr">translateTime</span>: <span class="string">&#x27;SYS:standard&#x27;</span> &#125; &#125;</span><br><span class="line">    : <span class="literal">undefined</span>,                                     <span class="comment">// 生产 = 纯 JSON 行，给日志采集系统</span></span><br><span class="line">  <span class="attr">timestamp</span>: pino.<span class="property">stdTimeFunctions</span>.<span class="property">isoTime</span>,</span><br><span class="line">&#125;);</span><br><span class="line"></span><br><span class="line"><span class="keyword">export</span> <span class="keyword">const</span> <span class="title function_">createLogger</span> = (<span class="params"><span class="attr">name</span>: <span class="built_in">string</span></span>) =&gt; logger.<span class="title function_">child</span>(&#123; <span class="attr">module</span>: name &#125;);</span><br></pre></td></tr></table></figure>
-
-<p><strong>关键点</strong>：开发环境彩色可读、生产环境纯 JSON——<strong>生产日志是给机器读的（采集&#x2F;检索），不是给人读的</strong>。</p>
-<h3 id="5-3-数据源与迁移（TypeORM）"><a href="#5-3-数据源与迁移（TypeORM）" class="headerlink" title="5.3 数据源与迁移（TypeORM）"></a>5.3 数据源与迁移（TypeORM）</h3><figure class="highlight typescript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// src/lib/database.ts</span></span><br><span class="line"><span class="keyword">import</span> <span class="string">&#x27;reflect-metadata&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; <span class="title class_">DataSource</span> &#125; <span class="keyword">from</span> <span class="string">&#x27;typeorm&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; config &#125; <span class="keyword">from</span> <span class="string">&#x27;../config&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="keyword">export</span> <span class="keyword">const</span> <span class="title class_">AppDataSource</span> = <span class="keyword">new</span> <span class="title class_">DataSource</span>(&#123;</span><br><span class="line">  <span class="attr">type</span>: <span class="string">&#x27;mysql&#x27;</span>,</span><br><span class="line">  <span class="attr">host</span>: config.<span class="property">DB_HOST</span>, <span class="attr">port</span>: config.<span class="property">DB_PORT</span>,</span><br><span class="line">  <span class="attr">username</span>: config.<span class="property">DB_USER</span>, <span class="attr">password</span>: config.<span class="property">DB_PASSWORD</span>,</span><br><span class="line">  <span class="attr">database</span>: config.<span class="property">DB_NAME</span>,</span><br><span class="line">  <span class="attr">synchronize</span>: config.<span class="property">NODE_ENV</span> === <span class="string">&#x27;development&#x27;</span>,   <span class="comment">// 仅开发环境自动同步</span></span><br><span class="line">  <span class="attr">entities</span>: [<span class="string">&#x27;src/entities/**/*.ts&#x27;</span>],</span><br><span class="line">  <span class="attr">migrations</span>: [<span class="string">&#x27;migrations/**/*.ts&#x27;</span>],</span><br><span class="line">&#125;);</span><br></pre></td></tr></table></figure>
-
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">bun run typeorm migration:generate ./migrations/InitSchema   <span class="comment"># 生成迁移</span></span><br><span class="line">bun run typeorm migration:run                                <span class="comment"># 执行迁移</span></span><br></pre></td></tr></table></figure>
-
-<p><strong>生产铁律</strong>：<code>synchronize: true</code> 只能出现在开发环境——生产必须走 migration（对应 Java 的 Flyway&#x2F;Liquibase 习惯）。</p>
-<h3 id="5-4-Redis（缓存-限流计数）"><a href="#5-4-Redis（缓存-限流计数）" class="headerlink" title="5.4 Redis（缓存 + 限流计数）"></a>5.4 Redis（缓存 + 限流计数）</h3><figure class="highlight typescript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// src/lib/redis.ts</span></span><br><span class="line"><span class="keyword">import</span> <span class="title class_">Redis</span> <span class="keyword">from</span> <span class="string">&#x27;ioredis&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; config &#125; <span class="keyword">from</span> <span class="string">&#x27;../config&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="keyword">export</span> <span class="keyword">const</span> redis = <span class="keyword">new</span> <span class="title class_">Redis</span>(&#123;</span><br><span class="line">  <span class="attr">host</span>: config.<span class="property">REDIS_HOST</span>, <span class="attr">port</span>: config.<span class="property">REDIS_PORT</span>,</span><br><span class="line">  <span class="attr">password</span>: config.<span class="property">REDIS_PASSWORD</span>,</span><br><span class="line">  <span class="attr">retryStrategy</span>: <span class="function">(<span class="params">times</span>) =&gt;</span> <span class="title class_">Math</span>.<span class="title function_">min</span>(times * <span class="number">50</span>, <span class="number">2000</span>),  <span class="comment">// 指数退避重连</span></span><br><span class="line">&#125;);</span><br></pre></td></tr></table></figure>
-
-<h2 id="6-核心服务层：Agent-的四个大脑"><a href="#6-核心服务层：Agent-的四个大脑" class="headerlink" title="6. 核心服务层：Agent 的四个大脑"></a>6. 核心服务层：Agent 的四个大脑</h2><h3 id="6-1-Embedding-服务：把文本变成向量，带缓存"><a href="#6-1-Embedding-服务：把文本变成向量，带缓存" class="headerlink" title="6.1 Embedding 服务：把文本变成向量，带缓存"></a>6.1 Embedding 服务：把文本变成向量，带缓存</h3><figure class="highlight typescript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// src/services/embedding.ts</span></span><br><span class="line"><span class="keyword">import</span> <span class="title class_">OpenAI</span> <span class="keyword">from</span> <span class="string">&#x27;openai&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; config &#125; <span class="keyword">from</span> <span class="string">&#x27;../config&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; redis &#125; <span class="keyword">from</span> <span class="string">&#x27;../lib/redis&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="keyword">const</span> openai = <span class="keyword">new</span> <span class="title class_">OpenAI</span>(&#123; <span class="attr">apiKey</span>: config.<span class="property">OPENAI_API_KEY</span> &#125;);</span><br><span class="line"></span><br><span class="line"><span class="keyword">export</span> <span class="keyword">class</span> <span class="title class_">EmbeddingService</span> &#123;</span><br><span class="line">  <span class="keyword">private</span> <span class="keyword">readonly</span> <span class="variable constant_">CACHE_TTL</span> = <span class="number">86400</span>;   <span class="comment">// 24h</span></span><br><span class="line">  <span class="keyword">private</span> <span class="keyword">readonly</span> <span class="variable constant_">BATCH_SIZE</span> = <span class="number">20</span>;</span><br><span class="line"></span><br><span class="line">  <span class="keyword">async</span> <span class="title function_">embed</span>(<span class="attr">text</span>: <span class="built_in">string</span>): <span class="title class_">Promise</span>&lt;<span class="built_in">number</span>[]&gt; &#123;</span><br><span class="line">    <span class="keyword">const</span> cacheKey = <span class="string">`embed:<span class="subst">$&#123;Buffer.<span class="keyword">from</span>(text).toString(<span class="string">&#x27;base64&#x27;</span>).slice(<span class="number">0</span>, <span class="number">100</span>)&#125;</span>`</span>;</span><br><span class="line">    <span class="keyword">const</span> cached = <span class="keyword">await</span> redis.<span class="title function_">get</span>(cacheKey);         <span class="comment">// ① 缓存命中 → 不调 API</span></span><br><span class="line">    <span class="keyword">if</span> (cached) <span class="keyword">return</span> <span class="title class_">JSON</span>.<span class="title function_">parse</span>(cached);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">const</span> response = <span class="keyword">await</span> openai.<span class="property">embeddings</span>.<span class="title function_">create</span>(&#123;  <span class="comment">// ② 未命中 → 调 API</span></span><br><span class="line">      <span class="attr">model</span>: config.<span class="property">EMBEDDING_MODEL</span>, <span class="attr">input</span>: text,</span><br><span class="line">    &#125;);</span><br><span class="line">    <span class="keyword">const</span> embedding = response.<span class="property">data</span>[<span class="number">0</span>].<span class="property">embedding</span>;</span><br><span class="line">    <span class="keyword">await</span> redis.<span class="title function_">setex</span>(cacheKey, <span class="variable language_">this</span>.<span class="property">CACHE_TTL</span>, <span class="title class_">JSON</span>.<span class="title function_">stringify</span>(embedding));  <span class="comment">// ③ 写缓存</span></span><br><span class="line">    <span class="keyword">return</span> embedding;</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">  <span class="keyword">async</span> <span class="title function_">embedBatch</span>(<span class="attr">texts</span>: <span class="built_in">string</span>[]): <span class="title class_">Promise</span>&lt;<span class="built_in">number</span>[][]&gt; &#123;</span><br><span class="line">    <span class="keyword">const</span> <span class="attr">embeddings</span>: <span class="built_in">number</span>[][] = [];</span><br><span class="line">    <span class="keyword">for</span> (<span class="keyword">let</span> i = <span class="number">0</span>; i &lt; texts.<span class="property">length</span>; i += <span class="variable language_">this</span>.<span class="property">BATCH_SIZE</span>) &#123;</span><br><span class="line">      <span class="keyword">const</span> batch = texts.<span class="title function_">slice</span>(i, i + <span class="variable language_">this</span>.<span class="property">BATCH_SIZE</span>);</span><br><span class="line">      <span class="keyword">const</span> response = <span class="keyword">await</span> openai.<span class="property">embeddings</span>.<span class="title function_">create</span>(&#123; <span class="attr">model</span>: config.<span class="property">EMBEDDING_MODEL</span>, <span class="attr">input</span>: batch &#125;);</span><br><span class="line">      embeddings.<span class="title function_">push</span>(...response.<span class="property">data</span>.<span class="title function_">map</span>(<span class="function"><span class="params">item</span> =&gt;</span> item.<span class="property">embedding</span>));</span><br><span class="line">      <span class="keyword">if</span> (i + <span class="variable language_">this</span>.<span class="property">BATCH_SIZE</span> &lt; texts.<span class="property">length</span>) &#123;</span><br><span class="line">        <span class="keyword">await</span> <span class="keyword">new</span> <span class="title class_">Promise</span>(<span class="function"><span class="params">resolve</span> =&gt;</span> <span class="built_in">setTimeout</span>(resolve, <span class="number">100</span>));  <span class="comment">// 速率限制保护</span></span><br><span class="line">      &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> embeddings;</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>设计要点（因果链）</strong>：embedding 是<strong>确定性的</strong>（同一文本永远同一向量）——确定性 &#x3D; 可缓存。缓存命中省一次 API 调用（省钱 + 省延迟），这是 RAG 工程化第一个性能优化点。<strong>批量接口 + 限速</strong>：Embedding API 按 token 计费且速率受限，分批 + 间隔是生产必需。</p>
-<h3 id="6-2-检索服务：RAG-的核心——余弦相似度-阈值过滤"><a href="#6-2-检索服务：RAG-的核心——余弦相似度-阈值过滤" class="headerlink" title="6.2 检索服务：RAG 的核心——余弦相似度 + 阈值过滤"></a>6.2 检索服务：RAG 的核心——余弦相似度 + 阈值过滤</h3><figure class="highlight typescript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// src/services/retrieval.ts</span></span><br><span class="line"><span class="keyword">import</span> &#123; <span class="title class_">Not</span>, <span class="title class_">IsNull</span> &#125; <span class="keyword">from</span> <span class="string">&#x27;typeorm&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; <span class="title class_">TicketRepository</span> &#125; <span class="keyword">from</span> <span class="string">&#x27;../repositories/ticket.repository&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; <span class="title class_">FaqRepository</span> &#125; <span class="keyword">from</span> <span class="string">&#x27;../repositories/faq.repository&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; <span class="title class_">EmbeddingService</span> &#125; <span class="keyword">from</span> <span class="string">&#x27;./embedding&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="keyword">export</span> <span class="keyword">class</span> <span class="title class_">RetrievalService</span> &#123;</span><br><span class="line">  <span class="title function_">constructor</span>(<span class="params"></span></span><br><span class="line"><span class="params">    <span class="keyword">private</span> <span class="attr">embeddingService</span>: <span class="title class_">EmbeddingService</span>,</span></span><br><span class="line"><span class="params">    <span class="keyword">private</span> <span class="attr">similarityThreshold</span>: <span class="built_in">number</span> = <span class="number">0.7</span>,   <span class="comment">// 相似度阈值：低于它宁可不用</span></span></span><br><span class="line"><span class="params">  </span>) &#123;&#125;</span><br><span class="line"></span><br><span class="line">  <span class="keyword">async</span> <span class="title function_">searchSimilarTickets</span>(<span class="params"><span class="attr">query</span>: <span class="built_in">string</span>, <span class="attr">limit</span>: <span class="built_in">number</span> = <span class="number">5</span></span>) &#123;</span><br><span class="line">    <span class="keyword">const</span> queryEmbedding = <span class="keyword">await</span> <span class="variable language_">this</span>.<span class="property">embeddingService</span>.<span class="title function_">embed</span>(query);</span><br><span class="line">    <span class="keyword">const</span> tickets = <span class="keyword">await</span> <span class="title class_">TicketRepository</span>.<span class="title function_">find</span>(&#123; <span class="attr">where</span>: &#123; <span class="attr">embedding</span>: <span class="title class_">Not</span>(<span class="title class_">IsNull</span>()) &#125; &#125;);</span><br><span class="line">    <span class="keyword">return</span> tickets</span><br><span class="line">      .<span class="title function_">map</span>(<span class="function"><span class="params">t</span> =&gt;</span> (&#123; <span class="attr">ticket</span>: t, <span class="attr">similarity</span>: <span class="variable language_">this</span>.<span class="title function_">cosineSimilarity</span>(queryEmbedding, t.<span class="property">embedding</span> <span class="keyword">as</span> <span class="built_in">number</span>[]) &#125;))</span><br><span class="line">      .<span class="title function_">filter</span>(<span class="function"><span class="params">item</span> =&gt;</span> item.<span class="property">similarity</span> &gt;= <span class="variable language_">this</span>.<span class="property">similarityThreshold</span>)  <span class="comment">// 阈值过滤</span></span><br><span class="line">      .<span class="title function_">sort</span>(<span class="function">(<span class="params">a, b</span>) =&gt;</span> b.<span class="property">similarity</span> - a.<span class="property">similarity</span>)</span><br><span class="line">      .<span class="title function_">slice</span>(<span class="number">0</span>, limit);</span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">  <span class="keyword">async</span> <span class="title function_">searchFaq</span>(<span class="params"><span class="attr">query</span>: <span class="built_in">string</span>, <span class="attr">limit</span>: <span class="built_in">number</span> = <span class="number">3</span></span>) &#123;</span><br><span class="line">    <span class="comment">// 与 searchSimilarTickets 同构：embed → 全量算相似度 → 阈值 → top-k</span></span><br><span class="line">  &#125;</span><br><span class="line"></span><br><span class="line">  <span class="keyword">private</span> <span class="title function_">cosineSimilarity</span>(<span class="attr">a</span>: <span class="built_in">number</span>[], <span class="attr">b</span>: <span class="built_in">number</span>[]): <span class="built_in">number</span> &#123;</span><br><span class="line">    <span class="keyword">if</span> (!a || !b || a.<span class="property">length</span> !== b.<span class="property">length</span>) <span class="keyword">return</span> <span class="number">0</span>;</span><br><span class="line">    <span class="keyword">let</span> dot = <span class="number">0</span>, magA = <span class="number">0</span>, magB = <span class="number">0</span>;</span><br><span class="line">    <span class="keyword">for</span> (<span class="keyword">let</span> i = <span class="number">0</span>; i &lt; a.<span class="property">length</span>; i++) &#123;</span><br><span class="line">      dot += a[i] * b[i]; magA += a[i] * a[i]; magB += b[i] * b[i];</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> dot / (<span class="title class_">Math</span>.<span class="title function_">sqrt</span>(magA) * <span class="title class_">Math</span>.<span class="title function_">sqrt</span>(magB));</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>为什么要有相似度阈值（关键工程决策）</strong>：检索的目的是「给 LLM 喂有效上下文」——<strong>喂了不相关的上下文，LLM 会被带偏（幻觉&#x2F;答非所问）</strong>。阈值 0.7 意味着「没有足够相似的参考就空着」，让 LLM 老实承认不知道，而不是编造。<strong>这是 RAG 质量的核心控制点：检索质量 &gt; 生成能力</strong>（<a href="/post/rag-2026.html">RAG 原理与实践</a> 的 Chunking&#x2F;检索章节在此落地）。</p>
-<p><strong>性能坦白</strong>：应用层全量算相似度是 O(n) 扫描——万级数据够用，十万级要上向量索引（ANN&#x2F;HNSW），百万级必须换向量数据库。<strong>设计文档里写清楚「当前规模下这个选择成立」是工程成熟的标志</strong>。</p>
-<h3 id="6-3-分类服务：LLM-结构化输出（JSON-mode）"><a href="#6-3-分类服务：LLM-结构化输出（JSON-mode）" class="headerlink" title="6.3 分类服务：LLM + 结构化输出（JSON mode）"></a>6.3 分类服务：LLM + 结构化输出（JSON mode）</h3><figure class="highlight typescript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// src/services/classification.ts</span></span><br><span class="line"><span class="keyword">import</span> <span class="title class_">OpenAI</span> <span class="keyword">from</span> <span class="string">&#x27;openai&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; config &#125; <span class="keyword">from</span> <span class="string">&#x27;../config&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="keyword">const</span> openai = <span class="keyword">new</span> <span class="title class_">OpenAI</span>(&#123; <span class="attr">apiKey</span>: config.<span class="property">OPENAI_API_KEY</span> &#125;);</span><br><span class="line"></span><br><span class="line"><span class="keyword">export</span> <span class="keyword">class</span> <span class="title class_">ClassificationService</span> &#123;</span><br><span class="line">  <span class="keyword">async</span> <span class="title function_">classify</span>(<span class="attr">title</span>: <span class="built_in">string</span>, <span class="attr">content</span>: <span class="built_in">string</span>): <span class="title class_">Promise</span>&lt;&#123;</span><br><span class="line">    <span class="attr">category</span>: <span class="built_in">string</span>; <span class="attr">confidence</span>: <span class="built_in">number</span>; <span class="attr">suggestedPriority</span>: <span class="built_in">string</span>;</span><br><span class="line">  &#125;&gt; &#123;</span><br><span class="line">    <span class="keyword">const</span> prompt = <span class="string">`你是一个工单分类专家。请分析以下工单，返回 JSON 格式的分类结果。</span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">工单标题: <span class="subst">$&#123;title&#125;</span></span></span><br><span class="line"><span class="string">工单内容: <span class="subst">$&#123;content&#125;</span></span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">可选分类: technical（技术问题）, billing（账单问题）, account（账户问题）, product（产品咨询）, complaint（投诉建议）</span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">请返回:</span></span><br><span class="line"><span class="string">&#123;</span></span><br><span class="line"><span class="string">  &quot;category&quot;: &quot;分类值&quot;,</span></span><br><span class="line"><span class="string">  &quot;confidence&quot;: 置信度0-1,</span></span><br><span class="line"><span class="string">  &quot;suggestedPriority&quot;: &quot;low/normal/high/urgent&quot;</span></span><br><span class="line"><span class="string">&#125;`</span>;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">const</span> response = <span class="keyword">await</span> openai.<span class="property">chat</span>.<span class="property">completions</span>.<span class="title function_">create</span>(&#123;</span><br><span class="line">      <span class="attr">model</span>: config.<span class="property">OPENAI_MODEL</span>,</span><br><span class="line">      <span class="attr">messages</span>: [&#123; <span class="attr">role</span>: <span class="string">&#x27;user&#x27;</span>, <span class="attr">content</span>: prompt &#125;],</span><br><span class="line">      <span class="attr">temperature</span>: <span class="number">0.3</span>,                                  <span class="comment">// 分类要稳定：低温度</span></span><br><span class="line">      <span class="attr">response_format</span>: &#123; <span class="attr">type</span>: <span class="string">&#x27;json_object&#x27;</span> &#125;,          <span class="comment">// 强制 JSON 输出</span></span><br><span class="line">    &#125;);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">const</span> result = <span class="title class_">JSON</span>.<span class="title function_">parse</span>(response.<span class="property">choices</span>[<span class="number">0</span>].<span class="property">message</span>.<span class="property">content</span> || <span class="string">&#x27;&#123;&#125;&#x27;</span>);</span><br><span class="line">    <span class="keyword">return</span> &#123;</span><br><span class="line">      <span class="attr">category</span>: result.<span class="property">category</span>,</span><br><span class="line">      <span class="attr">confidence</span>: result.<span class="property">confidence</span>,</span><br><span class="line">      <span class="attr">suggestedPriority</span>: result.<span class="property">suggestedPriority</span>,</span><br><span class="line">    &#125;;</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>三个关键工程决策</strong>：</p>
-<ol>
-<li><strong><code>response_format: json_object</code> 强制结构化</strong>——LLM 自由文本输出没法直接进下游（枚举校验&#x2F;数据库）。结构化输出是 LLM 上生产的前提（<a href="/post/llm-api-tool-calling-2026.html">LLM API 与工具调用实战</a> §三）；</li>
-<li><strong><code>temperature: 0.3</code> 低温</strong>——分类任务要确定性，高温会让同一工单每次分类不同；</li>
-<li><strong>JSON.parse 后要校验</strong>——LLM 偶发返回非法 JSON 或缺失字段，生产代码必须有兜底（try-catch + 默认值），别让一个坏输出打挂整条链路。</li>
-</ol>
-<p><strong>因果链</strong>：分类结果里带 <code>confidence</code>（置信度）不是装饰——<strong>它是下游「是否人工介入」的判据</strong>：置信度 &lt; 0.8 的工单直接转人工，只有高置信度才自动流转。<strong>AI 应用的可靠性不是「让 AI 永远对」，而是「AI 不确定时知道说不并降级」</strong>。</p>
-<h3 id="6-4-生成服务：RAG-上下文注入的回复草稿"><a href="#6-4-生成服务：RAG-上下文注入的回复草稿" class="headerlink" title="6.4 生成服务：RAG 上下文注入的回复草稿"></a>6.4 生成服务：RAG 上下文注入的回复草稿</h3><figure class="highlight typescript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// src/services/generation.ts</span></span><br><span class="line"><span class="keyword">import</span> <span class="title class_">OpenAI</span> <span class="keyword">from</span> <span class="string">&#x27;openai&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; config &#125; <span class="keyword">from</span> <span class="string">&#x27;../config&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="keyword">const</span> openai = <span class="keyword">new</span> <span class="title class_">OpenAI</span>(&#123; <span class="attr">apiKey</span>: config.<span class="property">OPENAI_API_KEY</span> &#125;);</span><br><span class="line"></span><br><span class="line"><span class="keyword">export</span> <span class="keyword">class</span> <span class="title class_">GenerationService</span> &#123;</span><br><span class="line">  <span class="keyword">async</span> <span class="title function_">generateAnswer</span>(</span><br><span class="line">    <span class="attr">title</span>: <span class="built_in">string</span>, <span class="attr">content</span>: <span class="built_in">string</span>, <span class="attr">category</span>: <span class="built_in">string</span>,</span><br><span class="line">    <span class="attr">similarTickets</span>: <span class="built_in">string</span>[], <span class="attr">faqEntries</span>: <span class="built_in">string</span>[],</span><br><span class="line">  ): <span class="title class_">Promise</span>&lt;&#123; <span class="attr">answer</span>: <span class="built_in">string</span>; <span class="attr">sourcesUsed</span>: <span class="built_in">string</span>[] &#125;&gt; &#123;</span><br><span class="line">    <span class="keyword">const</span> context = <span class="string">`</span></span><br><span class="line"><span class="string">相似工单参考:</span></span><br><span class="line"><span class="string"><span class="subst">$&#123;similarTickets.join(<span class="string">&#x27;\n---\n&#x27;</span>)&#125;</span></span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">FAQ 知识库参考:</span></span><br><span class="line"><span class="string"><span class="subst">$&#123;faqEntries.join(<span class="string">&#x27;\n---\n&#x27;</span>)&#125;</span></span></span><br><span class="line"><span class="string">`</span>;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">const</span> prompt = <span class="string">`你是一个专业的客服助手。请基于以下参考信息，为用户工单生成回复建议。</span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">工单标题: <span class="subst">$&#123;title&#125;</span></span></span><br><span class="line"><span class="string">工单内容: <span class="subst">$&#123;content&#125;</span></span></span><br><span class="line"><span class="string">工单分类: <span class="subst">$&#123;category&#125;</span></span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">参考信息:</span></span><br><span class="line"><span class="string"><span class="subst">$&#123;context&#125;</span></span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">请生成:</span></span><br><span class="line"><span class="string">1. 礼貌的回复开头</span></span><br><span class="line"><span class="string">2. 针对问题的具体解答</span></span><br><span class="line"><span class="string">3. 如有需要，提供下一步行动建议</span></span><br><span class="line"><span class="string">4. 礼貌的结尾</span></span><br><span class="line"><span class="string"></span></span><br><span class="line"><span class="string">回复要专业、清晰、有帮助。`</span>;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">const</span> response = <span class="keyword">await</span> openai.<span class="property">chat</span>.<span class="property">completions</span>.<span class="title function_">create</span>(&#123;</span><br><span class="line">      <span class="attr">model</span>: config.<span class="property">OPENAI_MODEL</span>,</span><br><span class="line">      <span class="attr">messages</span>: [&#123; <span class="attr">role</span>: <span class="string">&#x27;user&#x27;</span>, <span class="attr">content</span>: prompt &#125;],</span><br><span class="line">      <span class="attr">temperature</span>: <span class="number">0.7</span>,     <span class="comment">// 生成任务要高一点温度：回复要自然</span></span><br><span class="line">    &#125;);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">return</span> &#123;</span><br><span class="line">      <span class="attr">answer</span>: response.<span class="property">choices</span>[<span class="number">0</span>].<span class="property">message</span>.<span class="property">content</span> || <span class="string">&#x27;&#x27;</span>,</span><br><span class="line">      <span class="attr">sourcesUsed</span>: [],      <span class="comment">// 生产可记录引用了哪些 FAQ/工单（可追溯）</span></span><br><span class="line">    &#125;;</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>温度策略对比（两处设计的呼应）</strong>：</p>
-<table>
-<thead>
-<tr>
-<th>服务</th>
-<th>温度</th>
-<th>原因</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>分类</td>
-<td>0.3 低</td>
-<td>确定性优先：同一工单必须同分类</td>
-</tr>
-<tr>
-<td>生成</td>
-<td>0.7 高</td>
-<td>自然度优先：回复要像人写的</td>
-</tr>
-</tbody></table>
-<p><strong>同一套 API、同一个模型，温度一个参数就改变任务的本质</strong>——这是 LLM 工程里最便宜的调参杠杆。<code>sourcesUsed</code> 字段记录引用来源——<strong>AI 回复要可追溯</strong>：用户追问「你凭什么这么答」时，能指出引用的工单&#x2F;FAQ，这是生产合规的底线。</p>
-<h2 id="7-MCP-Server：把服务暴露给-AI-客户端"><a href="#7-MCP-Server：把服务暴露给-AI-客户端" class="headerlink" title="7. MCP Server：把服务暴露给 AI 客户端"></a>7. MCP Server：把服务暴露给 AI 客户端</h2><h3 id="7-1-注册三个-Tool（工具的-schema-即协议契约）"><a href="#7-1-注册三个-Tool（工具的-schema-即协议契约）" class="headerlink" title="7.1 注册三个 Tool（工具的 schema 即协议契约）"></a>7.1 注册三个 Tool（工具的 schema 即协议契约）</h3><figure class="highlight typescript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// src/mcp/server.ts（核心片段）</span></span><br><span class="line"><span class="keyword">import</span> &#123; <span class="title class_">Server</span> &#125; <span class="keyword">from</span> <span class="string">&#x27;@modelcontextprotocol/sdk/server/index.js&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; <span class="title class_">StdioServerTransport</span> &#125; <span class="keyword">from</span> <span class="string">&#x27;@modelcontextprotocol/sdk/server/stdio.js&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; <span class="title class_">ListToolsRequestSchema</span>, <span class="title class_">CallToolRequestSchema</span> &#125; <span class="keyword">from</span> <span class="string">&#x27;@modelcontextprotocol/sdk/types.js&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="keyword">const</span> server = <span class="keyword">new</span> <span class="title class_">Server</span>(</span><br><span class="line">  &#123; <span class="attr">name</span>: <span class="string">&#x27;ticket-agent&#x27;</span>, <span class="attr">version</span>: <span class="string">&#x27;1.0.0&#x27;</span> &#125;,</span><br><span class="line">  &#123; <span class="attr">capabilities</span>: &#123; <span class="attr">tools</span>: &#123;&#125;, <span class="attr">resources</span>: &#123;&#125; &#125; &#125;</span><br><span class="line">);</span><br><span class="line"></span><br><span class="line"><span class="comment">// ① list_tools：告诉 AI「你能调什么」——schema 越严谨，AI 越少出错</span></span><br><span class="line">server.<span class="title function_">setRequestHandler</span>(<span class="title class_">ListToolsRequestSchema</span>, <span class="title function_">async</span> () =&gt; (&#123;</span><br><span class="line">  <span class="attr">tools</span>: [</span><br><span class="line">    &#123;</span><br><span class="line">      <span class="attr">name</span>: <span class="string">&#x27;classify_ticket&#x27;</span>,</span><br><span class="line">      <span class="attr">description</span>: <span class="string">&#x27;对工单进行自动分类，返回分类结果、置信度和建议优先级&#x27;</span>,</span><br><span class="line">      <span class="attr">inputSchema</span>: &#123;</span><br><span class="line">        <span class="attr">type</span>: <span class="string">&#x27;object&#x27;</span>,</span><br><span class="line">        <span class="attr">properties</span>: &#123;</span><br><span class="line">          <span class="attr">title</span>: &#123; <span class="attr">type</span>: <span class="string">&#x27;string&#x27;</span>, <span class="attr">description</span>: <span class="string">&#x27;工单标题&#x27;</span> &#125;,</span><br><span class="line">          <span class="attr">content</span>: &#123; <span class="attr">type</span>: <span class="string">&#x27;string&#x27;</span>, <span class="attr">description</span>: <span class="string">&#x27;工单详细内容&#x27;</span> &#125;,</span><br><span class="line">        &#125;,</span><br><span class="line">        <span class="attr">required</span>: [<span class="string">&#x27;title&#x27;</span>, <span class="string">&#x27;content&#x27;</span>],</span><br><span class="line">      &#125;,</span><br><span class="line">    &#125;,</span><br><span class="line">    &#123;</span><br><span class="line">      <span class="attr">name</span>: <span class="string">&#x27;generate_answer&#x27;</span>,</span><br><span class="line">      <span class="attr">description</span>: <span class="string">&#x27;基于工单内容和相似历史工单，生成回复建议&#x27;</span>,</span><br><span class="line">      <span class="attr">inputSchema</span>: &#123; <span class="comment">/* title/content/category，同 classify 模式 */</span> &#125;,</span><br><span class="line">    &#125;,</span><br><span class="line">    &#123;</span><br><span class="line">      <span class="attr">name</span>: <span class="string">&#x27;create_ticket&#x27;</span>,</span><br><span class="line">      <span class="attr">description</span>: <span class="string">&#x27;创建工单记录，自动分配优先级&#x27;</span>,</span><br><span class="line">      <span class="attr">inputSchema</span>: &#123; <span class="comment">/* title/content/userEmail */</span> &#125;,</span><br><span class="line">    &#125;,</span><br><span class="line">  ],</span><br><span class="line">&#125;));</span><br><span class="line"></span><br><span class="line"><span class="comment">// ② call_tool：AI 实际调用时的分发</span></span><br><span class="line">server.<span class="title function_">setRequestHandler</span>(<span class="title class_">CallToolRequestSchema</span>, <span class="title function_">async</span> (request) =&gt; &#123;</span><br><span class="line">  <span class="keyword">const</span> &#123; name, <span class="attr">arguments</span>: args &#125; = request.<span class="property">params</span>;</span><br><span class="line">  <span class="keyword">switch</span> (name) &#123;</span><br><span class="line">    <span class="keyword">case</span> <span class="string">&#x27;classify_ticket&#x27;</span>: &#123;</span><br><span class="line">      <span class="keyword">const</span> result = <span class="keyword">await</span> classificationService.<span class="title function_">classify</span>(args.<span class="property">title</span>, args.<span class="property">content</span>);</span><br><span class="line">      <span class="keyword">return</span> &#123; <span class="attr">content</span>: [&#123; <span class="attr">type</span>: <span class="string">&#x27;text&#x27;</span>, <span class="attr">text</span>: <span class="title class_">JSON</span>.<span class="title function_">stringify</span>(result, <span class="literal">null</span>, <span class="number">2</span>) &#125;] &#125;;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">case</span> <span class="string">&#x27;generate_answer&#x27;</span>: &#123;</span><br><span class="line">      <span class="keyword">const</span> result = <span class="keyword">await</span> generationService.<span class="title function_">generateAnswer</span>(args.<span class="property">title</span>, args.<span class="property">content</span>, args.<span class="property">category</span>, [], []);</span><br><span class="line">      <span class="keyword">return</span> &#123; <span class="attr">content</span>: [&#123; <span class="attr">type</span>: <span class="string">&#x27;text&#x27;</span>, <span class="attr">text</span>: result.<span class="property">answer</span> &#125;] &#125;;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">case</span> <span class="string">&#x27;create_ticket&#x27;</span>: &#123;</span><br><span class="line">      <span class="keyword">const</span> ticket = <span class="keyword">await</span> ticketService.<span class="title function_">create</span>(&#123; <span class="attr">title</span>: args.<span class="property">title</span>, <span class="attr">content</span>: args.<span class="property">content</span>, <span class="attr">userEmail</span>: args.<span class="property">userEmail</span> &#125;);</span><br><span class="line">      <span class="keyword">return</span> &#123; <span class="attr">content</span>: [&#123; <span class="attr">type</span>: <span class="string">&#x27;text&#x27;</span>, <span class="attr">text</span>: <span class="title class_">JSON</span>.<span class="title function_">stringify</span>(ticket, <span class="literal">null</span>, <span class="number">2</span>) &#125;] &#125;;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="attr">default</span>:</span><br><span class="line">      <span class="keyword">throw</span> <span class="keyword">new</span> <span class="title class_">Error</span>(<span class="string">`Unknown tool: <span class="subst">$&#123;name&#125;</span>`</span>);</span><br><span class="line">  &#125;</span><br><span class="line">&#125;);</span><br></pre></td></tr></table></figure>
-
-<p><strong>MCP 的本质（Java 视角）</strong>：<code>list_tools</code> ≈ 服务注册表（Eureka&#x2F;Nacos 的「我有什么服务」），<code>inputSchema</code> ≈ OpenAPI 规范——<strong>AI 客户端靠 schema 自学怎么调你的服务，这就是「协议即文档」</strong>。<code>description</code> 字段写清楚会被 AI 当作工具使用说明，值得认真写——<strong>你写的 description 就是给 AI 看的 Javadoc</strong>。</p>
-<h3 id="7-2-双模式入口：stdio-与-HTTP-一行切换"><a href="#7-2-双模式入口：stdio-与-HTTP-一行切换" class="headerlink" title="7.2 双模式入口：stdio 与 HTTP 一行切换"></a>7.2 双模式入口：stdio 与 HTTP 一行切换</h3><figure class="highlight typescript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// src/index.ts</span></span><br><span class="line"><span class="keyword">import</span> <span class="string">&#x27;reflect-metadata&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; <span class="title class_">AppDataSource</span> &#125; <span class="keyword">from</span> <span class="string">&#x27;./lib/database&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; startMcpServer &#125; <span class="keyword">from</span> <span class="string">&#x27;./mcp/server&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; config &#125; <span class="keyword">from</span> <span class="string">&#x27;./config&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="keyword">async</span> <span class="keyword">function</span> <span class="title function_">bootstrap</span>(<span class="params"></span>) &#123;</span><br><span class="line">  <span class="keyword">try</span> &#123;</span><br><span class="line">    <span class="keyword">await</span> <span class="title class_">AppDataSource</span>.<span class="title function_">initialize</span>();          <span class="comment">// 先连库</span></span><br><span class="line">    <span class="keyword">if</span> (config.<span class="property">MCP_TRANSPORT</span> === <span class="string">&#x27;http&#x27;</span>) &#123;</span><br><span class="line">      <span class="comment">// HTTP 模式：Fastify + 健康检查 + MCP HTTP 传输</span></span><br><span class="line">      <span class="keyword">const</span> fastify = <span class="title class_">Fastify</span>(&#123; <span class="attr">logger</span>: <span class="literal">true</span> &#125;);</span><br><span class="line">      <span class="keyword">await</span> fastify.<span class="title function_">register</span>(cors);</span><br><span class="line">      <span class="keyword">await</span> fastify.<span class="title function_">register</span>(helmet);</span><br><span class="line">      <span class="keyword">await</span> fastify.<span class="title function_">register</span>(healthRoutes);    <span class="comment">// /health 检查 DB + Redis 状态</span></span><br><span class="line">      <span class="keyword">await</span> <span class="title function_">startHttpMcpServer</span>(fastify);</span><br><span class="line">      <span class="keyword">await</span> fastify.<span class="title function_">listen</span>(&#123; <span class="attr">port</span>: config.<span class="property">PORT</span>, <span class="attr">host</span>: <span class="string">&#x27;0.0.0.0&#x27;</span> &#125;);</span><br><span class="line">    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">      <span class="keyword">await</span> <span class="title function_">startMcpServer</span>();                  <span class="comment">// stdio 模式：本地进程通信</span></span><br><span class="line">    &#125;</span><br><span class="line">  &#125; <span class="keyword">catch</span> (error) &#123;</span><br><span class="line">    logger.<span class="title function_">error</span>(&#123; error &#125;, <span class="string">&#x27;Failed to start application&#x27;</span>);</span><br><span class="line">    process.<span class="title function_">exit</span>(<span class="number">1</span>);</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br><span class="line"><span class="title function_">bootstrap</span>();</span><br></pre></td></tr></table></figure>
-
-<p><strong>健康检查 <code>/health</code><strong>：逐项 ping MySQL（<code>SELECT 1</code>）和 Redis（<code>redis.ping()</code>），任一 down 返回 <code>unhealthy</code>——</strong>容器编排&#x2F;负载均衡靠它决定要不要摘除实例</strong>。</p>
-<h2 id="8-测试与部署"><a href="#8-测试与部署" class="headerlink" title="8. 测试与部署"></a>8. 测试与部署</h2><h3 id="8-1-单元测试：Mock-掉-OpenAI（不花一分钱-API-费用）"><a href="#8-1-单元测试：Mock-掉-OpenAI（不花一分钱-API-费用）" class="headerlink" title="8.1 单元测试：Mock 掉 OpenAI（不花一分钱 API 费用）"></a>8.1 单元测试：Mock 掉 OpenAI（不花一分钱 API 费用）</h3><figure class="highlight typescript"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// tests/unit/services/classification.test.ts</span></span><br><span class="line"><span class="keyword">import</span> &#123; describe, it, expect, beforeEach, mock &#125; <span class="keyword">from</span> <span class="string">&#x27;bun:test&#x27;</span>;</span><br><span class="line"><span class="keyword">import</span> &#123; <span class="title class_">ClassificationService</span> &#125; <span class="keyword">from</span> <span class="string">&#x27;../../../src/services/classification&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="comment">// Mock OpenAI：测试不真实调 API（快 + 免费 + 确定性）</span></span><br><span class="line">mock.<span class="title function_">module</span>(<span class="string">&#x27;openai&#x27;</span>, <span class="function">() =&gt;</span> (&#123;</span><br><span class="line">  <span class="title class_">OpenAI</span>: <span class="keyword">class</span> &#123;</span><br><span class="line">    chat = &#123;</span><br><span class="line">      <span class="attr">completions</span>: &#123;</span><br><span class="line">        <span class="attr">create</span>: <span class="title function_">mock</span>(<span class="title function_">async</span> () =&gt; (&#123;</span><br><span class="line">          <span class="attr">choices</span>: [&#123; <span class="attr">message</span>: &#123; <span class="attr">content</span>: <span class="title class_">JSON</span>.<span class="title function_">stringify</span>(&#123;</span><br><span class="line">            <span class="attr">category</span>: <span class="string">&#x27;technical&#x27;</span>, <span class="attr">confidence</span>: <span class="number">0.95</span>, <span class="attr">suggestedPriority</span>: <span class="string">&#x27;high&#x27;</span></span><br><span class="line">          &#125;) &#125; &#125;]</span><br><span class="line">        &#125;))</span><br><span class="line">      &#125;</span><br><span class="line">    &#125;;</span><br><span class="line">  &#125;</span><br><span class="line">&#125;));</span><br><span class="line"></span><br><span class="line"><span class="title function_">describe</span>(<span class="string">&#x27;ClassificationService&#x27;</span>, <span class="function">() =&gt;</span> &#123;</span><br><span class="line">  <span class="keyword">let</span> <span class="attr">service</span>: <span class="title class_">ClassificationService</span>;</span><br><span class="line">  <span class="title function_">beforeEach</span>(<span class="function">() =&gt;</span> &#123; service = <span class="keyword">new</span> <span class="title class_">ClassificationService</span>(); &#125;);</span><br><span class="line"></span><br><span class="line">  <span class="title function_">it</span>(<span class="string">&#x27;should classify ticket correctly&#x27;</span>, <span class="title function_">async</span> () =&gt; &#123;</span><br><span class="line">    <span class="keyword">const</span> result = <span class="keyword">await</span> service.<span class="title function_">classify</span>(<span class="string">&#x27;系统登录失败&#x27;</span>, <span class="string">&#x27;输入用户名密码后一直提示认证失败&#x27;</span>);</span><br><span class="line">    <span class="title function_">expect</span>(result.<span class="property">category</span>).<span class="title function_">toBe</span>(<span class="string">&#x27;technical&#x27;</span>);</span><br><span class="line">    <span class="title function_">expect</span>(result.<span class="property">confidence</span>).<span class="title function_">toBeGreaterThan</span>(<span class="number">0.9</span>);</span><br><span class="line">  &#125;);</span><br><span class="line">&#125;);</span><br></pre></td></tr></table></figure>
-
-<p><strong>AI 应用测试的三个层次</strong>：单元测试（Mock LLM，测业务逻辑）、集成测试（测真实调用但用极小模型&#x2F;样本）、评测（用评测集衡量生成质量——<a href="/post/llm-eval-observability-2026.html">LLM 评测与可观测性</a> 已讲 RAGAS）。<strong>Mock 是测试的底线：业务代码与 LLM 解耦后，逻辑测试不依赖网络与付费 API</strong>。</p>
-<h3 id="8-2-Docker-多阶段构建"><a href="#8-2-Docker-多阶段构建" class="headerlink" title="8.2 Docker 多阶段构建"></a>8.2 Docker 多阶段构建</h3><figure class="highlight dockerfile"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">FROM</span> oven/bun:<span class="number">1</span>-alpine AS builder          <span class="comment"># 构建阶段</span></span><br><span class="line"><span class="keyword">WORKDIR</span><span class="language-bash"> /app</span></span><br><span class="line"><span class="keyword">COPY</span><span class="language-bash"> package.json bun.lockb ./</span></span><br><span class="line"><span class="keyword">RUN</span><span class="language-bash"> bun install --frozen-lockfile</span></span><br><span class="line"><span class="keyword">COPY</span><span class="language-bash"> src ./src</span></span><br><span class="line"><span class="keyword">COPY</span><span class="language-bash"> tsconfig.json ./</span></span><br><span class="line"><span class="keyword">RUN</span><span class="language-bash"> bun run build</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">FROM</span> oven/bun:<span class="number">1</span>-alpine                      <span class="comment"># 运行阶段：只带产物，镜像小</span></span><br><span class="line"><span class="keyword">WORKDIR</span><span class="language-bash"> /app</span></span><br><span class="line"><span class="keyword">COPY</span><span class="language-bash"> --from=builder /app/dist ./dist</span></span><br><span class="line"><span class="keyword">COPY</span><span class="language-bash"> --from=builder /app/node_modules ./node_modules</span></span><br><span class="line"><span class="keyword">COPY</span><span class="language-bash"> package.json ./</span></span><br><span class="line"><span class="keyword">ENV</span> NODE_ENV=production</span><br><span class="line"><span class="keyword">EXPOSE</span> <span class="number">3000</span></span><br><span class="line"><span class="keyword">CMD</span><span class="language-bash"> [<span class="string">&quot;bun&quot;</span>, <span class="string">&quot;dist/index.js&quot;</span>]</span></span><br></pre></td></tr></table></figure>
-
-<p><strong>多阶段构建 &#x3D; 依赖与产物分离</strong>（对应 Java 的 <code>mvn package</code> 后只拷 jar）：builder 阶段装全量依赖编译，运行阶段只有 dist + 生产依赖——镜像体积小、攻击面小。<strong>docker-compose 编排 MySQL + Redis + 应用三个容器，healthcheck 决定启动顺序</strong>（MySQL 没 ready 前应用启动会失败重试）。</p>
-<h2 id="9-踩坑与工程决策复盘"><a href="#9-踩坑与工程决策复盘" class="headerlink" title="9. 踩坑与工程决策复盘"></a>9. 踩坑与工程决策复盘</h2><h3 id="9-1-四个关键决策的因果链"><a href="#9-1-四个关键决策的因果链" class="headerlink" title="9.1 四个关键决策的因果链"></a>9.1 四个关键决策的因果链</h3><table>
-<thead>
-<tr>
-<th>决策</th>
-<th>为什么</th>
-<th>代价&#x2F;边界</th>
-<th>什么时候该反悔</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>MySQL 存向量（JSON 列 + 应用层算）</td>
-<td>少一个基础设施，万级数据够用</td>
-<td>检索 O(n) 全量扫描</td>
-<td>数据 10 万+ &#x2F; 检索 &gt;200ms → 换向量库</td>
-</tr>
-<tr>
-<td>Embedding 结果进 Redis 缓存</td>
-<td>确定性输出 &#x3D; 可缓存，省 API 费</td>
-<td>key 是文本 base64 前 100 字符，长文本可能碰撞</td>
-<td>缓存命中率 &lt;50% 时检查 key 设计</td>
-</tr>
-<tr>
-<td>分类低温 0.3 + 生成高温 0.7</td>
-<td>分类要确定、生成要自然</td>
-<td>温度是全局参数，调 API 粒度</td>
-<td>分类出现漂移时再降</td>
-</tr>
-<tr>
-<td>阈值 0.7 过滤检索结果</td>
-<td>不相关的上下文会带偏 LLM</td>
-<td>阈值太严会漏召回</td>
-<td>用评测集（RAGAS）调阈值</td>
-</tr>
-</tbody></table>
-<h3 id="9-2-生产化前必须补的三件事"><a href="#9-2-生产化前必须补的三件事" class="headerlink" title="9.2 生产化前必须补的三件事"></a>9.2 生产化前必须补的三件事</h3><ol>
-<li><strong>LLM 调用加超时与重试</strong>（<code>p-retry</code> 指数退避）——LLM API 超时是常态，不能拖垮请求线程；</li>
-<li><strong>限流</strong>（Redis 计数器）——Agent 被 AI 客户端高频调用时，防打爆 OpenAI 配额（<a href="/post/llm-api-tool-calling-2026.html">LLM API 与工具调用实战</a> §六的错误处理策略直接复用）；</li>
-<li><strong>日志链路追踪</strong>——<code>ticketId</code> 贯穿「接入 → 分类 → 检索 → 生成 → 落库」全过程，一次工单的处理日志能按 id 全量拉出（processing_logs 表就是为此设计）。</li>
-</ol>
-<h2 id="10-总结"><a href="#10-总结" class="headerlink" title="10. 总结"></a>10. 总结</h2><h3 id="10-1-项目速答表（面试-述职用）"><a href="#10-1-项目速答表（面试-述职用）" class="headerlink" title="10.1 项目速答表（面试&#x2F;述职用）"></a>10.1 项目速答表（面试&#x2F;述职用）</h3><table>
-<thead>
-<tr>
-<th>提问</th>
-<th>一句话回答</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>项目解决什么问题？</td>
-<td>工单自动分类 + 相似工单检索 + 回复草稿生成，人审后发出，客服效率提升</td>
-</tr>
-<tr>
-<td>架构怎么分层？</td>
-<td>MCP 接入 → 服务层（分类&#x2F;检索&#x2F;生成）→ 仓储层 → MySQL&#x2F;Redis，对应 Java 的 Controller→Service→Repository</td>
-</tr>
-<tr>
-<td>RAG 怎么做？</td>
-<td>text-embedding-3-small 向量化 + 余弦相似度 + 0.7 阈值过滤 + top-k，上下文注入生成</td>
-</tr>
-<tr>
-<td>为什么 MySQL 不换向量库？</td>
-<td>万级数据应用层算够用，少一个基础设施；数据大了再演进</td>
-</tr>
-<tr>
-<td>LLM 输出不可靠怎么兜底？</td>
-<td>分类 JSON 强制 + 低温度 + confidence 阈值转人工 + 生成结果人审</td>
-</tr>
-<tr>
-<td>怎么控制成本？</td>
-<td>Embedding 缓存（确定性输出）降 API 调用量；测试 Mock OpenAI</td>
-</tr>
-</tbody></table>
-<h3 id="10-2-实战避坑表"><a href="#10-2-实战避坑表" class="headerlink" title="10.2 实战避坑表"></a>10.2 实战避坑表</h3><table>
-<thead>
-<tr>
-<th>坑</th>
-<th>表现</th>
-<th>处理</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>LLM 返回非法 JSON</td>
-<td>JSON.parse 抛异常，链路中断</td>
-<td>try-catch + 默认值兜底（§6.3）</td>
-</tr>
-<tr>
-<td>温度没区分任务</td>
-<td>分类结果漂移</td>
-<td>分类 0.3 &#x2F; 生成 0.7（§6.4 温度表）</td>
-</tr>
-<tr>
-<td>检索不过滤阈值</td>
-<td>无关上下文带偏 LLM</td>
-<td>0.7 阈值 + 空则宁缺毋滥（§6.2）</td>
-</tr>
-<tr>
-<td>embedding 不缓存</td>
-<td>同文本重复调 API，账单爆炸</td>
-<td>Redis 缓存 + TTL 24h（§6.1）</td>
-</tr>
-<tr>
-<td>生产开 synchronize</td>
-<td>表结构被自动改</td>
-<td>生产只走 migration（§5.3）</td>
-</tr>
-<tr>
-<td>不记 LLM 调用日志</td>
-<td>输出异常无法回溯</td>
-<td>processing_logs 全量记录入参出参（§4.1）</td>
-</tr>
-</tbody></table>
-<h3 id="10-3-工具速查表"><a href="#10-3-工具速查表" class="headerlink" title="10.3 工具速查表"></a>10.3 工具速查表</h3><table>
-<thead>
-<tr>
-<th>工具&#x2F;命令</th>
-<th>用途</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>bun install / bun run dev / bun test</code></td>
-<td>一体化工具链（依赖&#x2F;开发&#x2F;测试）</td>
-</tr>
-<tr>
-<td><code>bun run typeorm migration:run</code></td>
-<td>数据库迁移</td>
-</tr>
-<tr>
-<td><code>curl localhost:3000/health</code></td>
-<td>健康检查（DB&#x2F;Redis 状态）</td>
-</tr>
-<tr>
-<td><code>bun run seed</code></td>
-<td>FAQ 种子数据 + 向量化入库</td>
-</tr>
-<tr>
-<td>MCP 客户端（Claude Desktop）</td>
-<td>stdio 模式联调：把 tools 暴露给 AI 实际调用</td>
-</tr>
-</tbody></table>
-<h3 id="10-4-系列定位"><a href="#10-4-系列定位" class="headerlink" title="10.4 系列定位"></a>10.4 系列定位</h3><p>本文是 AI 分类「从概念到落地」的实战一环：<strong>MCP 开发指南讲协议 → RAG 原理讲检索 → 本文把两者缝成一个可运行的 Agent</strong>。下一篇可按需续写《Agent 安全与防护》的生产化实践（提示注入防护&#x2F;权限控制），或转向 Python 版 ticket-agent 的对比精读——两版选一即可，避免重复投入。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
   <nav class="pagination">
     <a class="extend prev" rel="prev" title="Previous page" aria-label="Previous page" href="/home/page/2/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/home/">1</a><a class="page-number" href="/home/page/2/">2</a><span class="page-number current">3</span><a class="page-number" href="/home/page/4/">4</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/21/">21</a><a class="extend next" rel="next" title="Next page" aria-label="Next page" href="/home/page/4/"><i class="fa fa-angle-right"></i></a>
   </nav>
@@ -2312,14 +2351,14 @@
       <i class="fa fa-chart-line"></i>
     </span>
       <span>Word count total: </span>
-    <span title="Word count total">587k</span>
+    <span title="Word count total">588k</span>
   </span>
   <span class="post-meta-item">
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
       <span>Reading time total &asymp;</span>
-    <span title="Reading time total">35:35</span>
+    <span title="Reading time total">35:38</span>
   </span>
 </div>
   <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
