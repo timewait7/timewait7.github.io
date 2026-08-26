@@ -189,7 +189,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">82</span>
+          <span class="site-state-item-count">83</span>
           <span class="site-state-item-name">posts</span>
         </a>
       </div>
@@ -250,6 +250,847 @@
     </div>
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/fb98af45.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/fb98af45.html" class="post-title-link" itemprop="url">Zeus-Doc 架构设计与技术选型</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-08-06 23:54:28" itemprop="dateCreated datePublished" datetime="2026-08-06T23:54:28+08:00">2026-08-06</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E9%A1%B9%E7%9B%AE%E5%AE%9E%E6%88%98/" itemprop="url" rel="index"><span itemprop="name">项目实战</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>5.5k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>20 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h2 id="一、项目概述"><a href="#一、项目概述" class="headerlink" title="一、项目概述"></a>一、项目概述</h2><p>Zeus-Doc 是面向多租户企业的知识库文档中台，提供文档创作、协同编辑、全文检索、文件存储、审计追溯等完整能力。系统采用 Spring Cloud 微服务架构，按业务边界拆分为 6 大核心服务 + 1 个网关，背后由 MySQL、Redis、Elasticsearch、MinIO、RocketMQ 等中间件支撑。</p>
+<p><strong>核心业务能力：</strong></p>
+<ul>
+<li>文档 CRUD + 版本管理（全量快照 + Diff-Match-Patch 增量补丁）</li>
+<li>三级缓存（Caffeine → Redis → MySQL）+ 布隆过滤器 + 互斥锁重建</li>
+<li>实时协同编辑（Netty WebSocket + OT 算法合并）</li>
+<li>ES 全文检索（高亮 + 聚合 + Sentinel 熔断降级）</li>
+<li>大文件分片上传 + 零拷贝合并（MinIO）</li>
+<li>审计日志分库分表（ShardingSphere）+ Seata TCC 分布式事务</li>
+</ul>
+<hr>
+<h2 id="二、需求分析与系统边界"><a href="#二、需求分析与系统边界" class="headerlink" title="二、需求分析与系统边界"></a>二、需求分析与系统边界</h2><h3 id="2-1-业务背景"><a href="#2-1-业务背景" class="headerlink" title="2.1 业务背景"></a>2.1 业务背景</h3><p>Zeus-Doc 是面向中大型企业的「知识库文档中台」，提供文档全生命周期管理：创建、富文本&#x2F;Markdown 编辑、多人协同编辑、版本回溯、全文检索、文件附件、细粒度权限审计与回收站。系统采用 SaaS 多租户模型，需要支撑单租户日均 50 万次文档读、峰值 3000 QPS、千人同时在线协同编辑。</p>
+<h3 id="2-2-核心功能需求"><a href="#2-2-核心功能需求" class="headerlink" title="2.2 核心功能需求"></a>2.2 核心功能需求</h3><table>
+<thead>
+<tr>
+<th>模块</th>
+<th>关键需求</th>
+<th>性能指标</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>文档管理</td>
+<td>CRUD、版本历史、回收站、分享链接</td>
+<td>读 RT &lt; 50ms（命中缓存）</td>
+</tr>
+<tr>
+<td>协同编辑</td>
+<td>实时多人协同、OT 冲突合并</td>
+<td>WebSocket 5000 连接&#x2F;节点</td>
+</tr>
+<tr>
+<td>全文检索</td>
+<td>ES 倒排、高亮、聚合</td>
+<td>搜索 RT &lt; 200ms</td>
+</tr>
+<tr>
+<td>文件存储</td>
+<td>大文件分片上传、断点续传</td>
+<td>单文件最大 2GB</td>
+</tr>
+<tr>
+<td>审计日志</td>
+<td>全量行为留痕、租户隔离</td>
+<td>异步落库不阻塞主流程</td>
+</tr>
+<tr>
+<td>用户权限</td>
+<td>RBAC + 租户隔离</td>
+<td>JWT 鉴权 &lt; 5ms</td>
+</tr>
+</tbody></table>
+<h3 id="2-3-系统边界（做什么-不做什么）"><a href="#2-3-系统边界（做什么-不做什么）" class="headerlink" title="2.3 系统边界（做什么 &#x2F; 不做什么）"></a>2.3 系统边界（做什么 &#x2F; 不做什么）</h3><ul>
+<li><strong>做</strong>：文档中台业务能力、多租户隔离、跨服务最终一致事务、协同编辑冲突合并。</li>
+<li><strong>不做</strong>：即时通讯（IM）、视频会议、OA 审批流；这些由上游系统通过 OpenAPI 接入。</li>
+</ul>
+<h3 id="2-4-非功能性约束"><a href="#2-4-非功能性约束" class="headerlink" title="2.4 非功能性约束"></a>2.4 非功能性约束</h3><ul>
+<li>可用性 ≥ 99.9%，核心读链路支持同城双活；</li>
+<li>数据一致性：金融级强一致非目标，业务最终一致 + 审计可追溯即可；</li>
+<li>可扩展性：水平扩容无状态化，分库分表承载亿级 doc_history。</li>
+</ul>
+<hr>
+<h2 id="三、架构总览"><a href="#三、架构总览" class="headerlink" title="三、架构总览"></a>三、架构总览</h2><h3 id="3-1-微服务划分图"><a href="#3-1-微服务划分图" class="headerlink" title="3.1 微服务划分图"></a>3.1 微服务划分图</h3><p>微服务划分图（含端口、Nginx、ZK 的完整拓扑）见第四节「微服务划分图」，此处不重复；模块清单见 3.2。</p>
+<h3 id="3-2-模块清单（与-pom-xml-一致）"><a href="#3-2-模块清单（与-pom-xml-一致）" class="headerlink" title="3.2 模块清单（与 pom.xml 一致）"></a>3.2 模块清单（与 pom.xml 一致）</h3><p>根 POM <code>pom.xml</code> 第 16-26 行声明 9 个子模块：</p>
+<table>
+<thead>
+<tr>
+<th>模块</th>
+<th>类型</th>
+<th>职责</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>zeus-doc-common</td>
+<td>基础库</td>
+<td>全局常量、UserContext、异常、雪花ID、布隆过滤器、TTL 包装</td>
+</tr>
+<tr>
+<td>zeus-doc-starter-draft</td>
+<td>自定义 Starter</td>
+<td>草稿防抖自动保存（Redis + debounce）</td>
+</tr>
+<tr>
+<td>zeus-doc-gateway</td>
+<td>网关</td>
+<td>统一入口、JWT 鉴权、Sentinel 限流、路由</td>
+</tr>
+<tr>
+<td>zeus-doc-service-user</td>
+<td>微服务</td>
+<td>用户、租户、角色权限（RBAC）</td>
+</tr>
+<tr>
+<td>zeus-doc-service-doc</td>
+<td>微服务</td>
+<td>文档核心：CRUD、版本、三级缓存、TCC、分库分表</td>
+</tr>
+<tr>
+<td>zeus-doc-service-collab</td>
+<td>微服务</td>
+<td>Netty WebSocket 协同、OT 合并、在线人数</td>
+</tr>
+<tr>
+<td>zeus-doc-service-search</td>
+<td>微服务</td>
+<td>ES 索引同步、全文检索、高亮</td>
+</tr>
+<tr>
+<td>zeus-doc-service-file</td>
+<td>微服务</td>
+<td>MinIO 分片上传、断点续传、秒传</td>
+</tr>
+<tr>
+<td>zeus-doc-service-audit</td>
+<td>微服务</td>
+<td>审计日志、回收站、TCC 全局编排</td>
+</tr>
+</tbody></table>
+<blockquote>
+<p>注：任务描述「6 大核心微服务」指 user &#x2F; doc &#x2F; collab &#x2F; search &#x2F; file &#x2F; audit 6 个业务服务，gateway 与 common&#x2F;starter 属基础设施。</p>
+</blockquote>
+<hr>
+<h2 id="四、微服务划分图"><a href="#四、微服务划分图" class="headerlink" title="四、微服务划分图"></a>四、微服务划分图</h2><pre class="mermaid">graph TB
+    Client[客户端&lt;br/>Web/APP/小程序]
+    Nginx[Nginx&lt;br/>负载均衡 + SSL]
+
+    subgraph Gateway[网关层]
+        GW[Spring Cloud Gateway&lt;br/>port:9000&lt;br/>路由/鉴权/限流/CORS]
+    end
+
+    subgraph Services[微服务层]
+        US[用户服务&lt;br/>zeus-doc-service-user&lt;br/>port:8001&lt;br/>JWT 鉴权]
+        DS[文档服务&lt;br/>zeus-doc-service-doc&lt;br/>port:8002&lt;br/>CRUD+三级缓存+TCC]
+        CS[协同服务&lt;br/>zeus-doc-service-collab&lt;br/>port:8003&lt;br/>Netty+OT]
+        SS[搜索服务&lt;br/>zeus-doc-service-search&lt;br/>port:8004&lt;br/>ES+Sentinel]
+        FS[文件服务&lt;br/>zeus-doc-service-file&lt;br/>port:8005&lt;br/>MinIO+零拷贝]
+        AS[审计服务&lt;br/>zeus-doc-service-audit&lt;br/>port:8006&lt;br/>ShardingSphere+TCC]
+    end
+
+    subgraph Middleware[中间件层]
+        MySQL[(MySQL 8.0&lt;br/>主库+分片库)]
+        Redis[(Redis 7&lt;br/>缓存/分布式锁)]
+        ES[(Elasticsearch 8.x&lt;br/>全文索引)]
+        MinIO[(MinIO&lt;br/>对象存储)]
+        MQ[[RocketMQ&lt;br/>消息队列]]
+        Nacos[Nacos&lt;br/>注册+配置中心]
+        Seata[Seata TC&lt;br/>事务协调器]
+        ZK[ZooKeeper&lt;br/>选举/协调]
+    end
+
+    Client --> Nginx --> GW
+    GW -->|HTTP| US
+    GW -->|HTTP| DS
+    GW -->|WebSocket| CS
+    GW -->|HTTP| SS
+    GW -->|HTTP| FS
+    GW -->|HTTP| AS
+
+    US --> MySQL &amp; Redis
+    DS --> MySQL &amp; Redis &amp; MQ
+    DS -.Feign.-> AS
+    DS -.Feign.-> SS
+    DS -.TCC.-> Seata
+    CS --> Redis &amp; ZK
+    SS --> ES &amp; Redis
+    FS --> MinIO &amp; MySQL
+    AS --> MySQL &amp; MQ
+    AS -.TCC.-> Seata
+
+    DS -.注册.-> Nacos
+    SS -.注册.-> Nacos
+    style GW fill:#ffe4b5
+    style DS fill:#e0ffff
+    style CS fill:#f0fff0
+    style Seata fill:#fff0f5</pre>
+
+<h3 id="服务职责一览"><a href="#服务职责一览" class="headerlink" title="服务职责一览"></a>服务职责一览</h3><table>
+<thead>
+<tr>
+<th>服务</th>
+<th>端口</th>
+<th>核心职责</th>
+<th>关键技术</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>用户服务 user</td>
+<td>8001</td>
+<td>登录、JWT 签发与校验、用户&#x2F;租户管理</td>
+<td>JWT、BCrypt、MyBatis-Plus</td>
+</tr>
+<tr>
+<td>文档服务 doc</td>
+<td>8002</td>
+<td>文档元数据 CRUD、版本管理、三级缓存、TCC 删除主控</td>
+<td>Caffeine、Redisson、Seata TCC、CompletableFuture</td>
+</tr>
+<tr>
+<td>协同服务 collab</td>
+<td>8003</td>
+<td>长连接、广播、OT 冲突合并、在线人数</td>
+<td>Netty、Diff-Match-Patch、WebSocket</td>
+</tr>
+<tr>
+<td>搜索服务 search</td>
+<td>8004</td>
+<td>ES 索引&#x2F;检索&#x2F;聚合、熔断降级</td>
+<td>Elasticsearch 8、Sentinel、Caffeine 兜底</td>
+</tr>
+<tr>
+<td>文件服务 file</td>
+<td>8005</td>
+<td>分片上传、秒传、零拷贝合并、签名 URL</td>
+<td>MinIO、FileChannel.transferFrom</td>
+</tr>
+<tr>
+<td>审计服务 audit</td>
+<td>8006</td>
+<td>审计日志分库分表、回收站、TCC 分支</td>
+<td>ShardingSphere-JDBC 5.x、Seata TCC</td>
+</tr>
+<tr>
+<td>网关 gateway</td>
+<td>9000</td>
+<td>路由、鉴权前置、限流、跨域</td>
+<td>Spring Cloud Gateway、Sentinel</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="五、微服务拆分说明（6-大服务职责边界）"><a href="#五、微服务拆分说明（6-大服务职责边界）" class="headerlink" title="五、微服务拆分说明（6 大服务职责边界）"></a>五、微服务拆分说明（6 大服务职责边界）</h2><h3 id="5-1-拆分原则"><a href="#5-1-拆分原则" class="headerlink" title="5.1 拆分原则"></a>5.1 拆分原则</h3><ol>
+<li><strong>领域驱动（DDD）</strong>：按业务领域而非技术分层拆分；</li>
+<li><strong>生命周期独立</strong>：每个服务可独立部署、扩容、故障隔离；</li>
+<li><strong>数据 ownership</strong>：每个服务独占自己的数据库，跨服务仅通过 RPC&#x2F;MQ 通信。</li>
+</ol>
+<h3 id="5-2-职责边界矩阵"><a href="#5-2-职责边界矩阵" class="headerlink" title="5.2 职责边界矩阵"></a>5.2 职责边界矩阵</h3><table>
+<thead>
+<tr>
+<th>服务</th>
+<th>核心领域</th>
+<th>数据所有权</th>
+<th>对外能力</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>user</td>
+<td>用户&#x2F;租户</td>
+<td>zeus_user 库</td>
+<td>登录、RBAC、租户管理</td>
+</tr>
+<tr>
+<td>doc</td>
+<td>文档聚合根</td>
+<td>zeus_doc &#x2F; zeus_doc_history_0..3 分片</td>
+<td>文档 CRUD、版本、缓存、TCC 分支</td>
+</tr>
+<tr>
+<td>collab</td>
+<td>协同会话</td>
+<td>Redis（会话态）</td>
+<td>WebSocket、OT 合并、在线广播</td>
+</tr>
+<tr>
+<td>search</td>
+<td>检索索引</td>
+<td>Elasticsearch</td>
+<td>全文检索、聚合统计</td>
+</tr>
+<tr>
+<td>file</td>
+<td>对象存储</td>
+<td>MinIO</td>
+<td>上传&#x2F;下载&#x2F;秒传&#x2F;分片</td>
+</tr>
+<tr>
+<td>audit</td>
+<td>审计&#x2F;回收站</td>
+<td>zeus_audit 分片库</td>
+<td>审计查询、回收站恢复、TCC 编排</td>
+</tr>
+</tbody></table>
+<h3 id="5-3-服务间依赖（避免循环）"><a href="#5-3-服务间依赖（避免循环）" class="headerlink" title="5.3 服务间依赖（避免循环）"></a>5.3 服务间依赖（避免循环）</h3><p>依赖方向严格单向：<code>gateway → 各业务服务</code>；<code>doc → audit</code>（Feign，TCC 分支）；<code>doc → collab</code>（协同触发）；<code>doc → search</code>（MQ 异步解耦）。审计侧 <code>DocDeleteTccFacade</code> 作为 TCC 编排方开启 <code>@GlobalTransactional</code>，doc 侧 <code>DocDeleteTccActionImpl</code> 作为分支参与同一 XID，XID 经 Feign 拦截器透传，不存在反向同步依赖。</p>
+<hr>
+<h2 id="六、技术选型决策理由"><a href="#六、技术选型决策理由" class="headerlink" title="六、技术选型决策理由"></a>六、技术选型决策理由</h2><h3 id="6-1-为什么选-MySQL-而非-MongoDB"><a href="#6-1-为什么选-MySQL-而非-MongoDB" class="headerlink" title="6.1 为什么选 MySQL 而非 MongoDB"></a>6.1 为什么选 MySQL 而非 MongoDB</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>MySQL 8.0</th>
+<th>MongoDB</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>事务能力</td>
+<td>InnoDB 强 ACID、行锁，原生 XA</td>
+<td>4.0+ 多文档事务性能差、限制多</td>
+</tr>
+<tr>
+<td>业务匹配</td>
+<td>元数据强关系（doc↔user↔share↔audit）需多表 Join 与外键约束</td>
+<td>适合 schema-free 场景；正文 JSON 字段用 MySQL JSON 类型即可承载</td>
+</tr>
+<tr>
+<td>分库分表</td>
+<td>ShardingSphere-JDBC 在 JDBC 层透明路由</td>
+<td>内置分片，但跨片事务与 Join 弱</td>
+</tr>
+<tr>
+<td>一致性</td>
+<td>文档元数据强一致要求高</td>
+<td>最终一致为主</td>
+</tr>
+<tr>
+<td>团队熟悉度</td>
+<td>DBA 成熟，主从&#x2F;备份&#x2F;监控&#x2F;慢查询工具链完善</td>
+<td>内存控制、分片平衡需额外投入</td>
+</tr>
+</tbody></table>
+<p><strong>结论：</strong> 文档元数据、审计、回收站需强事务保证（删除走 TCC 跨库），且核心数据有强关系约束（多表 Join），ShardingSphere 在 JDBC 层做分片对应用透明（<code>application-sharding.yml</code> 配置即可路由），团队掌握度高，因此选 MySQL。文档正文（Quill Delta JSON）以 TEXT 列存储，必要时可下沉到对象存储，DB 只存元数据 + 摘要，MySQL 完全胜任。MongoDB 在 schema 多变场景更优，本项目 schema 稳定，故不选。</p>
+<h3 id="6-2-为什么选-MinIO-而非-FastDFS"><a href="#6-2-为什么选-MinIO-而非-FastDFS" class="headerlink" title="6.2 为什么选 MinIO 而非 FastDFS"></a>6.2 为什么选 MinIO 而非 FastDFS</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>MinIO</th>
+<th>FastDFS</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>协议标准</td>
+<td>原生 S3 兼容，SDK 生态丰富，可无缝迁移 OSS&#x2F;S3</td>
+<td>私有协议，SDK 封闭</td>
+</tr>
+<tr>
+<td>部署运维</td>
+<td>单二进制、轻量、K8s 友好</td>
+<td>Tracker&#x2F;Storage 双角色，部署复杂</td>
+</tr>
+<tr>
+<td>签名 URL</td>
+<td>S3 Presigned URL 开箱即用，前端直传</td>
+<td>需自实现 token 机制</td>
+</tr>
+<tr>
+<td>高可用</td>
+<td>纠删码 Erasure Coding，50% 冗余即可</td>
+<td>主备复制，组间同步机制较弱</td>
+</tr>
+<tr>
+<td>活跃度</td>
+<td>持续更新（8.5.11）</td>
+<td>社区萎缩、维护停滞</td>
+</tr>
+</tbody></table>
+<p><strong>结论：</strong> 文件服务需要「前端直传 + 签名 URL + 分片上传」能力，MinIO 的 S3 兼容性让这些能力开箱即用，未来可无缝迁移 OSS&#x2F;S3。<code>ZeroCopyStorage</code>（<code>zeus-doc-service-file/.../minio/ZeroCopyStorage.java</code>）通过 <code>FileChannel.transferFrom</code> 调用 Linux sendfile 实现分片零拷贝合并，与 MinIO 配合良好。纠删码以 50% 冗余实现高可用，性价比优于三副本。</p>
+<h3 id="6-3-为什么选-Tomcat（而非-Undertow-Netty-HTTP）"><a href="#6-3-为什么选-Tomcat（而非-Undertow-Netty-HTTP）" class="headerlink" title="6.3 为什么选 Tomcat（而非 Undertow&#x2F;Netty HTTP）"></a>6.3 为什么选 Tomcat（而非 Undertow&#x2F;Netty HTTP）</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>Tomcat</th>
+<th>Undertow</th>
+<th>Netty（裸 HTTP）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Spring Boot 默认</td>
+<td>是，零配置即可用</td>
+<td>需替换 starter</td>
+<td>需自行实现 HTTP 协议栈</td>
+</tr>
+<tr>
+<td>调优模型</td>
+<td><code>max-threads/max-connections/accept-count</code> 三参数清晰（<code>application.yml:3-11</code>）</td>
+<td>参数少但调参黑盒、经验稀缺</td>
+<td>完全自定义，开发成本高</td>
+</tr>
+<tr>
+<td>监控诊断</td>
+<td>Processor 等 JMX 指标完善，jstack&#x2F;arthas 经验沉淀多</td>
+<td>指标偏少</td>
+<td>需自建监控</td>
+</tr>
+<tr>
+<td>业务匹配</td>
+<td>请求-响应短连接业务完全胜任；压测 max-threads&#x3D;200 出现 TPS 拐点，调到 500 边际收益递减</td>
+<td>性能略优但收益有限</td>
+<td>适合长连接（协同服务已用）</td>
+</tr>
+</tbody></table>
+<p><strong>结论：</strong> 文档&#x2F;搜索&#x2F;审计等 HTTP 服务用 Tomcat（Spring Boot 默认，配置见 <code>application.yml:3-11</code>），协同服务用 Netty 处理 WebSocket 长连接，各取所长、避免技术栈分裂。Tomcat 调优模型清晰、压测拐点可控（见《03-性能压测报告》）；Undertow 内存更省但调参黑盒，Netty 自建 HTTP 栈开发成本高，权衡后选 Tomcat。</p>
+<h3 id="6-4-关键中间件版本对齐（pom-xml-第-36-61-行）"><a href="#6-4-关键中间件版本对齐（pom-xml-第-36-61-行）" class="headerlink" title="6.4 关键中间件版本对齐（pom.xml 第 36-61 行）"></a>6.4 关键中间件版本对齐（pom.xml 第 36-61 行）</h3><p>Spring Cloud Alibaba 2023.0.1.0 与 Spring Boot 3.2.5 &#x2F; Spring Cloud 2023.0.1 严格对齐（2023.x 线），JDK 17。Seata 2.0.0 支持 TCC 增强，ShardingSphere 5.4.1 支持 INTERVAL 分表算法。</p>
+<hr>
+<h2 id="七、数据流转全景"><a href="#七、数据流转全景" class="headerlink" title="七、数据流转全景"></a>七、数据流转全景</h2><h3 id="7-1-文档创建主链路"><a href="#7-1-文档创建主链路" class="headerlink" title="7.1 文档创建主链路"></a>7.1 文档创建主链路</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">用户 → Gateway(JWT鉴权) → doc-service.createDoc</span><br><span class="line">  → DocMapper.insert(MySQL) → 写 Caffeine L1 + Redis L2</span><br><span class="line">  → 投递 MQ 消息(doc.created) → search-service 消费建 ES 索引</span><br><span class="line">  → audit-service 异步记录审计日志</span><br><span class="line">  → 返回 docId</span><br></pre></td></tr></table></figure>
+
+<h3 id="7-2-协同编辑链路"><a href="#7-2-协同编辑链路" class="headerlink" title="7.2 协同编辑链路"></a>7.2 协同编辑链路</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">用户A 编辑 → collab WebSocket → OtMergeEngine.applyClientEdit(serverText, base, client)</span><br><span class="line">  → patch 合并 → 广播增量 diff 给其他端 → 异步落 doc_history 分片表</span><br></pre></td></tr></table></figure>
+
+<h3 id="7-3-文档删除链路（TCC-全局事务）"><a href="#7-3-文档删除链路（TCC-全局事务）" class="headerlink" title="7.3 文档删除链路（TCC 全局事务）"></a>7.3 文档删除链路（TCC 全局事务）</h3><p>见下文第十一节时序图。审计侧 <code>DocDeleteTccFacade.executeDocDeleteAudit</code> 开启全局事务，三分支 Try：审计 PENDING、回收站 PENDING、doc 逻辑删除；全部成功 Confirm，任一失败 Cancel。</p>
+<hr>
+<h2 id="八、数据流架构图"><a href="#八、数据流架构图" class="headerlink" title="八、数据流架构图"></a>八、数据流架构图</h2><p>请求从客户端到持久层的完整链路：</p>
+<pre class="mermaid">graph LR
+    Client[客户端] --> Nginx[Nginx&lt;br/>SSL卸载+负载均衡]
+    Nginx -->|HTTP| GW[Gateway:9000&lt;br/>路由+JWT前置校验+Sentinel限流]
+    GW -->|lb://| SVC[目标微服务]
+
+    SVC -->|读| L1[L1 Caffeine&lt;br/>堆内纳秒级]
+    L1 -->|未命中| L2[L2 Redis&lt;br/>分布式毫秒级]
+    L2 -->|未命中| L3[L3 MySQL&lt;br/>持久化]
+    L2 -.互斥锁重建.-> L3
+
+    SVC -->|写| DB[(MySQL 主库)]
+    SVC -->|写后失效| L1 &amp; L2
+    SVC -->|写后发 MQ| MQ[[RocketMQ]]
+    MQ -->|异步消费| SSvc[搜索服务]
+    SSvc -->|索引| ES[(Elasticsearch)]
+    SVC -->|文件| MinIO[(MinIO)]
+    SVC -->|审计Feign| ASvc[审计服务]
+    ASvc -->|分片入库| ADB[(MySQL 分片库 ds0~3)]
+
+    SVC -.注册/配置.-> Nacos[Nacos]
+    SVC -.TCC协调.-> Seata[Seata TC]
+    SVC -.指标.-> SW[Skywalking&lt;br/>链路追踪]
+
+    style GW fill:#ffe4b5
+    style L1 fill:#e0ffff
+    style L2 fill:#fffacd
+    style L3 fill:#f0fff0
+    style MQ fill:#f5deb3</pre>
+
+<h3 id="写链路（文档更新）"><a href="#写链路（文档更新）" class="headerlink" title="写链路（文档更新）"></a>写链路（文档更新）</h3><ol>
+<li>客户端 → Nginx → Gateway（路由 + JWT 校验 + 限流）→ 文档服务</li>
+<li>文档服务更新 MySQL（<code>DocService.updateContent</code> <code>DocService.java:66</code>）</li>
+<li>失效缓存 <code>CacheService.invalidate</code>（<code>CacheService.java:138</code>）：删 L1 Caffeine + L2 Redis</li>
+<li>保存历史版本（全量&#x2F;增量补丁，<code>DocVersionService</code>）</li>
+<li>发 MQ <code>DocSyncMQProducer.sendIndex</code>（<code>DocSyncMQProducer.java:33</code>）异步同步 ES</li>
+<li>异步审计 <code>@Async(&quot;audit-executor&quot;)</code> Feign 调 audit 服务（<code>DocService.java:142</code>）</li>
+</ol>
+<h3 id="读链路（文档详情）"><a href="#读链路（文档详情）" class="headerlink" title="读链路（文档详情）"></a>读链路（文档详情）</h3><ol>
+<li>Gateway → 文档服务 <code>DocDetailService.getDetail</code>（<code>DocDetailService.java:55</code>）</li>
+<li><code>CompletableFuture.allOf</code> 并行聚合三数据源（<code>DocDetailService.java:59-86</code>）：<ul>
+<li>元数据 DB（30ms）</li>
+<li>正文三级缓存（20ms）</li>
+<li>权限列表 DB（100ms）</li>
+</ul>
+</li>
+<li>串行 150ms → 并行 50ms，提升 3 倍</li>
+</ol>
+<hr>
+<h2 id="九、多级缓存读取流程图"><a href="#九、多级缓存读取流程图" class="headerlink" title="九、多级缓存读取流程图"></a>九、多级缓存读取流程图</h2><p>三级缓存实现于 <code>zeus-doc-service-doc/src/main/java/com/zeus/doc/cache/CacheService.java</code> 的 <code>getDocContent</code> 方法（第 61-128 行）。</p>
+<pre class="mermaid">flowchart TD
+    Req[请求 getDocContent docId] --> BF{① 布隆过滤器&lt;br/>BloomFilterUtil.mightContain}
+    BF -- bit=0 不存在 --> RetNull[返回 null 防穿透]
+    BF -- 可能存在 --> Hot[记录热点计数 hotCounter++]
+    Hot --> L1{② L1 Caffeine&lt;br/>l1.getIfPresent}
+    L1 -- 命中 --> Hit1[返回 纳秒级]
+    L1 -- 未中 --> L2{③ L2 Redis&lt;br/>opsForValue.get}
+    L2 -- 命中 --> Backfill1[回填 L1 → 返回]
+    L2 -- 未中 --> Deg{热点降级?&lt;br/>shouldOnlyHitCache&lt;br/>QPS>100}
+    Deg -- 是 --> RetNull
+    Deg -- 否 --> Lock{④ SETNX 互斥锁&lt;br/>setIfAbsent lockKey 10s}
+    Lock -- 抢锁失败 --> Spin[自旋 50ms&lt;br/>重读 Redis]
+    Spin -- 有值 --> Backfill2[回填 L1 → 返回]
+    Spin -- 无值 --> RetNull2[返回 null]
+    Lock -- 抢锁成功 --> DCheck{双重检查 Redis}
+    DCheck -- 有值 --> Backfill3[回填 L1 → 返回]
+    DCheck -- 无值 --> DB[⑤ 查 L3 MySQL&lt;br/>docMapper.selectById]
+    DB -- null --> Empty[缓存空值 60s 防穿透]
+    DB -- 命中 --> TTL[随机 TTL 30min+0~5min&lt;br/>防雪崩]
+    TTL --> SetRedis[写 Redis + 回填 L1]
+    SetRedis --> Ret[返回 content]
+    Empty --> RetNull
+    DCheck --> finally[finally: redis.delete lockKey]</pre>
+
+<p><strong>关键设计要点（对应源码行号）</strong>：</p>
+<ul>
+<li>布隆过滤器拦截：<code>CacheService.java:63</code></li>
+<li>L1 Caffeine（max 1w，写后 10min 过期，开启统计）：<code>CacheService.java:43-47</code></li>
+<li>热点降级（QPS&gt;100 仅查 L1+L2 不回源）：<code>CacheService.java:87-90, 151-154</code></li>
+<li>SETNX 互斥锁防击穿：<code>CacheService.java:93-94</code></li>
+<li>双重检查：<code>CacheService.java:107-111</code></li>
+<li>空值缓存防穿透：<code>CacheService.java:116</code></li>
+<li>随机 TTL 防雪崩：<code>CacheService.java:121</code></li>
+<li>主动失效（Cache Aside + 延迟双删）：<code>CacheService.java:138-142</code></li>
+</ul>
+<hr>
+<h2 id="十、DispatcherServlet-核心处理流程图"><a href="#十、DispatcherServlet-核心处理流程图" class="headerlink" title="十、DispatcherServlet 核心处理流程图"></a>十、DispatcherServlet 核心处理流程图</h2><p>限流拦截器实现于 <code>zeus-doc-service-doc/src/main/java/com/zeus/doc/mvc/interceptor/RateLimitInterceptor.java</code>。该文件第 25-34 行注释精确描述了 DispatcherServlet.doDispatch 流程。</p>
+<pre class="mermaid">flowchart TD
+    Req[HTTP 请求到达] --> DS[DispatcherServlet.doDispatch]
+    DS --> GH[① getHandler&lt;br/>HandlerMapping 返回 HandlerExecutionChain&lt;br/>含拦截器链]
+    GH --> GHA[② getHandlerAdapter&lt;br/>RequestMappingHandlerAdapter]
+    GHA --> Pre{③ applyPreHandle&lt;br/>逆序调用 preHandle}
+    Pre --> RL["@RateLimit 拦截器 preHandle&lt;br/>RateLimitInterceptor:53&lt;br/>Redis Lua 限流"]
+    RL -- allowed=0 --> Ret429[write429 中断&lt;br/>返回 false]
+    RL -- 通过 --> Cid["@CurrentUserId 参数解析&lt;br/>HandlerMethodArgumentResolver&lt;br/>从 UserContext 注入 userId"]
+    Cid --> Handle[④ ha.handle&lt;br/>Controller 方法执行]
+    Handle --> Post[⑤ applyPostHandle&lt;br/>正序调用 postHandle]
+    Post --> RT[RateLimitInterceptor:82&lt;br/>计算 RT 慢接口告警>500ms]
+    RT --> PDR[⑥ processDispatchResult&lt;br/>render 视图/JSON]
+    PDR --> After[⑦ triggerAfterCompletion&lt;br/>逆序 afterCompletion]
+    After --> Remove[RateLimitInterceptor:97&lt;br/>START_TS.remove 防泄漏]
+    Remove --> Done[请求结束]
+    Ret429 --> After</pre>
+
+<p><strong>关键点说明</strong>：</p>
+<ol>
+<li><strong>拦截位置</strong>：<code>@RateLimit</code> 在 <code>applyPreHandle</code> 阶段执行（<code>RateLimitInterceptor.java:53</code>），早于 Controller 方法。限流 key &#x3D; 接口 + userId&#x2F;IP（<code>RateLimitInterceptor.java:69</code>），避免单用户刷爆全局限流。</li>
+<li><strong>限流算法</strong>：Redis Lua 脚本原子执行 <code>incr + expire</code>（固定窗口），<code>DefaultRedisScript</code> 注入保证原子性。</li>
+<li><strong><code>@CurrentUserId</code> 解析器</strong>：在 <code>getHandlerAdapter</code> 后、<code>handle</code> 前由 <code>HandlerMethodArgumentResolver</code> 解析参数，从 <code>UserContext.currentUserId()</code> 取值注入。</li>
+<li><strong>ThreadLocal 清理</strong>：<code>START_TS</code> 必须在 <code>afterCompletion</code> remove（<code>RateLimitInterceptor.java:97</code>），否则线程池线程复用导致内存泄漏（详见《05-JVM 调优报告》ThreadLocal 泄漏章节）。</li>
+<li><strong>中断语义</strong>：<code>preHandle</code> 返回 false 时 <code>postHandle</code> 不执行，但 <code>afterCompletion</code> 仍对已通过 preHandle 的拦截器执行（清理资源）。</li>
+</ol>
+<hr>
+<h2 id="十一、Seata-TCC-事务两阶段提交时序图"><a href="#十一、Seata-TCC-事务两阶段提交时序图" class="headerlink" title="十一、Seata TCC 事务两阶段提交时序图"></a>十一、Seata TCC 事务两阶段提交时序图</h2><p>TCC 实现分布于两个服务：</p>
+<ul>
+<li>编排方（TM）：<code>zeus-doc-service-audit/src/main/java/com/zeus/audit/tcc/DocDeleteTccFacade.java</code>（<code>@GlobalTransactional</code> 第 53 行）</li>
+<li>文档分支（RM1）：<code>zeus-doc-service-doc/src/main/java/com/zeus/doc/tcc/DocDeleteTccActionImpl.java</code></li>
+</ul>
+<pre class="mermaid">sequenceDiagram
+    autonumber
+    participant TM as 业务发起方&lt;br/>DocDeleteTccFacade&lt;br/>@GlobalTransactional
+    participant TC as Seata TC&lt;br/>事务协调器
+    participant RM1 as RM1 Doc 服务&lt;br/>DocDeleteTccActionImpl
+    participant RM2 as RM2 RecycleBin&lt;br/>回收站分支
+    participant RM3 as RM3 Audit&lt;br/>审计日志分支
+
+    TM->>TC: 开启全局事务 GlobalBegin
+    TC-->>TM: 返回 XID
+    Note over TM,RM3: 一阶段 Try（资源预留/业务执行）
+    TM->>RM3: prepare(audit) 插审计 PENDING
+    RM3->>TC: 注册分支 + Try 上报
+    TC-->>RM3: branchId
+    TM->>RM2: prepare(recycle) 插回收站 PENDING
+    RM2->>TC: 注册分支 + Try 上报
+    TC-->>RM2: branchId
+    TM->>RM1: prepare(docId) 逻辑删除 doc&lt;br/>Feign 透传 XID
+    RM1->>RM1: docMapper.logicDelete&lt;br/>+ Feign 调 audit recycleBinPrepare/auditPrepare
+    RM1->>TC: 注册分支 + Try 上报
+    TC-->>RM1: branchId
+
+    alt 全部 Try 成功
+        TM->>TC: GlobalCommit
+        TC->>RM3: Confirm(auditConfirm) 审计状态→SUCCESS
+        RM3-->>TC: Confirm 完成（幂等）
+        TC->>RM2: Confirm(recycleBinConfirm) 回收站确认
+        RM2-->>TC: Confirm 完成（幂等）
+        TC->>RM1: Confirm(auditConfirm via Feign) 幂等确认
+        RM1-->>TC: Confirm 完成
+        TC-->>TM: 全局事务提交成功
+    else 任一 Try 失败
+        TM->>TC: GlobalRollback
+        TC->>RM1: Cancel docMapper.restore 恢复文档
+        RM1-->>TC: Cancel 完成（幂等）
+        TC->>RM2: Cancel recycleBinCancel 删除预记录
+        RM2-->>TC: Cancel 完成
+        TC->>RM3: Cancel auditCancel 取消审计
+        RM3-->>TC: Cancel 完成
+        TC-->>TM: 全局回滚完成（最终一致）
+    end</pre>
+
+<h3 id="11-1-TCC-三大坑与防御（DocDeleteTccActionImpl-java-14-20-注释）"><a href="#11-1-TCC-三大坑与防御（DocDeleteTccActionImpl-java-14-20-注释）" class="headerlink" title="11.1 TCC 三大坑与防御（DocDeleteTccActionImpl.java:14-20 注释）"></a>11.1 TCC 三大坑与防御（DocDeleteTccActionImpl.java:14-20 注释）</h3><table>
+<thead>
+<tr>
+<th>坑</th>
+<th>场景</th>
+<th>防御方案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>幂等</td>
+<td>Confirm&#x2F;Cancel 重试</td>
+<td>xid+branchId 记录状态，已执行直接 return</td>
+</tr>
+<tr>
+<td>空回滚</td>
+<td>Try 超时未执行但 Cancel 调用</td>
+<td>检测 Try 是否执行过，未执行则 return</td>
+</tr>
+<tr>
+<td>悬挂</td>
+<td>Cancel 先于 Try（网络延迟）</td>
+<td>Try 前检查是否已 Cancel，已 Cancel 拒绝 Try</td>
+</tr>
+</tbody></table>
+<h3 id="11-2-为什么选-TCC-而非-AT"><a href="#11-2-为什么选-TCC-而非-AT" class="headerlink" title="11.2 为什么选 TCC 而非 AT"></a>11.2 为什么选 TCC 而非 AT</h3><p>审计表跨库分片 + 回收站单表 + 文档库，涉及异构存储与高并发写。AT 模式依赖 <code>undo_log</code> 全局锁，并发写性能差；TCC 业务层控制资源冻结（PENDING 状态），无全局锁性能更优。见 <code>DocDeleteTccFacade.java:30-34</code> 注释。</p>
+<h3 id="11-3-关键代码定位"><a href="#11-3-关键代码定位" class="headerlink" title="11.3 关键代码定位"></a>11.3 关键代码定位</h3><ul>
+<li>全局事务开启：<code>DocDeleteTccFacade.java:53</code> <code>@GlobalTransactional(timeoutMills = 60000, name = &quot;zeus-doc-delete-audit-tx&quot;)</code></li>
+<li>Try 三分支编排：<code>DocDeleteTccFacade.java:70, 83, 89</code></li>
+<li>Doc 分支 Try：<code>DocDeleteTccActionImpl.java:32-46</code>（逻辑删除 + Feign 调 audit 预记录）</li>
+<li>Confirm：<code>DocDeleteTccActionImpl.java:49-55</code>（幂等确认审计状态）</li>
+<li>Cancel：<code>DocDeleteTccActionImpl.java:58-67</code>（restore 恢复 + 删除预记录）</li>
+</ul>
+<hr>
+<h2 id="十二、模块依赖与公共组件"><a href="#十二、模块依赖与公共组件" class="headerlink" title="十二、模块依赖与公共组件"></a>十二、模块依赖与公共组件</h2><pre class="mermaid">graph LR
+    subgraph Common[zeus-doc-common]
+        UC[UserContext 上下文]
+        JU[JwtUtil]
+        BF[BloomFilterUtil]
+        SL[SnowflakeIdUtil]
+        GEH[GlobalExceptionHandler]
+        CUID2[CurrentUserIdArgumentResolver]
+        RL2[RateLimit 注解]
+    end
+
+    subgraph Starter[zeus-doc-starter-draft]
+        DS2[DraftAutoConfiguration&lt;br/>草稿 TTL+防抖]
+    end
+
+    US[用户服务] --> Common
+    DS3[文档服务] --> Common
+    DS3 --> Starter
+    CS2[协同服务] --> Common
+    SS2[搜索服务] --> Common
+    FS2[文件服务] --> Common
+    AS2[审计服务] --> Common
+
+    style Common fill:#e0ffff
+    style Starter fill:#fffacd</pre>
+
+<p>公共模块沉淀通用能力：JWT 工具、雪花 ID、布隆过滤器、用户上下文（ThreadLocal + TTL 包装）、全局异常处理、参数解析器、限流注解等，避免各服务重复造轮子。</p>
+<hr>
+<h2 id="十三、高可用与容灾"><a href="#十三、高可用与容灾" class="headerlink" title="十三、高可用与容灾"></a>十三、高可用与容灾</h2><h3 id="13-1-无状态化"><a href="#13-1-无状态化" class="headerlink" title="13.1 无状态化"></a>13.1 无状态化</h3><p>业务服务（user&#x2F;doc&#x2F;collab&#x2F;search&#x2F;file&#x2F;audit）无本地会话状态，会话存 Redis，支持 K8s 水平扩缩容。collab 的 WebSocket 会话通过一致性哈希路由 + Redis pub&#x2F;sub 跨节点广播。</p>
+<h3 id="13-2-限流降级三道防线"><a href="#13-2-限流降级三道防线" class="headerlink" title="13.2 限流降级三道防线"></a>13.2 限流降级三道防线</h3><ol>
+<li><strong>Gateway 全局限流</strong>：Sentinel 集群限流，挡住异常流量；</li>
+<li><strong>接口级限流</strong>：<code>@RateLimit</code> 注解 + Redis Lua（<code>RateLimitInterceptor</code>）；</li>
+<li><strong>热点降级</strong>：QPS&gt;100 的热点文档仅查 L1+L2 不回源 DB（<code>CacheService.shouldOnlyHitCache</code>）。</li>
+</ol>
+<h3 id="13-3-优雅关闭"><a href="#13-3-优雅关闭" class="headerlink" title="13.3 优雅关闭"></a>13.3 优雅关闭</h3><p>线程池配置 <code>setWaitForTasksToCompleteOnShutdown(true)</code> + <code>awaitTerminationSeconds=30</code>（<code>ThreadPoolConfig.java:100-101</code>），Spring Boot 优雅停机 + K8s preStop hook 等待 30s 处理完在途请求。</p>
+<hr>
+<h2 id="十四、非功能性设计"><a href="#十四、非功能性设计" class="headerlink" title="十四、非功能性设计"></a>十四、非功能性设计</h2><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>方案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>高可用</td>
+<td>服务多副本 + Nacos 注册；MySQL 主从；Redis 哨兵&#x2F;集群；ES 多分片副本；MinIO 纠删码</td>
+</tr>
+<tr>
+<td>可扩展</td>
+<td>垂直按业务拆服务；水平按租户&#x2F;数据分片；doc_history 按 doc_id%4 分库 + 按月分表</td>
+</tr>
+<tr>
+<td>一致性</td>
+<td>强一致：MySQL 事务 + Seata TCC；最终一致：MQ 同步 ES + 缓存延迟双删</td>
+</tr>
+<tr>
+<td>可观测</td>
+<td>Skywalking 全链路追踪；traceId 透传（<code>logging.pattern.level</code>）；Prometheus + Grafana 指标</td>
+</tr>
+<tr>
+<td>安全</td>
+<td>网关 JWT 前置校验 + 请求头透传用户 ID；接口限流；审计日志全量留痕；文件签名 URL</td>
+</tr>
+<tr>
+<td>容错</td>
+<td>Sentinel 熔断降级 + 本地兜底缓存；Hystrix&#x2F;Fallback；RocketMQ 重试 + 死信队列</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="十五、部署拓扑"><a href="#十五、部署拓扑" class="headerlink" title="十五、部署拓扑"></a>十五、部署拓扑</h2><blockquote>
+<p>注：部署拓扑以本节约十五为准。本节合并了「K8s 集群视图」与「本地全功能模式（v4，与 docker-compose 对齐）」两份拓扑，二者为同一系统的不同部署形态，信息取并集。</p>
+</blockquote>
+<h3 id="K8s-集群视图"><a href="#K8s-集群视图" class="headerlink" title="K8s 集群视图"></a>K8s 集群视图</h3><pre class="mermaid">graph TB
+    subgraph LB[负载均衡层]
+        N[Nginx 主备]
+    end
+    subgraph K8s[K8s 集群 / 多机房]
+        GW1[Gateway x2]
+        US1[user x2]
+        DS1[doc x3]
+        CS1[collab x2]
+        SS1[search x2]
+        FS1[file x2]
+        AS1[audit x2]
+    end
+    subgraph Data[数据层]
+        MY[(MySQL 主从&lt;br/>+ 4 分片库)]
+        RD[(Redis 集群)]
+        ES2[(ES 集群 3 节点)]
+        MN[(MinIO 集群)]
+        MQ2[(RocketMQ&lt;br/>NameSrv+Broker)]
+    end
+    subgraph Ops[治理层]
+        NC[Nacos 集群]
+        ST[Seata TC]
+        SW2[Skywalking]
+        SD[Sentinel Dashboard]
+    end
+    N --> GW1
+    GW1 --> US1 &amp; DS1 &amp; CS1 &amp; SS1 &amp; FS1 &amp; AS1
+    US1 &amp; DS1 &amp; CS1 &amp; SS1 &amp; FS1 &amp; AS1 --> Data
+    DS1 &amp; AS1 -.TCC.-> ST
+    allSvcs[所有服务] -.注册/配置.-> NC
+    style N fill:#ffe4b5
+    style MY fill:#f0fff0</pre>
+
+<h3 id="本地全功能模式（v4，与-docker-compose-对齐）"><a href="#本地全功能模式（v4，与-docker-compose-对齐）" class="headerlink" title="本地全功能模式（v4，与 docker-compose 对齐）"></a>本地全功能模式（v4，与 docker-compose 对齐）</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line">                           ┌─────────────┐</span><br><span class="line">    浏览器 ────────────────▶│   Nginx     │ (可选, WebSocket 反代)</span><br><span class="line">                           └──────┬──────┘</span><br><span class="line">                                  ▼</span><br><span class="line">                           ┌─────────────┐</span><br><span class="line">                           │  Gateway    │ 9000 (JWT 鉴权 + TraceId)</span><br><span class="line">                           └──────┬──────┘</span><br><span class="line">     ┌──────────┬──────────┬──────┼──────┬──────────┬──────────┐</span><br><span class="line">     ▼          ▼          ▼      ▼      ▼          ▼          ▼</span><br><span class="line">user(9001)  doc(9002)  collab(9003) search(9004) file(9005) audit(9006)</span><br><span class="line"> JWT/登录    CRUD/缓存    Netty/OT    ES/熔断    MinIO/分片  审计/分表</span><br><span class="line">     │          │          │          │          │          │</span><br><span class="line">     └──────────┴──────┬───┴────┬─────┴──────┬───┴──────┬───┘</span><br><span class="line">                       ▼        ▼            ▼          ▼</span><br><span class="line">                 MySQL 主从    Redis      Nacos      RocketMQ</span><br><span class="line">                 (3306/3307)  (6379)     (8848)      (9876)</span><br><span class="line">                       │                                  │</span><br><span class="line">                       ▼                                  ▼</span><br><span class="line">                  ES 8.x (9200)                    MinIO (9000/9001)</span><br><span class="line">                       │</span><br><span class="line">                       ▼</span><br><span class="line">           Seata(8091) Sentinel(8858) ZK(2182) SkyWalking(11800/12800)</span><br><span class="line">                       │</span><br><span class="line">                       ▼</span><br><span class="line">       压测监控栈: InfluxDB(8086) Prometheus(9090) Grafana(3000) node-exporter(9100)</span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p>注：本地全功能模式下 MinIO 宿主映射 9000&#x2F;9001 与 Gateway(9000)&#x2F;User(9001) 冲突，需调整 MinIO 宿主端口；K8s 环境无此冲突（端口体系不同：8001-8006）。</p>
+</blockquote>
+<p><strong>新增组件说明（v4）</strong>：</p>
+<ol>
+<li><strong>mysql-slave（3307）</strong>：GTID 主从复制，file 服务 <code>@ReadOnly</code> 读操作路由从库（AbstractRoutingDataSource）；</li>
+<li><strong>压测监控栈</strong>：JMeter → InfluxDB（结果时序），微服务 &#x2F;actuator&#x2F;prometheus → Prometheus → Grafana 三面板；</li>
+<li>全部 15 个中间件由 <code>deploy/docker/docker-compose.yml</code> 一键编排。</li>
+</ol>
+<h2 id="十六、架构决策记录（ADR-摘要）"><a href="#十六、架构决策记录（ADR-摘要）" class="headerlink" title="十六、架构决策记录（ADR 摘要）"></a>十六、架构决策记录（ADR 摘要）</h2><table>
+<thead>
+<tr>
+<th>编号</th>
+<th>决策</th>
+<th>理由</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>ADR-01</td>
+<td>Caffeine + Redis + MySQL 三级缓存</td>
+<td>兼顾纳秒级响应与分布式一致性</td>
+</tr>
+<tr>
+<td>ADR-02</td>
+<td>ShardingSphere-JDBC 而非 Proxy</td>
+<td>无中间代理层，延迟低，部署简单</td>
+</tr>
+<tr>
+<td>ADR-03</td>
+<td>TCC 而非 AT 跨库事务</td>
+<td>高并发写无全局锁，性能优</td>
+</tr>
+<tr>
+<td>ADR-04</td>
+<td>OT 用 Diff-Match-Patch 而非严格 Jupiter</td>
+<td>工程复杂度低，满足轻量协同</td>
+</tr>
+<tr>
+<td>ADR-05</td>
+<td>线程池隔离 4 池</td>
+<td>故障隔离，避免雪崩传染</td>
+</tr>
+<tr>
+<td>ADR-06</td>
+<td>TTL 传递上下文</td>
+<td>解决线程池跨线程 UserContext 丢失</td>
+</tr>
+</tbody></table>
+<hr>
+<p>本架构文档为 Zeus-Doc 顶层设计基线，后续演进请同步更新对应 ADR。数据库分片细节见《02-数据库设计》，性能数据见《03-性能压测报告》。</p>
+<hr>
+<p><em>文档完。代码行号基于当前仓库实现，后续重构请同步更新。</em></p>
+<hr>
+<h2 id="系列导航"><a href="#系列导航" class="headerlink" title="系列导航"></a>系列导航</h2><p>本文属于《项目实战》系列，系列入口见 <a href="/docs/nav/5964f4da.html">项目实战导航</a>，配套体系见 <a href="/post/720ca998.html">Java 后端面试导航</a> 与 <a href="/docs/">博客导航</a>。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -1380,14 +2221,14 @@
         <i class="far fa-file-word"></i>
       </span>
       <span class="post-meta-item-text">Word count in article: </span>
-      <span>7k</span>
+      <span>6.9k</span>
     </span>
     <span class="post-meta-item" title="Reading time">
       <span class="post-meta-item-icon">
         <i class="far fa-clock"></i>
       </span>
       <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>26 mins.</span>
+      <span>25 mins.</span>
     </span>
 </div>
 
@@ -1405,27 +2246,6 @@
 <li>每个阶段包含：学习目标 → 核心知识点 → 实现步骤 → 参考文件 → 常见坑点 → 验收标准</li>
 <li>参考文件路径均相对于项目根目录 <code>zeus-doc/</code></li>
 <li>建议按 Phase 顺序实现，后期模块依赖前期模块</li>
-</ul>
-<hr>
-<h2 id="目录"><a href="#目录" class="headerlink" title="目录"></a>目录</h2><ul>
-<li><a href="#phase-0-%E7%8E%AF%E5%A2%83%E5%87%86%E5%A4%87">Phase 0: 环境准备</a></li>
-<li><a href="#phase-1-%E9%A1%B9%E7%9B%AE%E9%AA%A8%E6%9E%B6%E4%B8%8E%E7%88%B6-pom">Phase 1: 项目骨架与父 POM</a></li>
-<li><a href="#phase-2-%E5%85%AC%E5%85%B1%E6%A8%A1%E5%9D%97-common">Phase 2: 公共模块 common</a></li>
-<li><a href="#phase-3-%E8%87%AA%E5%AE%9A%E4%B9%89-starter">Phase 3: 自定义 Starter</a></li>
-<li><a href="#phase-4-%E7%BD%91%E5%85%B3-gateway">Phase 4: 网关 Gateway</a></li>
-<li><a href="#phase-5-%E7%94%A8%E6%88%B7%E6%9C%8D%E5%8A%A1">Phase 5: 用户服务</a></li>
-<li><a href="#phase-6-%E6%96%87%E6%A1%A3%E6%9C%8D%E5%8A%A1%E6%A0%B8%E5%BF%83%E6%9C%80%E5%A4%A7%E6%A8%A1%E5%9D%97">Phase 6: 文档服务核心（最大模块）</a></li>
-<li><a href="#phase-7-%E5%8D%8F%E5%90%8C%E6%9C%8D%E5%8A%A1">Phase 7: 协同服务</a></li>
-<li><a href="#phase-8-%E6%90%9C%E7%B4%A2%E6%9C%8D%E5%8A%A1">Phase 8: 搜索服务</a></li>
-<li><a href="#phase-9-%E6%96%87%E4%BB%B6%E6%9C%8D%E5%8A%A1">Phase 9: 文件服务</a></li>
-<li><a href="#phase-10-%E5%AE%A1%E8%AE%A1%E6%9C%8D%E5%8A%A1">Phase 10: 审计服务</a></li>
-<li><a href="#phase-11-%E5%89%8D%E7%AB%AF-4-%E6%A0%B8%E5%BF%83%E9%A1%B5">Phase 11: 前端 4 核心页</a></li>
-<li><a href="#phase-12-%E9%83%A8%E7%BD%B2%E4%B8%8E%E5%8E%8B%E6%B5%8B">Phase 12: 部署与压测</a></li>
-<li><a href="#phase-13-%E4%B8%BB%E4%BB%8E%E5%A4%8D%E5%88%B6--%E8%AF%BB%E5%86%99%E5%88%86%E7%A6%BB%E5%A4%A7%E7%BA%B2%E6%A1%88%E4%BE%8B8%E9%9D%A2%E8%AF%95%E9%87%8D%E7%82%B9">Phase 13: 主从复制 + 读写分离（大纲案例8，面试重点）</a></li>
-<li><a href="#phase-14-mq-%E6%AD%BB%E4%BF%A1--%E5%BB%B6%E8%BF%9F--%E9%A1%BA%E5%BA%8F%E6%B6%88%E6%81%AF">Phase 14: MQ 死信 &#x2F; 延迟 &#x2F; 顺序消息</a></li>
-<li><a href="#phase-15-%E5%8E%8B%E6%B5%8B%E7%9B%91%E6%8E%A7%E5%B9%B3%E5%8F%B0%E5%A4%A7%E7%BA%B2%E6%A1%88%E4%BE%8B4">Phase 15: 压测监控平台（大纲案例4）</a></li>
-<li><a href="#%E9%99%84%E5%BD%95-a-%E7%BC%96%E8%AF%91%E6%8E%92%E5%9D%91%E5%85%A8%E8%AE%B0%E5%BD%95">附录 A: 编译排坑全记录</a></li>
-<li><a href="#%E9%99%84%E5%BD%95-b-%E9%9D%A2%E8%AF%95-16-%E9%97%AE%E6%98%A0%E5%B0%84">附录 B: 面试 16 问映射</a></li>
 </ul>
 <hr>
 <h2 id="Phase-0-环境准备"><a href="#Phase-0-环境准备" class="headerlink" title="Phase 0: 环境准备"></a>Phase 0: 环境准备</h2><h3 id="学习目标"><a href="#学习目标" class="headerlink" title="学习目标"></a>学习目标</h3><p>搭建完整的开发环境，确保所有中间件可用。</p>
@@ -2938,650 +3758,6 @@
 <li>要点：先明确需求与量级（QPS、数据量）→ 画核心流程 → 分模块设计 → 谈瓶颈与取舍。秒杀：本地限流 + MQ 削峰 + Redis 预扣库存 + 数据库扣减兜底防超卖；短链：发号器 + 62 进制编码 + 布隆过滤器防轰炸；Feed 流：推&#x2F;拉&#x2F;混合模式与冷热数据分层；订单超时：延迟队列 &#x2F; Redis 过期监听 &#x2F; 时间轮。</li>
 <li>详见：<a href="/post/53a2d197.html">系统设计方法论</a> 第 6 节 + 附录 42 道真题</li>
 </ul>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/f940e053.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="知行栈">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | 知行栈">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/f940e053.html" class="post-title-link" itemprop="url">认知与分析能力指南</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-
-      <time title="Created: 2026-08-05 19:15:41" itemprop="dateCreated datePublished" datetime="2026-08-05T19:15:41+08:00">2026-08-05</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">In</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/%E8%AE%A4%E7%9F%A5%E4%B8%8E%E5%88%86%E6%9E%90%E8%83%BD%E5%8A%9B/" itemprop="url" rel="index"><span itemprop="name">认知与分析能力</span></a>
-        </span>
-    </span>
-
-  
-    <span class="post-meta-break"></span>
-    <span class="post-meta-item" title="Word count in article">
-      <span class="post-meta-item-icon">
-        <i class="far fa-file-word"></i>
-      </span>
-      <span class="post-meta-item-text">Word count in article: </span>
-      <span>5.8k</span>
-    </span>
-    <span class="post-meta-item" title="Reading time">
-      <span class="post-meta-item-icon">
-        <i class="far fa-clock"></i>
-      </span>
-      <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>21 mins.</span>
-    </span>
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <blockquote>
-<p>一套只为提升认知与分析能力设计的阅读与训练系统。全部书目按一条准绳过滤——<strong>这本书是否直接提升我的认知或分析能力</strong>？对目标贡献微乎其微的书，一律排除。</p>
-<p><strong>定位：长期伴行轨道</strong>。与博客工作线（<a href="/post/720ca998.html">Java 后端面试导航</a> + <a href="/docs/nav/5964f4da.html">项目实战导航</a>，硬期限 2027-05）并存：<strong>工作线冲突时，本系统无条件让路</strong>——认知提升不设硬期限，跨度可延长（见《决战 2027.05》取舍 4）。</p>
-<p><strong>标准节奏</strong>：每天45分钟 × 每周5天 × 6个月走完主线（6本书 × 3个模块），之后按兴趣进入进阶书单。<br><strong>伴行节奏</strong>：每天30-45分钟 × 每周3-5天；2027-05 前只要求”跑起来 + 完成 M1（认知地基）”，M2&#x2F;M3 顺延投递后加码。每个模块结束过一次检查点（时间可顺延，验收标准不变）。</p>
-</blockquote>
-<hr>
-<h2 id="一、系统是什么"><a href="#一、系统是什么" class="headerlink" title="一、系统是什么"></a>一、系统是什么</h2><p>三个模块按”能力”组织，而不是按学科或品味：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">M1 认知地基（第1-6周）     系统之美 → 思考，快与慢</span><br><span class="line">M2 量化与博弈（第7-12周）  概率论基础教程 Ch.1-3 → 策略思维</span><br><span class="line">M3 实战收网（第13-24周）   资治通鉴精选8篇 → 毛泽东选集5篇</span><br><span class="line">检查点 CP1-CP3 逐模块把关</span><br></pre></td></tr></table></figure>
-
-<ul>
-<li><strong>M1 认知地基</strong>：装两件最通用的元工具——看结构（系统）与看自己（认知偏差）</li>
-<li><strong>M2 量化与博弈</strong>：装两件进阶工具——算不确定性（概率&#x2F;贝叶斯）与算互动（博弈论）</li>
-<li><strong>M3 实战收网</strong>：在千年真实案例上练手（通鉴），再用方法论收口（毛选）</li>
-</ul>
-<p><strong>四条铁律：</strong></p>
-<ol>
-<li>主线优先——只完成主线6本，系统就成立；进阶书单是加分项，读不读随你。</li>
-<li>顺序固定——先装元工具，再装进阶工具，最后实战。上一模块检查点不过关，不进下一模块。</li>
-<li>允许延期，不允许跳过——这是系统唯一的纪律。<strong>时间弹性是本系统的正式设计</strong>：伴行节奏下，24 周主线可拉长至 40+ 周，跨度延长不算违约。</li>
-<li>工作线优先——与工作线（Java 面试 + 项目实战，2027-05 截止）冲突时让路，不因暂停而内疚；2027-05 前达标线 &#x3D; M1 完成 + 系统在跑。</li>
-</ol>
-<hr>
-<h2 id="二、运行规则"><a href="#二、运行规则" class="headerlink" title="二、运行规则"></a>二、运行规则</h2><h3 id="每日模板"><a href="#每日模板" class="headerlink" title="每日模板"></a>每日模板</h3><table>
-<thead>
-<tr>
-<th>时段</th>
-<th>时间</th>
-<th>动作</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>0-5分钟</td>
-<td>复习</td>
-<td>翻昨天写的卡片1张（每张卡按 1天&#x2F;3天&#x2F;7天&#x2F;30天 各重看一次）</td>
-</tr>
-<tr>
-<td>5-X分钟</td>
-<td>阅读</td>
-<td>标准版40分钟：大众书40-50页 &#x2F; 经典与教材15-20页；伴行版25分钟，配额减半</td>
-</tr>
-<tr>
-<td>最后5分钟</td>
-<td>输出</td>
-<td>写1张概念卡 + 睡前补一句”今天读到的概念解释了____”</td>
-</tr>
-</tbody></table>
-<h3 id="每周节奏"><a href="#每周节奏" class="headerlink" title="每周节奏"></a>每周节奏</h3><ul>
-<li>标准版读5天；伴行版读3-4天（工作线忙的周读2天也合格——跨度可延长，不设每周最低天数）；周六30分钟周复习（重读本周卡片，归档进”我的工具箱”）；周日彻底休息——<strong>休息日是系统的一部分，不许愧疚</strong>。</li>
-</ul>
-<h3 id="每月复盘"><a href="#每月复盘" class="headerlink" title="每月复盘"></a>每月复盘</h3><ol>
-<li>这个月读完了什么？（对照检查点表）</li>
-<li>哪个概念最震撼我？</li>
-<li>我实际调用了哪个工具？（没调用&#x3D;下月刻意调用一次）</li>
-<li>下月目标是什么？</li>
-</ol>
-<h3 id="每本书的”读前仪式”"><a href="#每本书的”读前仪式”" class="headerlink" title="每本书的”读前仪式”"></a>每本书的”读前仪式”</h3><p>打开该书阅读指南 → 荧光笔标出必读&#x2F;跳读章节 → 把毕业动作抄到书首页 → 开始读。<strong>每本书你都知道读到哪、跳过哪、最后交出什么。</strong></p>
-<h3 id="预习机制"><a href="#预习机制" class="headerlink" title="预习机制"></a>预习机制</h3><p>通读一遍第五章《底层原理速成库》全部17张卡。带着”要解决的原理问题”去读书，效率翻倍。</p>
-<hr>
-<h2 id="三、主线阅读路径"><a href="#三、主线阅读路径" class="headerlink" title="三、主线阅读路径"></a>三、主线阅读路径</h2><blockquote>
-<p><strong>伴行节奏下的里程碑</strong>：2027-05（投递）前只要求完成 M1（认知地基，伴行版约 8-12 周）；M2（量化与博弈）与 M3（实战收网）顺延投递后加码。投递前每周 2-3h 零散时间即可维持系统运行。</p>
-</blockquote>
-<table>
-<thead>
-<tr>
-<th>模块</th>
-<th>阶段</th>
-<th>书目</th>
-<th>核心工具</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>M1 认知地基</td>
-<td>第1-6周</td>
-<td>《系统之美》→《思考，快与慢》</td>
-<td>看结构、看自己（认知偏差）</td>
-</tr>
-<tr>
-<td>M2 量化与博弈</td>
-<td>第7-12周</td>
-<td>《概率论基础教程》Ch.1-3 →《策略思维》</td>
-<td>算不确定性（概率&#x2F;贝叶斯）、算互动（博弈论）</td>
-</tr>
-<tr>
-<td>M3 实战收网</td>
-<td>第13-24周</td>
-<td>《资治通鉴》精选20篇 →《毛泽东选集》5篇</td>
-<td>真实案例练手、方法论收口</td>
-</tr>
-</tbody></table>
-<h3 id="M1-认知地基"><a href="#M1-认知地基" class="headerlink" title="M1 认知地基"></a>M1 认知地基</h3><table>
-<thead>
-<tr>
-<th>书目</th>
-<th>周期</th>
-<th>定位</th>
-<th>怎么读</th>
-<th>核心概念</th>
-<th>毕业动作</th>
-<th>常见坑</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>《系统之美》（梅多斯，浙江人民出版社&#x2F;湛庐文化，约200页）</td>
-<td>2周</td>
-<td>结构性显微镜——看清事件背后的存量、流量与反馈回路，分析能力的元技能</td>
-<td>全书通读精读，每读一章画一张图；必读全书12章（重点 Ch.1-6、Ch.7、Ch.10-11），Ch.12 可快读，例子扫读</td>
-<td>存量与流量、增强回路、调节回路、延迟、系统陷阱、杠杆点</td>
-<td>画出3张真实反馈回路图（如”熬夜↔状态↔效率”恶性循环）并标出打断点</td>
-<td>只记术语不画图——画不出图&#x3D;没读</td>
-</tr>
-<tr>
-<td>《思考，快与慢》（卡尼曼，中信出版社，约650页）</td>
-<td>4周</td>
-<td>认知矫正镜——人脑出厂设置的 bug 清单，认知类第一书</td>
-<td>泛读+精读混合，40-50页&#x2F;天；必读 Part1&#x2F;2&#x2F;4&#x2F;5，Part3 只扫每章”要点”，附录跳过</td>
-<td>系统1&#x2F;2、锚定效应、可得性偏差、损失厌恶、框架效应、规划谬误、峰终定律</td>
-<td>列出10个”我上过当”的偏差案例（每个1行：场景+偏差名称）</td>
-<td>当励志书读——每个案例必须对号入座</td>
-</tr>
-</tbody></table>
-<h3 id="M2-量化与博弈"><a href="#M2-量化与博弈" class="headerlink" title="M2 量化与博弈"></a>M2 量化与博弈</h3><table>
-<thead>
-<tr>
-<th>书目</th>
-<th>周期</th>
-<th>定位</th>
-<th>怎么读</th>
-<th>核心概念</th>
-<th>毕业动作</th>
-<th>常见坑</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>《概率论基础教程》只读Ch.1-3（Ross，机械工业出版社）</td>
-<td>2周</td>
-<td>不确定性罗盘——把”运气&#x2F;实力”分开的数学语言，判断力的底层</td>
-<td>Ch.1 快速翻过（概率的语言），Ch.2-3 精读（条件概率、全概率、贝叶斯公式）；每节做3-5道奇数号基础题（每题限5分钟，做不出就看答案）；Ch.4 以后全部跳过</td>
-<td>概率空间、条件概率、<strong>贝叶斯公式</strong></td>
-<td>用贝叶斯公式算”体检阳性≠患病”（发病率1%、假阳性率5%），写1页计算过程+结论</td>
-<td>①贪心读全本（读1&#x2F;4比读全本有效）；②完全不做题</td>
-</tr>
-<tr>
-<td>《策略思维》（迪克西特、奈尔伯夫，中国人民大学出版社，约380页）</td>
-<td>4周</td>
-<td>互动推算器——预判别人的预判，分析他人行为与组织博弈的核心工具</td>
-<td>通读+每章1个现实例子（同事博弈、家庭谈判都算）；必读全书1-12章，附录数学推导全部跳过</td>
-<td>纳什均衡、占优策略、囚徒困境、可信承诺与威胁、讨价还价、BATNA</td>
-<td>分析一次真实人际博弈，写出双方”支付矩阵”和你的最优策略（1页纸）</td>
-<td>陷进博弈数学——价值在识别博弈结构，不在解方程</td>
-</tr>
-</tbody></table>
-<h3 id="M3-实战收网"><a href="#M3-实战收网" class="headerlink" title="M3 实战收网"></a>M3 实战收网</h3><table>
-<thead>
-<tr>
-<th>书目</th>
-<th>周期</th>
-<th>定位</th>
-<th>怎么读</th>
-<th>核心概念</th>
-<th>毕业动作</th>
-<th>常见坑</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>《资治通鉴》精选20篇（中华书局点校本+白话本，文言读不懂就换白话）</td>
-<td>3周</td>
-<td>巨型案例库——用前两模块的工具拆解真实决策样本，分析能力的练习场</td>
-<td>每篇1张卡，先读每卷末尾的”臣光曰”（司马光点评，全书方法论浓缩）再读正文；必读20篇（见下）；战争细节、年号纪年、奏疏原文可跳读</td>
-<td>历史周期律、制度与人事、反馈与延迟、路径依赖</td>
-<td>完成第七章的”商鞅变法拆解”</td>
-<td>①从第一卷死啃（必须按8篇跳读）；②只读故事不拆结构（每篇必须回答：这里出现了什么系统&#x2F;博弈&#x2F;偏差？）</td>
-</tr>
-<tr>
-<td>《毛泽东选集》5篇（人民出版社，约150页）</td>
-<td>3周</td>
-<td>行动指南针+问题结构化方法——怎么给问题分层、抓主要矛盾、用调查代替猜测</td>
-<td>5篇精读，每篇1页结构化笔记（论点&#x2F;方法&#x2F;我的应用）；必读：《实践论》《矛盾论》《反对本本主义》（第一卷）、《改造我们的学习》（第三卷）、《党委会的工作方法》（第四卷）；其余篇目按需查读</td>
-<td>实践-认识-再实践、主要矛盾、调查研究、实事求是、具体问题具体分析</td>
-<td>用《实践论》框架写过去一年的复盘：实践了什么→认识了什么→下一年验证什么</td>
-<td>当历史文献读——这是五个纯方法论文本，摘掉背景看方法，当《策略思维》的续集读</td>
-</tr>
-</tbody></table>
-<p><strong>《资治通鉴》必读 20 篇</strong>（每篇配一个练习工具）：</p>
-<ol>
-<li>三家分晋（周纪一）——制度的开端</li>
-<li>商鞅变法（周纪二·显王年间）——本书核心案例（见第七章）</li>
-<li>赵武灵王胡服骑射（周纪）</li>
-<li>长平之战（周纪五）——博弈与灾难</li>
-<li>秦始皇统一与焚书（秦纪）</li>
-<li>楚汉相争：刘邦入关、项羽之死（汉纪）——成败对照</li>
-<li>诸吕之乱与汉文帝即位（汉纪）——制度设计</li>
-<li>文景之治（汉纪）——轻徭薄赋的系统效应</li>
-<li>汉武帝：盐铁之议、巫蛊之祸（汉纪）——增长与失衡</li>
-<li>王莽篡汉（汉纪）——意识形态幻觉</li>
-<li>光武中兴（汉纪）——重建反馈</li>
-<li>官渡之战（汉纪）——以弱胜强的结构</li>
-<li>赤壁之战（汉纪）——三方博弈</li>
-<li>诸葛亮北伐（魏纪）——坚持与无效努力</li>
-<li>淝水之战（晋纪）——偶然与必然</li>
-<li>玄武门之变（唐纪）——风险的定价</li>
-<li>贞观之治（唐纪）——纳谏的反馈机制</li>
-<li>安史之乱（唐纪）——帝国的延迟效应</li>
-<li>甘露之变（唐纪）——失败的政变</li>
-<li>黄巢之乱与唐亡（唐纪、五代纪）——周期律</li>
-</ol>
-<hr>
-<h2 id="四、检查点"><a href="#四、检查点" class="headerlink" title="四、检查点"></a>四、检查点</h2><p>检查点不是考试，是”确认我真的学会了”的验收。没过就多花1-2周补上，再进下一模块。<strong>检查点时间是弹性的</strong>：伴行节奏下顺延即可（比如 M1 用 12 周完成，CP1 就在第 12 周末），验收标准不变。</p>
-<table>
-<thead>
-<tr>
-<th>检查点</th>
-<th>时间</th>
-<th>过关任务</th>
-<th>验收标准</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><strong>CP1</strong></td>
-<td>第6周末（M1毕业）</td>
-<td>连续14天阅读打卡 + 第一篇300字笔记 + 3张真实反馈回路图（标出打断点）+ 10个”我上过当”的认知偏差案例</td>
-<td>图能讲给不懂系统论的朋友听懂；偏差案例能对号入座</td>
-</tr>
-<tr>
-<td><strong>CP2</strong></td>
-<td>第12周末（M2毕业）</td>
-<td>用贝叶斯公式算”体检阳性≠患病”（写出计算过程）+ 分析一次真实博弈，写出双方支付矩阵+你的最优策略</td>
-<td>计算过程完整；矩阵能说服一个旁观者</td>
-</tr>
-<tr>
-<td><strong>CP3</strong></td>
-<td>第24周末（M3毕业）</td>
-<td>1000字历史事件拆解（任选事件，至少用5种工具，逐个标注）+ 用《实践论》框架写年度复盘（主要矛盾+3条改进措施+执行1条）+ “我的工具箱”清单≥12个工具</td>
-<td>拆解结构完整；复盘落到行动；每个工具都有真实使用记录</td>
-</tr>
-</tbody></table>
-<p><strong>CP3 通过即主线毕业。</strong> 之后进入进阶书单任选，没有期限。</p>
-<hr>
-<h2 id="五、底层原理速成库"><a href="#五、底层原理速成库" class="headerlink" title="五、底层原理速成库"></a>五、底层原理速成库</h2><p>主线之外还有一批底层原理——它们来自经典著作与常识的提炼，<strong>不读书也能先学会，读书时再加深</strong>。用法：主线开始前通读一遍当预习；之后遇到问题当速查表用。</p>
-<h3 id="A组-思维方法"><a href="#A组-思维方法" class="headerlink" title="A组 思维方法"></a>A组 思维方法</h3><table>
-<thead>
-<tr>
-<th>原理</th>
-<th>一句话</th>
-<th>操作</th>
-<th>例子</th>
-<th>进阶阅读</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><strong>A1 第一性原理</strong></td>
-<td>剥离惯例与类比，拆到最底层假设，再从中重建</td>
-<td>写下结论→连问5次”为什么”→找出最底层假设→检验今天是否仍成立→从假设重建</td>
-<td>同行说”只能按惯例定价”→拆到底层&#x3D;成本×支付意愿→边际成本≈0时定价逻辑完全不同</td>
-<td>《物理学的进化》</td>
-</tr>
-<tr>
-<td><strong>A2 二阶思维</strong></td>
-<td>每个行动问两遍”然后呢”，看清后果的后果</td>
-<td>决策前写下：这么做之后会怎样？再之后呢？至少推两层</td>
-<td>裁员→士气崩→人才流失→客户流失→成本更高</td>
-<td>《系统之美》Ch.1-5</td>
-</tr>
-<tr>
-<td><strong>A3 倒置思维</strong></td>
-<td>与其想怎么成功，不如列”什么保证失败”再逐一回避</td>
-<td>写≤5条必败因素清单，每月检查是否踩雷</td>
-<td>项目必败清单：目标模糊&#x2F;无人负责&#x2F;不设里程碑&#x2F;不验证假设&#x2F;不设止损线</td>
-<td>—</td>
-</tr>
-<tr>
-<td><strong>A4 奥卡姆+汉隆剃刀</strong></td>
-<td>解释选假设更少的；先假设无能，后假设恶意</td>
-<td>两个解释都自洽时选更简单的；对冒犯先找非恶意解释</td>
-<td>同事没回消息→先假设”在忙”而非”针对我”</td>
-<td>—</td>
-</tr>
-<tr>
-<td><strong>A5 地图≠疆域</strong></td>
-<td>模型都是近似，先问”何时失效”再使用</td>
-<td>用任何框架前，写下它的两个失效条件</td>
-<td>五力模型在受管制的垄断行业几乎无用</td>
-<td>—</td>
-</tr>
-<tr>
-<td><strong>A6 主要矛盾法</strong></td>
-<td>问题永远有一堆，找支配性的那个</td>
-<td>列全部问题→问”哪个不解决其他都白费”→集中火力，每季度重评</td>
-<td>35岁焦虑&#x3D;职业天花板&#x2F;收入&#x2F;意义感&#x2F;健康→先抓住”可替代性存量”这一个</td>
-<td>《矛盾论》</td>
-</tr>
-</tbody></table>
-<h3 id="B组-概率与数据"><a href="#B组-概率与数据" class="headerlink" title="B组 概率与数据"></a>B组 概率与数据</h3><table>
-<thead>
-<tr>
-<th>原理</th>
-<th>一句话</th>
-<th>操作</th>
-<th>例子</th>
-<th>进阶阅读</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><strong>B1 贝叶斯更新</strong></td>
-<td>判断&#x3D;先验信念+证据修正；P(H|E)&#x3D;P(E|H)·P(H)&#x2F;P(E)</td>
-<td>写当前把握→新证据时问”假设为真时这证据多常见？为假时呢？”→按比例修正</td>
-<td>发病率1%、假阳性5%，阳性结果→真实患病≈17%，不是95%</td>
-<td>《概率论基础教程》Ch.2-3</td>
-</tr>
-<tr>
-<td><strong>B2 期望值决策</strong></td>
-<td>决策&#x3D;Σ(概率×损益)，选期望最大且最坏结果承受得起的</td>
-<td>赌一把的决定写成表格（结果×概率×损益），EV最大且最坏可承受才做</td>
-<td>跳槽offer（70%加薪&#x2F;30%裸辞）vs 留任——算完再做情绪决定</td>
-<td>—</td>
-</tr>
-<tr>
-<td><strong>B3 回归均值</strong></td>
-<td>极端表现之后必然回归平均；别把运气当实力或当衰</td>
-<td>看到”连续超常&#x2F;连续低迷”，先问：回归均值还是真实趋势？</td>
-<td>上月销冠本月回落≠能力下降；股票连涨后回调≠崩盘</td>
-<td>—</td>
-</tr>
-<tr>
-<td><strong>B4 幸存者偏差</strong></td>
-<td>你只看得见活下来的，结论天然被扭曲</td>
-<td>看任何成功案例，主动找”同样做法的失败者名单”</td>
-<td>成功学只讲上市的；”创业&#x3D;九死一生”才是全集</td>
-<td>—</td>
-</tr>
-<tr>
-<td><strong>B5 小样本噪声</strong></td>
-<td>样本小了，差异多半是噪声</td>
-<td>涉及比率&#x2F;排名&#x2F;效果先看样本量（经验线：30个以上再认真）</td>
-<td>新店开张两周的营业额、一次考试的排名——都是噪声</td>
-<td>—</td>
-</tr>
-<tr>
-<td><strong>B6 相关≠因果</strong></td>
-<td>两件事同步变，可能是第三变量或反向因果</td>
-<td>依次排除：反向因果？共同原因？巧合？</td>
-<td>冰淇淋销量与溺水率正相关——共同原因&#x3D;夏天</td>
-<td>—</td>
-</tr>
-<tr>
-<td><strong>B7 边际思维+沉没成本</strong></td>
-<td>只看”多做一点”的增量；已花的钱和时间不参与决策</td>
-<td>任何”继续还是放弃”，问”如果从头开始，我还会选它吗？”</td>
-<td>电影票已买但难看→离开比忍完更优；已投100万≠必须再投</td>
-<td>—</td>
-</tr>
-</tbody></table>
-<h3 id="C组-决策与行动"><a href="#C组-决策与行动" class="headerlink" title="C组 决策与行动"></a>C组 决策与行动</h3><table>
-<thead>
-<tr>
-<th>原理</th>
-<th>一句话</th>
-<th>操作</th>
-<th>例子</th>
-<th>进阶阅读</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><strong>C1 机会成本</strong></td>
-<td>任何选择的代价，是你放弃的最佳替代方案</td>
-<td>做选择时写下：不选它，同样的时间&#x2F;钱&#x2F;精力能得到什么最好结果？</td>
-<td>读研3年的成本&#x3D;工作3年的收入+经验，而不是”学费”</td>
-<td>—</td>
-</tr>
-<tr>
-<td><strong>C2 承诺升级</strong></td>
-<td>人会给已投入的沉没成本不断加注——识别并拒绝</td>
-<td>在已失败的东西上追加投入时喊停，找第三方问”你会怎么选？”</td>
-<td>等了40分钟的队→继续等1小时；”再投入一点就能救活项目”</td>
-<td>—</td>
-</tr>
-<tr>
-<td><strong>C3 知行合一</strong></td>
-<td>知道而做不到&#x3D;其实不知道；行动是认知的完成形式</td>
-<td>对任何”知道但做不到”，承认是假知，把”做到”当作学习本身</td>
-<td>明知早睡好却天天熬夜→实践一周才是真知道</td>
-<td>—</td>
-</tr>
-<tr>
-<td><strong>C4 杠杆点</strong></td>
-<td>系统里有一处，动它全局变</td>
-<td>别先动”数值”，从信息流&#x2F;规则&#x2F;目标&#x2F;范式里找手</td>
-<td>KPI从”加班时长”改为”交付质量”→规则一变，行为全变</td>
-<td>《系统之美》Ch.10-11</td>
-</tr>
-<tr>
-<td><strong>C5 可信承诺+BATNA</strong></td>
-<td>威胁要可信才有效；谈判前先备好”离席选项”</td>
-<td>写清”谈崩了最差落到哪”；承诺要让对方看到”说到能做到”的证据</td>
-<td>跳槽offer在手再谈加薪；”不再容忍”要配上退出行动才可信</td>
-<td>《策略思维》Ch.6-7</td>
-</tr>
-</tbody></table>
-<h3 id="D组-批判与观察"><a href="#D组-批判与观察" class="headerlink" title="D组 批判与观察"></a>D组 批判与观察</h3><table>
-<thead>
-<tr>
-<th>原理</th>
-<th>一句话</th>
-<th>操作</th>
-<th>例子</th>
-<th>进阶阅读</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><strong>D1 批判三问</strong></td>
-<td>任何权威话语，先问：谁在说？他为什么说？证据是什么？</td>
-<td>贴在桌面；听到”专家说&#x2F;大家都说&#x2F;你应该”，过一遍三问再决定信不信</td>
-<td>“35岁必须晋升”是谁在说？——消费主义+社交媒体制造的集体叙事，一问即现形</td>
-<td>鲁迅《华盖集》杂文</td>
-</tr>
-<tr>
-<td><strong>D2 框架识别</strong></td>
-<td>同一事实，不同框架→决策完全不同</td>
-<td>任何说服场景，先改写框架：”这个方案，换个说法我还同意吗？”</td>
-<td>“手术成功率90%” vs “死亡率10%”——同一手术，意愿天差地别</td>
-<td>《思考，快与慢》Part4</td>
-</tr>
-<tr>
-<td><strong>D3 角色伦理意识</strong></td>
-<td>人很大程度按”角色脚本”行动，而非按个人善恶</td>
-<td>分析他人行为，先列角色约束（职位&#x2F;亲缘&#x2F;利益），再谈人品</td>
-<td>领导的”场面话”是角色产物；理解”在其位谋其政”后很多困惑自解</td>
-<td>—</td>
-</tr>
-</tbody></table>
-<hr>
-<h2 id="六、进阶书单"><a href="#六、进阶书单" class="headerlink" title="六、进阶书单"></a>六、进阶书单</h2><p>主线毕业后按兴趣任选。每本都标注了它对”认知&#x2F;分析能力”的具体贡献——不达标的书，不在这里。</p>
-<table>
-<thead>
-<tr>
-<th>书目</th>
-<th>对目标的贡献</th>
-<th>优先级</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>《物理学的进化》</td>
-<td>第一性原理思维的沉浸训练（A1的完整版）</td>
-<td>★★★</td>
-</tr>
-<tr>
-<td>《学会提问》</td>
-<td>系统化的批判性思维训练——评估主张、证据与推理</td>
-<td>★★★</td>
-</tr>
-<tr>
-<td>《模型思维》（Scott Page）</td>
-<td>上百个模型的工具箱，直接扩展分析武器库</td>
-<td>★★</td>
-</tr>
-<tr>
-<td>《自私的基因》</td>
-<td>用演化视角重新解释人类动机——分析行为的最深层原因</td>
-<td>★★</td>
-</tr>
-<tr>
-<td>《史记》选读（项羽本纪&#x2F;高祖本纪&#x2F;李将军列传&#x2F;刺客列传&#x2F;货殖列传）</td>
-<td>更多决策案例，比通鉴更重人物性格与命运</td>
-<td>★★</td>
-</tr>
-<tr>
-<td>《鲁迅》3集（呐喊&#x2F;野草&#x2F;杂文名篇）</td>
-<td>批判精神的完整养成（D1的完整版）</td>
-<td>★★</td>
-</tr>
-<tr>
-<td>《线性代数导论》（Strang，Ch.1-4）</td>
-<td>多维视角——把问题当向量拆解</td>
-<td>★</td>
-</tr>
-<tr>
-<td>《普林斯顿微积分读本》</td>
-<td>变化率与动态思维直觉</td>
-<td>★</td>
-</tr>
-<tr>
-<td>《毛选》续（《论持久战》等）</td>
-<td>主要矛盾与战略分析方法的更多案例</td>
-<td>★</td>
-</tr>
-</tbody></table>
-<hr>
-<h2 id="七、实战：五步拆解法"><a href="#七、实战：五步拆解法" class="headerlink" title="七、实战：五步拆解法"></a>七、实战：五步拆解法</h2><p>遇到任何人生难题，按此流程走一遍（30-60分钟，用笔记写下每一步）：</p>
-<ol>
-<li><strong>描述问题</strong>：一句话写完，删掉所有情绪词（”我完了”→”今年晋升名额3个，我排名第7”）。</li>
-<li><strong>工具映射</strong>：这问题该用哪套工具？（职业&#x3D;概率+系统+博弈+历史；关系&#x3D;认知偏差+框架；行动&#x3D;主要矛盾+调查研究。）</li>
-<li><strong>逐个调用</strong>：从”我的工具箱”选最贴的工具，各写一两行分析。</li>
-<li><strong>整合判断</strong>：哪个工具揭示了<strong>主要矛盾</strong>？（多数问题死在把次要矛盾当主要矛盾。）</li>
-<li><strong>最小行动</strong>：本周只做一件小事，写下它和执行日期。</li>
-</ol>
-<h3 id="示范：商鞅变法"><a href="#示范：商鞅变法" class="headerlink" title="示范：商鞅变法"></a>示范：商鞅变法</h3><p>《资治通鉴》周纪二记载：商鞅入秦行变法——连坐、军功爵、废井田、设县制。秦孝公支持二十一年，前338年孝公死，商鞅被车裂——<strong>但新法未废</strong>。这个案例值得用整套工具拆一遍：</p>
-<table>
-<thead>
-<tr>
-<th>工具</th>
-<th>分析</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>矛盾分析</td>
-<td>抓主要矛盾：对手不是”旧贵族”人群，而是”旧制度”结构。商鞅用军功爵重构激励机制，使旧贵族从阻力变成被瓦解的对象。</td>
-</tr>
-<tr>
-<td>系统论</td>
-<td>变法成功&#x3D;改变了<strong>系统结构</strong>（军功爵&#x3D;重新设计反馈回路），而非只换人；太子犯法、刑其师傅&#x3D;修复执行反馈被扭曲的问题。</td>
-</tr>
-<tr>
-<td>认知偏差</td>
-<td>孝公的坚持反衬反对派”法古无过，循礼无邪”的说辞——锚定于过去。</td>
-</tr>
-<tr>
-<td>博弈论</td>
-<td>商鞅完成了”可信承诺”：徙木立信+王子犯法与庶民同罪（不可豁免的惩罚）——承诺机制到位，改革才推得动。</td>
-</tr>
-<tr>
-<td>演化视角</td>
-<td>旧贵族的抵抗是亲缘&#x2F;阶层利益的演化本能；军功爵的成功在于把个体生存优势导向国家竞争力——个体利益与系统目标对齐。</td>
-</tr>
-<tr>
-<td>批判视角</td>
-<td>围观者的看客心态：改革最悲哀的不是敌人的枪，而是围观者的冷。</td>
-</tr>
-<tr>
-<td>概率思维</td>
-<td>变法的成败并非”改革必死”——同期各国变法，成败参半；商鞅的失败是特定博弈结构的结果，不是”变法”的宿命。</td>
-</tr>
-</tbody></table>
-<p>你会发现：单独读《资治通鉴》，你只得到一个”改革失败”的故事；用整套工具拆一遍，你得到一个可以反复套用的<strong>认知模型</strong>——任何组织变革、任何个人决策，都可以这样拆。</p>
-<p><strong>练习（CP3验收任务）：</strong> 用同样的结构拆”王安石变法”（史料出处：《宋史》《续资治通鉴长编》），重点回答：两次变法一成一败，差异分别验证了哪几个工具？</p>
-<hr>
-<h2 id="八、工具模板"><a href="#八、工具模板" class="headerlink" title="八、工具模板"></a>八、工具模板</h2><h3 id="概念卡"><a href="#概念卡" class="headerlink" title="概念卡"></a>概念卡</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">标题：________（如&quot;反馈回路｜增强回路&quot;）</span><br><span class="line">所属：M1/M2/M3/原理库A-D（如 M1·系统）</span><br><span class="line">来源：《系统之美》Ch.2 / 原理卡A2</span><br><span class="line">一句话定义：A↑→B↑→A↑，越滚越大</span><br><span class="line">现实案例：熬夜→状态差→效率低→更焦虑→更熬夜</span><br><span class="line">我的调用：____（当天或近期发生的一件事）</span><br><span class="line">下次复习：□1天 □3天 □7天 □30天</span><br></pre></td></tr></table></figure>
-
-<h3 id="月度复盘"><a href="#月度复盘" class="headerlink" title="月度复盘"></a>月度复盘</h3><ol>
-<li>这个月读完了什么？</li>
-<li>哪个概念最震撼我？</li>
-<li>我实际调用了哪个工具？</li>
-<li>下月目标是什么？</li>
-</ol>
-<h3 id="我的工具箱"><a href="#我的工具箱" class="headerlink" title="我的工具箱"></a>我的工具箱</h3><p>工具名 | 来源 | 我在____时用过它 | 效果</p>
-<hr>
-<h2 id="九、启动清单"><a href="#九、启动清单" class="headerlink" title="九、启动清单"></a>九、启动清单</h2><ol>
-<li><strong>今晚</strong>：买&#x2F;借《系统之美》，完成读前仪式（荧光笔标出必读章节）；把”批判三问”和卡片模板抄到笔记第一页。</li>
-<li><strong>本周末（2小时）</strong>：通读第五章全部17张原理卡；确认CP1的验收标准。</li>
-<li><strong>明天起</strong>：读《系统之美》序言+第1章，写第1张卡片，睡前补一句”今天读到的概念解释了____”。连续14天，打卡不断。</li>
-</ol>
-<blockquote>
-<p>这个系统不要求你自律，只要求你<strong>开始</strong>。CP1的任务就是”连续14天开始”——一旦跑起来，惯性会替你做剩下的事。<br>伴行提醒：与工作线（2027-05）冲突时随时暂停、随时恢复——<strong>跨度可延长，系统永不废弃</strong>。</p>
-</blockquote>
 
       
     </div>

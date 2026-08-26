@@ -189,7 +189,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">82</span>
+          <span class="site-state-item-count">83</span>
           <span class="site-state-item-name">posts</span>
         </a>
       </div>
@@ -250,6 +250,858 @@
     </div>
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/rocketmq-2025.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/rocketmq-2025.html" class="post-title-link" itemprop="url">RocketMQ 原理与实践</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2025-08-05 19:00:00" itemprop="dateCreated datePublished" datetime="2025-08-05T19:00:00+08:00">2025-08-05</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E4%B8%AD%E9%97%B4%E4%BB%B6/" itemprop="url" rel="index"><span itemprop="name">中间件</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>12k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>45 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <blockquote>
+<p><strong>RocketMQ 与 Kafka 的详细对比见第 9 节，本文假设读者已有基本 MQ 概念</strong>（Topic、消息、消费者组、offset 等），不再重复铺垫。全文基于 <strong>RocketMQ 5.x</strong>，涉及源码均指 5.x 对应实现（与 4.x 核心机制兼容）。</p>
+</blockquote>
+<blockquote>
+<p>面试考点范围：RocketMQ 的定位与选型、NameServer 为什么不用 ZK、CommitLog + ConsumeQueue 双落盘存储架构、mmap 零拷贝、刷盘与主从复制策略、消费模式与消费进度、长轮询机制、重试与死信队列、顺序消息实现、事务消息（half 消息 + 回查）源码原理、延迟消息 18 个级别、DLedger 高可用、性能调优参数，以及 Spring Boot 集成实战。</p>
+</blockquote>
+<h2 id="1-RocketMQ-定位与架构"><a href="#1-RocketMQ-定位与架构" class="headerlink" title="1. RocketMQ 定位与架构"></a>1. RocketMQ 定位与架构</h2><h3 id="1-1-为什么需要-RocketMQ"><a href="#1-1-为什么需要-RocketMQ" class="headerlink" title="1.1 为什么需要 RocketMQ"></a>1.1 为什么需要 RocketMQ</h3><p>RocketMQ 诞生于阿里内部（2012 年，用于淘宝双 11 的订单链路），2016 年捐赠给 Apache，现在是 Apache 顶级项目。它天然带着”交易场景”的基因，所以它的设计取舍和 Kafka（日志&#x2F;流场景）完全不同：</p>
+<ul>
+<li><strong>Kafka</strong>：分布式事件流平台，单机百万级&#x2F;秒吞吐，日志、指标、实时数仓的王者。</li>
+<li><strong>RocketMQ</strong>：分布式消息队列，Java 生态，<strong>金融级可靠性 + 原生事务消息 + 原生延迟消息</strong>是它区别于另外两家的三个标签。</li>
+<li><strong>RabbitMQ</strong>：轻量 AMQP 消息中间件，万级&#x2F;秒吞吐，路由灵活、上手快，中小规模首选。</li>
+</ul>
+<p>一句话选型：<strong>交易、订单、金融这类”丢一条消息就是事故”的业务选 RocketMQ；日志、流处理、大数据管道选 Kafka；轻量灵活、快速落地选 RabbitMQ。</strong></p>
+<p>RocketMQ 的三个差异化能力，就是本文的核心章节：</p>
+<table>
+<thead>
+<tr>
+<th>能力</th>
+<th>RocketMQ</th>
+<th>Kafka</th>
+<th>RabbitMQ</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>事务消息</td>
+<td>原生支持（half 消息 + 回查，第 5 节）</td>
+<td>面向流处理的 EOS，不覆盖外部系统</td>
+<td>无</td>
+</tr>
+<tr>
+<td>延迟消息</td>
+<td>原生支持（18 级，5.x 支持任意时间，第 6 节）</td>
+<td>无原生支持</td>
+<td>靠 TTL + 死信交换机模拟</td>
+</tr>
+<tr>
+<td>金融级可靠性</td>
+<td>同步双写 + DLedger 多副本自动选主</td>
+<td>acks&#x3D;all + ISR，但消费可能读到未提交数据</td>
+<td>镜像队列&#x2F;仲裁队列</td>
+</tr>
+</tbody></table>
+<h3 id="1-2-整体架构"><a href="#1-2-整体架构" class="headerlink" title="1.2 整体架构"></a>1.2 整体架构</h3><figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">        ┌──────────────────────────────────────────┐</span><br><span class="line">        │             NameServer 集群               │  无状态，互不通信</span><br><span class="line">        │   （路由注册中心，Broker 全量注册 + 心跳）   │  最终一致，任意一台可用即可</span><br><span class="line">        └──────▲─────────────────────▲──────────────┘</span><br><span class="line">               │ 注册/心跳(30s)       │ Topic 路由查询</span><br><span class="line">┌──────────────┴───┐          ┌──────┴───────────────┐</span><br><span class="line">│     Broker        │          │    Producer          │</span><br><span class="line">│  Master + Slave   │◄─────────│    （发送者）         │</span><br><span class="line">│  （同步双写/异步）  │  消息投递 │                      │</span><br><span class="line">│  CommitLog/Queue  │──────────►│    Consumer          │</span><br><span class="line">└───────────────────┘  拉取/推  │    （消费者组）       │</span><br><span class="line">                                └──────────────────────┘</span><br></pre></td></tr></table></figure>
+
+<p>四个角色：</p>
+<ul>
+<li><strong>Producer</strong>：消息生产者，发送时向 NameServer 拉取 Topic 路由，按队列选择策略投递。</li>
+<li><strong>NameServer</strong>：轻量路由注册中心。不存消息，只存 Broker 的 Topic 路由信息（TopicRouteData），作用类似 Kafka 的 Controller + ZK 中的元数据部分，但更简单（详见 1.3）。</li>
+<li><strong>Broker</strong>：真正存消息的节点，负责消息存储、主从复制、消费进度管理。一个 Topic 的数据被切分到多个 Queue 分布在多个 Broker 上。</li>
+<li><strong>Consumer</strong>：消息消费者，以<strong>消费者组（Consumer Group）</strong>为单位消费，组内实例均分 Queue。</li>
+</ul>
+<p>三个核心概念：</p>
+<ul>
+<li><strong>Topic</strong>：消息的逻辑分类（类比数据库的表）。Topic 在创建时指定队列数（读写队列数，默认 <code>defaultTopicQueueNums=4</code>，生产建议 8~16）。</li>
+<li><strong>MessageQueue</strong>：Topic 的物理切分单元，<strong>存储单元、并行单元、顺序保证单元</strong>三合一（和 Kafka 的 Partition 对应）。读写队列数可以不一样（读 &lt; 写可以给热点消费扩容）。</li>
+<li><strong>Message</strong>：消息本体，由 topic、tags、keys、body、properties 组成，<code>keys</code> 用于构建索引支持按 key 查询。</li>
+</ul>
+<h3 id="1-3-NameServer-设计"><a href="#1-3-NameServer-设计" class="headerlink" title="1.3 NameServer 设计"></a>1.3 NameServer 设计</h3><p>这是 RocketMQ 架构上和 Kafka 最不一样的地方，也是高频面试题：</p>
+<ul>
+<li><strong>无状态</strong>：NameServer 之间<strong>互不通信</strong>，不选举、不复制，只在自己内存里维护一份”Broker 存活表 + Topic 路由表”。任何一个 NameServer 挂了都不影响其他 NameServer 工作。</li>
+<li><strong>最终一致</strong>：每个 Broker 启动时向<strong>所有</strong> NameServer 注册，之后<strong>每 30 秒</strong>发一次心跳；NameServer 默认每 10 秒扫描一次，<strong>连续 120 秒</strong>收不到心跳的 Broker 会被从路由表中剔除（客户端下次拉路由时自然感知）。注册信息本身也不需要强一致——客户端拿到稍旧的路由只是多一次重试。</li>
+<li><strong>客户端自助</strong>：Producer&#x2F;Consumer 启动时连接任意一个 NameServer，拉取 Topic 路由（缓存 30 秒），期间 NameServer 挂了就换一个，客户端进程里会维护 NameServer 地址列表轮询切换。</li>
+</ul>
+<p><strong>为什么不用 ZK？</strong></p>
+<table>
+<thead>
+<tr>
+<th>对比点</th>
+<th>用 ZK 的问题</th>
+<th>NameServer 的做法</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>一致性</td>
+<td>ZK 的强一致（ZAB）对”路由信息”这种低一致性要求的数据是杀鸡用牛刀，写入要过半 ACK，增加延迟和故障面</td>
+<td>路由信息允许短暂不一致，每个 Broker 全量广播注册即可</td>
+</tr>
+<tr>
+<td>复杂度</td>
+<td>ZK 集群本身要部署、要选主、要监控，多一套系统多一类故障</td>
+<td>无状态，随便加机器，部署就是起进程</td>
+</tr>
+<tr>
+<td>感知机制</td>
+<td>客户端依赖 Watch 回调，事件风暴、session 超时是经典故障源</td>
+<td>客户端主动轮询拉取（默认 30s），简单可靠</td>
+</tr>
+<tr>
+<td>场景本质</td>
+<td>ZK 适合”分布式锁、选主、强一致元数据”</td>
+<td>消息路由是”读多写少、可最终一致”的元数据，用不到强一致</td>
+</tr>
+</tbody></table>
+<p>一句话：<strong>NameServer 通过”放弃强一致、换来极简与高可用”的方式，解决的是路由发现问题；而 Kafka 的元数据（Controller + KRaft）因为要管分区状态机、选主等强一致事务，才必须用 Raft 级别的机制</strong>。</p>
+<h2 id="2-消息发送与存储"><a href="#2-消息发送与存储" class="headerlink" title="2. 消息发送与存储"></a>2. 消息发送与存储</h2><h3 id="2-1-Producer-发送流程"><a href="#2-1-Producer-发送流程" class="headerlink" title="2.1 Producer 发送流程"></a>2.1 Producer 发送流程</h3><p>Producer 发一条消息的完整链路：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">Producer.send(msg)</span><br><span class="line">  │</span><br><span class="line">  ├─ 1. 本地缓存找 Topic 路由（TopicRouteData），没有则向 NameServer 拉取（缓存 30s）</span><br><span class="line">  ├─ 2. 根据队列选择策略选一个 MessageQueue</span><br><span class="line">  │      ├─ 默认：轮询（Round-Robin）</span><br><span class="line">  │      ├─ 业务指定：MessageQueueSelector（按 key 哈希 → 顺序消息/事务幂等要用）</span><br><span class="line">  │      └─ sendLatencyFaultEnable=true：跳过最近发失败的 Broker（故障规避）</span><br><span class="line">  ├─ 3. 构造 RemotingCommand，发往 Queue 所在 Broker（同步/异步/Oneway）</span><br><span class="line">  ├─ 4. 失败重试：默认重试 2 次（retryTimesWhenSendFailed=2，异步为 1 次）</span><br><span class="line">  │      每次重试自动更换 Queue（avoid 上次失败的 Broker/Queue）</span><br><span class="line">  └─ 5. 返回 SendResult（SEND_OK / FLUSH_DISK_TIMEOUT / FLUSH_SLAVE_TIMEOUT / SLAVE_NOT_AVAILABLE）</span><br></pre></td></tr></table></figure>
+
+<p>源码级要点（<code>org.apache.rocketmq.client.impl.producer.DefaultMQProducerImpl#sendKernelImpl</code>）：</p>
+<ul>
+<li>路由更新线程每 30s 拉一次 TopicRouteData，第一次发送时若本地没有则同步拉取；<strong>发送失败抛 <code>MQClientException</code>（route not found）时也会主动刷新路由再重试一次</strong>——这是客户端层面最常见的”第一次发送失败但重试成功”的原因。</li>
+<li>队列选择策略在 <code>MessageQueueSelector</code> 接口上体现：</li>
+</ul>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 顺序消息/幂等场景：同一个业务 key（如 orderId）永远进同一个队列</span></span><br><span class="line"><span class="type">MessageQueue</span> <span class="variable">mq</span> <span class="operator">=</span> producer.selectOneMessageQueue(</span><br><span class="line">        topicPublishInfo.getWriteQueueList(), topicPublishInfo.getMessageQueueList(),</span><br><span class="line">        <span class="keyword">new</span> <span class="title class_">MessageQueueSelector</span>() &#123;</span><br><span class="line">            <span class="meta">@Override</span></span><br><span class="line">            <span class="keyword">public</span> MessageQueue <span class="title function_">select</span><span class="params">(List&lt;MessageQueue&gt; mqs, Message msg, Object arg)</span> &#123;</span><br><span class="line">                <span class="type">Integer</span> <span class="variable">orderId</span> <span class="operator">=</span> (Integer) arg;</span><br><span class="line">                <span class="type">int</span> <span class="variable">index</span> <span class="operator">=</span> orderId % mqs.size();</span><br><span class="line">                <span class="keyword">return</span> mqs.get(index);</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;, orderId);</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>容错重试的两层：<code>retryTimesWhenSendFailed</code>（默认 2 次）+ <code>sendLatencyFaultEnable</code>（开启后按”Broker 最近响应延迟”打分，自动避开故障 Broker，避免重试仍然打在同一个坏节点上）。重试逻辑在 <code>DefaultMQProducerImpl#sendDefaultImpl</code> 中：每次重试 <code>setRetryTimesWhenSendFailed</code> 减一，且从<strong>排除上次失败 Queue 的剩余队列</strong>里重新选择。</li>
+</ul>
+<h3 id="2-2-消息存储架构（CommitLog-ConsumeQueue-IndexFile）"><a href="#2-2-消息存储架构（CommitLog-ConsumeQueue-IndexFile）" class="headerlink" title="2.2 消息存储架构（CommitLog + ConsumeQueue + IndexFile）"></a>2.2 消息存储架构（CommitLog + ConsumeQueue + IndexFile）</h3><p>RocketMQ 的存储设计和 Kafka 最本质的区别：**Kafka 是”一个分区一个日志文件”，RocketMQ 是”所有队列共享一个大日志 + 独立索引”**。</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">                    ┌──────────────────────────────────────────────┐</span><br><span class="line">全部消息按到达顺序   │ CommitLog（唯一数据本体，默认 1GB/文件）       │</span><br><span class="line">追加写入，多队列混排 │  msg1 | msg2 | msg3 | ... | msgN             │</span><br><span class="line">                    └───────────────────────┬──────────────────────┘</span><br><span class="line">                                            │ 异步分发（ReputMessageService，每 1ms）</span><br><span class="line">                  ┌─────────────────────────┼──────────────────────────┐</span><br><span class="line">                  ▼                         ▼                          ▼</span><br><span class="line">      ┌────────────────────┐   ┌─────────────────────┐   ┌────────────────────┐</span><br><span class="line">      │ ConsumeQueue（索引）│   │     ConsumeQueue     │   │    IndexFile（索引） │</span><br><span class="line">      │ topic/queueId/     │   │   每条 20 字节：       │   │   按消息 key 哈希，    │</span><br><span class="line">      │ 每队列一个目录      │   │   8B CommitLog 偏移 + │   │   支持按 key 查消息     │</span><br><span class="line">      │                    │   │   4B 消息长度 +       │   │   （5,000,000 哈希槽）  │</span><br><span class="line">      │                    │   │   8B Tag HashCode     │   │                      │</span><br><span class="line">      └────────────────────┘   └─────────────────────┘   └────────────────────┘</span><br><span class="line">            消费者读索引 → 定位 CommitLog → 读消息体</span><br></pre></td></tr></table></figure>
+
+<p><strong>为什么”双落盘”？</strong></p>
+<ul>
+<li><strong>CommitLog</strong>：所有 Topic 的消息按写入顺序追加到同一个文件（默认 1GB 滚动切分）。磁盘上永远是顺序写，这是 RocketMQ 高吞吐的基石。</li>
+<li><strong>ConsumeQueue</strong>：每个 Queue 一个目录（<code>$&#123;store&#125;/consumequeue/&#123;topic&#125;/&#123;queueId&#125;/</code>），里面是定长 20 字节的索引条目，指向 CommitLog 中的消息。消费者<strong>只读 ConsumeQueue</strong>，命中后按偏移去 CommitLog 取消息体。</li>
+<li><strong>IndexFile</strong>：按消息 <code>key</code> 构建的哈希索引，用于”按 key 查消息”的运维&#x2F;排障场景，默认 5,000,000 个哈希槽、每条索引 40 字节。</li>
+</ul>
+<p><strong>关键点：ConsumeQueue 和 IndexFile 都是 CommitLog 的”派生索引”，可以随时丢弃重建；CommitLog 才是唯一不能丢的数据本体。</strong> 因此 RocketMQ 的可靠性设计全部围绕”如何让 CommitLog 不丢”（刷盘 + 复制），而 ConsumeQueue 损坏只需从 CommitLog 重新分发即可恢复。</p>
+<p><strong>源码级写入路径</strong>（<code>org.apache.rocketmq.store</code> 包）：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">DefaultMessageStore#putMessage</span><br><span class="line">  ├─ CommitLog#asyncPutMessage</span><br><span class="line">  │    ├─ 取当前可写 MappedFile（MappedFileQueue#getLastMappedFile）</span><br><span class="line">  │    ├─ MappedFile#appendMessage → 写入 mmap 后的 MappedByteBuffer（页缓存）</span><br><span class="line">  │    └─ 返回 AppendMessageResult&#123;offset, size, ...&#125;</span><br><span class="line">  ├─ 触发 doDispatch（提交到分发线程池）</span><br><span class="line">  │    ├─ CommitLogDispatcherBuildConsumeQueue#dispatch</span><br><span class="line">  │    │    └─ 按 topic/queueId 定位 ConsumeQueue 的 MappedFile，</span><br><span class="line">  │    │       putMessagePositionInfo 写入 20 字节条目</span><br><span class="line">  │    │       （8B commitlogOffset + 4B msgSize + 8B tagHashCode）</span><br><span class="line">  │    └─ CommitLogDispatcherBuildIndex#dispatch → IndexFile 写 key 索引</span><br><span class="line">  └─ 刷盘：GroupCommitService（同步刷盘）/ FlushRealTimeService（异步刷盘）</span><br></pre></td></tr></table></figure>
+
+<p>两个细节面试常问：</p>
+<ul>
+<li><strong>写入是串行的</strong>：<code>CommitLog#putMessage</code> 用写锁&#x2F;自旋保证同一时刻只有一个线程追加，单 Broker 写入顺序 &#x3D; 消息到达顺序，这是”顺序消息”在存储层的根本保证。</li>
+<li><strong>分发是异步的</strong>：<code>ReputMessageService</code> 是个每 1ms 醒一次的后台线程，从 <code>reputFromOffset</code> 开始扫描 CommitLog 已写入区域，把新消息补建到 ConsumeQueue&#x2F;IndexFile。所以<strong>消息写入 CommitLog 成功（Producer 收到成功）并不等于消费者立刻可见</strong>，中间有毫秒级分发延迟。5.x 中该机制不变。</li>
+</ul>
+<h3 id="2-3-零拷贝与-mmap"><a href="#2-3-零拷贝与-mmap" class="headerlink" title="2.3 零拷贝与 mmap"></a>2.3 零拷贝与 mmap</h3><p>“零拷贝”的本质是减少”磁盘文件 → 用户态内存 → 内核 socket 缓冲区”之间的数据拷贝次数。两个 MQ 的取舍不同：</p>
+<table>
+<thead>
+<tr>
+<th>环节</th>
+<th>Kafka</th>
+<th>RocketMQ</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>写文件</td>
+<td>不用 mmap（无法控制刷盘时机），走 <code>FileChannel.write</code> 进页缓存</td>
+<td><strong>mmap</strong>：<code>FileChannel.map</code> 把 CommitLog 映射为 <code>MappedByteBuffer</code>，写入直接作用于页缓存，少一次”用户态显式拷贝”</td>
+</tr>
+<tr>
+<td>读文件</td>
+<td><strong>sendfile</strong>：消费时 <code>FileChannel.transferTo()</code>，内核直接把页缓存数据 DMA 到网卡，全程 2 次拷贝（DMA 进内核 + DMA 出网卡），<strong>用户态完全不碰数据</strong></td>
+<td><strong>mmap 映射 + 堆外内存</strong>：从 MappedByteBuffer 读入堆外 DirectByteBuffer，再发 socket</td>
+</tr>
+<tr>
+<td>拷贝次数</td>
+<td>约 2 次（消费路径）</td>
+<td>写路径约 1 次（mmap 直接写页缓存）；读路径约 3 次（页缓存→堆外→网卡），比传统 4 次省 1 次</td>
+</tr>
+</tbody></table>
+<p><strong>为什么 RocketMQ 消费路径不能像 Kafka 一样直接 sendfile？</strong> 因为 RocketMQ 的读路径有业务逻辑：要先按 Tag 过滤（2.2 里 ConsumeQueue 只存了 Tag 的 hash，需要读消息体精确比对）、要支持 SQL92 过滤（要解析属性），还要做协议封装。数据必须过一遍用户态。所以 RocketMQ 的优化策略是：</p>
+<ol>
+<li><strong>mmap</strong> 把文件映射到进程地址空间，读写直接命中页缓存（省掉 <code>read()</code> 的显式拷贝）；</li>
+<li>配合 <code>transientStorePoolEnable</code> 开启堆外内存池，消息体存在 DirectByteBuffer 里，发送时<strong>从堆外内存直接 DMA 到网卡</strong>（绕开堆内→堆外拷贝）；</li>
+<li>5.x 的 <code>networkFlushMode</code>&#x2F;存储升级中同样以”页缓存 + 堆外”为主线，没有引入消费端 sendfile（Kafka 能直接 sendfile 是因为它消费时不需要碰消息内容）。</li>
+</ol>
+<p><strong>面试一句话</strong>：Kafka 的零拷贝是”sendfile 内核直通”（2 次拷贝，用户态零参与）；RocketMQ 是”mmap + 堆外内存”（写文件 1 次拷贝，读网络 3 次拷贝），它的零拷贝主要省在<strong>写盘路径</strong>上，因为读路径有过滤逻辑绕不开用户态。</p>
+<h3 id="2-4-同步刷盘-vs-异步刷盘"><a href="#2-4-同步刷盘-vs-异步刷盘" class="headerlink" title="2.4 同步刷盘 vs 异步刷盘"></a>2.4 同步刷盘 vs 异步刷盘</h3><p>刷盘回答的问题是：**”消息返回发送成功”时，数据在内存（页缓存）还是磁盘上？**</p>
+<ul>
+<li><strong>异步刷盘（默认，ASYNC_FLUSH）</strong>：写入页缓存即返回成功，由 <code>FlushRealTimeService</code> 线程定时刷盘——默认每 <strong>10ms</strong> 检查一次，或脏页达到 <code>flushLeastPages</code>（默认 4 页 ≈ 16KB）就 <code>force()</code>。吞吐极高（吞吐瓶颈在磁盘顺序写速度），但 <strong>Broker 宕机（进程级故障）可能丢最近 10ms~几秒的消息</strong>。</li>
+<li><strong>同步刷盘（SYNC_FLUSH）</strong>：<code>GroupCommitService</code> 组提交，<strong>每一条消息写入后立即 <code>force()</code> 落盘才返回成功</strong>。吞吐下降一个量级，但进程级宕机不丢已确认消息。</li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>异步刷盘</th>
+<th>同步刷盘</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>吞吐</td>
+<td>高（10 万级&#x2F;秒）</td>
+<td>低（受磁盘 fsync 频率限制）</td>
+</tr>
+<tr>
+<td>延迟</td>
+<td>毫秒级</td>
+<td>数十毫秒级（可批量组提交缓解）</td>
+</tr>
+<tr>
+<td>宕机丢失</td>
+<td>可能丢最近一批</td>
+<td>不丢已确认消息</td>
+</tr>
+<tr>
+<td>生产建议</td>
+<td>默认</td>
+<td>仅对”绝对不丢”的核心链路开启，且配合同步双写</td>
+</tr>
+</tbody></table>
+<p><strong>生产经验</strong>：不要只依赖刷盘，**”异步刷盘 + 同步双写”是吞吐与可靠性最常用的组合**——单机进程故障靠磁盘（异步刷盘有一定丢的风险，但 Broker 进程崩溃时数据还在页缓存里的概率高），机器宕机靠主从副本（同步双写保证副本已落盘）。绝对核心链路才用同步刷盘，否则磁盘 fsync 会成为吞吐天花板。</p>
+<h3 id="2-5-主从复制"><a href="#2-5-主从复制" class="headerlink" title="2.5 主从复制"></a>2.5 主从复制</h3><p>Broker 主从架构回答的是：**”消息返回发送成功”时，有几份副本？** RocketMQ 有两种复制模式 + 一种自动容灾架构：</p>
+<p><strong>同步双写（brokerRole&#x3D;SYNC_MASTER）</strong>：Master 写 CommitLog 成功后，<code>HAService</code> 通过长连接（HAConnection）把数据实时推给 Slave，<strong>等 Slave 写成功返回 ACK 后，Master 才向 Producer 返回成功</strong>。因此 <code>SendResult.SEND_OK</code> 意味着主从都写好了，任意一台机器宕机都不丢消息。代价：每次发送多一次网络 RTT + 从库写盘，吞吐下降，且<strong>主库故障后从库晋升期间需要人工介入</strong>。</p>
+<p><strong>异步复制（brokerRole&#x3D;ASYNC_MASTER，默认）</strong>：Master 写成功即返回，Slave 后台异步追赶。吞吐最高，但 Master 宕机且异步数据未同步时可能丢消息。</p>
+<table>
+<thead>
+<tr>
+<th>组合</th>
+<th>可靠性</th>
+<th>吞吐</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>异步复制 + 异步刷盘</td>
+<td>低</td>
+<td>最高</td>
+<td>可容忍秒级丢失的非核心业务</td>
+</tr>
+<tr>
+<td>异步复制 + 同步刷盘</td>
+<td>中</td>
+<td>中</td>
+<td>单机不丢，机器宕机可能丢</td>
+</tr>
+<tr>
+<td><strong>同步双写 + 异步刷盘</strong></td>
+<td>高</td>
+<td>中高</td>
+<td><strong>生产主流</strong>：进程故障靠磁盘，机器故障靠副本</td>
+</tr>
+<tr>
+<td>同步双写 + 同步刷盘</td>
+<td>最高</td>
+<td>低</td>
+<td>金融级，代价是吞吐</td>
+</tr>
+</tbody></table>
+<p><strong>DLedger（RocketMQ 4.5+ 引入，5.x 推荐）</strong>：基于 <strong>Raft 协议</strong>的多副本自动容灾方案。3 个 Broker 组成一个 DLedger 组，消息写入<strong>多数派</strong>（3 节点写 2 个）成功才返回；Master 宕机后<strong>自动选举</strong>新的 Leader，无需人工切换。5.x 中配合 <strong>Controller 模式</strong>（基于 DLedger 的控制器，负责管理 Broker 组和触发切换），实现了开箱即用的自动故障转移，彻底替代 4.x 时代”主库挂了要运维改配置重启从库”的手动切换。</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">4.x 手动切换：Master 宕机 → 运维把 Slave 的 brokerId 改为 0 → 重启 → 路由更新</span><br><span class="line">5.x 自动切换：DLedger 组内 3 节点 → Leader 宕机 → Raft 选举多数派中的新 Leader</span><br><span class="line">             → Controller 更新路由 → 客户端下一次拉取路由自动感知（无需改任何配置）</span><br></pre></td></tr></table></figure>
+
+<h2 id="3-消息消费"><a href="#3-消息消费" class="headerlink" title="3. 消息消费"></a>3. 消息消费</h2><h3 id="3-1-消费模式"><a href="#3-1-消费模式" class="headerlink" title="3.1 消费模式"></a>3.1 消费模式</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>集群消费（Clustering，默认）</th>
+<th>广播消费（Broadcasting）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>语义</td>
+<td>组内实例<strong>均分 Queue</strong>，一条消息只被组内<strong>一个</strong>实例消费</td>
+<td>组内<strong>每个</strong>实例都消费<strong>全部</strong>消息</td>
+</tr>
+<tr>
+<td>消费进度存储</td>
+<td><strong>Broker 端</strong>（<code>RemoteBrokerOffsetStore</code>，见 3.2）</td>
+<td><strong>本地文件</strong>（<code>LocalFileOffsetStore</code>，见 3.2）</td>
+</tr>
+<tr>
+<td>典型场景</td>
+<td>消息只需要被处理一次（订单、库存、通知）</td>
+<td>每条消息都要通知所有实例（配置刷新、本地缓存更新、节点注册表同步）</td>
+</tr>
+</tbody></table>
+<p>注意集群消费下”组内均分的是 <strong>Queue</strong> 而不是消息”：Queue 数 &#x3D; 最大并行消费实例数。3 个 Queue 配 5 个实例，会有 2 个实例空闲。</p>
+<h3 id="3-2-消费进度管理（OffsetStore）"><a href="#3-2-消费进度管理（OffsetStore）" class="headerlink" title="3.2 消费进度管理（OffsetStore）"></a>3.2 消费进度管理（OffsetStore）</h3><ul>
+<li><strong>集群消费</strong>：进度存 <strong>Broker</strong>。Consumer 消费完一批消息后，每 <strong>5 秒</strong>（<code>persistConsumerOffsetInterval</code>）把 <code>&#123;group, topic, queueId&#125; → offset</code> 上报给 Broker，Broker 持久化到磁盘文件 <code>store/config/consumerOffset.json</code>。Consumer 在 Rebalance 后从 Broker 拉取自己负责的 Queue 的进度。<strong>优点</strong>：任意实例接管队列都能续上进度；<strong>风险</strong>：上报是周期性的，<strong>最近 5 秒内消费的进度可能在”消费成功但未上报”时丢失</strong>，造成重复消费——所以消费业务必须幂等。</li>
+<li><strong>广播消费</strong>：进度存<strong>本地文件</strong> <code>~/.rocketmq_offsets/&#123;group&#125;/&#123;topic&#125;@&#123;queueId&#125;</code>（<code>LocalFileOffsetStore</code>）。实例重启从本地续读；换机器则丢进度。</li>
+<li><strong>首次消费位点</strong>（新 group 没有历史进度时）：<code>CONSUME_FROM_LAST_OFFSET</code>（默认，从最新开始，历史消息直接跳过）、<code>CONSUME_FROM_FIRST_OFFSET</code>（从最老开始，全量）、<code>CONSUME_FROM_TIMESTAMP</code>。<strong>生产注意</strong>：新 group 默认从最新消费，测试环境接历史数据要显式配 <code>CONSUME_FROM_FIRST_OFFSET</code>。</li>
+</ul>
+<h3 id="3-3-推模式-vs-拉模式（长轮询-Long-Polling-机制）"><a href="#3-3-推模式-vs-拉模式（长轮询-Long-Polling-机制）" class="headerlink" title="3.3 推模式 vs 拉模式（长轮询 Long Polling 机制）"></a>3.3 推模式 vs 拉模式（长轮询 Long Polling 机制）</h3><p>RocketMQ 名义上是推拉都有（PushConsumer &#x2F; PullConsumer），但<strong>底层全部是拉</strong>：<code>DefaultMQPushConsumer</code> 内部是一个 <code>PullMessageService</code> 线程，不断向 Broker 发 PullRequest，只是把”拉到 → 回调用户 Listener”包装成了推送的体验。</p>
+<p><strong>长轮询（Long Polling）</strong>是”伪推送”的关键：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">Consumer: 发 PullRequest（请求 ConsumeQueue 指定 offset 之后的消息，最多挂 15s）</span><br><span class="line">            │</span><br><span class="line">            ▼</span><br><span class="line">Broker: PullMessageProcessor 处理</span><br><span class="line">  ├─ ConsumeQueue 有新消息？ ── 是 ──► 立即返回消息</span><br><span class="line">  └─ 没有 → PullRequestHoldService 把请求挂起（suspend，最长 15s）</span><br><span class="line">              │</span><br><span class="line">              │ 期间有新消息写入（ReputMessageService 分发完成）</span><br><span class="line">              │ NotifyMessageArrivingListener 被唤醒</span><br><span class="line">              ▼</span><br><span class="line">        立即把挂起的请求唤醒响应 → 客户端近乎实时收到消息</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>默认挂起超时 15s（可配 <code>brokerSuspendMaxTimeMillis</code>），消费延迟通常毫秒级；挂起请求超过 <code>longPollingHoldEnabled</code> 阈值时会提前返回空结果让客户端重新拉。</li>
+<li><strong>长轮询的价值</strong>：既有推送的实时性，又有拉模式的流量控制能力（消费慢时拉取自然变少，天然背压），还避免了纯推送模式下 Broker 被慢消费者拖死。</li>
+</ul>
+<p><strong>5.x 的 Pop 消费模式</strong>：RocketMQ 5.x 引入了借鉴 Kafka 的 <strong>Pop 消费</strong>（<code>SimpleConsumer</code>&#x2F;pop 协议），消费时消息先被”借走”（pop），带不可见时间窗口，超时未确认的消息进入重试&#x2F;恢复流程。它的核心价值是<strong>无状态消费 + 规避 Rebalance 期间的消息抖动与队列锁问题</strong>（传统 push 模式在 Rebalance 时会出现短暂的”队列无人消费&#x2F;重复消费”窗口）。5.x 中官方建议新消费端优先使用 Pop 模式。</p>
+<h3 id="3-4-消费重试与死信队列"><a href="#3-4-消费重试与死信队列" class="headerlink" title="3.4 消费重试与死信队列"></a>3.4 消费重试与死信队列</h3><ul>
+<li><strong>集群消费失败重试</strong>：<code>MessageListenerConcurrently</code> 返回 <code>RECONSUME_LATER</code>（或抛异常）时，消息进入重试队列 **<code>%RETRY%&#123;consumerGroup&#125;</code>**。默认重试 <strong>16 次</strong>，每次重试的延迟递增（按延迟级别 3 起步：10s、30s、1m、2m……逐级递加）。</li>
+<li><strong>死信队列</strong>：超过最大重试次数后，消息进入 **<code>%DLQ%&#123;consumerGroup&#125;</code>**，需要人工介入：先用 <code>mqadmin</code> 查询死信消息，再手动投递回原 Topic 或重试队列，业务修复 bug 后重放。</li>
+<li><strong>4.x 的痛点与 5.x 的改进</strong>：4.x 一个 group 只有一个共享的重试队列，<strong>队头消息反复失败会阻塞后续所有重试消息</strong>（队头阻塞）；<strong>5.x 改为每个消费者实例一个重试队列</strong>，某条消息失败只影响它自己的实例，其他实例的重试消息畅通无阻。</li>
+<li><strong>顺序消息的重试是特殊的</strong>：<code>MessageListenerOrderly</code> 失败后<strong>不走重试队列</strong>（进重试队列会乱序），而是<strong>挂起当前队列</strong>，等待其他队列消费完，隔一段时间后（默认 1 秒）重新消费该队列第一条消息，重试到成功为止（所以顺序消息的消费代码里不要无限抛异常，建议显式捕获并 sleep 后继续）。</li>
+</ul>
+<h3 id="3-5-消息过滤（Tag-SQL92-表达式-类过滤）"><a href="#3-5-消息过滤（Tag-SQL92-表达式-类过滤）" class="headerlink" title="3.5 消息过滤（Tag &#x2F; SQL92 表达式 &#x2F; 类过滤）"></a>3.5 消息过滤（Tag &#x2F; SQL92 表达式 &#x2F; 类过滤）</h3><table>
+<thead>
+<tr>
+<th>过滤方式</th>
+<th>原理</th>
+<th>性能</th>
+<th>状态</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Tag 过滤</strong></td>
+<td>订阅时指定 tag（如 &#96;tagA</td>
+<td></td>
+<td>tagB<code>或</code><em>&#96;），Broker 端<strong>用 ConsumeQueue 条目里的 Tag hash 粗筛</strong>，命中后读消息体精确比对（防 hash 冲突），没命中的消息*<em>连 CommitLog 都不用读</em></em></td>
+</tr>
+<tr>
+<td><strong>SQL92 过滤</strong></td>
+<td>消息带自定义属性（如 <code>age&gt;18 &amp;&amp; region=&#39;cn&#39;</code>），Broker 端解析表达式，<strong>需要读消息体取属性</strong>再计算</td>
+<td>较慢（过滤要读消息体）</td>
+<td>需要动态属性过滤时用</td>
+</tr>
+<tr>
+<td>类过滤</td>
+<td>上传 FilterServer&#x2F;Jar 执行过滤</td>
+<td>最慢，维护成本高</td>
+<td>4.x 已弃用，<strong>5.x 已移除</strong></td>
+</tr>
+</tbody></table>
+<p>面试常问：<strong>为什么 Tag 过滤快？</strong> 因为 tag 的 hash 存在 ConsumeQueue 的 20 字节条目里，Broker 只扫索引就过滤掉了 99% 不相关的消息，不用碰 CommitLog 数据本体——和”只读索引不回表”是同一个道理。</p>
+<h2 id="4-顺序消息"><a href="#4-顺序消息" class="headerlink" title="4. 顺序消息"></a>4. 顺序消息</h2><h3 id="4-1-全局顺序-vs-分区顺序"><a href="#4-1-全局顺序-vs-分区顺序" class="headerlink" title="4.1 全局顺序 vs 分区顺序"></a>4.1 全局顺序 vs 分区顺序</h3><ul>
+<li><strong>全局顺序</strong>：一个 Topic 只配<strong>一个 Queue</strong>，所有消息严格有序。吞吐被压到单队列单线程，几乎不用于生产。</li>
+<li><strong>分区顺序（常用）</strong>：<strong>同一业务 key（如 orderId）的消息按发送顺序消费</strong>，不同 key 之间互不阻塞。例如”创建订单 → 支付成功 → 关闭订单”必须有序，但不同订单之间完全独立。</li>
+</ul>
+<p>RocketMQ 的顺序保证是<strong>端到端</strong>的：发送端同 key 进同队列 + Broker 队列串行存储 + 消费端队列内串行处理。</p>
+<h3 id="4-2-顺序消息的实现原理（MessageQueueSelector-锁机制）"><a href="#4-2-顺序消息的实现原理（MessageQueueSelector-锁机制）" class="headerlink" title="4.2 顺序消息的实现原理（MessageQueueSelector + 锁机制）"></a>4.2 顺序消息的实现原理（MessageQueueSelector + 锁机制）</h3><p><strong>发送端</strong>：用 <code>MessageQueueSelector</code> 按 key 哈希选择队列（见 2.1 的代码），保证同一个 key 永远落在同一个 Queue：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">SendResult</span> <span class="variable">result</span> <span class="operator">=</span> producer.send(msg, <span class="keyword">new</span> <span class="title class_">MessageQueueSelector</span>() &#123;</span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> MessageQueue <span class="title function_">select</span><span class="params">(List&lt;MessageQueue&gt; mqs, Message msg, Object arg)</span> &#123;</span><br><span class="line">        <span class="comment">// 同一个 orderId 永远模出同一个 index → 同一个队列</span></span><br><span class="line">        <span class="keyword">return</span> mqs.get(((Long) arg) % mqs.size());</span><br><span class="line">    &#125;</span><br><span class="line">&#125;, orderId);   <span class="comment">// 业务 key 作为 arg 传入</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>存储端</strong>：同一个 Queue 的消息在 CommitLog 中是严格按到达顺序写入的（2.2 说过写入是串行的），ConsumeQueue 条目顺序即消息顺序。<strong>队列就是顺序的天然载体</strong>。</p>
+<p><strong>消费端（关键）</strong>：<code>DefaultMQPushConsumer</code> 设置 <code>MessageListenerOrderly</code> 后，底层做了两件事：</p>
+<ol>
+<li><strong>Broker 端队列锁</strong>（<code>RebalanceLockManager</code>）：消费者消费某个队列前，先向 Broker 申请对该 Queue 加锁（<code>LOCK</code>），拿到锁才消费——防止 Rebalance 后两个实例同时消费同一队列造成乱序（旧实例未释放，新实例已开始）；</li>
+<li><strong>本地分段锁</strong>：本地用 <code>ReentrantLock</code> 锁住 <code>ProcessQueue</code>，<strong>同一队列的消息在本地也是串行处理的</strong>——<code>MessageListenerOrderly</code> 的实现会逐条 <code>lock()</code> 队列后调用用户 listener，处理完一条才处理下一条，天然规避了 <code>MessageListenerConcurrently</code> 的并发线程池乱序问题。</li>
+</ol>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">consumer.registerMessageListener(<span class="keyword">new</span> <span class="title class_">MessageListenerOrderly</span>() &#123;</span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> ConsumeOrderlyStatus <span class="title function_">consumeMessage</span><span class="params">(List&lt;MessageExt&gt; msgs, ConsumeOrderlyContext context)</span> &#123;</span><br><span class="line">        <span class="comment">// 同一队列的消息会串行回调到这里，业务里按消息顺序处理即可</span></span><br><span class="line">        <span class="keyword">for</span> (MessageExt msg : msgs) &#123;</span><br><span class="line">            handleOrderEvent(msg);   <span class="comment">// 例如：先创建后支付后关闭</span></span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> ConsumeOrderlyStatus.SUCCESS;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;);</span><br></pre></td></tr></table></figure>
+
+<h3 id="4-3-消费端顺序保证（synchronized-分段锁-重试机制）"><a href="#4-3-消费端顺序保证（synchronized-分段锁-重试机制）" class="headerlink" title="4.3 消费端顺序保证（synchronized 分段锁 + 重试机制）"></a>4.3 消费端顺序保证（synchronized 分段锁 + 重试机制）</h3><p>再往深一层，顺序消费失败时的行为是面试加分点：</p>
+<ul>
+<li>顺序消费<strong>失败不能跳过</strong>（跳过了后面全乱）。<code>MessageListenerOrderly</code> 返回失败（<code>SUSPEND_CURRENT_QUEUE_A_MOMENT</code>）时，消息<strong>不回重试队列、不进死信队列</strong>（死信会破坏顺序），而是把当前队列<strong>挂起</strong>（<code>suspendCurrentQueueTimeMillis</code>，默认 1000ms），等本实例其他队列消费完后，<strong>从当前队列的第一条未成功消息重新开始</strong>。</li>
+<li>因此顺序消费的 listener 内部<strong>要自兜底</strong>：业务失败要捕获异常、记录日志、sleep 后重试，而不是无限抛异常把整个队列卡死。</li>
+<li>顺序消费是”<strong>用队列的串行性换顺序，用吞吐和容错换一致性</strong>“的经典取舍：同一个 Queue 的消费天然是单线程的，一个消息处理慢，整条队列的后续消息全部排队。</li>
+</ul>
+<h3 id="4-4-顺序消息的代价与适用场景"><a href="#4-4-顺序消息的代价与适用场景" class="headerlink" title="4.4 顺序消息的代价与适用场景"></a>4.4 顺序消息的代价与适用场景</h3><table>
+<thead>
+<tr>
+<th>代价</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>吞吐受限</td>
+<td>同一队列串行消费，并行度 &#x3D; 队列数（需要足够的队列数来摊分吞吐）</td>
+</tr>
+<tr>
+<td>失败代价大</td>
+<td>一条消息处理失败会阻塞整条队列的重试，需要业务侧快速失败&#x2F;自愈</td>
+</tr>
+<tr>
+<td>Rebalance 有窗口</td>
+<td>队列锁切换期间有短暂乱序&#x2F;重复风险（5.x Pop 模式可缓解）</td>
+</tr>
+<tr>
+<td>全局顺序几乎不可用</td>
+<td>单队列吞吐上限，仅在吞吐极低的场景考虑</td>
+</tr>
+</tbody></table>
+<p><strong>适用场景</strong>：订单状态机流转（创建→支付→发货→完成）、库存扣减流水、转账操作（同账户的加减款必须串行）、积分变更等”同一业务实体的状态变化”场景。<strong>判断标准：找得到业务 key，就是分区顺序；找不到 key 还要全局有序，就该换个方案。</strong></p>
+<h2 id="5-事务消息"><a href="#5-事务消息" class="headerlink" title="5. 事务消息"></a>5. 事务消息</h2><h3 id="5-1-分布式事务问题回顾"><a href="#5-1-分布式事务问题回顾" class="headerlink" title="5.1 分布式事务问题回顾"></a>5.1 分布式事务问题回顾</h3><p>经典场景：<strong>下单扣库存</strong>——本地数据库事务里”写订单表 + 发 MQ 消息给库存服务”，怎么保证两者原子？</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">方案 A：先本地事务，再发消息</span><br><span class="line">  本地事务成功 → 发消息失败 → 订单存在但库存服务没收到 → 不一致 ❌</span><br><span class="line">方案 B：先发消息，再本地事务</span><br><span class="line">  消费者立刻消费 → 本地事务还没提交 → 消费者看到&quot;幽灵订单&quot; → 不一致 ❌</span><br><span class="line">方案 C：本地事务成功后才发，发了不保证成功（发送端补偿）</span><br><span class="line">  补偿逻辑复杂，且&quot;消息发送&quot;与&quot;本地事务&quot;始终不是一个原子单元 ❌</span><br></pre></td></tr></table></figure>
+
+<p>本质问题：<strong>数据库事务 和 MQ 的投递 是两套系统，没有任何机制能同时提交&#x2F;回滚</strong>。RocketMQ 的答案是：让消息进入”半提交”状态，跟随本地事务一起提交或回滚——这就是事务消息（两阶段消息）。</p>
+<h3 id="5-2-事务消息原理"><a href="#5-2-事务消息原理" class="headerlink" title="5.2 事务消息原理"></a>5.2 事务消息原理</h3><p>完整流程（五步）：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">Producer                             Broker                                Consumer</span><br><span class="line">  │ ① 发送 half 消息（对消费者不可见） │</span><br><span class="line">  ├──────────────────────────────────►│ 写 CommitLog + HALF_TOPIC 索引</span><br><span class="line">  │ ② 执行本地事务（写库）             │</span><br><span class="line">  ├─────────────────────┐             │</span><br><span class="line">  │   return COMMIT/    │             │</span><br><span class="line">  │   ROLLBACK/UNKNOW   │             │</span><br><span class="line">  │◄────────────────────┘             │</span><br><span class="line">  │ ③ 告知提交/回滚       │             │</span><br><span class="line">  ├──────────────────────────────────►│ COMMIT：构建真实队列索引 → 消费者可见</span><br><span class="line">  │                                   │ ROLLBACK：丢弃（OP_TOPIC 记录）</span><br><span class="line">  │ ④ 超时未决：事务状态回查           │</span><br><span class="line">  │◄─────────── CHECK 请求 ──────────┤ TransactionalMessageCheckService</span><br><span class="line">  │ ⑤ checkLocalTransaction 返回最终态 │ 每 60s 扫描，最多回查 15 次</span><br><span class="line">  │────────── 提交/回滚 上报 ─────────►│</span><br></pre></td></tr></table></figure>
+
+<p><strong>源码级剖析</strong>（<code>org.apache.rocketmq.broker.transaction</code> 包）：</p>
+<p><strong>① 发送 half 消息（对消费者不可见的关键）</strong></p>
+<p>消息先正常写入 CommitLog（数据本体只有一份），但 <code>TransactionalMessageBridge#putHalfMessage</code> 同时把消息索引写入<strong>内部主题 <code>RMQ_SYS_TRANS_HALF_TOPIC</code>（HALF_TOPIC）的 ConsumeQueue</strong>，而<strong>不写入真实 Topic 的 ConsumeQueue</strong>。消费者只读真实 Topic 的 ConsumeQueue → 永远看不到 half 消息。这就是”半消息”不可见的存储层实现：<strong>CommitLog 里有实体，真实索引没构建</strong>。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// TransactionalMessageBridge</span></span><br><span class="line"><span class="keyword">public</span> PutMessageResult <span class="title function_">putHalfMessage</span><span class="params">(MessageExtBrokerInner messageInner)</span> &#123;</span><br><span class="line">    <span class="comment">// 把消息写入 HALF_TOPIC 的 ConsumeQueue（指向 CommitLog 中同一份实体）</span></span><br><span class="line">    <span class="keyword">return</span> putMessage(messageInner);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>② 执行本地事务</strong>：Producer 收到 half 消息的写入成功回执后，同步调用用户实现的 <code>TransactionListener.executeLocalTransaction(msg, arg)</code>——这里写数据库、写文件，返回 <code>LocalTransactionState</code>（COMMIT &#x2F; ROLLBACK &#x2F; UNKNOW）。</p>
+<p><strong>③ 提交&#x2F;回滚</strong>：Producer 把结果通过 <code>endTransactionOneway</code> 发给 Broker（<code>EndTransactionRequestHeader</code>，携带 <code>commitOrRollback</code> 标志）。</p>
+<ul>
+<li><strong>COMMIT</strong>：<code>TransactionalMessageServiceImpl#commitMessage</code> → 在 <strong><code>RMQ_SYS_TRANS_OP_HALF_TOPIC</code>（OP_TOPIC）</strong> 记录一条”已操作”日志（防重、防乱序），然后 <code>buildConsumeQueue</code> 把消息索引构建到<strong>真实 Topic 的 ConsumeQueue</strong> → 消费者可见。</li>
+<li><strong>ROLLBACK</strong>：只在 OP_TOPIC 记录，不构建真实索引 → 消费者永远看不到（CommitLog 里的实体等待过期清理）。</li>
+<li><strong>幂等防重</strong>：Broker 端先检查 OP_TOPIC，防止”重复的 COMMIT&#x2F;ROLLBACK 指令”被处理两次。</li>
+</ul>
+<p><strong>④ 事务状态回查（Check，容错的核心）</strong></p>
+<p>如果步骤 ②③ 之间 Producer 宕机了，消息就停在”未决（PREPARED）”状态。<code>TransactionalMessageCheckService</code> 定时线程兜底：</p>
+<ul>
+<li>每 <strong>60 秒</strong>（<code>transactionCheckInterval</code>）扫描一次 HALF_TOPIC；</li>
+<li>找到<strong>超过 <code>transactionTimeOut</code>（默认 6 秒）仍未决</strong>的 half 消息，向 Producer 发送 <strong>CHECK 请求</strong>（消息属性里带 <code>TRANSACTION_ID</code> 和回查次数 <code>TRANSACTION_CHECK_TIMES</code>）；</li>
+<li>Producer 收到 CHECK 后调用 <code>TransactionListener.checkLocalTransaction(msg)</code>，根据<strong>本地事务的结果</strong>（查库&#x2F;查状态表）返回最终状态，再走步骤③的提交&#x2F;回滚；</li>
+<li>回查次数上限 <strong>15 次</strong>（<code>TRANSACTION_CHECK_MAX_TIME</code>），超过后 Broker 丢弃该消息（同时会打告警，需要人工排查）。</li>
+</ul>
+<p><strong>⑤ 有序提交保证</strong>：<code>TransactionalMessageServiceImpl</code> 在提交时还会用 <code>compareOffset</code> 检查——<strong>必须按 half 消息的写入顺序提交</strong>，避免”后面的消息先提交、前面的还没决断”导致消费者看到的顺序与发送顺序不一致。</p>
+<p><strong>半消息幂等&#x2F;时序的两个经典追问</strong>：</p>
+<ul>
+<li><strong>为什么不用”先发真实消息 + 定时删除”？</strong> 因为已提交消息一旦被消费者看到就不可撤销，而 half 消息在提交前对消费者完全不可见，天然满足”要么都提交、要么都回滚”。</li>
+<li><strong>回查能保证 100% 一致吗？</strong> 不能，它只能无限逼近最终一致：Producer 在”本地事务提交成功但 COMMIT 指令发送失败”的极端窗口下，靠回查让 Broker 最终拿到 COMMIT；如果回查也失败（Producer 整体不可用），消息最终被丢弃——<strong>事务消息保证的是”消息发送与本地事务的原子性”，不解决跨系统数据一致性</strong>（见 5.4）。</li>
+</ul>
+<h3 id="5-3-事务消息完整代码示例"><a href="#5-3-事务消息完整代码示例" class="headerlink" title="5.3 事务消息完整代码示例"></a>5.3 事务消息完整代码示例</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">TransactionProducerExample</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> <span class="keyword">throws</span> Exception &#123;</span><br><span class="line">        <span class="comment">// 1. 事务生产者</span></span><br><span class="line">        <span class="type">TransactionMQProducer</span> <span class="variable">producer</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">TransactionMQProducer</span>(<span class="string">&quot;transaction-producer-group&quot;</span>);</span><br><span class="line">        producer.setNamesrvAddr(<span class="string">&quot;127.0.0.1:9876&quot;</span>);</span><br><span class="line">        producer.setTransactionListener(<span class="keyword">new</span> <span class="title class_">OrderTransactionListener</span>());  <span class="comment">// 关键</span></span><br><span class="line">        producer.start();</span><br><span class="line"></span><br><span class="line">        <span class="comment">// 2. 发送 half 消息（此时消费者不可见）</span></span><br><span class="line">        <span class="type">Message</span> <span class="variable">msg</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">Message</span>(<span class="string">&quot;ORDER_PAY_TOPIC&quot;</span>, <span class="string">&quot;PAY_SUCCESS&quot;</span>,</span><br><span class="line">                <span class="string">&quot;orderId-10086&quot;</span>.getBytes(StandardCharsets.UTF_8));</span><br><span class="line">        <span class="comment">// 第二个参数 arg 会原样传给 TransactionListener.executeLocalTransaction</span></span><br><span class="line">        <span class="type">SendResult</span> <span class="variable">result</span> <span class="operator">=</span> producer.sendMessageInTransaction(msg, <span class="number">10086L</span>);</span><br><span class="line">        System.out.println(<span class="string">&quot;half 消息发送结果：&quot;</span> + result.getSendStatus());</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">/** 事务监听器：executeLocalTransaction 与 checkLocalTransaction 必须实现 */</span></span><br><span class="line">    <span class="keyword">static</span> <span class="keyword">class</span> <span class="title class_">OrderTransactionListener</span> <span class="keyword">implements</span> <span class="title class_">TransactionListener</span> &#123;</span><br><span class="line"></span><br><span class="line">        <span class="comment">/** 本地事务执行阶段：写业务库，返回事务状态 */</span></span><br><span class="line">        <span class="meta">@Override</span></span><br><span class="line">        <span class="keyword">public</span> LocalTransactionState <span class="title function_">executeLocalTransaction</span><span class="params">(Message msg, Object arg)</span> &#123;</span><br><span class="line">            <span class="type">Long</span> <span class="variable">orderId</span> <span class="operator">=</span> (Long) arg;</span><br><span class="line">            <span class="keyword">try</span> &#123;</span><br><span class="line">                <span class="comment">// 模拟：订单表插入 + 扣减库存，同一个数据库本地事务</span></span><br><span class="line">                orderService.markOrderPaid(orderId);   <span class="comment">// 本地事务（@Transactional）</span></span><br><span class="line">                <span class="keyword">return</span> LocalTransactionState.COMMIT_MESSAGE;   <span class="comment">// 提交 → 消息对消费者可见</span></span><br><span class="line">                <span class="comment">// return LocalTransactionState.ROLLBACK_MESSAGE; // 回滚 → 消息丢弃</span></span><br><span class="line">            &#125; <span class="keyword">catch</span> (Exception e) &#123;</span><br><span class="line">                <span class="comment">// 不确定 → 让 Broker 稍后回查，不要轻易返回 ROLLBACK</span></span><br><span class="line">                <span class="keyword">return</span> LocalTransactionState.UNKNOW;</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        <span class="comment">/** 回查阶段：Broker 问&quot;你那条本地事务到底成没成？&quot;，查库给答案 */</span></span><br><span class="line">        <span class="meta">@Override</span></span><br><span class="line">        <span class="keyword">public</span> LocalTransactionState <span class="title function_">checkLocalTransaction</span><span class="params">(MessageExt msg)</span> &#123;</span><br><span class="line">            <span class="type">Long</span> <span class="variable">orderId</span> <span class="operator">=</span> Long.valueOf(msg.getKeys());</span><br><span class="line">            <span class="comment">// 查本地订单状态表：提交成功 → COMMIT；不存在/失败 → ROLLBACK；未决 → UNKNOW 继续等</span></span><br><span class="line">            <span class="type">Integer</span> <span class="variable">status</span> <span class="operator">=</span> orderDao.queryPayStatus(orderId);</span><br><span class="line">            <span class="keyword">if</span> (status != <span class="literal">null</span> &amp;&amp; status == <span class="number">1</span>) &#123;</span><br><span class="line">                <span class="keyword">return</span> LocalTransactionState.COMMIT_MESSAGE;</span><br><span class="line">            &#125;</span><br><span class="line">            <span class="keyword">return</span> LocalTransactionState.UNKNOW;   <span class="comment">// 或 ROLLBACK_MESSAGE</span></span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h3 id="5-4-与-Seata-Kafka-事务的对比"><a href="#5-4-与-Seata-Kafka-事务的对比" class="headerlink" title="5.4 与 Seata &#x2F; Kafka 事务的对比"></a>5.4 与 Seata &#x2F; Kafka 事务的对比</h3><table>
+<thead>
+<tr>
+<th>方案</th>
+<th>机制</th>
+<th>解决什么</th>
+<th>不解决什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>RocketMQ 事务消息</strong></td>
+<td>half 消息 + 回查（两阶段消息）</td>
+<td><strong>本地事务与消息发送的原子性</strong>：本地库提交成功，消息必然可达（或明确回滚）</td>
+<td>不解决”多个数据库&#x2F;多个服务”之间的数据一致性；消费者侧仍需自己的最终一致性方案</td>
+</tr>
+<tr>
+<td><strong>Seata</strong>（AT&#x2F;TCC&#x2F;Saga）</td>
+<td>全局事务管理器 + 分支事务 + 回滚日志</td>
+<td><strong>跨数据库、跨微服务</strong>的分布式事务（业务资源层面）</td>
+<td>与 MQ 是互补关系，不是替代：Seata 管库，RocketMQ 管消息</td>
+</tr>
+<tr>
+<td><strong>Kafka 事务</strong></td>
+<td>幂等 Producer + 事务协调器，原子写入多个分区&#x2F;topic</td>
+<td>流处理里的 <strong>exactly-once（EOS）</strong>：原子读-处理-写，幂等消费</td>
+<td><strong>不涉及外部系统</strong>——Kafka 无法把”数据库事务”和”发消息”做成一个原子单元，它的两阶段提交是 Kafka 内部的</td>
+</tr>
+</tbody></table>
+<p>一句话：<strong>Kafka 的事务是”Kafka 内部的多分区原子写”，RocketMQ 的事务消息是”业务本地事务与消息投递的原子化”，Seata 是”跨服务数据库的全局事务”。三者层次不同。</strong> 面试对比时最容易踩的坑就是把 Kafka 事务理解成”分布式事务”——它只是流处理 EOS 的工具，事务消息真正要对比的是 Seata。</p>
+<h2 id="6-延迟消息"><a href="#6-延迟消息" class="headerlink" title="6. 延迟消息"></a>6. 延迟消息</h2><h3 id="6-1-延迟级别设计"><a href="#6-1-延迟级别设计" class="headerlink" title="6.1 延迟级别设计"></a>6.1 延迟级别设计</h3><p>RocketMQ 4.x 的延迟消息**不是”任意延迟时间”**，而是预定义的 <strong>18 个延迟级别</strong>（<code>messageDelayLevel</code>，可配置）：</p>
+<p>| Level | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 |<br>|—|—|—|—|—|—|—|—|—|—|—|—|—|—|—|—|—|—|—|—|<br>| 延迟 | 1s | 5s | 10s | 30s | 1m | 2m | 3m | 4m | 5m | 6m | 7m | 8m | 9m | 10m | 20m | 30m | 1h | 2h |</p>
+<ul>
+<li>发送时 <code>msg.setDelayTimeLevel(5)</code> 表示延迟 1 分钟；<strong>不能传 90s 这种任意值</strong>（传了按 <code>% 18 + 1</code> 换算成级别）。</li>
+<li><strong>为什么 4.x 不支持任意时间？</strong> 因为 4.x 的实现是”<strong>延迟队列 + 定时扫描</strong>“：每个延迟级别对应一个队列，定时器按队列顺序扫描到期消息。队列数 &#x3D; 延迟级别数（18 个），是一个<strong>离散的定时器集合</strong>，天然不支持连续时间。</li>
+<li><strong>5.x 的改进</strong>：5.1+ 引入新的<strong>定时消息存储（TimerMessageStore，基于时间轮 + 持久化）</strong>，支持<strong>任意延迟时间</strong>（<code>MessageBuilder.setDeliverTimeMs()</code>，秒级精度），同时兼容老的 18 级 <code>delayLevel</code> 用法。5.x 新项目建议直接用任意时间接口。</li>
+</ul>
+<h3 id="6-2-实现原理（SCHEDULE-TOPIC-定时任务扫描）"><a href="#6-2-实现原理（SCHEDULE-TOPIC-定时任务扫描）" class="headerlink" title="6.2 实现原理（SCHEDULE_TOPIC + 定时任务扫描）"></a>6.2 实现原理（SCHEDULE_TOPIC + 定时任务扫描）</h3><figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line">Producer 发送 delayLevel=5 的消息</span><br><span class="line">  │</span><br><span class="line">  ▼</span><br><span class="line">Broker 写入 CommitLog 时发现延迟属性（delayTimeLevel &gt; 0）</span><br><span class="line">  ├─ 修改消息属性：真实 Topic 存进 REAL_TOPIC、真实 Queue 存进 REAL_QUEUE_ID</span><br><span class="line">  ├─ 写入内部主题 SCHEDULE_TOPIC_XXXX 的 ConsumeQueue</span><br><span class="line">  │    （queueId = delayLevel - 1，即&quot;第 N 个延迟级别 = 第 N 个队列&quot;）</span><br><span class="line">  └─ 消息对真实消费者不可见</span><br><span class="line">  │</span><br><span class="line">  ▼</span><br><span class="line">ScheduleMessageService（每级一个 deliverDelayedMessageTimerTask，1s 精度）</span><br><span class="line">  ├─ 扫描自己负责的延迟队列 ConsumeQueue</span><br><span class="line">  ├─ 消息的&quot;目标投递时间&quot;（写入时间 + 延迟时长）到了吗？</span><br><span class="line">  │    ├─ 没到 → 继续等（下次扫描）</span><br><span class="line">  │    └─ 到了 → 从 CommitLog 读出消息，恢复 REAL_TOPIC / REAL_QUEUE_ID</span><br><span class="line">  │            重新构建真实 Topic 的 ConsumeQueue 条目 → 消费者可见</span><br></pre></td></tr></table></figure>
+
+<p>要点：</p>
+<ul>
+<li><strong>延迟消息的存储</strong>也是”CommitLog 一份实体 + 索引在 SCHEDULE_TOPIC”——和 half 消息同构，**延迟本质是”换个队列存索引，到点再建真实索引”**；</li>
+<li><strong>为什么每个延迟级别一个队列</strong>：这样每个级别的扫描互不影响，级别 18（2h）的消息不用反复跟级别 1（1s）的抢扫描位置，且同一级别的消息按 offset 天然有序，扫到第一条未到期消息就可以停下（offset 递增）；</li>
+<li><strong>精度</strong>：4.x 定时任务 1 秒扫一次（延迟时间粒度秒级）；到点后最多 1 秒内投递，实际延迟 &#x3D; 设定延迟 ± 1s；</li>
+<li><strong>代价</strong>：延迟消息的”定时扫描 + 重新投递”会让 Broker 有额外 IO；大量延迟消息要注意 <code>SCHEDULE_TOPIC</code> 的 ConsumeQueue 膨胀。</li>
+</ul>
+<h3 id="6-3-延迟消息的典型应用场景"><a href="#6-3-延迟消息的典型应用场景" class="headerlink" title="6.3 延迟消息的典型应用场景"></a>6.3 延迟消息的典型应用场景</h3><ul>
+<li><strong>订单超时未支付自动关闭</strong>（延迟 30 分钟，level 16）——最经典场景，替代轮询扫表；</li>
+<li><strong>支付结果回调重试</strong>（延迟 1m&#x2F;5m&#x2F;10m 分档重试，配合退避）；</li>
+<li><strong>定时任务下发</strong>（每天固定时刻发”执行任务”消息）；</li>
+<li><strong>限流降级后的延迟重放</strong>（大促时把非核心消息延迟处理）；</li>
+<li>5.x 的任意时间延迟（<code>setDeliverTimeMs</code>）还可做<strong>定时提醒、会员到期</strong>等业务。</li>
+</ul>
+<p>注意：<strong>延迟消息不等于定时任务系统</strong>。定时任务要”准点执行、可取消、可查状态”，MQ 只保证”到点投递”，到点后的消费延迟、失败重试由消费端负责。</p>
+<h2 id="7-高可用与容错"><a href="#7-高可用与容错" class="headerlink" title="7. 高可用与容错"></a>7. 高可用与容错</h2><h3 id="7-1-NameServer-集群"><a href="#7-1-NameServer-集群" class="headerlink" title="7.1 NameServer 集群"></a>7.1 NameServer 集群</h3><ul>
+<li>部署 2 台以上 NameServer，<strong>互不通信、无主从</strong>，任意一台挂了不影响集群；</li>
+<li>每个 Broker 启动时向<strong>所有</strong> NameServer 注册，并每 30s 心跳（心跳里带 Broker 的全部 Topic 路由信息）；</li>
+<li>NameServer 每 10s 扫描一次，<strong>连续 120s 没心跳</strong>的 Broker 被剔除；</li>
+<li>Producer&#x2F;Consumer 启动时配置全部 NameServer 地址，<strong>轮询使用，挂了自动换</strong>；路由本地缓存 30s，期间 NameServer 全挂也不影响已启动的收发（只是感知不到变更）。</li>
+</ul>
+<p><strong>高可用结论</strong>：NameServer 没有状态，它的”高可用”是部署数量的事，不是架构复杂度的事——这也是为什么它敢用最终一致。</p>
+<h3 id="7-2-Broker-高可用"><a href="#7-2-Broker-高可用" class="headerlink" title="7.2 Broker 高可用"></a>7.2 Broker 高可用</h3><table>
+<thead>
+<tr>
+<th>架构</th>
+<th>副本数</th>
+<th>故障转移</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>传统主从（4.x 时代）</td>
+<td>1 主 1 从（2 副本）</td>
+<td><strong>手动</strong>：改配置重启从库升主</td>
+<td>已基本被替代</td>
+</tr>
+<tr>
+<td><strong>DLedger 模式（4.5+）</strong></td>
+<td>3 副本起（多数派 2）</td>
+<td><strong>自动</strong>：Raft 选举新 Leader</td>
+<td>5.x 推荐默认</td>
+</tr>
+<tr>
+<td>5.x Controller 模式</td>
+<td>基于 DLedger 的 Broker 组 + Controller</td>
+<td><strong>自动</strong>：Controller 管理 Broker 组、触发转移、更新路由</td>
+<td>5.x 的现代化部署方式</td>
+</tr>
+</tbody></table>
+<p>DLedger 模式下 3 个 Broker 组内自动选主，<strong>Leader 宕机后秒级自动切换</strong>，客户端下一轮拉取路由（30s 内）自动切到新 Leader，期间生产者写失败会重试——整个故障转移对业务近乎透明，这是 4.x 手动切换完全做不到的。</p>
+<h3 id="7-3-消费者端容错（消费失败重试策略、rebalance）"><a href="#7-3-消费者端容错（消费失败重试策略、rebalance）" class="headerlink" title="7.3 消费者端容错（消费失败重试策略、rebalance）"></a>7.3 消费者端容错（消费失败重试策略、rebalance）</h3><ul>
+<li><strong>消费失败重试</strong>：并发消费失败默认重试 16 次、延迟递增（3.4 节），超过进死信；顺序消费失败挂起队列重试（4.3 节）；</li>
+<li><strong>Rebalance</strong>：<code>RebalanceService</code> 每 <strong>20s</strong> 触发一次，根据消费者组最新的实例列表和 Topic 的 Queue 列表重新分配（分配策略可配：<code>AllocateMessageQueueAveragely</code> 平均、<code>AllocateMessageQueueByConfig</code> 指定、<code>AllocateMessageQueueConsistentHash</code> 一致性哈希等）。新实例加入&#x2F;退出时自动触发，<strong>不需要人工干预</strong>；</li>
+<li><strong>位点兜底</strong>：新 group &#x2F; 无历史进度时按 <code>CONSUME_FROM_LAST_OFFSET</code> 等策略启动（3.2 节）；消费者进程崩溃重启后从 Broker 拉取最后提交的 offset 继续；</li>
+<li><strong>消费幂等</strong>：由于”消费成功但 offset 未上报”的窗口（5s 上报周期）必然存在，<strong>所有消费者都必须做幂等</strong>（唯一键、状态机校验），这是 MQ 消费的铁律。</li>
+</ul>
+<h3 id="7-4-多副本下的数据一致性（DLedger-Raft-协议实现）"><a href="#7-4-多副本下的数据一致性（DLedger-Raft-协议实现）" class="headerlink" title="7.4 多副本下的数据一致性（DLedger Raft 协议实现）"></a>7.4 多副本下的数据一致性（DLedger Raft 协议实现）</h3><p>DLedger 是一套嵌在 Broker 里的 Raft 实现，核心设计：</p>
+<ul>
+<li><strong>Leader 制</strong>：组内每轮选举出一个 Leader，只有 Leader 接收写入；写请求先转换为 Raft 日志，<strong>复制到多数派节点落盘后</strong>才向 Producer 返回成功（对应 Kafka 的 acks&#x3D;all + minISR，但 RocketMQ 的”多数派”是硬性多数，不像 ISR 会动态收缩）；</li>
+<li><strong>日志复制</strong>：Follower 按 term + index 顺序追日志，网络分区、乱序、重复投递都由 Raft 的日志一致性约束兜底；</li>
+<li><strong>选举</strong>：Leader 心跳超时 → 触发新一轮选举（随机超时防活锁），候选人赢得<strong>多数派投票且日志最新</strong>才能当选——<strong>日志落后的节点永远没资格当 Leader</strong>，保证新 Leader 不丢已确认数据；</li>
+<li><strong>与 Kafka 的对比</strong>：Kafka 的 ISR 选举是”一致性优先（宁可分区不可用也不选落后副本）”；DLedger 是”多数派写入 + 多数派选举”，两者都保证了”已确认消息不丢”，但 DLedger 的多数派是固定集合，<strong>不需要维护 ISR 的动态收缩逻辑</strong>，机制上更简单，代价是必须部署奇数个副本（生产 3 个）。</li>
+</ul>
+<h2 id="8-性能调优"><a href="#8-性能调优" class="headerlink" title="8. 性能调优"></a>8. 性能调优</h2><h3 id="8-1-Producer-调优"><a href="#8-1-Producer-调优" class="headerlink" title="8.1 Producer 调优"></a>8.1 Producer 调优</h3><p><strong>发送方式三种</strong>（按性能升序）：</p>
+<table>
+<thead>
+<tr>
+<th>方式</th>
+<th>行为</th>
+<th>吞吐</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>同步发送</td>
+<td>阻塞等 SendResult</td>
+<td>低</td>
+<td>对结果敏感的写入（如记账必须确认）</td>
+</tr>
+<tr>
+<td><strong>异步发送</strong></td>
+<td>立即返回，Callback 收结果</td>
+<td>中</td>
+<td>生产默认推荐：大批量投递</td>
+</tr>
+<tr>
+<td>Oneway</td>
+<td>只发不管结果</td>
+<td>最高</td>
+<td>日志、指标等可丢数据</td>
+</tr>
+</tbody></table>
+<p>调优点：</p>
+<ul>
+<li><strong>异步发送</strong>：<code>producer.send(msg, sendCallback)</code>，把发送线程让出来，吞吐可提升数倍；配合 <code>sendMsgTimeout</code>（默认 3s）控制；</li>
+<li><strong>批量发送</strong>：<code>SendMessageBatchRequest</code>（同 Topic 的消息批量发送，单批上限 4MB&#x2F;默认 1MB），网络往返数大幅下降；</li>
+<li><strong>压缩</strong>：消息体超过 <code>compressMsgBodyOverHowmuch</code>（默认 4KB）自动压缩（5.x 默认 LZ4，压缩比和 CPU 开销均衡）；CPU 不紧张时建议开启；</li>
+<li><strong>重试参数</strong>：<code>retryTimesWhenSendFailed</code>（默认 2）+ <code>sendLatencyFaultEnable=true</code>（故障规避）；</li>
+<li><strong>服务端多路复用</strong>：Broker 端 Netty 线程模型已是多路复用，Producer 侧保持长连接即可，不要每个线程新建 producer 实例（<strong>一个 Producer 实例线程安全，全局单例</strong>）。</li>
+</ul>
+<h3 id="8-2-Broker-调优"><a href="#8-2-Broker-调优" class="headerlink" title="8.2 Broker 调优"></a>8.2 Broker 调优</h3><table>
+<thead>
+<tr>
+<th>配置</th>
+<th>默认</th>
+<th>调优建议</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>flushDiskType</code></td>
+<td>ASYNC_FLUSH</td>
+<td>核心链路 SYNC_FLUSH；一般业务 ASYNC_FLUSH + 同步双写</td>
+</tr>
+<tr>
+<td><code>brokerRole</code></td>
+<td>ASYNC_MASTER</td>
+<td>可靠性要求高改 SYNC_MASTER（同步双写）</td>
+</tr>
+<tr>
+<td><code>warmMapedFileEnable</code></td>
+<td>false</td>
+<td>开启后启动时预热映射文件（mlock），<strong>避免运行期 Page Fault 抖动</strong>，大促前建议开</td>
+</tr>
+<tr>
+<td><code>transientStorePoolEnable</code></td>
+<td>false</td>
+<td>开启堆外内存池（写缓冲走 DirectByteBuffer，刷盘批量），高吞吐场景建议开，需配合 <code>writeBufferSize</code></td>
+</tr>
+<tr>
+<td><code>mappedFileSizeCommitLog</code></td>
+<td>1GB</td>
+<td>一般不动；单文件太大影响恢复速度</td>
+</tr>
+<tr>
+<td><code>osPageCacheBusyTimeOutMills</code></td>
+<td>1000</td>
+<td>读阻塞保护，缓存打满时报错保护</td>
+</tr>
+<tr>
+<td><code>maxTransferBytesOnMessageInDisk</code></td>
+<td>65536</td>
+<td>磁盘读场景单次拉取上限，影响消费吞吐</td>
+</tr>
+<tr>
+<td><code>brokerSuspendMaxTimeMillis</code></td>
+<td>15000</td>
+<td>长轮询挂起时间，消费延迟敏感可调小</td>
+</tr>
+</tbody></table>
+<p>另外：CommitLog 目录<strong>独立挂盘</strong>（SSD 顺序写）；JVM 堆不要给太大（8~16G 够用），<strong>剩余内存留给 Page Cache</strong>——和 Kafka 一个道理，热数据命中页缓存是吞吐的关键。</p>
+<h3 id="8-3-Consumer-调优"><a href="#8-3-Consumer-调优" class="headerlink" title="8.3 Consumer 调优"></a>8.3 Consumer 调优</h3><table>
+<thead>
+<tr>
+<th>配置</th>
+<th>默认</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>consumeThreadMin</code> &#x2F; <code>consumeThreadMax</code></td>
+<td>20 &#x2F; 64</td>
+<td>消费线程池上下限，吞吐不够先加线程（先看 CPU 是否打满）</td>
+</tr>
+<tr>
+<td><code>pullBatchSize</code></td>
+<td>32</td>
+<td>单次拉取消息条数，配合 <code>pullThresholdForQueue</code>（默认 1000，单队列积压阈值）</td>
+</tr>
+<tr>
+<td><code>consumeMessageBatchMaxSize</code></td>
+<td>1</td>
+<td>单次回调给 listener 的最大消息数（并发模式下建议 1，事务性逐条处理）</td>
+</tr>
+<tr>
+<td><code>pullInterval</code></td>
+<td>0</td>
+<td>拉取间隔，非实时场景可调大减少无效轮询</td>
+</tr>
+<tr>
+<td><code>consumeTimeout</code></td>
+<td>15</td>
+<td>单条消息处理超时（超时会被视为失败重试），处理慢的要调大</td>
+</tr>
+</tbody></table>
+<p>调优口诀：<strong>瓶颈在消费逻辑 → 加消费线程&#x2F;增加 Queue 数；瓶颈在拉取 → 调大 pullBatchSize 和拉取频率；注意单队列消费是串行的，消费并行度的上限是 Queue 数</strong>（8 个 Queue 最多 8 个实例的并行度）。</p>
+<h2 id="9-RocketMQ-vs-Kafka"><a href="#9-RocketMQ-vs-Kafka" class="headerlink" title="9. RocketMQ vs Kafka"></a>9. RocketMQ vs Kafka</h2><h3 id="全面对比表"><a href="#全面对比表" class="headerlink" title="全面对比表"></a>全面对比表</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>RocketMQ</th>
+<th>Kafka</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>定位</td>
+<td>分布式消息队列（Java 生态，交易场景）</td>
+<td>分布式事件流平台（日志&#x2F;流&#x2F;大数据）</td>
+</tr>
+<tr>
+<td>元数据&#x2F;注册</td>
+<td><strong>NameServer</strong>：无状态、最终一致、极简</td>
+<td><strong>Controller + KRaft</strong>（原 ZK）：强一致、要选主</td>
+</tr>
+<tr>
+<td>存储模型</td>
+<td><strong>CommitLog + ConsumeQueue</strong>：全队列共享大日志 + 独立索引</td>
+<td><strong>Partition 日志</strong>：一分区一日志，追加写</td>
+</tr>
+<tr>
+<td>零拷贝</td>
+<td><strong>mmap</strong>（写路径）+ 堆外内存（读路径）</td>
+<td><strong>sendfile</strong>（消费路径，2 次拷贝）</td>
+</tr>
+<tr>
+<td>吞吐</td>
+<td>十万~百万级&#x2F;秒</td>
+<td>单机百万级&#x2F;秒</td>
+</tr>
+<tr>
+<td>消息过滤</td>
+<td><strong>原生</strong>：Tag（索引层 hash 过滤）&#x2F; SQL92</td>
+<td>无 Broker 端过滤，靠消费端过滤</td>
+</tr>
+<tr>
+<td>顺序消息</td>
+<td><strong>队列内有序</strong>（MessageQueueSelector + 队列锁）</td>
+<td>分区内有序（key 哈希分区）</td>
+</tr>
+<tr>
+<td>事务消息</td>
+<td><strong>half 消息 + 回查</strong>，覆盖外部系统（本地库 + 发消息原子）</td>
+<td>流处理 EOS，<strong>不覆盖外部系统</strong></td>
+</tr>
+<tr>
+<td>延迟消息</td>
+<td><strong>原生 18 级</strong>，5.x 支持任意时间</td>
+<td>无原生支持</td>
+</tr>
+<tr>
+<td>消费模型</td>
+<td>Push（底层长轮询拉）&#x2F; Pull，<strong>5.x 新增 Pop 无状态消费</strong></td>
+<td>Pull 长轮询（fetch）</td>
+</tr>
+<tr>
+<td>消费重试</td>
+<td><strong>原生</strong>：16 次渐进延迟 + 死信队列 %DLQ%</td>
+<td>无原生重试&#x2F;死信，靠 group 重启回退 offset</td>
+</tr>
+<tr>
+<td>消息回溯</td>
+<td>ConsumeQueue 按 offset 可查，IndexFile 按 key 查</td>
+<td>按 offset&#x2F;时间戳任意重放（最强）</td>
+</tr>
+<tr>
+<td>高可用</td>
+<td>同步双写 &#x2F; DLedger Raft 自动选主</td>
+<td>ISR + Controller 选举</td>
+</tr>
+<tr>
+<td>语言生态</td>
+<td>Java 主导，Spring Boot Starter 官方支持</td>
+<td>多语言客户端成熟</td>
+</tr>
+<tr>
+<td>运维</td>
+<td>自带 mqadmin 命令、无第三方依赖</td>
+<td>依赖 KRaft&#x2F;ZK，监控生态成熟（Burrow&#x2F;KM 等）</td>
+</tr>
+<tr>
+<td>社区</td>
+<td>Apache 顶级项目，国内社区活跃（阿里系）</td>
+<td>生态最大，LinkedIn&#x2F;Confluent 推动</td>
+</tr>
+</tbody></table>
+<h3 id="什么时候用-RocketMQ？什么时候用-Kafka？"><a href="#什么时候用-RocketMQ？什么时候用-Kafka？" class="headerlink" title="什么时候用 RocketMQ？什么时候用 Kafka？"></a>什么时候用 RocketMQ？什么时候用 Kafka？</h3><p><strong>选 RocketMQ</strong>（交易&#x2F;业务消息类）：</p>
+<ul>
+<li>业务消息：订单、支付、库存、积分、通知——<strong>丢消息不可接受</strong>，需要同步双写&#x2F;事务保证；</li>
+<li>需要<strong>事务消息</strong>（本地事务 + 消息原子）、<strong>延迟消息</strong>（超时关单）、<strong>消息过滤</strong>（Tag&#x2F;SQL92）；</li>
+<li>消费失败需要<strong>原生重试 + 死信队列</strong>，不想自己写重放机制；</li>
+<li>Java 技术栈，用 Spring Boot Starter 秒接；</li>
+<li>国内团队，运维&#x2F;排障资料多。</li>
+</ul>
+<p><strong>选 Kafka</strong>（数据&#x2F;流类）：</p>
+<ul>
+<li><strong>日志、埋点、指标</strong>：海量、可丢失、高吞吐优先；</li>
+<li><strong>事件驱动架构 &#x2F; 事件溯源</strong>：需要消息长期保留、任意回溯重放；</li>
+<li><strong>流处理</strong>：KSQL&#x2F;Streams&#x2F;Flink 生态，需要 EOS 精确一次；</li>
+<li><strong>数据管道</strong>：入库数仓、ETL，批量消费，吞吐第一；</li>
+<li>多语言客户端、跨技术栈团队。</li>
+</ul>
+<p>一句话总结：**”业务消息、要事务、要延迟、要重试死信” → RocketMQ；”海量数据、要回溯、要流处理、要 EOS” → Kafka。** 两者不互斥——大厂常见组合是 Kafka 承担日志&#x2F;数据管道，RocketMQ 承担核心业务消息，各司其职。</p>
+<h2 id="10-Spring-Boot-集成实战"><a href="#10-Spring-Boot-集成实战" class="headerlink" title="10. Spring Boot 集成实战"></a>10. Spring Boot 集成实战</h2><h3 id="10-1-RocketMQ-Spring-Boot-Starter-集成"><a href="#10-1-RocketMQ-Spring-Boot-Starter-集成" class="headerlink" title="10.1 RocketMQ Spring Boot Starter 集成"></a>10.1 RocketMQ Spring Boot Starter 集成</h3><p>依赖（<code>rocketmq-spring-boot-starter</code> 2.3.x 支持 RocketMQ 5.x Broker）：</p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">dependency</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">groupId</span>&gt;</span>org.apache.rocketmq<span class="tag">&lt;/<span class="name">groupId</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">artifactId</span>&gt;</span>rocketmq-spring-boot-starter<span class="tag">&lt;/<span class="name">artifactId</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">version</span>&gt;</span>2.3.2<span class="tag">&lt;/<span class="name">version</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">dependency</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<p>配置（<code>application.yml</code>）：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">rocketmq:</span></span><br><span class="line">  <span class="attr">name-server:</span> <span class="number">127.0</span><span class="number">.0</span><span class="number">.1</span><span class="string">:9876</span>        <span class="comment"># NameServer 地址（集群可配多个，逗号分隔）</span></span><br><span class="line">  <span class="attr">producer:</span></span><br><span class="line">    <span class="attr">group:</span> <span class="string">order-producer-group</span>      <span class="comment"># 生产者组</span></span><br><span class="line">    <span class="attr">send-message-timeout:</span> <span class="number">3000</span>       <span class="comment"># 发送超时（ms）</span></span><br><span class="line">    <span class="attr">compress-message-body-threshold:</span> <span class="number">4096</span>  <span class="comment"># 消息体超 4KB 自动压缩</span></span><br><span class="line">    <span class="attr">retry-times-when-send-failed:</span> <span class="number">2</span>        <span class="comment"># 失败重试次数</span></span><br></pre></td></tr></table></figure>
+
+<p>先启动环境：NameServer（<code>nohup sh mqnamesrv &amp;</code>）→ Broker（<code>nohup sh mqbroker -n 127.0.0.1:9876 &amp;</code>），或直接用 Docker 起 rocketmq-dashboard + broker 的容器。</p>
+<h3 id="10-2-完整消息发送与消费示例"><a href="#10-2-完整消息发送与消费示例" class="headerlink" title="10.2 完整消息发送与消费示例"></a>10.2 完整消息发送与消费示例</h3><p><strong>发送端（任意 Spring 组件中注入 RocketMQTemplate 即可）：</strong></p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Component</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">OrderMessageSender</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Autowired</span></span><br><span class="line">    <span class="keyword">private</span> RocketMQTemplate rocketMQTemplate;</span><br><span class="line"></span><br><span class="line">    <span class="comment">/** 1. 同步发送（关键链路，确认收到） */</span></span><br><span class="line">    <span class="keyword">public</span> SendResult <span class="title function_">syncSendOrder</span><span class="params">(OrderDO order)</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> rocketMQTemplate.syncSend(</span><br><span class="line">                <span class="string">&quot;ORDER_TOPIC&quot;</span>,                       <span class="comment">// Topic</span></span><br><span class="line">                order,                               <span class="comment">// 消息体（自动 JSON 序列化）</span></span><br><span class="line">                <span class="number">3000</span>);                               <span class="comment">// 超时</span></span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">/** 2. 异步发送（推荐，高吞吐） */</span></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">asyncSendOrder</span><span class="params">(OrderDO order)</span> &#123;</span><br><span class="line">        rocketMQTemplate.asyncSend(<span class="string">&quot;ORDER_TOPIC&quot;</span>, order, <span class="keyword">new</span> <span class="title class_">SendCallback</span>() &#123;</span><br><span class="line">            <span class="meta">@Override</span> <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">onSuccess</span><span class="params">(SendResult result)</span> &#123;</span><br><span class="line">                log.info(<span class="string">&quot;发送成功: &#123;&#125;&quot;</span>, result.getMsgId());</span><br><span class="line">            &#125;</span><br><span class="line">            <span class="meta">@Override</span> <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">onException</span><span class="params">(Throwable e)</span> &#123;</span><br><span class="line">                log.error(<span class="string">&quot;发送失败，补偿或落表&quot;</span>, e);</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">/** 3. 带 Tag 发送（消费者按 tag 订阅过滤） */</span></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">sendWithTag</span><span class="params">(OrderDO order, String tag)</span> &#123;</span><br><span class="line">        rocketMQTemplate.convertAndSend(<span class="string">&quot;ORDER_TOPIC:&quot;</span> + tag, order);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">/** 4. 发送带 key 的消息（可去 Broker 按 key 排查消息轨迹） */</span></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">sendWithKey</span><span class="params">(OrderDO order)</span> &#123;</span><br><span class="line">        <span class="type">MessageBuilder</span> <span class="variable">builder</span> <span class="operator">=</span> MessageBuilder.withPayload(order)</span><br><span class="line">                .setKeys(<span class="string">&quot;orderId-&quot;</span> + order.getId());   <span class="comment">// key 用于 IndexFile 索引/轨迹查询</span></span><br><span class="line">        rocketMQTemplate.syncSend(<span class="string">&quot;ORDER_TOPIC&quot;</span>, builder.build());</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>消费端（一个注解即可）：</strong></p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Component</span></span><br><span class="line"><span class="meta">@RocketMQMessageListener(</span></span><br><span class="line"><span class="meta">        topic = &quot;ORDER_TOPIC&quot;,</span></span><br><span class="line"><span class="meta">        consumerGroup = &quot;order-consumer-group&quot;,</span></span><br><span class="line"><span class="meta">        selectorExpression = &quot;ORDER_CREATED || ORDER_PAID&quot;   // Tag 过滤，* 表示全部</span></span><br><span class="line"><span class="meta">)</span></span><br><span class="line"><span class="meta">@Slf4j</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">OrderMessageListener</span> <span class="keyword">implements</span> <span class="title class_">RocketMQListener</span>&lt;OrderDO&gt; &#123;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">onMessage</span><span class="params">(OrderDO order)</span> &#123;</span><br><span class="line">        <span class="comment">// 消费失败抛异常 → 自动进入重试（16 次渐进延迟）→ 超过进死信 %DLQ%order-consumer-group</span></span><br><span class="line">        <span class="comment">// 重要：消费业务必须幂等（同一 orderId 重复消费要能安全跳过）</span></span><br><span class="line">        <span class="keyword">if</span> (orderService.isProcessed(order.getId())) &#123;</span><br><span class="line">            log.info(<span class="string">&quot;重复消息，幂等跳过: &#123;&#125;&quot;</span>, order.getId());</span><br><span class="line">            <span class="keyword">return</span>;</span><br><span class="line">        &#125;</span><br><span class="line">        orderService.processOrder(order);</span><br><span class="line">        log.info(<span class="string">&quot;订单处理完成: &#123;&#125;&quot;</span>, order.getId());</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>要点：</p>
+<ul>
+<li><code>@RocketMQMessageListener</code> 底层自动创建 <code>DefaultMQPushConsumer</code>，无需手动 new；</li>
+<li>消费失败<strong>抛异常即触发重试</strong>（并发模式）——<code>onMessage</code> 方法返回 void，靠异常控制；</li>
+<li><strong>死信排查</strong>：<code>%DLQ%order-consumer-group</code> 主题里能看到 16 次重试失败的消息，用 <code>mqadmin queryMsgByKey</code> 或控制台查，修复后手动重投。</li>
+</ul>
+<h3 id="10-3-事务消息-普通消息-延迟消息的完整-demo"><a href="#10-3-事务消息-普通消息-延迟消息的完整-demo" class="headerlink" title="10.3 事务消息 + 普通消息 + 延迟消息的完整 demo"></a>10.3 事务消息 + 普通消息 + 延迟消息的完整 demo</h3><p>一个完整的<strong>下单场景</strong>：下单事务里”写订单表 + 发事务消息扣库存 + 发延迟消息 30 分钟后检查支付”。</p>
+<p><strong>事务消息（事务监听器 + 发送）：</strong></p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Component</span></span><br><span class="line"><span class="meta">@RocketMQTransactionListener(txProducerGroup = &quot;order-tx-producer-group&quot;)</span></span><br><span class="line"><span class="meta">@Slf4j</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">OrderTransactionListener</span> <span class="keyword">implements</span> <span class="title class_">RocketMQLocalTransactionListener</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="comment">/** 1. 执行本地事务（与发消息同一时机，二者绑定） */</span></span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> RocketMQLocalTransactionState <span class="title function_">executeLocalTransaction</span><span class="params">(Message msg, Object arg)</span> &#123;</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            <span class="comment">// 本地数据库事务：插入订单 + 标记待支付</span></span><br><span class="line">            orderService.createOrderWithTx(msg, arg);</span><br><span class="line">            <span class="keyword">return</span> RocketMQLocalTransactionState.COMMIT;          <span class="comment">// 提交 → 消息消费者可见</span></span><br><span class="line">        &#125; <span class="keyword">catch</span> (Exception e) &#123;</span><br><span class="line">            log.error(<span class="string">&quot;本地事务失败，消息回滚&quot;</span>, e);</span><br><span class="line">            <span class="keyword">return</span> RocketMQLocalTransactionState.ROLLBACK;        <span class="comment">// 回滚 → 消息丢弃</span></span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">/** 2. 事务状态回查（executeLocalTransaction 返回 UNKNOWN 或进程崩溃时触发） */</span></span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> RocketMQLocalTransactionState <span class="title function_">checkLocalTransaction</span><span class="params">(Message msg)</span> &#123;</span><br><span class="line">        <span class="type">String</span> <span class="variable">orderId</span> <span class="operator">=</span> msg.getHeaders().get(<span class="string">&quot;orderId&quot;</span>, String.class);</span><br><span class="line">        <span class="type">Integer</span> <span class="variable">status</span> <span class="operator">=</span> orderDao.queryOrderStatus(orderId);   <span class="comment">// 查本地订单表</span></span><br><span class="line">        <span class="keyword">if</span> (status != <span class="literal">null</span> &amp;&amp; status == ORDER_PAID) &#123;</span><br><span class="line">            <span class="keyword">return</span> RocketMQLocalTransactionState.COMMIT;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> RocketMQLocalTransactionState.UNKNOWN;   <span class="comment">// 未决，继续等下一次回查</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/** 下单入口：本地事务 + 事务消息（扣库存）+ 延迟消息（关单检查） */</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">placeOrder</span><span class="params">(OrderDO order)</span> &#123;</span><br><span class="line">    <span class="comment">// 1. 事务消息：发送 half 消息 → 触发 executeLocalTransaction → COMMIT 后库存消费者可见</span></span><br><span class="line">    <span class="type">Message</span> <span class="variable">message</span> <span class="operator">=</span> MessageBuilder.withPayload(order)</span><br><span class="line">            .setHeader(<span class="string">&quot;orderId&quot;</span>, String.valueOf(order.getId()))</span><br><span class="line">            .build();</span><br><span class="line">    rocketMQTemplate.sendMessageInTransaction(</span><br><span class="line">            <span class="string">&quot;order-tx-producer-group&quot;</span>,   <span class="comment">// 必须与 @RocketMQTransactionListener 的组一致</span></span><br><span class="line">            <span class="string">&quot;STOCK_TOPIC&quot;</span>,               <span class="comment">// 真实业务 Topic（扣库存）</span></span><br><span class="line">            message,</span><br><span class="line">            order);                      <span class="comment">// arg 透传给 executeLocalTransaction</span></span><br><span class="line"></span><br><span class="line">    <span class="comment">// 2. 延迟消息：30 分钟后检查订单是否支付（RocketMQ 4.x 用 delayLevel=16=30m；</span></span><br><span class="line">    <span class="comment">//    5.x 支持任意时间：setDeliverTimeMs）</span></span><br><span class="line">    <span class="type">Message</span> <span class="variable">checkMsg</span> <span class="operator">=</span> MessageBuilder.withPayload(order)</span><br><span class="line">            .setHeader(<span class="string">&quot;orderId&quot;</span>, String.valueOf(order.getId()))</span><br><span class="line">            .build();</span><br><span class="line">    rocketMQTemplate.syncSend(<span class="string">&quot;ORDER_TIMEOUT_CHECK_TOPIC&quot;</span>, checkMsg, <span class="number">3000</span>, <span class="number">16</span>);  <span class="comment">// delayLevel=16 → 30 分钟</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">/** 延迟消息消费者：30 分钟后到点投递，检查订单未支付则自动关单 */</span></span><br><span class="line"><span class="meta">@RocketMQMessageListener(topic = &quot;ORDER_TIMEOUT_CHECK_TOPIC&quot;, consumerGroup = &quot;order-timeout-check-group&quot;)</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">class</span> <span class="title class_">OrderTimeoutCheckListener</span> <span class="keyword">implements</span> <span class="title class_">RocketMQListener</span>&lt;OrderDO&gt; &#123;</span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">onMessage</span><span class="params">(OrderDO order)</span> &#123;</span><br><span class="line">        <span class="keyword">if</span> (orderDao.queryOrderStatus(order.getId()) == ORDER_UNPAID) &#123;</span><br><span class="line">            orderService.autoCloseOrder(order.getId());   <span class="comment">// 超时关单</span></span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>运行验证三步：</strong></p>
+<ol>
+<li>启动 NameServer + Broker（本地 <code>mqnamesrv</code> &#x2F; <code>mqbroker</code> 或 Docker）；</li>
+<li>启动 Spring Boot 应用，调 <code>/order/place</code> 接口下单；</li>
+<li>控制台（<code>rocketmq-dashboard</code>）观察：<code>STOCK_TOPIC</code> 消息被扣库存消费者消费；<code>ORDER_TIMEOUT_CHECK_TOPIC</code> 的消息 30 分钟后（demo 可临时把 delayLevel 调成 3 &#x3D; 10s 验证）触发关单检查；故意让扣库存失败一次，可观察 <code>%DLQ%</code> 死信队列。</li>
+</ol>
+<h2 id="附：高频面试题速答"><a href="#附：高频面试题速答" class="headerlink" title="附：高频面试题速答"></a>附：高频面试题速答</h2><ul>
+<li><strong>NameServer 为什么不用 ZK？</strong> 路由信息可最终一致，ZK 强一致是过度设计；无状态部署简单、故障面小（1.3 节）。</li>
+<li><strong>CommitLog 和 ConsumeQueue 是什么关系？</strong> 数据本体 vs 派生索引，ConsumeQueue 可重建，CommitLog 不能丢（2.2 节）。</li>
+<li><strong>RocketMQ 零拷贝怎么实现的？</strong> 写路径 mmap、读路径堆外内存，与 Kafka sendfile 的区别（2.3 节）。</li>
+<li><strong>事务消息为什么对消费者不可见？</strong> half 消息只建 HALF_TOPIC 索引，不建真实队列索引（5.2 节）。</li>
+<li><strong>回查最多几次？间隔多久？</strong> 15 次，扫描间隔默认 60s、超时 6s 发起首次回查（5.2 节）。</li>
+<li><strong>延迟消息为什么不支持任意时间（4.x）？</strong> 延迟级别 &#x3D; 延迟队列 &#x3D; 定时器，离散设计；5.x 已支持任意时间（6 节）。</li>
+<li><strong>顺序消息怎么保证的？</strong> 发送端 key 选队列 + 存储串行 + 消费端队列锁 + 本地串行处理（4 节）。</li>
+<li><strong>主从切换怎么做？</strong> 4.x 手动，DLedger&#x2F;Controller 模式自动（7.2 节）。</li>
+<li><strong>怎么排查消费积压？</strong> 先看消费线程数、Queue 数（并行度上限），再查是否有慢消费&#x2F;死锁，配合 <code>mqadmin consumerProgress</code> 看 lag（8.3 节）。</li>
+</ul>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -2466,707 +3318,6 @@
 <li>大型项目代码规范落地实践</li>
 <li>线上问题排查工具箱（arthas + prometheus）</li>
 </ol>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/9787b587.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="知行栈">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | 知行栈">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/9787b587.html" class="post-title-link" itemprop="url">分布式系统核心理论</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-
-      <time title="Created: 2025-07-26 19:21:50" itemprop="dateCreated datePublished" datetime="2025-07-26T19:21:50+08:00">2025-07-26</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">In</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/%E5%88%86%E5%B8%83%E5%BC%8F/" itemprop="url" rel="index"><span itemprop="name">分布式</span></a>
-        </span>
-    </span>
-
-  
-    <span class="post-meta-break"></span>
-    <span class="post-meta-item" title="Word count in article">
-      <span class="post-meta-item-icon">
-        <i class="far fa-file-word"></i>
-      </span>
-      <span class="post-meta-item-text">Word count in article: </span>
-      <span>11k</span>
-    </span>
-    <span class="post-meta-item" title="Reading time">
-      <span class="post-meta-item-icon">
-        <i class="far fa-clock"></i>
-      </span>
-      <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>41 mins.</span>
-    </span>
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <p>本文围绕一条主线展开：<strong>分布式系统到底难在哪里，业界又是如何一步步解决这些难题的</strong>。内容覆盖核心理论（CAP、BASE、一致性协议、ZAB）与高频工程实践（分布式事务、分布式锁、分布式 ID）。服务治理（Nacos、Sentinel、Gateway 等）与 RPC 框架（Dubbo、gRPC）另有 Spring 面试专文，此处不展开。</p>
-<h2 id="1-分布式系统的核心挑战"><a href="#1-分布式系统的核心挑战" class="headerlink" title="1. 分布式系统的核心挑战"></a>1. 分布式系统的核心挑战</h2><p><strong>定义：</strong> 分布式系统是一组通过网络相连、相互协作完成任务的节点集合，对外呈现为单一系统。</p>
-<p>单机系统中，内存与磁盘的状态是一致的、可靠的；分布式系统的麻烦在于，节点之间只能通过<strong>消息传递</strong>通信，而消息和节点本身都不可靠。具体来说有三个绕不开的挑战：</p>
-<ol>
-<li><strong>网络不可靠。</strong> 消息可能丢失、延迟任意时长、重复或乱序到达。更棘手的是，你无法精确区分”对方宕机了”和”网络延迟&#x2F;分区了”——两者的外在表现完全相同。</li>
-<li><strong>节点故障。</strong> 进程可能崩溃、挂起（例如 JVM GC 停顿数十秒）、被网络隔离成孤岛。</li>
-<li><strong>时钟不可靠。</strong> 机器本地时钟会漂移，可能被 NTP 校准回拨，不能当作全局可信的时间源。这直接影响分布式 ID 生成、日志排序、超时判定。</li>
-</ol>
-<p>这三个挑战决定了分布式系统必须回答一个根本问题：<strong>当部分节点失联时，系统怎么办？</strong> 是继续响应请求（哪怕返回旧数据），还是宁可拒绝请求也要保证不返回错误数据？CAP 定理正是把这个权衡形式化的起点——理解 CAP，是理解后面所有内容（BASE、一致性协议、分布式事务、分布式锁）的前提。</p>
-<h2 id="2-CAP-定理"><a href="#2-CAP-定理" class="headerlink" title="2. CAP 定理"></a>2. CAP 定理</h2><p><strong>定义：</strong> CAP 定理由 Eric Brewer 于 2000 年提出、2002 年被证明：在存在网络分区（P）的情况下，分布式系统无法同时满足一致性（C）和可用性（A）。</p>
-<ul>
-<li><strong>一致性（Consistency）：</strong> 所有节点在同一时刻看到的数据完全相同。一次写入完成后，任何节点上的任何读取都立即返回最新值（学术上对应线性一致性）。</li>
-<li><strong>可用性（Availability）：</strong> 每个请求都能在合理时间内获得非错误响应，即使部分节点故障，系统仍能正常响应。</li>
-<li><strong>分区容忍性（Partition Tolerance）：</strong> 网络分区（节点间通信中断、形成孤岛）发生时，系统仍能继续运行。</li>
-</ul>
-<p><strong>为什么不能同时满足：</strong></p>
-<p>网络分区是客观现实、无法消除，因此 P 是分布式系统的必选项，问题只在于分区发生时 C 和 A 怎么选。假设两个节点被分区隔离：</p>
-<ul>
-<li>向某一侧的节点发起写请求：如果该节点正常响应（满足 A），那么它无法与其他节点同步数据，读取时可能出现不一致（违反 C）；</li>
-<li>如果拒绝请求（满足 C），该侧的节点在分区期间不可用（违反 A）。</li>
-</ul>
-<p>所以 CAP 的核心结论是：<strong>分区发生时，必须在 C 和 A 之间二选一</strong>。</p>
-<p><strong>两个常见误解：</strong></p>
-<ul>
-<li>CAP 不是”三个特性里随便选两个”。系统正常运行时 C 和 A 可以同时满足，只有分区发生时才需要取舍。</li>
-<li>CAP 中的 C 是强一致（线性一致），不要与”最终一致””因果一致”等弱一致概念混为一谈。</li>
-</ul>
-<p><img src="/../../assets/database/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F%E6%A0%B8%E5%BF%83%E7%90%86%E8%AE%BA/image-20250505093121422-6167231.png" alt="image-20250505093121422"></p>
-<p><strong>实际系统中的取舍：</strong></p>
-<table>
-<thead>
-<tr>
-<th align="left">取向</th>
-<th align="left">代表系统</th>
-<th align="left">分区时的行为</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">CP</td>
-<td align="left">ZooKeeper、etcd、HBase</td>
-<td align="left">牺牲可用性，拒绝请求以保证一致性</td>
-</tr>
-<tr>
-<td align="left">AP</td>
-<td align="left">Eureka、Cassandra、CouchDB</td>
-<td align="left">继续响应，返回可能过期的数据</td>
-</tr>
-<tr>
-<td align="left">折中</td>
-<td align="left">MySQL &#x2F; Redis 主从复制</td>
-<td align="left">“尽力而为”，从库可能读到旧数据，谈不上严格的分区容忍</td>
-</tr>
-</tbody></table>
-<p>选 CP 还是 AP，取决于业务：订单、账户、元数据（注册中心、配置中心）通常需要强一致；商品浏览、社交动态等场景可以容忍短暂的不一致，换取更高的可用性。</p>
-<h2 id="3-BASE-理论（Basically-Available-Soft-state-Eventually-consistent）"><a href="#3-BASE-理论（Basically-Available-Soft-state-Eventually-consistent）" class="headerlink" title="3. BASE 理论（Basically Available &#x2F; Soft state &#x2F; Eventually consistent）"></a>3. BASE 理论（Basically Available &#x2F; Soft state &#x2F; Eventually consistent）</h2><p><strong>定义：</strong> BASE 是基本可用（Basically Available）、软状态（Soft State）、最终一致性（Eventually Consistent）的缩写，由 eBay 的 Dan Pritchett 提出。它是对 CAP 中 C 与 A 权衡的工程化回答：<strong>放弃强一致性，通过保证”最终一致”换取可用性和性能。</strong></p>
-<ul>
-<li><strong>基本可用（Basically Available）：</strong> 系统故障时保证核心功能可用，允许损失部分可用性。例如电商大促时，为保证购物流程稳定，部分用户被引导到降级页面或排队页面。</li>
-<li><strong>软状态（Soft State）：</strong> 允许系统存在中间状态，即不同节点的数据副本之间存在同步延迟，该中间状态不影响系统整体可用性。</li>
-<li><strong>最终一致性（Eventually Consistent）：</strong> 所有数据副本经过一段时间的同步后，最终能达到一致的状态。最终一致性还可细分为读己之写、单调读、因果一致等强度不同的变体，工程上按需选择。</li>
-</ul>
-<p><strong>ACID 与 BASE 的关系：</strong> ACID 强调强一致性，用于单库事务；BASE 强调最终一致性，用于跨节点的分布式场景。两者不是替代关系，而是结合使用——<strong>核心资金操作用 ACID，非核心链路（积分、通知、统计）用 BASE</strong>，这正是绝大多数互联网系统的真实形态。</p>
-<h2 id="4-一致性协议"><a href="#4-一致性协议" class="headerlink" title="4. 一致性协议"></a>4. 一致性协议</h2><p>CAP 回答的是”分布式系统做不到什么”，接下来要回答”怎么做”：<strong>如何在存在故障的网络环境中，让一组节点就某个值达成一致？</strong> 这就是共识（Consensus）问题，它的两个代表性解法是 Paxos 与 Raft。</p>
-<h3 id="Paxos"><a href="#Paxos" class="headerlink" title="Paxos"></a>Paxos</h3><p><strong>定义：</strong> Paxos 是 Leslie Lamport 于 1990 年提出（论文 1998 年发表）的共识算法，解决”在存在故障的网络环境中，多个节点如何就某个值达成一致”，是 Raft、ZAB 等后续共识算法的思想源头。</p>
-<p><strong>三种角色：</strong></p>
-<ul>
-<li><strong>Proposer（提议者）：</strong> 提出提案，提案由<strong>提案编号 N</strong> 和<strong>提案值 V</strong> 组成；</li>
-<li><strong>Acceptor（接受者）：</strong> 对提案投票，只有被<strong>多数派（N&#x2F;2 + 1）</strong>接受的提案才会被选定；</li>
-<li><strong>Learner（学习者）：</strong> 不参与投票，只学习已被选定的值，保证所有节点最终一致。</li>
-</ul>
-<p><strong>两阶段流程（Basic Paxos）：</strong></p>
-<ol>
-<li><strong>Prepare 阶段：</strong> Proposer 生成递增的提案编号 N，向所有 Acceptor 广播 <code>Prepare(N)</code>。Acceptor 收到后做出<strong>承诺</strong>：不再接受编号小于 N 的提案；若自己已接受过编号小于 N 的提案，则把其中<strong>编号最大</strong>的那条（编号 + 值）返回给 Proposer。</li>
-<li><strong>Accept 阶段：</strong> Proposer 收到<strong>超过半数</strong>的 Promise 后，发出 <code>Accept(N, V)</code>。V 的取值规则：若 Promise 中带有已接受的提案，则 V 必须取其中<strong>编号最大</strong>的那个值（不能自选）；否则可自由指定。Acceptor 在不违反承诺的前提下接受提案，并把结果同步给 Learner。</li>
-</ol>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// Acceptor 核心状态（伪代码）</span></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">Acceptor</span> &#123;</span><br><span class="line">    <span class="type">int</span> promisedId;        <span class="comment">// 承诺过的最大编号</span></span><br><span class="line">    Proposal accepted;     <span class="comment">// 已接受的提案（编号 + 值）</span></span><br><span class="line"></span><br><span class="line">    Promise <span class="title function_">prepare</span><span class="params">(<span class="type">int</span> n)</span> &#123;</span><br><span class="line">        <span class="keyword">if</span> (n &gt; promisedId) &#123; promisedId = n; <span class="keyword">return</span> <span class="keyword">new</span> <span class="title class_">Promise</span>(accepted); &#125;</span><br><span class="line">        <span class="keyword">else</span> <span class="keyword">return</span> reject(n);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="type">boolean</span> <span class="title function_">accept</span><span class="params">(Proposal p)</span> &#123;</span><br><span class="line">        <span class="keyword">if</span> (p.id &gt;= promisedId) &#123; promisedId = p.id; accepted = p; <span class="keyword">return</span> <span class="literal">true</span>; &#125;</span><br><span class="line">        <span class="keyword">return</span> <span class="literal">false</span>;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>为什么多数派能保证一致：</strong> 任意两个多数派集合必然有交集（两个 N&#x2F;2 + 1 的集合交集至少为 1），Acceptor 通过”只认最大编号”的承诺保证：<strong>一旦某个值被选定，后续任何新的提议只能选定同一个值</strong>。这就是 Paxos 一致性的核心数学保证。</p>
-<p><strong>为什么说 Paxos 难懂：</strong> 工程化需要完整的 Multi-Paxos（多实例、日志复制、Leader 选举）和日志压缩；多个 Proposer 并发竞争时还会出现<strong>活锁</strong>（需要随机退避重试），实现极易出错。面试中讲清 Basic Paxos 的两阶段流程即可；若被追问”工程上为什么用 Raft 而不用 Paxos”——<strong>Raft 通过强领导者模型把共识问题分解为选举、复制、安全三个子问题，大幅降低了理解和实现难度</strong>。</p>
-<h3 id="Raft"><a href="#Raft" class="headerlink" title="Raft"></a>Raft</h3><p><strong>定义：</strong> Raft 由 Diego Ongaro 于 2014 年提出，设计目标是”<strong>易理解</strong>“。它把共识问题拆解为三个相对独立的子问题：<strong>领导者选举（Leader Election）、日志复制（Log Replication）、安全性（Safety）</strong>。</p>
-<p><strong>领导者选举：</strong></p>
-<ul>
-<li>节点有三种状态：<strong>Leader、Follower、Candidate</strong>，任何时刻系统最多只有一个 Leader；</li>
-<li>引入单调递增的<strong>任期（Term）</strong>概念：每次选举任期 +1，任期内 Leader 必须周期性发送<strong>心跳（Heartbeat）</strong>维持权威；</li>
-<li>Follower 在<strong>随机化的选举超时</strong>（通常 150~300ms，随机化是为了避免多个节点同时发起选举、票数分散）内收不到心跳，就转为 Candidate 并发起选举：任期 +1、投自己一票、请求其他节点投票；获得<strong>多数派投票</strong>即成为新 Leader，其他节点收到新 Leader 的心跳后自动转为 Follower。</li>
-</ul>
-<p><strong>日志复制：</strong></p>
-<ul>
-<li>客户端所有写请求统一交给 Leader，Leader 将操作追加为一条日志条目，并行广播 <code>AppendEntries</code> 给所有 Follower；</li>
-<li>Follower 收到并落盘后返回 ACK；Leader 收到<strong>多数派确认</strong>后，将该条目标记为<strong>已提交（Committed）</strong>、应用到状态机，并通知 Follower 应用。</li>
-</ul>
-<p><strong>安全性（Safety）：</strong></p>
-<ul>
-<li><strong>选举限制：</strong> 只有日志”足够新”（任期号更大，或任期相同但日志更长）的 Candidate 才有资格当选，防止已提交的日志被新 Leader 覆盖；</li>
-<li><strong>提交限制：</strong> Leader 只提交<strong>自己任期内的日志条目</strong>，上一任期的条目必须通过当前任期条目的间接提交来确认，从而保证”已提交的日志永不被覆盖”。</li>
-</ul>
-<p><strong>与 Paxos 的关系：</strong> Paxos 允许多个 Proposer 并发提议，协议更通用但更难实现；Raft 采用<strong>强领导者模型（Strong Leader）</strong>——所有写入都经 Leader、日志只能由 Leader 单向追加，用”问题分解 + 强领导”换来了可理解性，代价是写请求需要先转发给 Leader。两者本质相同：<strong>多数派确认 + 编号&#x2F;任期单调递增</strong>。</p>
-<h3 id="为什么需要了解这些"><a href="#为什么需要了解这些" class="headerlink" title="为什么需要了解这些"></a>为什么需要了解这些</h3><p>共识算法不是纯理论，而是现代基础设施的地基：</p>
-<ul>
-<li><strong>etcd</strong>（Kubernetes 的存储后端）、<strong>TiKV</strong>（TiDB 的存储引擎）、<strong>Consul</strong> 均基于 Raft；</li>
-<li><strong>ZooKeeper</strong> 使用 ZAB（与 Paxos&#x2F;Raft 同源的选主共识，详见第 5 章）；</li>
-<li>MongoDB 复制集、MySQL 组复制（Group Replication）的选主也借鉴了 Raft 思想。</li>
-</ul>
-<p>因此，”etcd 如何保证强一致”这类面试问题，本质上就是 Raft 日志复制 + 多数派确认机制。需要注意：<strong>共识算法保证的是”节点间的日志一致”，不等于业务层面的分布式事务</strong>——日志一致只是地基，跨业务资源的一致性仍需下一节的分布式事务机制来解决。</p>
-<h2 id="5-ZAB-协议（ZooKeeper-Atomic-Broadcast）"><a href="#5-ZAB-协议（ZooKeeper-Atomic-Broadcast）" class="headerlink" title="5. ZAB 协议（ZooKeeper Atomic Broadcast）"></a>5. ZAB 协议（ZooKeeper Atomic Broadcast）</h2><p><strong>定义：</strong> ZAB（ZooKeeper Atomic Broadcast，ZooKeeper 原子广播）是 ZooKeeper 实现分布式一致性所用的协议，由 Yahoo! 团队在 ZooKeeper 的实现中提出（2008 年公开）。它与 Paxos 同源（作者之一正是 Paxos 提出者 Leslie Lamport 的学生），但目标不同：<strong>Paxos 解决”就某个值达成一致”，ZAB 解决”就一系列日志条目的顺序达成一致”<strong>——它面向</strong>主备复制（Primary-Backup）</strong>模型：集群中只有一个 Leader 接收写请求，把每个写操作包装成事务提案，按<strong>全局唯一的顺序（ZXID）</strong>广播给所有 Follower 并提交。正是 ZAB 让 ZooKeeper 对外表现为”全局有序的写入 + 单调递增的 ZXID”。</p>
-<p><strong>两种模式：</strong> 崩溃恢复模式（选举 &#x2F; 发现 &#x2F; 同步）与消息广播模式（广播）循环交替：Leader 正常任期走广播模式；Leader 崩溃 → 进入崩溃恢复（选新 Leader + 同步日志）→ 恢复完成后再次进入广播模式。ZAB 的核心保证是：<strong>广播模式下的事务不会丢、顺序不变；崩溃恢复后，新 Leader 一定持有所有已提交事务</strong>。</p>
-<h3 id="5-1-ZAB-的四个阶段"><a href="#5-1-ZAB-的四个阶段" class="headerlink" title="5.1 ZAB 的四个阶段"></a>5.1 ZAB 的四个阶段</h3><p><strong>① Leader 选举（Election）</strong></p>
-<p>ZooKeeper 使用 <strong>Fast Leader Election（FLE）</strong>（快速选主，基于 Fast Paxos 思想，避免多轮往返）。每个参与选举的节点投出自己心中的”最优候选者”，获得<strong>多数派（N&#x2F;2 + 1）选票</strong>的节点当选。</p>
-<p><strong>投票比较规则（ZXID 比较）</strong>：每张选票形如 <code>(epoch, zxid, sid)</code>（epoch 为投票轮次、zxid 为节点已知的最大事务 ID、sid 为节点编号），两票相比：</p>
-<ol>
-<li>先比 <strong>epoch</strong>：大者优先（epoch 是逻辑时钟，越大代表越”新鲜”的轮次）；</li>
-<li>epoch 相等再比 <strong>zxid</strong>：大者优先（zxid 大 &#x3D; 数据更新）；</li>
-<li>epoch、zxid 都相等再比 <strong>sid</strong>：大者优先（打破平局的兜底）。</li>
-</ol>
-<blockquote>
-<p><strong>ZXID 的结构</strong>：64 位，<strong>高 32 位是 epoch</strong>（任期编号），<strong>低 32 位是 counter</strong>（该任期内的顺序号）。每次选主后 epoch +1、counter 清零重新累加。所以面试答案”<strong>epoch 大者优先，相等则比较 counter</strong>“就是”数据更新的节点优先当选”的量化表达。</p>
-</blockquote>
-<p>当选条件：节点收到<strong>多数派选票</strong>即当选；其余节点确认新 Leader 的 epoch 更新后放弃竞选、转为 Follower。<strong>选举期间集群不可用</strong>——ZooKeeper 是 CP 系统，选主窗口内拒绝读写，这正是”牺牲可用性保证一致性”的具体体现。</p>
-<p><strong>② 发现阶段（Discovery）</strong></p>
-<p>新 Leader 当选后，<strong>收敛所有 Follower 的日志进度</strong>：</p>
-<ol>
-<li>新 Leader 向所有 Follower 广播自己的 epoch（newEpoch）；</li>
-<li>Follower 收到后返回自己记录的<strong>最大 ZXID</strong>，并把 Leader 的历史提案同步给它；</li>
-<li>新 Leader 汇集反馈后，取<strong>多数集合内最新的 ZXID</strong> 作为恢复日志的起点，并确认该 epoch 已被多数节点接受。</li>
-</ol>
-<p>发现阶段结束时：<strong>新 Leader 知道集群中日志最全的节点在哪、自己缺哪些事务</strong>。</p>
-<p><strong>③ 同步阶段（Synchronization）</strong></p>
-<p>新 Leader 把缺失的事务<strong>补发给所有 Follower</strong>：</p>
-<ul>
-<li>日志落后不多的 Follower：Leader 只发送<strong>差额部分</strong>（Leader 有、Follower 没有的提案），Follower 逐条追加到本地事务日志；</li>
-<li>差距过大&#x2F;日志太旧的 Follower：Leader 直接做<strong>全量快照同步</strong>（把当前状态快照发给它），快照后再走差额同步；</li>
-<li>同步完成、收到多数节点确认后，Leader 才<strong>广播 COMMIT 提交已同步的事务</strong>，正式进入广播模式。</li>
-</ul>
-<p>同步阶段是”崩溃恢复后不丢已提交事务”的关键：<strong>只要某个多数集合的节点持有某条事务，它就能在同步阶段被补全</strong>——与 Paxos&#x2F;Raft 的”多数派决定已提交”一脉相承。</p>
-<p><strong>④ 广播阶段（Broadcast，两阶段提交的简化版）</strong></p>
-<p>Leader 正常任期内处理写请求的流程。相比 2PC 有两处简化：<strong>没有 Abort 指令</strong>（Leader 端校验通过就广播），且<strong>提交由 Leader 单方决定</strong>（收到多数派 Ack 即提交，无需询问每个节点”能否提交”）：</p>
-<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">客户端                     Leader                        Follower</span><br><span class="line">   │ ── 写请求 ────────────▶ │                              │</span><br><span class="line">   │                        │ ── Propose(ZXID, data) ────▶ │  ① 写本地事务日志</span><br><span class="line">   │                        │ ◀────────── Ack(ZXID) ────── │  ② 落盘确认</span><br><span class="line">   │                        │ ── Commit(ZXID) ────────────▶ │  ③ 应用到内存</span><br><span class="line">   │ ◀────── 成功 ──────────│                              │</span><br></pre></td></tr></table></figure>
-
-<ol>
-<li><strong>Propose</strong>：写请求只能发给 Leader（客户端读写统一走 Leader——ZooKeeper 的线性一致严格保证在写路径上）；Leader 为它生成全局递增的事务 ID（ZXID），把提案 <code>Propose(ZXID, data)</code> 广播给所有 Follower；</li>
-<li><strong>Ack</strong>：Follower 把提案<strong>写入本地事务日志（落盘）</strong>后返回 <code>Ack(ZXID)</code>——<strong>落盘才 Ack</strong>，这是崩溃恢复的前提；</li>
-<li><strong>Commit</strong>：Leader 收到<strong>多数派 Ack</strong> 后广播 <code>Commit(ZXID)</code>（先提交自己），Follower 收到后把事务应用到内存数据树，并回复客户端成功。</li>
-</ol>
-<h3 id="5-2-ZAB-与-Raft-的对比"><a href="#5-2-ZAB-与-Raft-的对比" class="headerlink" title="5.2 ZAB 与 Raft 的对比"></a>5.2 ZAB 与 Raft 的对比</h3><p>两者同为”选主 + 日志复制”的共识协议，但设计取向不同：</p>
-<table>
-<thead>
-<tr>
-<th align="left">维度</th>
-<th align="left">ZAB</th>
-<th align="left">Raft</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">面向模型</td>
-<td align="left"><strong>主备复制（Primary-Backup）</strong>：Follower 就是”备”，允许落后</td>
-<td align="left"><strong>日志复制（Log Replication）</strong>：所有节点是”日志集合”，选举后同步对齐</td>
-</tr>
-<tr>
-<td align="left">老主恢复后</td>
-<td align="left"><strong>降级为 Follower</strong>（ZXID 已过期，补齐日志即可继续服务）</td>
-<td align="left">只能当 Follower（日志不如新 Leader 全），按日志补齐</td>
-</tr>
-<tr>
-<td align="left">节点参与资格</td>
-<td align="left"><strong>Follower 无需完整日志即可参与选举与复制</strong>（落后可在同步阶段补齐）</td>
-<td align="left"><strong>选举限制</strong>：日志不够”新”（term 更大 &#x2F; term 相同但日志更长）的候选者<strong>不能当选</strong>，防止覆盖已提交日志</td>
-</tr>
-<tr>
-<td align="left">数据新旧度量</td>
-<td align="left">ZXID（epoch + counter）</td>
-<td align="left">term + 日志长度</td>
-</tr>
-<tr>
-<td align="left">提交确认</td>
-<td align="left">同步阶段统一补齐后一次提交（可跳跃式追日志）</td>
-<td align="left">新 Leader 只能提交自己任期内的日志，上任期日志靠间接提交确认</td>
-</tr>
-<tr>
-<td align="left">日志追赶</td>
-<td align="left">差额同步 + 全量快照</td>
-<td align="left">AppendEntries 逐条补（Raft 也支持安装快照）</td>
-</tr>
-</tbody></table>
-<p><strong>一句话总结差异</strong>：**ZAB 是”选一个最全的当主，主把日志广播给备，备允许落后”；Raft 是”选主时必须选日志最全的，然后所有节点按日志严格对齐”**。ZAB 的 Follower 可以带着不完整的日志参与集群（同步阶段补齐），而 Raft 严格要求当选者日志最新、日志逐条匹配——Raft 的安全性约束更严，ZAB 的工程实现更”主备”。</p>
-<h3 id="5-3-ZAB-vs-Paxos-vs-Raft-三协议对比表"><a href="#5-3-ZAB-vs-Paxos-vs-Raft-三协议对比表" class="headerlink" title="5.3 ZAB vs Paxos vs Raft 三协议对比表"></a>5.3 ZAB vs Paxos vs Raft 三协议对比表</h3><table>
-<thead>
-<tr>
-<th align="left">维度</th>
-<th align="left">Paxos</th>
-<th align="left">Raft</th>
-<th align="left">ZAB</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">提出者&#x2F;时间</td>
-<td align="left">Lamport，1990 论文 &#x2F; 1998 发表</td>
-<td align="left">Ongaro，2014</td>
-<td align="left">Yahoo!，2008 公开</td>
-</tr>
-<tr>
-<td align="left">设计目标</td>
-<td align="left">通用共识（就一个值达成一致）</td>
-<td align="left">可理解的共识（选举&#x2F;复制&#x2F;安全三拆）</td>
-<td align="left">ZooKeeper 的主备原子广播（有序状态机复制）</td>
-</tr>
-<tr>
-<td align="left">角色</td>
-<td align="left">Proposer &#x2F; Acceptor &#x2F; Learner</td>
-<td align="left">Leader &#x2F; Follower &#x2F; Candidate</td>
-<td align="left">Leader &#x2F; Follower（+ Observer）</td>
-</tr>
-<tr>
-<td align="left">领导者</td>
-<td align="left">可有多个 Proposer 并发竞争</td>
-<td align="left">强领导者：写必须经 Leader</td>
-<td align="left">强领导者：写必须经 Leader</td>
-</tr>
-<tr>
-<td align="left">顺序保证</td>
-<td align="left">依赖 Multi-Paxos 补全</td>
-<td align="left">日志条目全局有序</td>
-<td align="left"><strong>ZXID 全局有序（ZXID 是状态机的天然序号）</strong></td>
-</tr>
-<tr>
-<td align="left">选举规则</td>
-<td align="left">提案编号 N 单调递增</td>
-<td align="left">term + 日志新旧（须含全部已提交日志）</td>
-<td align="left">ZXID（epoch 优先，其次 counter&#x2F;sid）</td>
-</tr>
-<tr>
-<td align="left">提交条件</td>
-<td align="left">多数派接受提案</td>
-<td align="left">多数派确认，Leader 只提交自己任期日志</td>
-<td align="left">多数派 Ack，同步阶段统一提交</td>
-</tr>
-<tr>
-<td align="left">老主恢复</td>
-<td align="left">—</td>
-<td align="left">降级 Follower</td>
-<td align="left">降级 Follower（ZXID 已过期）</td>
-</tr>
-<tr>
-<td align="left">日志追赶</td>
-<td align="left">无内置（工程自行实现）</td>
-<td align="left">AppendEntries + 快照安装</td>
-<td align="left">差额同步 + 全量快照</td>
-</tr>
-<tr>
-<td align="left">可理解性</td>
-<td align="left">难（活锁、多轮往返）</td>
-<td align="left">易（面向教学设计的算法）</td>
-<td align="left">中（与主备模型绑定）</td>
-</tr>
-<tr>
-<td align="left">代表实现</td>
-<td align="left">Google Chubby（Multi-Paxos）</td>
-<td align="left">etcd、TiKV、Consul、MongoDB</td>
-<td align="left">ZooKeeper</td>
-</tr>
-</tbody></table>
-<p><strong>面试怎么答</strong>：三句话——“Paxos 是理论源头、最难实现；Raft 是它的可理解版本，选主看日志新旧；ZAB 是 ZooKeeper 的主备广播协议，选主看 ZXID，Follower 允许落后”。再补一个必考题：**”ZooKeeper 用 ZAB 而不用 Raft？”**——ZAB 与 ZooKeeper 的数据模型（全局有序的 ZXID、顺序写）天然契合，且 ZooKeeper 诞生（2008）早于 Raft（2014）；现代新系统（etcd、TiKV）选 Raft 是因为它更易实现和调试。</p>
-<h2 id="6-分布式事务"><a href="#6-分布式事务" class="headerlink" title="6. 分布式事务"></a>6. 分布式事务</h2><p><strong>定义：</strong> 分布式事务是<strong>涉及多个独立资源（数据库、服务）的一个操作单元</strong>，这些资源分布在不同节点上。其目标与单机事务一致——要么全部成功提交，要么全部回滚（ACID 特性），但难点在于：<strong>单库事务由数据库引擎保证原子性，跨资源时没有全局协调者，且网络不可靠</strong>。</p>
-<p><strong>为什么需要：</strong> 微服务拆分、分库分表之后，一个业务操作必然横跨多个数据源。例如下单 &#x3D; 订单库写订单 + 库存库扣库存 + 账户库扣余额，任何一个环节失败，都不能留下”订单已创建但库存没扣”的脏状态。</p>
-<p>没有一种方案适用于所有场景，选择取决于对强一致性和性能的权衡。下面按”从强一致到最终一致”的顺序介绍主流方案。</p>
-<h3 id="6-1-两阶段提交（2PC）-三阶段提交（3PC）-XA"><a href="#6-1-两阶段提交（2PC）-三阶段提交（3PC）-XA" class="headerlink" title="6.1 两阶段提交（2PC）&#x2F; 三阶段提交（3PC）&#x2F; XA"></a>6.1 两阶段提交（2PC）&#x2F; 三阶段提交（3PC）&#x2F; XA</h3><p><strong>2PC 流程：</strong> 引入一个独立的<strong>协调者</strong>，分两个阶段：</p>
-<ol>
-<li><strong>准备阶段：</strong> 协调者询问所有参与者”是否可以提交”。参与者执行事务操作（锁资源、写 Redo&#x2F;Undo 日志），但<strong>不实际提交</strong>，向协调者投票（同意 &#x2F; 中止）。</li>
-<li><strong>提交&#x2F;回滚阶段：</strong> 若<strong>全部同意</strong>，协调者广播提交指令，参与者正式提交并释放资源；若<strong>任何一个中止</strong>或等待超时，协调者广播回滚指令，参与者利用 Undo 日志回滚并释放资源。</li>
-</ol>
-<p><strong>优点：</strong> 理论上提供强一致性，有标准实现（XA 协议）。</p>
-<p><strong>缺点：</strong></p>
-<ul>
-<li><strong>同步阻塞：</strong> 准备阶段参与者一直持有资源锁，直到收到第二阶段的指令，吞吐量低；</li>
-<li><strong>协调者单点故障：</strong> 协调者崩溃时参与者可能永远持有锁，阻塞其他操作；</li>
-<li><strong>脑裂风险：</strong> 提交阶段协调者广播提交后若部分参与者崩溃或失联，会出现部分提交、部分未提交的不一致，且一旦进入提交阶段就无法回滚，只能人工干预。</li>
-</ul>
-<p><strong>3PC 的改进：</strong> 针对 2PC”协调者故障导致参与者无限阻塞”和”提交阶段盲目执行”两个问题，3PC 增加了一个 <strong>CanCommit 询问阶段</strong>（先确认参与者是否都能提交，提前中止不可行的事务），并把提交阶段细分为 <strong>PreCommit（预提交）与 DoCommit（正式提交）</strong>，且<strong>参与者引入超时机制</strong>：收不到协调者指令时不再无限等待，超时后自行决策（经典 3PC 中通常默认提交）。3PC 降低了”全员阻塞”的概率，但<strong>网络分区时参与者可能做出不同决定</strong>（一侧收到回滚、另一侧超时提交），仍然不能严格保证一致，因此工程上极少使用——实际选择通常是 2PC&#x2F;XA，或干脆放弃强一致。</p>
-<p><strong>XA：</strong> X&#x2F;Open 组织定义的分布式事务规范，由数据库厂商实现（MySQL、Oracle 等），流程与 2PC 对应，Java 侧由 JTA（如 Atomikos）支持。问题在于资源锁时间过长、性能差，<strong>互联网公司很少直接使用</strong>，仅在参与方少、强一致要求极高且性能不敏感的场景（如传统银行核心系统）使用。</p>
-<h3 id="6-2-TCC（Try-Confirm-Cancel）"><a href="#6-2-TCC（Try-Confirm-Cancel）" class="headerlink" title="6.2 TCC（Try &#x2F; Confirm &#x2F; Cancel）"></a>6.2 TCC（Try &#x2F; Confirm &#x2F; Cancel）</h3><p><strong>定义：</strong> TCC 把”提交&#x2F;回滚”从资源层提升到业务层：每个参与者实现三个业务接口，用<strong>预留资源 + 确认&#x2F;取消</strong>代替数据库锁。</p>
-<ul>
-<li><strong>Try：</strong> 完成业务检查并<strong>预留资源</strong>（冻结库存、冻结余额），为最终操作做准备；</li>
-<li><strong>Confirm：</strong> 真正提交业务（扣减库存、扣款）。仅在 Try 全部成功后才执行，通常要求必然成功；</li>
-<li><strong>Cancel：</strong> 释放预留资源（解冻库存、恢复余额）。Try 成功后整体事务需要回滚时执行。</li>
-</ul>
-<p><strong>与 2PC 的对比：</strong></p>
-<table>
-<thead>
-<tr>
-<th align="left">维度</th>
-<th align="left">2PC &#x2F; XA</th>
-<th align="left">TCC</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">协调对象</td>
-<td align="left">资源层（数据库）</td>
-<td align="left">业务层（预留 + 确认&#x2F;取消）</td>
-</tr>
-<tr>
-<td align="left">锁资源</td>
-<td align="left">锁数据库资源，阻塞</td>
-<td align="left">业务冻结，不锁资源</td>
-</tr>
-<tr>
-<td align="left">一致性</td>
-<td align="left">强一致</td>
-<td align="left">最终一致</td>
-</tr>
-<tr>
-<td align="left">性能</td>
-<td align="left">低</td>
-<td align="left">高</td>
-</tr>
-<tr>
-<td align="left">实现成本</td>
-<td align="left">低（数据库原生支持）</td>
-<td align="left">高（三个接口 + 幂等处理）</td>
-</tr>
-</tbody></table>
-<p><strong>TCC 的三个经典坑：</strong></p>
-<ul>
-<li><strong>幂等：</strong> Confirm&#x2F;Cancel 可能因网络重试被重复执行，必须幂等；</li>
-<li><strong>空回滚：</strong> Try 因网络超时未到达，但 Cancel 已执行，需要识别并跳过（通常用事务控制表记录 Try 状态）；</li>
-<li><strong>悬挂：</strong> Try 超时后 Cancel 先执行、Try 之后才到达，需要拒绝迟到的 Try。</li>
-</ul>
-<p>TCC 适合对<strong>隔离性要求较高、需要防超卖</strong>的高并发场景（电商库存、金融账户）。</p>
-<h3 id="6-3-Saga"><a href="#6-3-Saga" class="headerlink" title="6.3 Saga"></a>6.3 Saga</h3><p><strong>定义：</strong> Saga 把一个大事务拆成一串<strong>本地事务</strong>（T1, T2, …, Tn），每个本地事务对应一个<strong>补偿事务</strong>（C1, …, Cn）。执行到第 n 步失败时，反向执行 C(n-1), …, C1 回滚已完成的操作。</p>
-<p><strong>两种协调方式（中文资料里两者常混译为”编排”，面试时用”中心化 &#x2F; 去中心化”区分即可）：</strong></p>
-<ul>
-<li><strong>编排（Orchestration）：</strong> 有一个<strong>中心协调器</strong>（Saga 状态机）按顺序调用各服务，失败时反向触发补偿。优点：流程集中、可跟踪；缺点：引入中心节点。</li>
-<li><strong>事件编排（Choreography）：</strong> <strong>没有中心协调者</strong>，每个服务执行完后发布事件，下一个服务监听事件并执行自己的操作或补偿操作。优点：松耦合；缺点：流程散落在事件中，难以追踪和排障。</li>
-</ul>
-<p><strong>两种恢复模式：</strong></p>
-<ul>
-<li><strong>向前恢复：</strong> 某步失败就重试该步（适用于可重试的临时错误）；</li>
-<li><strong>向后恢复：</strong> 某步失败就触发反向补偿（适用于不可重试的业务错误）。</li>
-</ul>
-<p><strong>Saga 的短板：</strong> <strong>无隔离性</strong>——中间状态对其他事务可见（例如订单已创建但支付未完成，其他事务能看到”未支付订单”）。解决思路是业务上容忍，或对关键资源做预留（与 TCC 思想结合）。</p>
-<h3 id="6-4-本地消息表-最大努力通知"><a href="#6-4-本地消息表-最大努力通知" class="headerlink" title="6.4 本地消息表 + 最大努力通知"></a>6.4 本地消息表 + 最大努力通知</h3><p><strong>本地消息表（事务发件箱）：</strong></p>
-<ul>
-<li><strong>原理：</strong> 发起方在<strong>同一个本地事务</strong>里写业务数据 + 写消息表。本地事务保证”业务成功 &#x3D; 消息一定入库”，两者原子。之后由独立的<strong>消息转发器</strong>（定时任务扫描消息表）把消息投递到 MQ，消费者收到后执行并幂等消费。</li>
-<li><strong>为什么可靠：</strong> 本地事务保证业务操作与消息入库存取的原子性；MQ 投递失败可重试（至少投递一次）；消费者幂等应对重复投递。这是”基于可靠消息的最终一致性”的标准实现，业界大量使用（也有 RocketMQ 事务消息等中间件原生方案）。</li>
-</ul>
-<p><strong>最大努力通知：</strong></p>
-<ul>
-<li><strong>原理：</strong> 不引入 MQ，发起方在本地事务记录”待通知”状态，通过<strong>定时任务 + 指数退避重试</strong>反复调用接收方接口（同步接口），直到成功；达到最大重试次数仍失败，则记录失败明细，进入<strong>人工&#x2F;对账兜底</strong>。</li>
-<li><strong>与本地消息表的区别：</strong> 本地消息表依赖 MQ 解耦、异步投递；最大努力通知是<strong>直接调用 + 尽力重试</strong>，实现更简单，但通知成功与否”尽力而为”——必须配套对账与人工补偿。</li>
-<li><strong>适用场景：</strong> 支付结果通知、短信&#x2F;邮件发送这类”错过可接受、但绝不能重复出错”的低频通知场景。</li>
-</ul>
-<h3 id="6-5-选型决策树"><a href="#6-5-选型决策树" class="headerlink" title="6.5 选型决策树"></a>6.5 选型决策树</h3><p>按两个问题决策：<strong>对一致性的要求有多强？对性能的要求有多高？</strong></p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">业务是否要求强一致？</span><br><span class="line">├─ 是</span><br><span class="line">│   ├─ 参与方少、性能不敏感、可接受资源阻塞 → 2PC / XA</span><br><span class="line">│   ├─ 参与方多、高并发、需要业务级隔离 → TCC</span><br><span class="line">│   └─ 事务内大量 DB 读写、已有框架 → Seata AT 模式（自动补偿的 2PC 改良）</span><br><span class="line">└─ 否（可接受最终一致）</span><br><span class="line">    ├─ 已有 MQ、希望异步解耦 → 本地消息表 / 事务发件箱</span><br><span class="line">    ├─ 长流程、多步骤、事件驱动 → Saga（中心编排 / 事件编排）</span><br><span class="line">    ├─ 低频通知、不想引入 MQ → 最大努力通知</span><br><span class="line">    └─ 高并发核心链路（库存、余额） → TCC 或 Saga + 预留</span><br></pre></td></tr></table></figure>
-
-<p>补充一句 <strong>Seata</strong>：国产开源分布式事务框架，提供 AT（自动生成回滚镜像、业务无感的 2PC 改良）、TCC、Saga 三种模式，面试中常被作为”2PC 的工程化实现”提及（详见 6.6 节）。</p>
-<h3 id="6-6-Seata-实战"><a href="#6-6-Seata-实战" class="headerlink" title="6.6 Seata 实战"></a>6.6 Seata 实战</h3><p><strong>定义：</strong> Seata（Simple Extensible Autonomous Transaction Architecture）是阿里开源的分布式事务框架，提供 <strong>AT、TCC、Saga 三种模式</strong>，覆盖”强一致 → 最终一致”的选型谱系（6.5 决策树里”事务内大量 DB 读写、已有框架 → Seata AT 模式”说的就是它）。</p>
-<h4 id="Seata-架构：TC-TM-RM-三角色"><a href="#Seata-架构：TC-TM-RM-三角色" class="headerlink" title="Seata 架构：TC &#x2F; TM &#x2F; RM 三角色"></a>Seata 架构：TC &#x2F; TM &#x2F; RM 三角色</h4><table>
-<thead>
-<tr>
-<th align="left">角色</th>
-<th align="left">全称</th>
-<th align="left">职责</th>
-<th align="left">部署位置</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left"><strong>TC</strong></td>
-<td align="left">Transaction Coordinator，事务协调器</td>
-<td align="left"><strong>独立部署的 Server</strong>：维护全局事务与分支事务的状态，驱动全局提交&#x2F;回滚，管理全局锁</td>
-<td align="left">独立服务（seata-server）</td>
-</tr>
-<tr>
-<td align="left"><strong>TM</strong></td>
-<td align="left">Transaction Manager，事务管理器</td>
-<td align="left">业务侧发起方：开启全局事务、提交&#x2F;回滚全局事务</td>
-<td align="left">业务应用（SDK）</td>
-</tr>
-<tr>
-<td align="left"><strong>RM</strong></td>
-<td align="left">Resource Manager，资源管理器</td>
-<td align="left">业务侧参与方：管理分支事务（本地事务 + undo_log）、向 TC 注册分支、汇报状态</td>
-<td align="left">业务应用（SDK）</td>
-</tr>
-</tbody></table>
-<p><strong>XID 传播（全局事务的唯一标识）</strong>：TM 开启全局事务时生成全局唯一 <strong>XID</strong>（如 <code>10.1.1.1:8091:123456789</code>），必须<strong>沿调用链传到所有参与方</strong>——通过 RPC 上下文透传（Dubbo 的 attachment &#x2F; Spring Cloud 的 header，Seata 的 <code>RootContext</code> 保存，集成层自动注入）。<strong>XID 传不到，后续分支事务就无法关联到全局事务，这是 Seata 集成排障的第一排查点</strong>。</p>
-<p><strong>整体流程</strong>：TM 开启全局事务（生成 XID）→ 各 RM 执行本地事务并注册分支（branchId）→ 全部成功后 TM 向 TC 提交 → TC 驱动所有分支提交；任一分支失败 → TM 向 TC 回滚 → TC 通知各 RM 回滚。</p>
-<h4 id="AT-模式原理"><a href="#AT-模式原理" class="headerlink" title="AT 模式原理"></a>AT 模式原理</h4><p>AT（Auto Transaction）模式的魔法：<strong>业务代码无侵入</strong>（一个 <code>@GlobalTransactional</code> 注解），回滚镜像由框架自动生成。核心是 <strong>undo_log 前后镜像 + 全局锁</strong>：</p>
-<p><strong>一阶段（业务本地事务内）</strong>：</p>
-<ol>
-<li>执行业务 SQL（框架通过拦截器拿到执行计划，自动生成<strong>回滚 SQL</strong>）；</li>
-<li>写 <strong>undo_log</strong>：执行前拍 <strong>beforeImage</strong>（受影响行的完整数据），执行后拍 <strong>afterImage</strong>，与分支事务一起<strong>写在同一本地事务里</strong>（undo_log 与业务数据同库同事务，保证镜像与数据一致）；</li>
-<li>本地事务提交（<strong>RM 无需持锁等待二阶段</strong>——这是 AT 相比 XA 吞吐高的根本：锁只存在于本地事务内，事务提交就释放本地锁，不需要全局资源锁）。</li>
-</ol>
-<p><strong>二阶段提交（全局成功）</strong>：TC 通知 RM 提交，RM <strong>异步删除 undo_log</strong>——全局事务已成功，镜像不再需要，业务数据就是最终状态。</p>
-<p><strong>二阶段回滚（全局失败）</strong>：</p>
-<ol>
-<li>RM 根据 undo_log 的 <strong>beforeImage</strong> 生成反向 SQL（UPDATE 改回原值 &#x2F; DELETE 插回原行 &#x2F; INSERT 删除原行）；</li>
-<li>执行回滚前做<strong>脏写校验</strong>：比较当前数据库数据与 <strong>afterImage</strong>，一致（期间没人改过）→ 执行反向 SQL，回滚成功，删除 undo_log；</li>
-<li><strong>脏写校验失败</strong>（当前数据 ≠ afterImage，说明回滚窗口内其他事务改过该行）→ <strong>不能盲目回滚</strong>（会覆盖别人的修改），抛异常上报 TC，走人工&#x2F;提示处理。</li>
-</ol>
-<p><strong>全局锁与死锁检测</strong>：两个全局事务并发改同一行时，若各自都提交了本地事务，回滚时就会互相覆盖——所以 AT 在<strong>写之前要先获取全局锁</strong>（Seata Server 侧维护的”行级锁”，key 为 <code>资源ID + 表名 + 主键</code>）：事务 A 写行 X 前向 TC 申请全局锁 X，事务 B 再写 X 时拿不到全局锁 → 等待（默认重试 30 次、间隔 10ms）→ 超时抛异常回滚。<strong>本地锁与全局锁的协同</strong>：先拿本地锁，再等全局锁，等不到就释放本地锁回滚——避免两个事务互相持本地锁等全局锁的全局死锁。</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@GlobalTransactional(timeoutMills = 30000)</span>   <span class="comment">// TM：开启全局事务，XID 自动注入调用链</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">createOrder</span><span class="params">(OrderDTO order)</span> &#123;</span><br><span class="line">    orderDao.insert(order);            <span class="comment">// RM1：订单库分支事务（写业务表 + undo_log）</span></span><br><span class="line">    stockClient.deduct(order);         <span class="comment">// RM2：库存服务（XID 透传后，本地事务注册为分支）</span></span><br><span class="line">    accountClient.debit(order);        <span class="comment">// RM3：账户服务</span></span><br><span class="line">    <span class="comment">// 三个本地事务全部成功 → 全局提交；任一步抛异常 → 全局回滚（按 undo_log 反向 SQL）</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>前提要求</strong>：业务表必须有主键（回滚 SQL 按主键定位）；undo_log 表（<code>undo_log</code>）需建在<strong>每个参与的数据源</strong>；<strong>全局事务内的方法不能跨异步线程</strong>（XID 默认只在调用链传播，异步任务要手动传递）。</p>
-<h4 id="TCC-模式（业务实现-Try-Confirm-Cancel）"><a href="#TCC-模式（业务实现-Try-Confirm-Cancel）" class="headerlink" title="TCC 模式（业务实现 Try &#x2F; Confirm &#x2F; Cancel）"></a>TCC 模式（业务实现 Try &#x2F; Confirm &#x2F; Cancel）</h4><p>TCC 把”提交&#x2F;回滚”从资源层提升到业务层：<strong>Try 预留资源 → Confirm 真正提交 → Cancel 释放预留</strong>。相比 AT 的自动镜像，TCC 的补偿逻辑由<strong>业务自己写</strong>，控制力更强、不依赖 undo_log，适合业务校验复杂、资源类型不支持镜像的场景。</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@LocalTCC</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">AccountTccService</span> &#123;</span><br><span class="line">    <span class="meta">@TwoPhaseBusinessAction(name = &quot;deduct&quot;, commitMethod = &quot;confirm&quot;, rollbackMethod = &quot;cancel&quot;)</span></span><br><span class="line">    <span class="keyword">public</span> <span class="type">boolean</span> <span class="title function_">tryDeduct</span><span class="params">(BusinessActionContext ctx,</span></span><br><span class="line"><span class="params">                             <span class="meta">@BusinessActionContextParameter(&quot;amount&quot;)</span> <span class="type">double</span> amount)</span> &#123;</span><br><span class="line">        <span class="comment">// Try：检查余额 + 冻结资金（预留），不实际扣减</span></span><br><span class="line">        <span class="comment">// UPDATE account SET frozen = frozen + ? WHERE id = ? AND balance - frozen &gt;= ?</span></span><br><span class="line">        <span class="keyword">return</span> <span class="literal">true</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="type">boolean</span> <span class="title function_">confirm</span><span class="params">(BusinessActionContext ctx)</span> &#123;</span><br><span class="line">        <span class="comment">// Confirm：真正扣减（把 frozen 转成实际扣减），Try 全部成功才执行，要求幂等</span></span><br><span class="line">        <span class="comment">// UPDATE account SET balance = balance - frozen, frozen = 0 WHERE id = ?</span></span><br><span class="line">        <span class="keyword">return</span> <span class="literal">true</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="type">boolean</span> <span class="title function_">cancel</span><span class="params">(BusinessActionContext ctx)</span> &#123;</span><br><span class="line">        <span class="comment">// Cancel：释放预留（解冻），幂等，可能被重复调用</span></span><br><span class="line">        <span class="comment">// UPDATE account SET frozen = frozen - ? WHERE id = ?</span></span><br><span class="line">        <span class="keyword">return</span> <span class="literal">true</span>;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>TCC 的两个经典问题（框架如何解决）</strong>：</p>
-<ol>
-<li><strong>空回滚（Cancel 比 Try 先到达）</strong>：Try 请求因网络超时&#x2F;丢失没执行成功，但 TC 已判定全局失败，Cancel 被调用——此时<strong>没有可回滚的预留资源</strong>。Seata 的处理：<strong>branchId 的注册即”Try 已执行”的凭证</strong>——Cancel 执行前检查 TC 侧分支事务注册记录：<strong>分支未注册（Try 没执行成功）→ 直接返回成功（空回滚，什么都不做）</strong>，不执行任何补偿逻辑。</li>
-<li><strong>悬挂（Try 在 Cancel 之后到达）</strong>：Try 超时后 Cancel 先执行完（空回滚），迟到的 Try 又执行了冻结——资源被永久挂起。Seata 的处理：<strong>Try 执行前先检查该分支是否已经 Cancel 过</strong>（TC 侧保存了 Cancel 记录）——<strong>已 Cancel 则拒绝执行 Try</strong>（直接返回失败），保证”Cancel 之后绝不会有 Try 生效”。</li>
-</ol>
-<p>一句话：**空回滚防的是”没 Try 却 Cancel”，悬挂防的是”已 Cancel 还 Try”**——两者都靠 TC 侧的分支状态记录做检查，所以分支状态记录是框架的职责，业务只管保证 Confirm&#x2F;Cancel 幂等。</p>
-<h4 id="AT-vs-TCC-vs-Saga-选型表"><a href="#AT-vs-TCC-vs-Saga-选型表" class="headerlink" title="AT vs TCC vs Saga 选型表"></a>AT vs TCC vs Saga 选型表</h4><table>
-<thead>
-<tr>
-<th align="left">维度</th>
-<th align="left">AT</th>
-<th align="left">TCC</th>
-<th align="left">Saga</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">侵入性</td>
-<td align="left"><strong>低</strong>（注解 + 自动镜像，业务 SQL 不动）</td>
-<td align="left">高（三个接口全业务实现）</td>
-<td align="left">中（拆本地事务 + 补偿，协调模式自选）</td>
-</tr>
-<tr>
-<td align="left">隔离性</td>
-<td align="left">较强（全局写锁防脏写；默认读未提交，可开启全局读锁升级）</td>
-<td align="left">中（预留资源提供一定隔离）</td>
-<td align="left"><strong>弱</strong>（中间状态对外可见）</td>
-</tr>
-<tr>
-<td align="left">回滚能力</td>
-<td align="left">自动（beforeImage 反向 SQL + 脏写校验）</td>
-<td align="left">业务自定义（Try 预留 → Cancel 释放）</td>
-<td align="left">业务补偿（反向执行补偿事务）</td>
-</tr>
-<tr>
-<td align="left">一致性</td>
-<td align="left">最终一致（自动补偿）</td>
-<td align="left">最终一致（业务补偿）</td>
-<td align="left">最终一致（补偿型）</td>
-</tr>
-<tr>
-<td align="left">性能</td>
-<td align="left">高（本地事务即提交，无长锁）</td>
-<td align="left">高（业务冻结，无长锁）</td>
-<td align="left">高（纯本地事务串行）</td>
-</tr>
-<tr>
-<td align="left">适用场景</td>
-<td align="left">大量 DB 读写、业务无侵入诉求、数据一致性敏感（有全局锁）</td>
-<td align="left">高并发、资源可预留（库存冻结、余额冻结）、隔离性要求高</td>
-<td align="left">长流程、跨系统异步补偿（订单&#x2F;配送&#x2F;对账）</td>
-</tr>
-<tr>
-<td align="left">代表实现</td>
-<td align="left">Seata AT</td>
-<td align="left">Seata TCC、其他 TCC 中间件</td>
-<td align="left">Seata Saga、Apache ServiceComb</td>
-</tr>
-</tbody></table>
-<p><strong>面试怎么答</strong>：先讲三角色与 XID 传播（架构题必答）；AT 模式讲透”一阶段本地事务 + undo_log 镜像、二阶段回滚反向 SQL + 脏写校验、全局锁防并发回滚错乱”四件事；TCC 讲”预留&#x2F;确认&#x2F;释放 + 空回滚与悬挂怎么被框架解决”；最后落到选型——**”业务无侵入、一致性敏感选 AT；资源可冻结、隔离要求高选 TCC；长流程异步补偿选 Saga”**。</p>
-<h2 id="7-分布式锁"><a href="#7-分布式锁" class="headerlink" title="7. 分布式锁"></a>7. 分布式锁</h2><p><strong>定义：</strong> 分布式锁是<strong>跨进程（跨 JVM、跨机器）的互斥机制</strong>，保证多个实例对同一共享资源的访问互斥。</p>
-<p><strong>为什么需要：</strong> 单机时代 <code>synchronized</code>、<code>ReentrantLock</code> 基于 JVM 内存即可互斥；微服务多实例部署后，锁对象分散在不同 JVM 中，必须借助<strong>外部共享存储</strong>（Redis、ZooKeeper、数据库）实现跨进程互斥。典型场景：分布式定时任务”同一时刻只有一个实例执行”、库存扣减防超卖、缓存重建防击穿。</p>
-<p><strong>一个合格的分布式锁需要满足：</strong></p>
-<ol>
-<li><strong>互斥性：</strong> 任何时刻只有一个客户端持有锁（核心要求）；</li>
-<li><strong>防死锁：</strong> 持锁客户端崩溃后锁必须自动释放（加锁时设置过期时间 &#x2F; 使用临时节点）；</li>
-<li><strong>防误删：</strong> 只能释放自己持有的锁（value 用唯一标识 + Lua 校验）；</li>
-<li><strong>可重入（可选）：</strong> 同一线程可重复获取（Redisson 用 Hash 结构实现）；</li>
-<li><strong>容错性：</strong> 锁服务本身高可用，锁失效窗口尽量小。</li>
-</ol>
-<h3 id="7-1-基于-Redis：SETNX-→-Redisson-→-Redlock-争议"><a href="#7-1-基于-Redis：SETNX-→-Redisson-→-Redlock-争议" class="headerlink" title="7.1 基于 Redis：SETNX → Redisson → Redlock 争议"></a>7.1 基于 Redis：SETNX → Redisson → Redlock 争议</h3><p><strong>第一步，SETNX + 过期时间。</strong> 加锁必须是一条<strong>原子命令</strong>，防止”先 SETNX 再 EXPIRE”两步之间宕机造成死锁：</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">SET lock_key unique_id NX PX 30000   <span class="comment"># NX: 不存在才设置；PX: 30 秒自动过期</span></span><br></pre></td></tr></table></figure>
-
-<p>释放锁不能直接 <code>DEL</code>（可能误删他人刚获取的锁），要用 <strong>Lua 脚本</strong>保证”校验 value → 删除”的原子性：</p>
-<figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">if</span> redis.call(<span class="string">&quot;get&quot;</span>, KEYS[<span class="number">1</span>]) == ARGV[<span class="number">1</span>] <span class="keyword">then</span></span><br><span class="line">    <span class="keyword">return</span> redis.call(<span class="string">&quot;del&quot;</span>, KEYS[<span class="number">1</span>])</span><br><span class="line"><span class="keyword">else</span></span><br><span class="line">    <span class="keyword">return</span> <span class="number">0</span></span><br><span class="line"><span class="keyword">end</span></span><br></pre></td></tr></table></figure>
-
-<p><strong>第二步，Redisson 看门狗续期。</strong> 锁超时带来”业务未执行完、锁却已过期”的问题，此时其他线程可拿到锁，互斥失效。解法是<strong>看门狗（Watch Dog）自动续期</strong>：默认锁有效期 30s，后台线程每 10s 续期一次，只要客户端存活锁就不过期（类似”续租”）：</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">RLock</span> <span class="variable">lock</span> <span class="operator">=</span> redisson.getLock(<span class="string">&quot;order:123&quot;</span>);</span><br><span class="line">lock.lock();      <span class="comment">// 无参加锁，watch dog 自动续期</span></span><br><span class="line"><span class="keyword">try</span> &#123;</span><br><span class="line">    <span class="comment">// 业务逻辑</span></span><br><span class="line">&#125; <span class="keyword">finally</span> &#123;</span><br><span class="line">    lock.unlock();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>第三步，Redlock 及其争议。</strong> Redis 主从架构下，主节点宕机时未同步的锁会丢失，可能出现两个客户端同时持锁。Redlock 的思路：向 <strong>5 个独立 Redis 节点</strong>依次加锁，超过 3 个成功且<strong>总耗时小于锁过期时间</strong>才算成功，释放时向所有节点释放。但 Martin Kleppmann（《数据密集型应用系统设计》作者）在 2016 年发文反驳（《How to do distributed locking》）：<strong>GC 停顿导致锁过期后线程仍继续执行、系统时钟跳跃</strong>都会破坏互斥性，Redlock 只是”尽力而为”而非严格安全。业界主流结论：<strong>绝大多数业务场景用单 Redis + 看门狗续期即可，Redlock 复杂度高、收益低，无需过度设计。</strong></p>
-<h3 id="7-2-基于-ZooKeeper（临时顺序节点）"><a href="#7-2-基于-ZooKeeper（临时顺序节点）" class="headerlink" title="7.2 基于 ZooKeeper（临时顺序节点）"></a>7.2 基于 ZooKeeper（临时顺序节点）</h3><p>利用 <strong>临时顺序节点（EPHEMERAL_SEQUENTIAL）+ Watch 监听</strong>：</p>
-<ol>
-<li>客户端在锁目录下创建临时顺序节点 <code>/lock/lock_0001</code>；</li>
-<li>判断自己是否是最小序号节点——是则获得锁；</li>
-<li>否则 <strong>Watch 监听前一个节点</strong>（如 <code>lock_0000</code>）的删除事件，前一个节点删除后唤醒再次检查；</li>
-<li>释放锁即删除自己的节点；客户端异常断开时临时节点自动消失，<strong>天然防死锁</strong>，无需过期时间。</li>
-</ol>
-<p><strong>优点：</strong> 无锁丢失问题（ZK 本身由 ZAB 多数派保证强一致）、只监听前一个节点不会惊群。<strong>缺点：</strong> 性能不如 Redis，且依赖 ZK 集群本身。</p>
-<h3 id="7-3-对比与选型"><a href="#7-3-对比与选型" class="headerlink" title="7.3 对比与选型"></a>7.3 对比与选型</h3><table>
-<thead>
-<tr>
-<th align="left">维度</th>
-<th align="left">Redis（SETNX + 续期）</th>
-<th align="left">Redlock</th>
-<th align="left">ZooKeeper</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">性能</td>
-<td align="left">高</td>
-<td align="left">中（多次网络往返）</td>
-<td align="left">中</td>
-</tr>
-<tr>
-<td align="left">可靠性</td>
-<td align="left">主从切换可能丢锁</td>
-<td align="left">有争议，尽力而为</td>
-<td align="left">高（顺序节点 + Watch）</td>
-</tr>
-<tr>
-<td align="left">防死锁</td>
-<td align="left">过期时间 + watchdog</td>
-<td align="left">过期时间</td>
-<td align="left">临时节点自动清理</td>
-</tr>
-<tr>
-<td align="left">实现复杂度</td>
-<td align="left">低（Redisson 封装）</td>
-<td align="left">高</td>
-<td align="left">中（Curator 封装）</td>
-</tr>
-<tr>
-<td align="left">适用场景</td>
-<td align="left">绝大多数业务</td>
-<td align="left">极端场景（不推荐）</td>
-<td align="left">对一致性要求极高</td>
-</tr>
-</tbody></table>
-<p><strong>选型：</strong> 日常首选 <strong>Redis + Redisson</strong>（性能好、成本低）；对强一致要求极高的场景（如任务调度选主、配置发布）选 <strong>ZK + Curator</strong>；数据库 <code>SELECT ... FOR UPDATE</code> 方案性能差且依赖数据库可用性，仅适合并发极低的简单场景。</p>
-<h2 id="8-分布式-ID"><a href="#8-分布式-ID" class="headerlink" title="8. 分布式 ID"></a>8. 分布式 ID</h2><p><strong>需求：</strong> 分库分表、微服务场景下，单库自增 ID 无法保证多实例全局唯一。一个合格的分布式 ID 方案需要满足：<strong>全局唯一</strong>、<strong>趋势递增</strong>（对 B+ 树索引友好，避免随机插入造成页分裂）、<strong>高性能低延迟</strong>、<strong>高可用</strong>（生成服务不可用会拖垮整个写入链路），且 ID <strong>尽量短</strong>（减少存储和索引开销）。</p>
-<h3 id="8-1-方案对比"><a href="#8-1-方案对比" class="headerlink" title="8.1 方案对比"></a>8.1 方案对比</h3><p><strong>1. UUID——最简单但最不推荐</strong></p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">String</span> <span class="variable">id</span> <span class="operator">=</span> UUID.randomUUID().toString();  <span class="comment">// 例如 550e8400-e29b-41d4-a716-446655440000</span></span><br></pre></td></tr></table></figure>
-
-<ul>
-<li>优点：本地生成、无网络开销、性能极高、绝对唯一。</li>
-<li>缺点：<strong>无序</strong>（B+ 树随机插入导致页分裂，索引性能差）；<strong>36 字符过长</strong>（存储翻倍）；无业务含义、无法排序。</li>
-<li>适用：对索引不敏感的场景（日志 ID、消息 ID、链路追踪 ID）。</li>
-</ul>
-<p><strong>2. 数据库自增 ID——单点瓶颈</strong></p>
-<p>依赖 <code>AUTO_INCREMENT</code>，简单可靠，但单库写性能有上限，主从切换、数据迁移时容易冲突。优化手段：<strong>双主互相错开步长</strong>（一台 <code>auto_increment_increment=2, offset=1</code>，另一台 <code>offset=2</code>）可支撑两倍写量，但扩展性有限——每增加一台机器都要重配步长。</p>
-<p><strong>3. 号段模式（Segment）——批量取号，内存发放</strong></p>
-<p>核心思想：数据库表 <code>id_alloc(biz_tag, max_id, step)</code> 维护各业务的最大 ID，每次从库中取一段号段（如 1000 个）缓存在本地内存逐号发放，用尽后再取下一段，数据库只承担低频的”取段”请求：</p>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 事务内执行：取号段 (max_id - step, max_id]，应用在本地逐号发放</span></span><br><span class="line"><span class="keyword">UPDATE</span> id_alloc <span class="keyword">SET</span> max_id <span class="operator">=</span> max_id <span class="operator">+</span> step <span class="keyword">WHERE</span> biz_tag <span class="operator">=</span> <span class="string">&#x27;order&#x27;</span>;</span><br><span class="line"><span class="keyword">SELECT</span> max_id <span class="keyword">FROM</span> id_alloc <span class="keyword">WHERE</span> biz_tag <span class="operator">=</span> <span class="string">&#x27;order&#x27;</span>;</span><br></pre></td></tr></table></figure>
-
-<ul>
-<li>优点：大幅降低数据库压力（1000 个 ID 只访问一次 DB），性能高，ID 趋势递增，实现简单可靠；</li>
-<li>缺点：号段未用完时重启会浪费一段；多实例同时取段可能产生<strong>跨实例乱序</strong>（整体仍趋势递增）；</li>
-<li>工程化：<strong>美团 Leaf-segment</strong> 即此模式，并增加了<strong>双 buffer</strong>（当前段 + 预取段）消除取段间隙的停顿。</li>
-</ul>
-<p><strong>4. 雪花算法（Snowflake）——最主流方案</strong></p>
-<p>64 位 Long：<strong>1 位符号位（0）+ 41 位毫秒时间戳（可用约 69 年）+ 10 位机器 ID（5 位机房 + 5 位机器，支持 1024 台）+ 12 位序列号（单机每毫秒 4096 个）</strong>。单机 QPS 可达 409 万&#x2F;秒，趋势递增，本地生成无网络开销：</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">long</span> <span class="variable">id</span> <span class="operator">=</span> (timestamp &lt;&lt; <span class="number">22</span>) | (workerId &lt;&lt; <span class="number">12</span>) | sequence;</span><br></pre></td></tr></table></figure>
-
-<p><strong>时钟回拨问题（最大坑）：</strong> 生成依赖服务器本地时钟，若 NTP 校准导致时钟回拨，可能生成重复 ID。常见解法：</p>
-<ul>
-<li><strong>短回拨（小于阈值）：</strong> 线程自旋等待，直到时钟追平（百度 UidGenerator 的做法）；</li>
-<li><strong>回拨较大：</strong> 拒绝服务或直接报错，等待人工处理；</li>
-<li><strong>彻底规避：</strong> 用 ZK&#x2F;Redis 集中分配 workerId（Leaf-snowflake 的做法），或改用号段模式兜底。</li>
-</ul>
-<p><strong>5. 业界方案</strong></p>
-<ul>
-<li><strong>美团 Leaf：</strong> 同时实现号段模式（Leaf-segment）和雪花模式（Leaf-snowflake），支持双模式动态切换，用 ZK 管理 workerId；</li>
-<li><strong>百度 UidGenerator：</strong> 雪花 + 自定义位分配 + RingBuffer 缓存预生成；</li>
-<li><strong>滴滴 Tinyid：</strong> 号段模式改进。</li>
-</ul>
-<h3 id="8-2-选型建议"><a href="#8-2-选型建议" class="headerlink" title="8.2 选型建议"></a>8.2 选型建议</h3><table>
-<thead>
-<tr>
-<th align="left">场景</th>
-<th align="left">推荐方案</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">要求简单、对索引不敏感</td>
-<td align="left">UUID</td>
-</tr>
-<tr>
-<td align="left">中小规模、趋势递增</td>
-<td align="left">数据库号段模式（Leaf-segment）</td>
-</tr>
-<tr>
-<td align="left">高并发、多机房微服务</td>
-<td align="left">雪花算法 &#x2F; Leaf-snowflake &#x2F; UidGenerator</td>
-</tr>
-<tr>
-<td align="left">担心时钟回拨、求稳</td>
-<td align="left">号段模式更稳妥</td>
-</tr>
-</tbody></table>
-<h2 id="9-总结：分布式系统的设计范式"><a href="#9-总结：分布式系统的设计范式" class="headerlink" title="9. 总结：分布式系统的设计范式"></a>9. 总结：分布式系统的设计范式</h2><p>把全文串起来看，分布式系统的解法有一条清晰的脉络：</p>
-<ol>
-<li><strong>起点是物理现实：</strong> 网络不可靠、节点会故障、时钟不可信，这是所有问题的根源。</li>
-<li><strong>CAP 划定边界：</strong> 分区不可避免，必须在一致性和可用性之间取舍；BASE 给出工程取向——大多数业务用最终一致性换取可用性和性能。</li>
-<li><strong>一致性协议解决”单值共识”：</strong> Paxos、Raft 与 ZAB 用”多数派 + 单调编号&#x2F;任期&#x2F;ZXID”让节点就日志达成一致，这是 etcd、ZooKeeper、TiKV 等地基。</li>
-<li><strong>分布式事务解决”跨业务资源的一致”：</strong> 从 2PC（强一致、代价高）到 Seata AT&#x2F;TCC&#x2F;Saga&#x2F;消息（最终一致、轻量），本质是把”全局原子性”拆成”本地原子 + 异步补偿”。</li>
-<li><strong>分布式锁是”小号的共识”：</strong> 本质是在共享存储上实现互斥——Redis 快但弱，ZK 强但慢。</li>
-<li><strong>分布式 ID 是”单点问题的分布式化”：</strong> 从数据库自增（单点）到号段（低频访问数据库）到雪花（本地生成），层层去除单点依赖。</li>
-</ol>
-<p>贯穿其中的设计范式可以归纳为四条：</p>
-<ul>
-<li><strong>先问业务要什么，再选方案：</strong> 强一致不是默认选项，而是有代价的选项；对一致性和延迟的真实要求决定一切选型。</li>
-<li><strong>能用异步就不用同步，能用最终一致就不用强一致：</strong> 尽量把全局协调拆成”本地事务 + 消息&#x2F;补偿”，这是 BASE 思想的工程化。</li>
-<li><strong>幂等是一切的基石：</strong> 消息重投、补偿重试、通知重发，都依赖接收方的幂等；不解决幂等，任何最终一致性方案都会出问题。</li>
-<li><strong>工程上规避理论难题：</strong> 理论给出安全边界（多数派、单调编号），工程上则尽量把难题挡在门外——预分配 workerId 规避时钟回拨、看门狗续期规避锁过期，复杂度能不上就不上。</li>
-</ul>
-<p>回答相关面试题时，按”<strong>定义 → 为什么 → 怎么做 → 代价</strong>“的结构组织，最后落到”<strong>根据业务要求取舍</strong>“的结论上，就能把这条脉络完整地呈现出来。</p>
 
       
     </div>

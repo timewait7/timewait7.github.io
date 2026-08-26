@@ -189,7 +189,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">82</span>
+          <span class="site-state-item-count">83</span>
           <span class="site-state-item-name">posts</span>
         </a>
       </div>
@@ -250,6 +250,707 @@
     </div>
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/9787b587.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/9787b587.html" class="post-title-link" itemprop="url">分布式系统核心理论</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2025-07-26 19:21:50" itemprop="dateCreated datePublished" datetime="2025-07-26T19:21:50+08:00">2025-07-26</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E5%88%86%E5%B8%83%E5%BC%8F/" itemprop="url" rel="index"><span itemprop="name">分布式</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>11k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>41 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <p>本文围绕一条主线展开：<strong>分布式系统到底难在哪里，业界又是如何一步步解决这些难题的</strong>。内容覆盖核心理论（CAP、BASE、一致性协议、ZAB）与高频工程实践（分布式事务、分布式锁、分布式 ID）。服务治理（Nacos、Sentinel、Gateway 等）与 RPC 框架（Dubbo、gRPC）另有 Spring 面试专文，此处不展开。</p>
+<h2 id="1-分布式系统的核心挑战"><a href="#1-分布式系统的核心挑战" class="headerlink" title="1. 分布式系统的核心挑战"></a>1. 分布式系统的核心挑战</h2><p><strong>定义：</strong> 分布式系统是一组通过网络相连、相互协作完成任务的节点集合，对外呈现为单一系统。</p>
+<p>单机系统中，内存与磁盘的状态是一致的、可靠的；分布式系统的麻烦在于，节点之间只能通过<strong>消息传递</strong>通信，而消息和节点本身都不可靠。具体来说有三个绕不开的挑战：</p>
+<ol>
+<li><strong>网络不可靠。</strong> 消息可能丢失、延迟任意时长、重复或乱序到达。更棘手的是，你无法精确区分”对方宕机了”和”网络延迟&#x2F;分区了”——两者的外在表现完全相同。</li>
+<li><strong>节点故障。</strong> 进程可能崩溃、挂起（例如 JVM GC 停顿数十秒）、被网络隔离成孤岛。</li>
+<li><strong>时钟不可靠。</strong> 机器本地时钟会漂移，可能被 NTP 校准回拨，不能当作全局可信的时间源。这直接影响分布式 ID 生成、日志排序、超时判定。</li>
+</ol>
+<p>这三个挑战决定了分布式系统必须回答一个根本问题：<strong>当部分节点失联时，系统怎么办？</strong> 是继续响应请求（哪怕返回旧数据），还是宁可拒绝请求也要保证不返回错误数据？CAP 定理正是把这个权衡形式化的起点——理解 CAP，是理解后面所有内容（BASE、一致性协议、分布式事务、分布式锁）的前提。</p>
+<h2 id="2-CAP-定理"><a href="#2-CAP-定理" class="headerlink" title="2. CAP 定理"></a>2. CAP 定理</h2><p><strong>定义：</strong> CAP 定理由 Eric Brewer 于 2000 年提出、2002 年被证明：在存在网络分区（P）的情况下，分布式系统无法同时满足一致性（C）和可用性（A）。</p>
+<ul>
+<li><strong>一致性（Consistency）：</strong> 所有节点在同一时刻看到的数据完全相同。一次写入完成后，任何节点上的任何读取都立即返回最新值（学术上对应线性一致性）。</li>
+<li><strong>可用性（Availability）：</strong> 每个请求都能在合理时间内获得非错误响应，即使部分节点故障，系统仍能正常响应。</li>
+<li><strong>分区容忍性（Partition Tolerance）：</strong> 网络分区（节点间通信中断、形成孤岛）发生时，系统仍能继续运行。</li>
+</ul>
+<p><strong>为什么不能同时满足：</strong></p>
+<p>网络分区是客观现实、无法消除，因此 P 是分布式系统的必选项，问题只在于分区发生时 C 和 A 怎么选。假设两个节点被分区隔离：</p>
+<ul>
+<li>向某一侧的节点发起写请求：如果该节点正常响应（满足 A），那么它无法与其他节点同步数据，读取时可能出现不一致（违反 C）；</li>
+<li>如果拒绝请求（满足 C），该侧的节点在分区期间不可用（违反 A）。</li>
+</ul>
+<p>所以 CAP 的核心结论是：<strong>分区发生时，必须在 C 和 A 之间二选一</strong>。</p>
+<p><strong>两个常见误解：</strong></p>
+<ul>
+<li>CAP 不是”三个特性里随便选两个”。系统正常运行时 C 和 A 可以同时满足，只有分区发生时才需要取舍。</li>
+<li>CAP 中的 C 是强一致（线性一致），不要与”最终一致””因果一致”等弱一致概念混为一谈。</li>
+</ul>
+<p><img src="/../../assets/database/%E5%88%86%E5%B8%83%E5%BC%8F%E7%B3%BB%E7%BB%9F%E6%A0%B8%E5%BF%83%E7%90%86%E8%AE%BA/image-20250505093121422-6167231.png" alt="image-20250505093121422"></p>
+<p><strong>实际系统中的取舍：</strong></p>
+<table>
+<thead>
+<tr>
+<th align="left">取向</th>
+<th align="left">代表系统</th>
+<th align="left">分区时的行为</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">CP</td>
+<td align="left">ZooKeeper、etcd、HBase</td>
+<td align="left">牺牲可用性，拒绝请求以保证一致性</td>
+</tr>
+<tr>
+<td align="left">AP</td>
+<td align="left">Eureka、Cassandra、CouchDB</td>
+<td align="left">继续响应，返回可能过期的数据</td>
+</tr>
+<tr>
+<td align="left">折中</td>
+<td align="left">MySQL &#x2F; Redis 主从复制</td>
+<td align="left">“尽力而为”，从库可能读到旧数据，谈不上严格的分区容忍</td>
+</tr>
+</tbody></table>
+<p>选 CP 还是 AP，取决于业务：订单、账户、元数据（注册中心、配置中心）通常需要强一致；商品浏览、社交动态等场景可以容忍短暂的不一致，换取更高的可用性。</p>
+<h2 id="3-BASE-理论（Basically-Available-Soft-state-Eventually-consistent）"><a href="#3-BASE-理论（Basically-Available-Soft-state-Eventually-consistent）" class="headerlink" title="3. BASE 理论（Basically Available &#x2F; Soft state &#x2F; Eventually consistent）"></a>3. BASE 理论（Basically Available &#x2F; Soft state &#x2F; Eventually consistent）</h2><p><strong>定义：</strong> BASE 是基本可用（Basically Available）、软状态（Soft State）、最终一致性（Eventually Consistent）的缩写，由 eBay 的 Dan Pritchett 提出。它是对 CAP 中 C 与 A 权衡的工程化回答：<strong>放弃强一致性，通过保证”最终一致”换取可用性和性能。</strong></p>
+<ul>
+<li><strong>基本可用（Basically Available）：</strong> 系统故障时保证核心功能可用，允许损失部分可用性。例如电商大促时，为保证购物流程稳定，部分用户被引导到降级页面或排队页面。</li>
+<li><strong>软状态（Soft State）：</strong> 允许系统存在中间状态，即不同节点的数据副本之间存在同步延迟，该中间状态不影响系统整体可用性。</li>
+<li><strong>最终一致性（Eventually Consistent）：</strong> 所有数据副本经过一段时间的同步后，最终能达到一致的状态。最终一致性还可细分为读己之写、单调读、因果一致等强度不同的变体，工程上按需选择。</li>
+</ul>
+<p><strong>ACID 与 BASE 的关系：</strong> ACID 强调强一致性，用于单库事务；BASE 强调最终一致性，用于跨节点的分布式场景。两者不是替代关系，而是结合使用——<strong>核心资金操作用 ACID，非核心链路（积分、通知、统计）用 BASE</strong>，这正是绝大多数互联网系统的真实形态。</p>
+<h2 id="4-一致性协议"><a href="#4-一致性协议" class="headerlink" title="4. 一致性协议"></a>4. 一致性协议</h2><p>CAP 回答的是”分布式系统做不到什么”，接下来要回答”怎么做”：<strong>如何在存在故障的网络环境中，让一组节点就某个值达成一致？</strong> 这就是共识（Consensus）问题，它的两个代表性解法是 Paxos 与 Raft。</p>
+<h3 id="Paxos"><a href="#Paxos" class="headerlink" title="Paxos"></a>Paxos</h3><p><strong>定义：</strong> Paxos 是 Leslie Lamport 于 1990 年提出（论文 1998 年发表）的共识算法，解决”在存在故障的网络环境中，多个节点如何就某个值达成一致”，是 Raft、ZAB 等后续共识算法的思想源头。</p>
+<p><strong>三种角色：</strong></p>
+<ul>
+<li><strong>Proposer（提议者）：</strong> 提出提案，提案由<strong>提案编号 N</strong> 和<strong>提案值 V</strong> 组成；</li>
+<li><strong>Acceptor（接受者）：</strong> 对提案投票，只有被<strong>多数派（N&#x2F;2 + 1）</strong>接受的提案才会被选定；</li>
+<li><strong>Learner（学习者）：</strong> 不参与投票，只学习已被选定的值，保证所有节点最终一致。</li>
+</ul>
+<p><strong>两阶段流程（Basic Paxos）：</strong></p>
+<ol>
+<li><strong>Prepare 阶段：</strong> Proposer 生成递增的提案编号 N，向所有 Acceptor 广播 <code>Prepare(N)</code>。Acceptor 收到后做出<strong>承诺</strong>：不再接受编号小于 N 的提案；若自己已接受过编号小于 N 的提案，则把其中<strong>编号最大</strong>的那条（编号 + 值）返回给 Proposer。</li>
+<li><strong>Accept 阶段：</strong> Proposer 收到<strong>超过半数</strong>的 Promise 后，发出 <code>Accept(N, V)</code>。V 的取值规则：若 Promise 中带有已接受的提案，则 V 必须取其中<strong>编号最大</strong>的那个值（不能自选）；否则可自由指定。Acceptor 在不违反承诺的前提下接受提案，并把结果同步给 Learner。</li>
+</ol>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// Acceptor 核心状态（伪代码）</span></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">Acceptor</span> &#123;</span><br><span class="line">    <span class="type">int</span> promisedId;        <span class="comment">// 承诺过的最大编号</span></span><br><span class="line">    Proposal accepted;     <span class="comment">// 已接受的提案（编号 + 值）</span></span><br><span class="line"></span><br><span class="line">    Promise <span class="title function_">prepare</span><span class="params">(<span class="type">int</span> n)</span> &#123;</span><br><span class="line">        <span class="keyword">if</span> (n &gt; promisedId) &#123; promisedId = n; <span class="keyword">return</span> <span class="keyword">new</span> <span class="title class_">Promise</span>(accepted); &#125;</span><br><span class="line">        <span class="keyword">else</span> <span class="keyword">return</span> reject(n);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="type">boolean</span> <span class="title function_">accept</span><span class="params">(Proposal p)</span> &#123;</span><br><span class="line">        <span class="keyword">if</span> (p.id &gt;= promisedId) &#123; promisedId = p.id; accepted = p; <span class="keyword">return</span> <span class="literal">true</span>; &#125;</span><br><span class="line">        <span class="keyword">return</span> <span class="literal">false</span>;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>为什么多数派能保证一致：</strong> 任意两个多数派集合必然有交集（两个 N&#x2F;2 + 1 的集合交集至少为 1），Acceptor 通过”只认最大编号”的承诺保证：<strong>一旦某个值被选定，后续任何新的提议只能选定同一个值</strong>。这就是 Paxos 一致性的核心数学保证。</p>
+<p><strong>为什么说 Paxos 难懂：</strong> 工程化需要完整的 Multi-Paxos（多实例、日志复制、Leader 选举）和日志压缩；多个 Proposer 并发竞争时还会出现<strong>活锁</strong>（需要随机退避重试），实现极易出错。面试中讲清 Basic Paxos 的两阶段流程即可；若被追问”工程上为什么用 Raft 而不用 Paxos”——<strong>Raft 通过强领导者模型把共识问题分解为选举、复制、安全三个子问题，大幅降低了理解和实现难度</strong>。</p>
+<h3 id="Raft"><a href="#Raft" class="headerlink" title="Raft"></a>Raft</h3><p><strong>定义：</strong> Raft 由 Diego Ongaro 于 2014 年提出，设计目标是”<strong>易理解</strong>“。它把共识问题拆解为三个相对独立的子问题：<strong>领导者选举（Leader Election）、日志复制（Log Replication）、安全性（Safety）</strong>。</p>
+<p><strong>领导者选举：</strong></p>
+<ul>
+<li>节点有三种状态：<strong>Leader、Follower、Candidate</strong>，任何时刻系统最多只有一个 Leader；</li>
+<li>引入单调递增的<strong>任期（Term）</strong>概念：每次选举任期 +1，任期内 Leader 必须周期性发送<strong>心跳（Heartbeat）</strong>维持权威；</li>
+<li>Follower 在<strong>随机化的选举超时</strong>（通常 150~300ms，随机化是为了避免多个节点同时发起选举、票数分散）内收不到心跳，就转为 Candidate 并发起选举：任期 +1、投自己一票、请求其他节点投票；获得<strong>多数派投票</strong>即成为新 Leader，其他节点收到新 Leader 的心跳后自动转为 Follower。</li>
+</ul>
+<p><strong>日志复制：</strong></p>
+<ul>
+<li>客户端所有写请求统一交给 Leader，Leader 将操作追加为一条日志条目，并行广播 <code>AppendEntries</code> 给所有 Follower；</li>
+<li>Follower 收到并落盘后返回 ACK；Leader 收到<strong>多数派确认</strong>后，将该条目标记为<strong>已提交（Committed）</strong>、应用到状态机，并通知 Follower 应用。</li>
+</ul>
+<p><strong>安全性（Safety）：</strong></p>
+<ul>
+<li><strong>选举限制：</strong> 只有日志”足够新”（任期号更大，或任期相同但日志更长）的 Candidate 才有资格当选，防止已提交的日志被新 Leader 覆盖；</li>
+<li><strong>提交限制：</strong> Leader 只提交<strong>自己任期内的日志条目</strong>，上一任期的条目必须通过当前任期条目的间接提交来确认，从而保证”已提交的日志永不被覆盖”。</li>
+</ul>
+<p><strong>与 Paxos 的关系：</strong> Paxos 允许多个 Proposer 并发提议，协议更通用但更难实现；Raft 采用<strong>强领导者模型（Strong Leader）</strong>——所有写入都经 Leader、日志只能由 Leader 单向追加，用”问题分解 + 强领导”换来了可理解性，代价是写请求需要先转发给 Leader。两者本质相同：<strong>多数派确认 + 编号&#x2F;任期单调递增</strong>。</p>
+<h3 id="为什么需要了解这些"><a href="#为什么需要了解这些" class="headerlink" title="为什么需要了解这些"></a>为什么需要了解这些</h3><p>共识算法不是纯理论，而是现代基础设施的地基：</p>
+<ul>
+<li><strong>etcd</strong>（Kubernetes 的存储后端）、<strong>TiKV</strong>（TiDB 的存储引擎）、<strong>Consul</strong> 均基于 Raft；</li>
+<li><strong>ZooKeeper</strong> 使用 ZAB（与 Paxos&#x2F;Raft 同源的选主共识，详见第 5 章）；</li>
+<li>MongoDB 复制集、MySQL 组复制（Group Replication）的选主也借鉴了 Raft 思想。</li>
+</ul>
+<p>因此，”etcd 如何保证强一致”这类面试问题，本质上就是 Raft 日志复制 + 多数派确认机制。需要注意：<strong>共识算法保证的是”节点间的日志一致”，不等于业务层面的分布式事务</strong>——日志一致只是地基，跨业务资源的一致性仍需下一节的分布式事务机制来解决。</p>
+<h2 id="5-ZAB-协议（ZooKeeper-Atomic-Broadcast）"><a href="#5-ZAB-协议（ZooKeeper-Atomic-Broadcast）" class="headerlink" title="5. ZAB 协议（ZooKeeper Atomic Broadcast）"></a>5. ZAB 协议（ZooKeeper Atomic Broadcast）</h2><p><strong>定义：</strong> ZAB（ZooKeeper Atomic Broadcast，ZooKeeper 原子广播）是 ZooKeeper 实现分布式一致性所用的协议，由 Yahoo! 团队在 ZooKeeper 的实现中提出（2008 年公开）。它与 Paxos 同源（作者之一正是 Paxos 提出者 Leslie Lamport 的学生），但目标不同：<strong>Paxos 解决”就某个值达成一致”，ZAB 解决”就一系列日志条目的顺序达成一致”<strong>——它面向</strong>主备复制（Primary-Backup）</strong>模型：集群中只有一个 Leader 接收写请求，把每个写操作包装成事务提案，按<strong>全局唯一的顺序（ZXID）</strong>广播给所有 Follower 并提交。正是 ZAB 让 ZooKeeper 对外表现为”全局有序的写入 + 单调递增的 ZXID”。</p>
+<p><strong>两种模式：</strong> 崩溃恢复模式（选举 &#x2F; 发现 &#x2F; 同步）与消息广播模式（广播）循环交替：Leader 正常任期走广播模式；Leader 崩溃 → 进入崩溃恢复（选新 Leader + 同步日志）→ 恢复完成后再次进入广播模式。ZAB 的核心保证是：<strong>广播模式下的事务不会丢、顺序不变；崩溃恢复后，新 Leader 一定持有所有已提交事务</strong>。</p>
+<h3 id="5-1-ZAB-的四个阶段"><a href="#5-1-ZAB-的四个阶段" class="headerlink" title="5.1 ZAB 的四个阶段"></a>5.1 ZAB 的四个阶段</h3><p><strong>① Leader 选举（Election）</strong></p>
+<p>ZooKeeper 使用 <strong>Fast Leader Election（FLE）</strong>（快速选主，基于 Fast Paxos 思想，避免多轮往返）。每个参与选举的节点投出自己心中的”最优候选者”，获得<strong>多数派（N&#x2F;2 + 1）选票</strong>的节点当选。</p>
+<p><strong>投票比较规则（ZXID 比较）</strong>：每张选票形如 <code>(epoch, zxid, sid)</code>（epoch 为投票轮次、zxid 为节点已知的最大事务 ID、sid 为节点编号），两票相比：</p>
+<ol>
+<li>先比 <strong>epoch</strong>：大者优先（epoch 是逻辑时钟，越大代表越”新鲜”的轮次）；</li>
+<li>epoch 相等再比 <strong>zxid</strong>：大者优先（zxid 大 &#x3D; 数据更新）；</li>
+<li>epoch、zxid 都相等再比 <strong>sid</strong>：大者优先（打破平局的兜底）。</li>
+</ol>
+<blockquote>
+<p><strong>ZXID 的结构</strong>：64 位，<strong>高 32 位是 epoch</strong>（任期编号），<strong>低 32 位是 counter</strong>（该任期内的顺序号）。每次选主后 epoch +1、counter 清零重新累加。所以面试答案”<strong>epoch 大者优先，相等则比较 counter</strong>“就是”数据更新的节点优先当选”的量化表达。</p>
+</blockquote>
+<p>当选条件：节点收到<strong>多数派选票</strong>即当选；其余节点确认新 Leader 的 epoch 更新后放弃竞选、转为 Follower。<strong>选举期间集群不可用</strong>——ZooKeeper 是 CP 系统，选主窗口内拒绝读写，这正是”牺牲可用性保证一致性”的具体体现。</p>
+<p><strong>② 发现阶段（Discovery）</strong></p>
+<p>新 Leader 当选后，<strong>收敛所有 Follower 的日志进度</strong>：</p>
+<ol>
+<li>新 Leader 向所有 Follower 广播自己的 epoch（newEpoch）；</li>
+<li>Follower 收到后返回自己记录的<strong>最大 ZXID</strong>，并把 Leader 的历史提案同步给它；</li>
+<li>新 Leader 汇集反馈后，取<strong>多数集合内最新的 ZXID</strong> 作为恢复日志的起点，并确认该 epoch 已被多数节点接受。</li>
+</ol>
+<p>发现阶段结束时：<strong>新 Leader 知道集群中日志最全的节点在哪、自己缺哪些事务</strong>。</p>
+<p><strong>③ 同步阶段（Synchronization）</strong></p>
+<p>新 Leader 把缺失的事务<strong>补发给所有 Follower</strong>：</p>
+<ul>
+<li>日志落后不多的 Follower：Leader 只发送<strong>差额部分</strong>（Leader 有、Follower 没有的提案），Follower 逐条追加到本地事务日志；</li>
+<li>差距过大&#x2F;日志太旧的 Follower：Leader 直接做<strong>全量快照同步</strong>（把当前状态快照发给它），快照后再走差额同步；</li>
+<li>同步完成、收到多数节点确认后，Leader 才<strong>广播 COMMIT 提交已同步的事务</strong>，正式进入广播模式。</li>
+</ul>
+<p>同步阶段是”崩溃恢复后不丢已提交事务”的关键：<strong>只要某个多数集合的节点持有某条事务，它就能在同步阶段被补全</strong>——与 Paxos&#x2F;Raft 的”多数派决定已提交”一脉相承。</p>
+<p><strong>④ 广播阶段（Broadcast，两阶段提交的简化版）</strong></p>
+<p>Leader 正常任期内处理写请求的流程。相比 2PC 有两处简化：<strong>没有 Abort 指令</strong>（Leader 端校验通过就广播），且<strong>提交由 Leader 单方决定</strong>（收到多数派 Ack 即提交，无需询问每个节点”能否提交”）：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">客户端                     Leader                        Follower</span><br><span class="line">   │ ── 写请求 ────────────▶ │                              │</span><br><span class="line">   │                        │ ── Propose(ZXID, data) ────▶ │  ① 写本地事务日志</span><br><span class="line">   │                        │ ◀────────── Ack(ZXID) ────── │  ② 落盘确认</span><br><span class="line">   │                        │ ── Commit(ZXID) ────────────▶ │  ③ 应用到内存</span><br><span class="line">   │ ◀────── 成功 ──────────│                              │</span><br></pre></td></tr></table></figure>
+
+<ol>
+<li><strong>Propose</strong>：写请求只能发给 Leader（客户端读写统一走 Leader——ZooKeeper 的线性一致严格保证在写路径上）；Leader 为它生成全局递增的事务 ID（ZXID），把提案 <code>Propose(ZXID, data)</code> 广播给所有 Follower；</li>
+<li><strong>Ack</strong>：Follower 把提案<strong>写入本地事务日志（落盘）</strong>后返回 <code>Ack(ZXID)</code>——<strong>落盘才 Ack</strong>，这是崩溃恢复的前提；</li>
+<li><strong>Commit</strong>：Leader 收到<strong>多数派 Ack</strong> 后广播 <code>Commit(ZXID)</code>（先提交自己），Follower 收到后把事务应用到内存数据树，并回复客户端成功。</li>
+</ol>
+<h3 id="5-2-ZAB-与-Raft-的对比"><a href="#5-2-ZAB-与-Raft-的对比" class="headerlink" title="5.2 ZAB 与 Raft 的对比"></a>5.2 ZAB 与 Raft 的对比</h3><p>两者同为”选主 + 日志复制”的共识协议，但设计取向不同：</p>
+<table>
+<thead>
+<tr>
+<th align="left">维度</th>
+<th align="left">ZAB</th>
+<th align="left">Raft</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">面向模型</td>
+<td align="left"><strong>主备复制（Primary-Backup）</strong>：Follower 就是”备”，允许落后</td>
+<td align="left"><strong>日志复制（Log Replication）</strong>：所有节点是”日志集合”，选举后同步对齐</td>
+</tr>
+<tr>
+<td align="left">老主恢复后</td>
+<td align="left"><strong>降级为 Follower</strong>（ZXID 已过期，补齐日志即可继续服务）</td>
+<td align="left">只能当 Follower（日志不如新 Leader 全），按日志补齐</td>
+</tr>
+<tr>
+<td align="left">节点参与资格</td>
+<td align="left"><strong>Follower 无需完整日志即可参与选举与复制</strong>（落后可在同步阶段补齐）</td>
+<td align="left"><strong>选举限制</strong>：日志不够”新”（term 更大 &#x2F; term 相同但日志更长）的候选者<strong>不能当选</strong>，防止覆盖已提交日志</td>
+</tr>
+<tr>
+<td align="left">数据新旧度量</td>
+<td align="left">ZXID（epoch + counter）</td>
+<td align="left">term + 日志长度</td>
+</tr>
+<tr>
+<td align="left">提交确认</td>
+<td align="left">同步阶段统一补齐后一次提交（可跳跃式追日志）</td>
+<td align="left">新 Leader 只能提交自己任期内的日志，上任期日志靠间接提交确认</td>
+</tr>
+<tr>
+<td align="left">日志追赶</td>
+<td align="left">差额同步 + 全量快照</td>
+<td align="left">AppendEntries 逐条补（Raft 也支持安装快照）</td>
+</tr>
+</tbody></table>
+<p><strong>一句话总结差异</strong>：**ZAB 是”选一个最全的当主，主把日志广播给备，备允许落后”；Raft 是”选主时必须选日志最全的，然后所有节点按日志严格对齐”**。ZAB 的 Follower 可以带着不完整的日志参与集群（同步阶段补齐），而 Raft 严格要求当选者日志最新、日志逐条匹配——Raft 的安全性约束更严，ZAB 的工程实现更”主备”。</p>
+<h3 id="5-3-ZAB-vs-Paxos-vs-Raft-三协议对比表"><a href="#5-3-ZAB-vs-Paxos-vs-Raft-三协议对比表" class="headerlink" title="5.3 ZAB vs Paxos vs Raft 三协议对比表"></a>5.3 ZAB vs Paxos vs Raft 三协议对比表</h3><table>
+<thead>
+<tr>
+<th align="left">维度</th>
+<th align="left">Paxos</th>
+<th align="left">Raft</th>
+<th align="left">ZAB</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">提出者&#x2F;时间</td>
+<td align="left">Lamport，1990 论文 &#x2F; 1998 发表</td>
+<td align="left">Ongaro，2014</td>
+<td align="left">Yahoo!，2008 公开</td>
+</tr>
+<tr>
+<td align="left">设计目标</td>
+<td align="left">通用共识（就一个值达成一致）</td>
+<td align="left">可理解的共识（选举&#x2F;复制&#x2F;安全三拆）</td>
+<td align="left">ZooKeeper 的主备原子广播（有序状态机复制）</td>
+</tr>
+<tr>
+<td align="left">角色</td>
+<td align="left">Proposer &#x2F; Acceptor &#x2F; Learner</td>
+<td align="left">Leader &#x2F; Follower &#x2F; Candidate</td>
+<td align="left">Leader &#x2F; Follower（+ Observer）</td>
+</tr>
+<tr>
+<td align="left">领导者</td>
+<td align="left">可有多个 Proposer 并发竞争</td>
+<td align="left">强领导者：写必须经 Leader</td>
+<td align="left">强领导者：写必须经 Leader</td>
+</tr>
+<tr>
+<td align="left">顺序保证</td>
+<td align="left">依赖 Multi-Paxos 补全</td>
+<td align="left">日志条目全局有序</td>
+<td align="left"><strong>ZXID 全局有序（ZXID 是状态机的天然序号）</strong></td>
+</tr>
+<tr>
+<td align="left">选举规则</td>
+<td align="left">提案编号 N 单调递增</td>
+<td align="left">term + 日志新旧（须含全部已提交日志）</td>
+<td align="left">ZXID（epoch 优先，其次 counter&#x2F;sid）</td>
+</tr>
+<tr>
+<td align="left">提交条件</td>
+<td align="left">多数派接受提案</td>
+<td align="left">多数派确认，Leader 只提交自己任期日志</td>
+<td align="left">多数派 Ack，同步阶段统一提交</td>
+</tr>
+<tr>
+<td align="left">老主恢复</td>
+<td align="left">—</td>
+<td align="left">降级 Follower</td>
+<td align="left">降级 Follower（ZXID 已过期）</td>
+</tr>
+<tr>
+<td align="left">日志追赶</td>
+<td align="left">无内置（工程自行实现）</td>
+<td align="left">AppendEntries + 快照安装</td>
+<td align="left">差额同步 + 全量快照</td>
+</tr>
+<tr>
+<td align="left">可理解性</td>
+<td align="left">难（活锁、多轮往返）</td>
+<td align="left">易（面向教学设计的算法）</td>
+<td align="left">中（与主备模型绑定）</td>
+</tr>
+<tr>
+<td align="left">代表实现</td>
+<td align="left">Google Chubby（Multi-Paxos）</td>
+<td align="left">etcd、TiKV、Consul、MongoDB</td>
+<td align="left">ZooKeeper</td>
+</tr>
+</tbody></table>
+<p><strong>面试怎么答</strong>：三句话——“Paxos 是理论源头、最难实现；Raft 是它的可理解版本，选主看日志新旧；ZAB 是 ZooKeeper 的主备广播协议，选主看 ZXID，Follower 允许落后”。再补一个必考题：**”ZooKeeper 用 ZAB 而不用 Raft？”**——ZAB 与 ZooKeeper 的数据模型（全局有序的 ZXID、顺序写）天然契合，且 ZooKeeper 诞生（2008）早于 Raft（2014）；现代新系统（etcd、TiKV）选 Raft 是因为它更易实现和调试。</p>
+<h2 id="6-分布式事务"><a href="#6-分布式事务" class="headerlink" title="6. 分布式事务"></a>6. 分布式事务</h2><p><strong>定义：</strong> 分布式事务是<strong>涉及多个独立资源（数据库、服务）的一个操作单元</strong>，这些资源分布在不同节点上。其目标与单机事务一致——要么全部成功提交，要么全部回滚（ACID 特性），但难点在于：<strong>单库事务由数据库引擎保证原子性，跨资源时没有全局协调者，且网络不可靠</strong>。</p>
+<p><strong>为什么需要：</strong> 微服务拆分、分库分表之后，一个业务操作必然横跨多个数据源。例如下单 &#x3D; 订单库写订单 + 库存库扣库存 + 账户库扣余额，任何一个环节失败，都不能留下”订单已创建但库存没扣”的脏状态。</p>
+<p>没有一种方案适用于所有场景，选择取决于对强一致性和性能的权衡。下面按”从强一致到最终一致”的顺序介绍主流方案。</p>
+<h3 id="6-1-两阶段提交（2PC）-三阶段提交（3PC）-XA"><a href="#6-1-两阶段提交（2PC）-三阶段提交（3PC）-XA" class="headerlink" title="6.1 两阶段提交（2PC）&#x2F; 三阶段提交（3PC）&#x2F; XA"></a>6.1 两阶段提交（2PC）&#x2F; 三阶段提交（3PC）&#x2F; XA</h3><p><strong>2PC 流程：</strong> 引入一个独立的<strong>协调者</strong>，分两个阶段：</p>
+<ol>
+<li><strong>准备阶段：</strong> 协调者询问所有参与者”是否可以提交”。参与者执行事务操作（锁资源、写 Redo&#x2F;Undo 日志），但<strong>不实际提交</strong>，向协调者投票（同意 &#x2F; 中止）。</li>
+<li><strong>提交&#x2F;回滚阶段：</strong> 若<strong>全部同意</strong>，协调者广播提交指令，参与者正式提交并释放资源；若<strong>任何一个中止</strong>或等待超时，协调者广播回滚指令，参与者利用 Undo 日志回滚并释放资源。</li>
+</ol>
+<p><strong>优点：</strong> 理论上提供强一致性，有标准实现（XA 协议）。</p>
+<p><strong>缺点：</strong></p>
+<ul>
+<li><strong>同步阻塞：</strong> 准备阶段参与者一直持有资源锁，直到收到第二阶段的指令，吞吐量低；</li>
+<li><strong>协调者单点故障：</strong> 协调者崩溃时参与者可能永远持有锁，阻塞其他操作；</li>
+<li><strong>脑裂风险：</strong> 提交阶段协调者广播提交后若部分参与者崩溃或失联，会出现部分提交、部分未提交的不一致，且一旦进入提交阶段就无法回滚，只能人工干预。</li>
+</ul>
+<p><strong>3PC 的改进：</strong> 针对 2PC”协调者故障导致参与者无限阻塞”和”提交阶段盲目执行”两个问题，3PC 增加了一个 <strong>CanCommit 询问阶段</strong>（先确认参与者是否都能提交，提前中止不可行的事务），并把提交阶段细分为 <strong>PreCommit（预提交）与 DoCommit（正式提交）</strong>，且<strong>参与者引入超时机制</strong>：收不到协调者指令时不再无限等待，超时后自行决策（经典 3PC 中通常默认提交）。3PC 降低了”全员阻塞”的概率，但<strong>网络分区时参与者可能做出不同决定</strong>（一侧收到回滚、另一侧超时提交），仍然不能严格保证一致，因此工程上极少使用——实际选择通常是 2PC&#x2F;XA，或干脆放弃强一致。</p>
+<p><strong>XA：</strong> X&#x2F;Open 组织定义的分布式事务规范，由数据库厂商实现（MySQL、Oracle 等），流程与 2PC 对应，Java 侧由 JTA（如 Atomikos）支持。问题在于资源锁时间过长、性能差，<strong>互联网公司很少直接使用</strong>，仅在参与方少、强一致要求极高且性能不敏感的场景（如传统银行核心系统）使用。</p>
+<h3 id="6-2-TCC（Try-Confirm-Cancel）"><a href="#6-2-TCC（Try-Confirm-Cancel）" class="headerlink" title="6.2 TCC（Try &#x2F; Confirm &#x2F; Cancel）"></a>6.2 TCC（Try &#x2F; Confirm &#x2F; Cancel）</h3><p><strong>定义：</strong> TCC 把”提交&#x2F;回滚”从资源层提升到业务层：每个参与者实现三个业务接口，用<strong>预留资源 + 确认&#x2F;取消</strong>代替数据库锁。</p>
+<ul>
+<li><strong>Try：</strong> 完成业务检查并<strong>预留资源</strong>（冻结库存、冻结余额），为最终操作做准备；</li>
+<li><strong>Confirm：</strong> 真正提交业务（扣减库存、扣款）。仅在 Try 全部成功后才执行，通常要求必然成功；</li>
+<li><strong>Cancel：</strong> 释放预留资源（解冻库存、恢复余额）。Try 成功后整体事务需要回滚时执行。</li>
+</ul>
+<p><strong>与 2PC 的对比：</strong></p>
+<table>
+<thead>
+<tr>
+<th align="left">维度</th>
+<th align="left">2PC &#x2F; XA</th>
+<th align="left">TCC</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">协调对象</td>
+<td align="left">资源层（数据库）</td>
+<td align="left">业务层（预留 + 确认&#x2F;取消）</td>
+</tr>
+<tr>
+<td align="left">锁资源</td>
+<td align="left">锁数据库资源，阻塞</td>
+<td align="left">业务冻结，不锁资源</td>
+</tr>
+<tr>
+<td align="left">一致性</td>
+<td align="left">强一致</td>
+<td align="left">最终一致</td>
+</tr>
+<tr>
+<td align="left">性能</td>
+<td align="left">低</td>
+<td align="left">高</td>
+</tr>
+<tr>
+<td align="left">实现成本</td>
+<td align="left">低（数据库原生支持）</td>
+<td align="left">高（三个接口 + 幂等处理）</td>
+</tr>
+</tbody></table>
+<p><strong>TCC 的三个经典坑：</strong></p>
+<ul>
+<li><strong>幂等：</strong> Confirm&#x2F;Cancel 可能因网络重试被重复执行，必须幂等；</li>
+<li><strong>空回滚：</strong> Try 因网络超时未到达，但 Cancel 已执行，需要识别并跳过（通常用事务控制表记录 Try 状态）；</li>
+<li><strong>悬挂：</strong> Try 超时后 Cancel 先执行、Try 之后才到达，需要拒绝迟到的 Try。</li>
+</ul>
+<p>TCC 适合对<strong>隔离性要求较高、需要防超卖</strong>的高并发场景（电商库存、金融账户）。</p>
+<h3 id="6-3-Saga"><a href="#6-3-Saga" class="headerlink" title="6.3 Saga"></a>6.3 Saga</h3><p><strong>定义：</strong> Saga 把一个大事务拆成一串<strong>本地事务</strong>（T1, T2, …, Tn），每个本地事务对应一个<strong>补偿事务</strong>（C1, …, Cn）。执行到第 n 步失败时，反向执行 C(n-1), …, C1 回滚已完成的操作。</p>
+<p><strong>两种协调方式（中文资料里两者常混译为”编排”，面试时用”中心化 &#x2F; 去中心化”区分即可）：</strong></p>
+<ul>
+<li><strong>编排（Orchestration）：</strong> 有一个<strong>中心协调器</strong>（Saga 状态机）按顺序调用各服务，失败时反向触发补偿。优点：流程集中、可跟踪；缺点：引入中心节点。</li>
+<li><strong>事件编排（Choreography）：</strong> <strong>没有中心协调者</strong>，每个服务执行完后发布事件，下一个服务监听事件并执行自己的操作或补偿操作。优点：松耦合；缺点：流程散落在事件中，难以追踪和排障。</li>
+</ul>
+<p><strong>两种恢复模式：</strong></p>
+<ul>
+<li><strong>向前恢复：</strong> 某步失败就重试该步（适用于可重试的临时错误）；</li>
+<li><strong>向后恢复：</strong> 某步失败就触发反向补偿（适用于不可重试的业务错误）。</li>
+</ul>
+<p><strong>Saga 的短板：</strong> <strong>无隔离性</strong>——中间状态对其他事务可见（例如订单已创建但支付未完成，其他事务能看到”未支付订单”）。解决思路是业务上容忍，或对关键资源做预留（与 TCC 思想结合）。</p>
+<h3 id="6-4-本地消息表-最大努力通知"><a href="#6-4-本地消息表-最大努力通知" class="headerlink" title="6.4 本地消息表 + 最大努力通知"></a>6.4 本地消息表 + 最大努力通知</h3><p><strong>本地消息表（事务发件箱）：</strong></p>
+<ul>
+<li><strong>原理：</strong> 发起方在<strong>同一个本地事务</strong>里写业务数据 + 写消息表。本地事务保证”业务成功 &#x3D; 消息一定入库”，两者原子。之后由独立的<strong>消息转发器</strong>（定时任务扫描消息表）把消息投递到 MQ，消费者收到后执行并幂等消费。</li>
+<li><strong>为什么可靠：</strong> 本地事务保证业务操作与消息入库存取的原子性；MQ 投递失败可重试（至少投递一次）；消费者幂等应对重复投递。这是”基于可靠消息的最终一致性”的标准实现，业界大量使用（也有 RocketMQ 事务消息等中间件原生方案）。</li>
+</ul>
+<p><strong>最大努力通知：</strong></p>
+<ul>
+<li><strong>原理：</strong> 不引入 MQ，发起方在本地事务记录”待通知”状态，通过<strong>定时任务 + 指数退避重试</strong>反复调用接收方接口（同步接口），直到成功；达到最大重试次数仍失败，则记录失败明细，进入<strong>人工&#x2F;对账兜底</strong>。</li>
+<li><strong>与本地消息表的区别：</strong> 本地消息表依赖 MQ 解耦、异步投递；最大努力通知是<strong>直接调用 + 尽力重试</strong>，实现更简单，但通知成功与否”尽力而为”——必须配套对账与人工补偿。</li>
+<li><strong>适用场景：</strong> 支付结果通知、短信&#x2F;邮件发送这类”错过可接受、但绝不能重复出错”的低频通知场景。</li>
+</ul>
+<h3 id="6-5-选型决策树"><a href="#6-5-选型决策树" class="headerlink" title="6.5 选型决策树"></a>6.5 选型决策树</h3><p>按两个问题决策：<strong>对一致性的要求有多强？对性能的要求有多高？</strong></p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">业务是否要求强一致？</span><br><span class="line">├─ 是</span><br><span class="line">│   ├─ 参与方少、性能不敏感、可接受资源阻塞 → 2PC / XA</span><br><span class="line">│   ├─ 参与方多、高并发、需要业务级隔离 → TCC</span><br><span class="line">│   └─ 事务内大量 DB 读写、已有框架 → Seata AT 模式（自动补偿的 2PC 改良）</span><br><span class="line">└─ 否（可接受最终一致）</span><br><span class="line">    ├─ 已有 MQ、希望异步解耦 → 本地消息表 / 事务发件箱</span><br><span class="line">    ├─ 长流程、多步骤、事件驱动 → Saga（中心编排 / 事件编排）</span><br><span class="line">    ├─ 低频通知、不想引入 MQ → 最大努力通知</span><br><span class="line">    └─ 高并发核心链路（库存、余额） → TCC 或 Saga + 预留</span><br></pre></td></tr></table></figure>
+
+<p>补充一句 <strong>Seata</strong>：国产开源分布式事务框架，提供 AT（自动生成回滚镜像、业务无感的 2PC 改良）、TCC、Saga 三种模式，面试中常被作为”2PC 的工程化实现”提及（详见 6.6 节）。</p>
+<h3 id="6-6-Seata-实战"><a href="#6-6-Seata-实战" class="headerlink" title="6.6 Seata 实战"></a>6.6 Seata 实战</h3><p><strong>定义：</strong> Seata（Simple Extensible Autonomous Transaction Architecture）是阿里开源的分布式事务框架，提供 <strong>AT、TCC、Saga 三种模式</strong>，覆盖”强一致 → 最终一致”的选型谱系（6.5 决策树里”事务内大量 DB 读写、已有框架 → Seata AT 模式”说的就是它）。</p>
+<h4 id="Seata-架构：TC-TM-RM-三角色"><a href="#Seata-架构：TC-TM-RM-三角色" class="headerlink" title="Seata 架构：TC &#x2F; TM &#x2F; RM 三角色"></a>Seata 架构：TC &#x2F; TM &#x2F; RM 三角色</h4><table>
+<thead>
+<tr>
+<th align="left">角色</th>
+<th align="left">全称</th>
+<th align="left">职责</th>
+<th align="left">部署位置</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left"><strong>TC</strong></td>
+<td align="left">Transaction Coordinator，事务协调器</td>
+<td align="left"><strong>独立部署的 Server</strong>：维护全局事务与分支事务的状态，驱动全局提交&#x2F;回滚，管理全局锁</td>
+<td align="left">独立服务（seata-server）</td>
+</tr>
+<tr>
+<td align="left"><strong>TM</strong></td>
+<td align="left">Transaction Manager，事务管理器</td>
+<td align="left">业务侧发起方：开启全局事务、提交&#x2F;回滚全局事务</td>
+<td align="left">业务应用（SDK）</td>
+</tr>
+<tr>
+<td align="left"><strong>RM</strong></td>
+<td align="left">Resource Manager，资源管理器</td>
+<td align="left">业务侧参与方：管理分支事务（本地事务 + undo_log）、向 TC 注册分支、汇报状态</td>
+<td align="left">业务应用（SDK）</td>
+</tr>
+</tbody></table>
+<p><strong>XID 传播（全局事务的唯一标识）</strong>：TM 开启全局事务时生成全局唯一 <strong>XID</strong>（如 <code>10.1.1.1:8091:123456789</code>），必须<strong>沿调用链传到所有参与方</strong>——通过 RPC 上下文透传（Dubbo 的 attachment &#x2F; Spring Cloud 的 header，Seata 的 <code>RootContext</code> 保存，集成层自动注入）。<strong>XID 传不到，后续分支事务就无法关联到全局事务，这是 Seata 集成排障的第一排查点</strong>。</p>
+<p><strong>整体流程</strong>：TM 开启全局事务（生成 XID）→ 各 RM 执行本地事务并注册分支（branchId）→ 全部成功后 TM 向 TC 提交 → TC 驱动所有分支提交；任一分支失败 → TM 向 TC 回滚 → TC 通知各 RM 回滚。</p>
+<h4 id="AT-模式原理"><a href="#AT-模式原理" class="headerlink" title="AT 模式原理"></a>AT 模式原理</h4><p>AT（Auto Transaction）模式的魔法：<strong>业务代码无侵入</strong>（一个 <code>@GlobalTransactional</code> 注解），回滚镜像由框架自动生成。核心是 <strong>undo_log 前后镜像 + 全局锁</strong>：</p>
+<p><strong>一阶段（业务本地事务内）</strong>：</p>
+<ol>
+<li>执行业务 SQL（框架通过拦截器拿到执行计划，自动生成<strong>回滚 SQL</strong>）；</li>
+<li>写 <strong>undo_log</strong>：执行前拍 <strong>beforeImage</strong>（受影响行的完整数据），执行后拍 <strong>afterImage</strong>，与分支事务一起<strong>写在同一本地事务里</strong>（undo_log 与业务数据同库同事务，保证镜像与数据一致）；</li>
+<li>本地事务提交（<strong>RM 无需持锁等待二阶段</strong>——这是 AT 相比 XA 吞吐高的根本：锁只存在于本地事务内，事务提交就释放本地锁，不需要全局资源锁）。</li>
+</ol>
+<p><strong>二阶段提交（全局成功）</strong>：TC 通知 RM 提交，RM <strong>异步删除 undo_log</strong>——全局事务已成功，镜像不再需要，业务数据就是最终状态。</p>
+<p><strong>二阶段回滚（全局失败）</strong>：</p>
+<ol>
+<li>RM 根据 undo_log 的 <strong>beforeImage</strong> 生成反向 SQL（UPDATE 改回原值 &#x2F; DELETE 插回原行 &#x2F; INSERT 删除原行）；</li>
+<li>执行回滚前做<strong>脏写校验</strong>：比较当前数据库数据与 <strong>afterImage</strong>，一致（期间没人改过）→ 执行反向 SQL，回滚成功，删除 undo_log；</li>
+<li><strong>脏写校验失败</strong>（当前数据 ≠ afterImage，说明回滚窗口内其他事务改过该行）→ <strong>不能盲目回滚</strong>（会覆盖别人的修改），抛异常上报 TC，走人工&#x2F;提示处理。</li>
+</ol>
+<p><strong>全局锁与死锁检测</strong>：两个全局事务并发改同一行时，若各自都提交了本地事务，回滚时就会互相覆盖——所以 AT 在<strong>写之前要先获取全局锁</strong>（Seata Server 侧维护的”行级锁”，key 为 <code>资源ID + 表名 + 主键</code>）：事务 A 写行 X 前向 TC 申请全局锁 X，事务 B 再写 X 时拿不到全局锁 → 等待（默认重试 30 次、间隔 10ms）→ 超时抛异常回滚。<strong>本地锁与全局锁的协同</strong>：先拿本地锁，再等全局锁，等不到就释放本地锁回滚——避免两个事务互相持本地锁等全局锁的全局死锁。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@GlobalTransactional(timeoutMills = 30000)</span>   <span class="comment">// TM：开启全局事务，XID 自动注入调用链</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">createOrder</span><span class="params">(OrderDTO order)</span> &#123;</span><br><span class="line">    orderDao.insert(order);            <span class="comment">// RM1：订单库分支事务（写业务表 + undo_log）</span></span><br><span class="line">    stockClient.deduct(order);         <span class="comment">// RM2：库存服务（XID 透传后，本地事务注册为分支）</span></span><br><span class="line">    accountClient.debit(order);        <span class="comment">// RM3：账户服务</span></span><br><span class="line">    <span class="comment">// 三个本地事务全部成功 → 全局提交；任一步抛异常 → 全局回滚（按 undo_log 反向 SQL）</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>前提要求</strong>：业务表必须有主键（回滚 SQL 按主键定位）；undo_log 表（<code>undo_log</code>）需建在<strong>每个参与的数据源</strong>；<strong>全局事务内的方法不能跨异步线程</strong>（XID 默认只在调用链传播，异步任务要手动传递）。</p>
+<h4 id="TCC-模式（业务实现-Try-Confirm-Cancel）"><a href="#TCC-模式（业务实现-Try-Confirm-Cancel）" class="headerlink" title="TCC 模式（业务实现 Try &#x2F; Confirm &#x2F; Cancel）"></a>TCC 模式（业务实现 Try &#x2F; Confirm &#x2F; Cancel）</h4><p>TCC 把”提交&#x2F;回滚”从资源层提升到业务层：<strong>Try 预留资源 → Confirm 真正提交 → Cancel 释放预留</strong>。相比 AT 的自动镜像，TCC 的补偿逻辑由<strong>业务自己写</strong>，控制力更强、不依赖 undo_log，适合业务校验复杂、资源类型不支持镜像的场景。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@LocalTCC</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">AccountTccService</span> &#123;</span><br><span class="line">    <span class="meta">@TwoPhaseBusinessAction(name = &quot;deduct&quot;, commitMethod = &quot;confirm&quot;, rollbackMethod = &quot;cancel&quot;)</span></span><br><span class="line">    <span class="keyword">public</span> <span class="type">boolean</span> <span class="title function_">tryDeduct</span><span class="params">(BusinessActionContext ctx,</span></span><br><span class="line"><span class="params">                             <span class="meta">@BusinessActionContextParameter(&quot;amount&quot;)</span> <span class="type">double</span> amount)</span> &#123;</span><br><span class="line">        <span class="comment">// Try：检查余额 + 冻结资金（预留），不实际扣减</span></span><br><span class="line">        <span class="comment">// UPDATE account SET frozen = frozen + ? WHERE id = ? AND balance - frozen &gt;= ?</span></span><br><span class="line">        <span class="keyword">return</span> <span class="literal">true</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="type">boolean</span> <span class="title function_">confirm</span><span class="params">(BusinessActionContext ctx)</span> &#123;</span><br><span class="line">        <span class="comment">// Confirm：真正扣减（把 frozen 转成实际扣减），Try 全部成功才执行，要求幂等</span></span><br><span class="line">        <span class="comment">// UPDATE account SET balance = balance - frozen, frozen = 0 WHERE id = ?</span></span><br><span class="line">        <span class="keyword">return</span> <span class="literal">true</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="type">boolean</span> <span class="title function_">cancel</span><span class="params">(BusinessActionContext ctx)</span> &#123;</span><br><span class="line">        <span class="comment">// Cancel：释放预留（解冻），幂等，可能被重复调用</span></span><br><span class="line">        <span class="comment">// UPDATE account SET frozen = frozen - ? WHERE id = ?</span></span><br><span class="line">        <span class="keyword">return</span> <span class="literal">true</span>;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>TCC 的两个经典问题（框架如何解决）</strong>：</p>
+<ol>
+<li><strong>空回滚（Cancel 比 Try 先到达）</strong>：Try 请求因网络超时&#x2F;丢失没执行成功，但 TC 已判定全局失败，Cancel 被调用——此时<strong>没有可回滚的预留资源</strong>。Seata 的处理：<strong>branchId 的注册即”Try 已执行”的凭证</strong>——Cancel 执行前检查 TC 侧分支事务注册记录：<strong>分支未注册（Try 没执行成功）→ 直接返回成功（空回滚，什么都不做）</strong>，不执行任何补偿逻辑。</li>
+<li><strong>悬挂（Try 在 Cancel 之后到达）</strong>：Try 超时后 Cancel 先执行完（空回滚），迟到的 Try 又执行了冻结——资源被永久挂起。Seata 的处理：<strong>Try 执行前先检查该分支是否已经 Cancel 过</strong>（TC 侧保存了 Cancel 记录）——<strong>已 Cancel 则拒绝执行 Try</strong>（直接返回失败），保证”Cancel 之后绝不会有 Try 生效”。</li>
+</ol>
+<p>一句话：**空回滚防的是”没 Try 却 Cancel”，悬挂防的是”已 Cancel 还 Try”**——两者都靠 TC 侧的分支状态记录做检查，所以分支状态记录是框架的职责，业务只管保证 Confirm&#x2F;Cancel 幂等。</p>
+<h4 id="AT-vs-TCC-vs-Saga-选型表"><a href="#AT-vs-TCC-vs-Saga-选型表" class="headerlink" title="AT vs TCC vs Saga 选型表"></a>AT vs TCC vs Saga 选型表</h4><table>
+<thead>
+<tr>
+<th align="left">维度</th>
+<th align="left">AT</th>
+<th align="left">TCC</th>
+<th align="left">Saga</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">侵入性</td>
+<td align="left"><strong>低</strong>（注解 + 自动镜像，业务 SQL 不动）</td>
+<td align="left">高（三个接口全业务实现）</td>
+<td align="left">中（拆本地事务 + 补偿，协调模式自选）</td>
+</tr>
+<tr>
+<td align="left">隔离性</td>
+<td align="left">较强（全局写锁防脏写；默认读未提交，可开启全局读锁升级）</td>
+<td align="left">中（预留资源提供一定隔离）</td>
+<td align="left"><strong>弱</strong>（中间状态对外可见）</td>
+</tr>
+<tr>
+<td align="left">回滚能力</td>
+<td align="left">自动（beforeImage 反向 SQL + 脏写校验）</td>
+<td align="left">业务自定义（Try 预留 → Cancel 释放）</td>
+<td align="left">业务补偿（反向执行补偿事务）</td>
+</tr>
+<tr>
+<td align="left">一致性</td>
+<td align="left">最终一致（自动补偿）</td>
+<td align="left">最终一致（业务补偿）</td>
+<td align="left">最终一致（补偿型）</td>
+</tr>
+<tr>
+<td align="left">性能</td>
+<td align="left">高（本地事务即提交，无长锁）</td>
+<td align="left">高（业务冻结，无长锁）</td>
+<td align="left">高（纯本地事务串行）</td>
+</tr>
+<tr>
+<td align="left">适用场景</td>
+<td align="left">大量 DB 读写、业务无侵入诉求、数据一致性敏感（有全局锁）</td>
+<td align="left">高并发、资源可预留（库存冻结、余额冻结）、隔离性要求高</td>
+<td align="left">长流程、跨系统异步补偿（订单&#x2F;配送&#x2F;对账）</td>
+</tr>
+<tr>
+<td align="left">代表实现</td>
+<td align="left">Seata AT</td>
+<td align="left">Seata TCC、其他 TCC 中间件</td>
+<td align="left">Seata Saga、Apache ServiceComb</td>
+</tr>
+</tbody></table>
+<p><strong>面试怎么答</strong>：先讲三角色与 XID 传播（架构题必答）；AT 模式讲透”一阶段本地事务 + undo_log 镜像、二阶段回滚反向 SQL + 脏写校验、全局锁防并发回滚错乱”四件事；TCC 讲”预留&#x2F;确认&#x2F;释放 + 空回滚与悬挂怎么被框架解决”；最后落到选型——**”业务无侵入、一致性敏感选 AT；资源可冻结、隔离要求高选 TCC；长流程异步补偿选 Saga”**。</p>
+<h2 id="7-分布式锁"><a href="#7-分布式锁" class="headerlink" title="7. 分布式锁"></a>7. 分布式锁</h2><p><strong>定义：</strong> 分布式锁是<strong>跨进程（跨 JVM、跨机器）的互斥机制</strong>，保证多个实例对同一共享资源的访问互斥。</p>
+<p><strong>为什么需要：</strong> 单机时代 <code>synchronized</code>、<code>ReentrantLock</code> 基于 JVM 内存即可互斥；微服务多实例部署后，锁对象分散在不同 JVM 中，必须借助<strong>外部共享存储</strong>（Redis、ZooKeeper、数据库）实现跨进程互斥。典型场景：分布式定时任务”同一时刻只有一个实例执行”、库存扣减防超卖、缓存重建防击穿。</p>
+<p><strong>一个合格的分布式锁需要满足：</strong></p>
+<ol>
+<li><strong>互斥性：</strong> 任何时刻只有一个客户端持有锁（核心要求）；</li>
+<li><strong>防死锁：</strong> 持锁客户端崩溃后锁必须自动释放（加锁时设置过期时间 &#x2F; 使用临时节点）；</li>
+<li><strong>防误删：</strong> 只能释放自己持有的锁（value 用唯一标识 + Lua 校验）；</li>
+<li><strong>可重入（可选）：</strong> 同一线程可重复获取（Redisson 用 Hash 结构实现）；</li>
+<li><strong>容错性：</strong> 锁服务本身高可用，锁失效窗口尽量小。</li>
+</ol>
+<h3 id="7-1-基于-Redis：SETNX-→-Redisson-→-Redlock-争议"><a href="#7-1-基于-Redis：SETNX-→-Redisson-→-Redlock-争议" class="headerlink" title="7.1 基于 Redis：SETNX → Redisson → Redlock 争议"></a>7.1 基于 Redis：SETNX → Redisson → Redlock 争议</h3><p><strong>第一步，SETNX + 过期时间。</strong> 加锁必须是一条<strong>原子命令</strong>，防止”先 SETNX 再 EXPIRE”两步之间宕机造成死锁：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">SET lock_key unique_id NX PX 30000   <span class="comment"># NX: 不存在才设置；PX: 30 秒自动过期</span></span><br></pre></td></tr></table></figure>
+
+<p>释放锁不能直接 <code>DEL</code>（可能误删他人刚获取的锁），要用 <strong>Lua 脚本</strong>保证”校验 value → 删除”的原子性：</p>
+<figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">if</span> redis.call(<span class="string">&quot;get&quot;</span>, KEYS[<span class="number">1</span>]) == ARGV[<span class="number">1</span>] <span class="keyword">then</span></span><br><span class="line">    <span class="keyword">return</span> redis.call(<span class="string">&quot;del&quot;</span>, KEYS[<span class="number">1</span>])</span><br><span class="line"><span class="keyword">else</span></span><br><span class="line">    <span class="keyword">return</span> <span class="number">0</span></span><br><span class="line"><span class="keyword">end</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>第二步，Redisson 看门狗续期。</strong> 锁超时带来”业务未执行完、锁却已过期”的问题，此时其他线程可拿到锁，互斥失效。解法是<strong>看门狗（Watch Dog）自动续期</strong>：默认锁有效期 30s，后台线程每 10s 续期一次，只要客户端存活锁就不过期（类似”续租”）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">RLock</span> <span class="variable">lock</span> <span class="operator">=</span> redisson.getLock(<span class="string">&quot;order:123&quot;</span>);</span><br><span class="line">lock.lock();      <span class="comment">// 无参加锁，watch dog 自动续期</span></span><br><span class="line"><span class="keyword">try</span> &#123;</span><br><span class="line">    <span class="comment">// 业务逻辑</span></span><br><span class="line">&#125; <span class="keyword">finally</span> &#123;</span><br><span class="line">    lock.unlock();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>第三步，Redlock 及其争议。</strong> Redis 主从架构下，主节点宕机时未同步的锁会丢失，可能出现两个客户端同时持锁。Redlock 的思路：向 <strong>5 个独立 Redis 节点</strong>依次加锁，超过 3 个成功且<strong>总耗时小于锁过期时间</strong>才算成功，释放时向所有节点释放。但 Martin Kleppmann（《数据密集型应用系统设计》作者）在 2016 年发文反驳（《How to do distributed locking》）：<strong>GC 停顿导致锁过期后线程仍继续执行、系统时钟跳跃</strong>都会破坏互斥性，Redlock 只是”尽力而为”而非严格安全。业界主流结论：<strong>绝大多数业务场景用单 Redis + 看门狗续期即可，Redlock 复杂度高、收益低，无需过度设计。</strong></p>
+<h3 id="7-2-基于-ZooKeeper（临时顺序节点）"><a href="#7-2-基于-ZooKeeper（临时顺序节点）" class="headerlink" title="7.2 基于 ZooKeeper（临时顺序节点）"></a>7.2 基于 ZooKeeper（临时顺序节点）</h3><p>利用 <strong>临时顺序节点（EPHEMERAL_SEQUENTIAL）+ Watch 监听</strong>：</p>
+<ol>
+<li>客户端在锁目录下创建临时顺序节点 <code>/lock/lock_0001</code>；</li>
+<li>判断自己是否是最小序号节点——是则获得锁；</li>
+<li>否则 <strong>Watch 监听前一个节点</strong>（如 <code>lock_0000</code>）的删除事件，前一个节点删除后唤醒再次检查；</li>
+<li>释放锁即删除自己的节点；客户端异常断开时临时节点自动消失，<strong>天然防死锁</strong>，无需过期时间。</li>
+</ol>
+<p><strong>优点：</strong> 无锁丢失问题（ZK 本身由 ZAB 多数派保证强一致）、只监听前一个节点不会惊群。<strong>缺点：</strong> 性能不如 Redis，且依赖 ZK 集群本身。</p>
+<h3 id="7-3-对比与选型"><a href="#7-3-对比与选型" class="headerlink" title="7.3 对比与选型"></a>7.3 对比与选型</h3><table>
+<thead>
+<tr>
+<th align="left">维度</th>
+<th align="left">Redis（SETNX + 续期）</th>
+<th align="left">Redlock</th>
+<th align="left">ZooKeeper</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">性能</td>
+<td align="left">高</td>
+<td align="left">中（多次网络往返）</td>
+<td align="left">中</td>
+</tr>
+<tr>
+<td align="left">可靠性</td>
+<td align="left">主从切换可能丢锁</td>
+<td align="left">有争议，尽力而为</td>
+<td align="left">高（顺序节点 + Watch）</td>
+</tr>
+<tr>
+<td align="left">防死锁</td>
+<td align="left">过期时间 + watchdog</td>
+<td align="left">过期时间</td>
+<td align="left">临时节点自动清理</td>
+</tr>
+<tr>
+<td align="left">实现复杂度</td>
+<td align="left">低（Redisson 封装）</td>
+<td align="left">高</td>
+<td align="left">中（Curator 封装）</td>
+</tr>
+<tr>
+<td align="left">适用场景</td>
+<td align="left">绝大多数业务</td>
+<td align="left">极端场景（不推荐）</td>
+<td align="left">对一致性要求极高</td>
+</tr>
+</tbody></table>
+<p><strong>选型：</strong> 日常首选 <strong>Redis + Redisson</strong>（性能好、成本低）；对强一致要求极高的场景（如任务调度选主、配置发布）选 <strong>ZK + Curator</strong>；数据库 <code>SELECT ... FOR UPDATE</code> 方案性能差且依赖数据库可用性，仅适合并发极低的简单场景。</p>
+<h2 id="8-分布式-ID"><a href="#8-分布式-ID" class="headerlink" title="8. 分布式 ID"></a>8. 分布式 ID</h2><p><strong>需求：</strong> 分库分表、微服务场景下，单库自增 ID 无法保证多实例全局唯一。一个合格的分布式 ID 方案需要满足：<strong>全局唯一</strong>、<strong>趋势递增</strong>（对 B+ 树索引友好，避免随机插入造成页分裂）、<strong>高性能低延迟</strong>、<strong>高可用</strong>（生成服务不可用会拖垮整个写入链路），且 ID <strong>尽量短</strong>（减少存储和索引开销）。</p>
+<h3 id="8-1-方案对比"><a href="#8-1-方案对比" class="headerlink" title="8.1 方案对比"></a>8.1 方案对比</h3><p><strong>1. UUID——最简单但最不推荐</strong></p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">String</span> <span class="variable">id</span> <span class="operator">=</span> UUID.randomUUID().toString();  <span class="comment">// 例如 550e8400-e29b-41d4-a716-446655440000</span></span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>优点：本地生成、无网络开销、性能极高、绝对唯一。</li>
+<li>缺点：<strong>无序</strong>（B+ 树随机插入导致页分裂，索引性能差）；<strong>36 字符过长</strong>（存储翻倍）；无业务含义、无法排序。</li>
+<li>适用：对索引不敏感的场景（日志 ID、消息 ID、链路追踪 ID）。</li>
+</ul>
+<p><strong>2. 数据库自增 ID——单点瓶颈</strong></p>
+<p>依赖 <code>AUTO_INCREMENT</code>，简单可靠，但单库写性能有上限，主从切换、数据迁移时容易冲突。优化手段：<strong>双主互相错开步长</strong>（一台 <code>auto_increment_increment=2, offset=1</code>，另一台 <code>offset=2</code>）可支撑两倍写量，但扩展性有限——每增加一台机器都要重配步长。</p>
+<p><strong>3. 号段模式（Segment）——批量取号，内存发放</strong></p>
+<p>核心思想：数据库表 <code>id_alloc(biz_tag, max_id, step)</code> 维护各业务的最大 ID，每次从库中取一段号段（如 1000 个）缓存在本地内存逐号发放，用尽后再取下一段，数据库只承担低频的”取段”请求：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 事务内执行：取号段 (max_id - step, max_id]，应用在本地逐号发放</span></span><br><span class="line"><span class="keyword">UPDATE</span> id_alloc <span class="keyword">SET</span> max_id <span class="operator">=</span> max_id <span class="operator">+</span> step <span class="keyword">WHERE</span> biz_tag <span class="operator">=</span> <span class="string">&#x27;order&#x27;</span>;</span><br><span class="line"><span class="keyword">SELECT</span> max_id <span class="keyword">FROM</span> id_alloc <span class="keyword">WHERE</span> biz_tag <span class="operator">=</span> <span class="string">&#x27;order&#x27;</span>;</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>优点：大幅降低数据库压力（1000 个 ID 只访问一次 DB），性能高，ID 趋势递增，实现简单可靠；</li>
+<li>缺点：号段未用完时重启会浪费一段；多实例同时取段可能产生<strong>跨实例乱序</strong>（整体仍趋势递增）；</li>
+<li>工程化：<strong>美团 Leaf-segment</strong> 即此模式，并增加了<strong>双 buffer</strong>（当前段 + 预取段）消除取段间隙的停顿。</li>
+</ul>
+<p><strong>4. 雪花算法（Snowflake）——最主流方案</strong></p>
+<p>64 位 Long：<strong>1 位符号位（0）+ 41 位毫秒时间戳（可用约 69 年）+ 10 位机器 ID（5 位机房 + 5 位机器，支持 1024 台）+ 12 位序列号（单机每毫秒 4096 个）</strong>。单机 QPS 可达 409 万&#x2F;秒，趋势递增，本地生成无网络开销：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">long</span> <span class="variable">id</span> <span class="operator">=</span> (timestamp &lt;&lt; <span class="number">22</span>) | (workerId &lt;&lt; <span class="number">12</span>) | sequence;</span><br></pre></td></tr></table></figure>
+
+<p><strong>时钟回拨问题（最大坑）：</strong> 生成依赖服务器本地时钟，若 NTP 校准导致时钟回拨，可能生成重复 ID。常见解法：</p>
+<ul>
+<li><strong>短回拨（小于阈值）：</strong> 线程自旋等待，直到时钟追平（百度 UidGenerator 的做法）；</li>
+<li><strong>回拨较大：</strong> 拒绝服务或直接报错，等待人工处理；</li>
+<li><strong>彻底规避：</strong> 用 ZK&#x2F;Redis 集中分配 workerId（Leaf-snowflake 的做法），或改用号段模式兜底。</li>
+</ul>
+<p><strong>5. 业界方案</strong></p>
+<ul>
+<li><strong>美团 Leaf：</strong> 同时实现号段模式（Leaf-segment）和雪花模式（Leaf-snowflake），支持双模式动态切换，用 ZK 管理 workerId；</li>
+<li><strong>百度 UidGenerator：</strong> 雪花 + 自定义位分配 + RingBuffer 缓存预生成；</li>
+<li><strong>滴滴 Tinyid：</strong> 号段模式改进。</li>
+</ul>
+<h3 id="8-2-选型建议"><a href="#8-2-选型建议" class="headerlink" title="8.2 选型建议"></a>8.2 选型建议</h3><table>
+<thead>
+<tr>
+<th align="left">场景</th>
+<th align="left">推荐方案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">要求简单、对索引不敏感</td>
+<td align="left">UUID</td>
+</tr>
+<tr>
+<td align="left">中小规模、趋势递增</td>
+<td align="left">数据库号段模式（Leaf-segment）</td>
+</tr>
+<tr>
+<td align="left">高并发、多机房微服务</td>
+<td align="left">雪花算法 &#x2F; Leaf-snowflake &#x2F; UidGenerator</td>
+</tr>
+<tr>
+<td align="left">担心时钟回拨、求稳</td>
+<td align="left">号段模式更稳妥</td>
+</tr>
+</tbody></table>
+<h2 id="9-总结：分布式系统的设计范式"><a href="#9-总结：分布式系统的设计范式" class="headerlink" title="9. 总结：分布式系统的设计范式"></a>9. 总结：分布式系统的设计范式</h2><p>把全文串起来看，分布式系统的解法有一条清晰的脉络：</p>
+<ol>
+<li><strong>起点是物理现实：</strong> 网络不可靠、节点会故障、时钟不可信，这是所有问题的根源。</li>
+<li><strong>CAP 划定边界：</strong> 分区不可避免，必须在一致性和可用性之间取舍；BASE 给出工程取向——大多数业务用最终一致性换取可用性和性能。</li>
+<li><strong>一致性协议解决”单值共识”：</strong> Paxos、Raft 与 ZAB 用”多数派 + 单调编号&#x2F;任期&#x2F;ZXID”让节点就日志达成一致，这是 etcd、ZooKeeper、TiKV 等地基。</li>
+<li><strong>分布式事务解决”跨业务资源的一致”：</strong> 从 2PC（强一致、代价高）到 Seata AT&#x2F;TCC&#x2F;Saga&#x2F;消息（最终一致、轻量），本质是把”全局原子性”拆成”本地原子 + 异步补偿”。</li>
+<li><strong>分布式锁是”小号的共识”：</strong> 本质是在共享存储上实现互斥——Redis 快但弱，ZK 强但慢。</li>
+<li><strong>分布式 ID 是”单点问题的分布式化”：</strong> 从数据库自增（单点）到号段（低频访问数据库）到雪花（本地生成），层层去除单点依赖。</li>
+</ol>
+<p>贯穿其中的设计范式可以归纳为四条：</p>
+<ul>
+<li><strong>先问业务要什么，再选方案：</strong> 强一致不是默认选项，而是有代价的选项；对一致性和延迟的真实要求决定一切选型。</li>
+<li><strong>能用异步就不用同步，能用最终一致就不用强一致：</strong> 尽量把全局协调拆成”本地事务 + 消息&#x2F;补偿”，这是 BASE 思想的工程化。</li>
+<li><strong>幂等是一切的基石：</strong> 消息重投、补偿重试、通知重发，都依赖接收方的幂等；不解决幂等，任何最终一致性方案都会出问题。</li>
+<li><strong>工程上规避理论难题：</strong> 理论给出安全边界（多数派、单调编号），工程上则尽量把难题挡在门外——预分配 workerId 规避时钟回拨、看门狗续期规避锁过期，复杂度能不上就不上。</li>
+</ul>
+<p>回答相关面试题时，按”<strong>定义 → 为什么 → 怎么做 → 代价</strong>“的结构组织，最后落到”<strong>根据业务要求取舍</strong>“的结论上，就能把这条脉络完整地呈现出来。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -3636,1515 +4337,6 @@
 <li><strong>一致性兜底</strong>：冗余字段由应用层或定时任务维护，接受最终一致。</li>
 </ul>
 <p><strong>本节小结</strong>：范式按”完全依赖、直接依赖”逐级消除异常，是数据一致性的设计底线；反范式在读多写少、连表昂贵的场景用空间换时间，但必须清楚它重新引入了不一致风险，需要用快照语义或异步同步兜底。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/4e153c5e.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="知行栈">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | 知行栈">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/4e153c5e.html" class="post-title-link" itemprop="url">JVM 原理与调优</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-
-      <time title="Created: 2025-07-26 19:19:10" itemprop="dateCreated datePublished" datetime="2025-07-26T19:19:10+08:00">2025-07-26</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">In</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/Java/" itemprop="url" rel="index"><span itemprop="name">Java</span></a>
-        </span>
-    </span>
-
-  
-    <span class="post-meta-break"></span>
-    <span class="post-meta-item" title="Word count in article">
-      <span class="post-meta-item-icon">
-        <i class="far fa-file-word"></i>
-      </span>
-      <span class="post-meta-item-text">Word count in article: </span>
-      <span>19k</span>
-    </span>
-    <span class="post-meta-item" title="Reading time">
-      <span class="post-meta-item-icon">
-        <i class="far fa-clock"></i>
-      </span>
-      <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>1:11</span>
-    </span>
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <blockquote>
-<p>本文覆盖 JVM 内存模型、对象生命周期、类加载机制、性能指标与调优方法论、垃圾回收、内存溢出排查、调优实战案例七大模块。每一节都按”<strong>为什么需要了解 → 怎么工作的 → 面试怎么答</strong>“组织，力求背得下来、讲得清楚、用得上。</p>
-</blockquote>
-<h2 id="1-JVM-内存模型"><a href="#1-JVM-内存模型" class="headerlink" title="1. JVM 内存模型"></a>1. JVM 内存模型</h2><p><strong>为什么需要了解</strong>：几乎所有 JVM 问题——OOM、GC 停顿、调优——最后都会落到”<strong>某块内存区域的数据太多或回收太慢</strong>“上。背出五个区域的名字没有价值，面试官真正想听的是：<em>你写的每一个变量、每一个 new 出来的对象，在 JVM 里到底待在哪、由谁负责回收、什么时候会出问题</em>。</p>
-<h3 id="1-1-运行时数据区全景"><a href="#1-1-运行时数据区全景" class="headerlink" title="1.1 运行时数据区全景"></a>1.1 运行时数据区全景</h3><p>JVM 规范把运行时内存划分为 6 个区域（HotSpot 是其中最常见的实现）：</p>
-<table>
-<thead>
-<tr>
-<th align="left">内存区域</th>
-<th align="left">存什么</th>
-<th align="left">线程私有&#x2F;共享</th>
-<th align="left">抛出的异常</th>
-<th align="left">一句话本质</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">程序计数器（PC Register）</td>
-<td align="left">当前线程正在执行的字节码指令地址</td>
-<td align="left">私有</td>
-<td align="left">无（唯一不会 OOM 的区域）</td>
-<td align="left">线程切换后能”接上”执行到哪了</td>
-</tr>
-<tr>
-<td align="left">虚拟机栈（VM Stack）</td>
-<td align="left">每个方法调用对应一个栈帧（局部变量表、操作数栈、动态链接、方法出口）</td>
-<td align="left">私有</td>
-<td align="left"><code>StackOverflowError</code>（深度超限）&#x2F; <code>OutOfMemoryError</code>（申请不到栈）</td>
-<td align="left">方法的调用与返回</td>
-</tr>
-<tr>
-<td align="left">本地方法栈（Native Method Stack）</td>
-<td align="left">native 方法（如 C 实现的 <code>Object.hashCode</code> 底层）的栈</td>
-<td align="left">私有</td>
-<td align="left">同虚拟机栈</td>
-<td align="left">给 native 方法用的栈</td>
-</tr>
-<tr>
-<td align="left">堆（Heap）</td>
-<td align="left">所有对象实例和数组</td>
-<td align="left">共享</td>
-<td align="left"><code>OutOfMemoryError: Java heap space</code></td>
-<td align="left">GC 的主战场</td>
-</tr>
-<tr>
-<td align="left">方法区（Method Area）</td>
-<td align="left">类元数据、运行时常量池、方法字节码、静态变量</td>
-<td align="left">共享</td>
-<td align="left"><code>OutOfMemoryError: Metaspace</code></td>
-<td align="left">类的”档案室”</td>
-</tr>
-<tr>
-<td align="left">运行时常量池（在方法区内）</td>
-<td align="left">编译期生成的字面量和符号引用 + 运行期新放入的常量</td>
-<td align="left">共享</td>
-<td align="left"><code>OutOfMemoryError</code></td>
-<td align="left">常量与引用</td>
-</tr>
-</tbody></table>
-<p><strong>三个容易搞混的点</strong>：</p>
-<ol>
-<li><p><strong>方法区是规范，永久代&#x2F;元空间是实现</strong>。JVM 规范只规定了”方法区该存什么”，没规定怎么存。HotSpot 在 JDK 7 及以前用<strong>永久代（PermGen）</strong>实现（占据堆空间），JDK 8 起用<strong>元空间（Metaspace）</strong>实现（使用本地内存）。其他 JVM（如 JRockit）从来没有永久代。</p>
-</li>
-<li><p><strong>程序计数器是唯一不会 OOM 的区域</strong>，因为它是所有区域中唯一规定不依赖内存大小、只存一个地址的地方。注意：执行 native 方法时，PC 值是”未定义”（undefined），因为 native 方法不是字节码，不靠 PC 记录执行位置。</p>
-</li>
-<li><p><strong>栈帧里存的是什么</strong>：局部变量表（基本类型、引用类型，以 slot 为单位，long&#x2F;double 占两个 slot）、操作数栈（字节码指令计算的临时区，<code>iadd</code> 就是把栈顶两个数弹出去相加再压回）、动态链接（指向运行时常量池中该方法的引用，实现多态）、方法出口（返回时知道回哪去）。栈默认大小约 1MB（<code>-Xss</code> 调整），这也是递归默认只能到几千层的原因。</p>
-</li>
-</ol>
-<p><strong>面试怎么答</strong>：先给出”线程私有三个：程序计数器、虚拟机栈、本地方法栈；线程共享三个：堆、方法区、运行时常量池”的骨架，再补一句”私有区域的异常要么是深度溢出要么是申请不到空间，共享区域的异常都是内存不足”，最后点出”方法区是规范，元空间是 HotSpot 的实现”——这三点讲全，区域问题基本满分。</p>
-<h3 id="1-2-堆内存细分"><a href="#1-2-堆内存细分" class="headerlink" title="1.2 堆内存细分"></a>1.2 堆内存细分</h3><p><strong>为什么需要了解</strong>：堆是 99% 的 OOM 发生地，也是 GC 的主战场。不弄清堆的内部结构，就解释不了”为什么 Minor GC 这么快””对象什么时候进老年代””大对象有什么坑”。</p>
-<p><strong>新生代（Young Gen）</strong>：绝大多数对象”朝生夕死”，在这里诞生和死亡。</p>
-<ul>
-<li><strong>Eden 区</strong>：几乎所有新对象都在这里分配。</li>
-<li><strong>S0 &#x2F; S1（两个 Survivor 区）</strong>：Minor GC 时把存活对象复制进其中一个，两个区交替充当 From&#x2F;To，保证<strong>任意时刻有一个 Survivor 是空的</strong>，供复制算法使用。</li>
-<li>默认比例 <strong>Eden : S0 : S1 &#x3D; 8 : 1 : 1</strong>（<code>-XX:SurvivorRatio=8</code>），新生代实际可用空间是 90%——复制算法”浪费”的那 10% 就是那个永远空着的 To Survivor。</li>
-</ul>
-<p><strong>为什么是两个 Survivor 而不是一个</strong>：复制算法需要一个完全空闲的目标区来承接存活对象。如果只有一个 S，上一轮存活下来的对象和这一轮 Eden 里的存活对象会撞在一起——S 既是源又是目标，没法操作。两个 S 轮转，还能顺便给对象”记年龄”：每熬过一轮 Minor GC 年龄 +1，年龄够了就晋升老年代，避免对象过早晋升。</p>
-<p><strong>TLAB（Thread Local Allocation Buffer，线程本地分配缓冲）</strong>：</p>
-<ul>
-<li>堆是线程共享的，如果所有线程都去竞争同一个”堆顶指针”，分配对象会变成高并发热点。</li>
-<li>解决：每个线程在 Eden 里<strong>预申请一块私有缓冲区（TLAB）</strong>，对象分配优先在自己的 TLAB 里做——只移动自己这块缓冲区的 top 指针，<strong>无需加锁</strong>。默认开启（<code>-XX:+UseTLAB</code>）。</li>
-<li>放不下 TLAB 的大对象退回堆上直接分配；再大（超过 <code>-XX:PretenureSizeThreshold</code>，默认 0 即不启用）则直接进老年代，避免它在 Eden 和 Survivor 之间反复搬运（此参数只对 Serial &#x2F; ParNew 生效，G1 用的是 Humongous Region 机制）。</li>
-</ul>
-<p><strong>老年代（Old Gen）</strong>：存放多次 Minor GC 后仍存活的对象、大对象。回收频率低。默认 <strong>新生代 : 老年代 &#x3D; 1 : 2</strong>（<code>-XX:NewRatio=2</code>）。</p>
-<p><strong>字符串常量池的位置变迁（重点考点）</strong>：</p>
-<table>
-<thead>
-<tr>
-<th align="left">版本</th>
-<th align="left">字符串常量池位置</th>
-<th align="left">运行时常量池位置</th>
-<th align="left">关键事件</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">JDK 6 及以前</td>
-<td align="left">方法区（永久代）</td>
-<td align="left">方法区（永久代）</td>
-<td align="left">池在永久代，Full GC 才回收，<code>intern()</code> 大量使用时易 <code>PermGen OOM</code></td>
-</tr>
-<tr>
-<td align="left">JDK 7</td>
-<td align="left"><strong>堆</strong>（JEP 223）</td>
-<td align="left">方法区（永久代）</td>
-<td align="left">移到堆后，Minor GC 就能回收无用字符串，OOM 风险大降</td>
-</tr>
-<tr>
-<td align="left">JDK 8 起</td>
-<td align="left">堆</td>
-<td align="left">方法区（元空间）</td>
-<td align="left">永久代整体移除</td>
-</tr>
-</tbody></table>
-<p><strong><code>String.intern()</code> 的跨版本行为对比</strong>（面试高频，原文精华保留）：</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// jdk8：s1.intern() 发现池中没有 &quot;ab&quot;，把堆上 s1 的引用放入 StringTable</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">StringPool</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> &#123;</span><br><span class="line">        <span class="type">String</span> <span class="variable">s1</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">String</span>(<span class="string">&quot;a&quot;</span>) + <span class="keyword">new</span> <span class="title class_">String</span>(<span class="string">&quot;b&quot;</span>); <span class="comment">// s1 指向堆中的 &quot;ab&quot;</span></span><br><span class="line">        s1.intern(); <span class="comment">// 在 StringTable 中放入堆中 &quot;ab&quot; 的地址</span></span><br><span class="line">        <span class="type">String</span> <span class="variable">s2</span> <span class="operator">=</span> <span class="string">&quot;ab&quot;</span>; <span class="comment">// 字面量 &quot;ab&quot; 查到池中已有，直接复用堆中 &quot;ab&quot; 的引用</span></span><br><span class="line">        System.out.println(s1 == s2); <span class="comment">// true</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// jdk6：永久代里没有 &quot;ab&quot;，intern() 会把字符串复制一份进永久代的池</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">StringPool</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> &#123;</span><br><span class="line">        <span class="type">String</span> <span class="variable">s1</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">String</span>(<span class="string">&quot;a&quot;</span>) + <span class="keyword">new</span> <span class="title class_">String</span>(<span class="string">&quot;b&quot;</span>); <span class="comment">// s1 指向堆中的 &quot;ab&quot;</span></span><br><span class="line">        s1.intern(); <span class="comment">// 在永久代的 StringTable 里新建一个 &quot;ab&quot;</span></span><br><span class="line">        <span class="type">String</span> <span class="variable">s2</span> <span class="operator">=</span> <span class="string">&quot;ab&quot;</span>; <span class="comment">// s2 指向永久代池里的 &quot;ab&quot;</span></span><br><span class="line">        System.out.println(s1 == s2); <span class="comment">// false（堆对象 ≠ 永久代对象）</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>一句话总结：<strong>JDK 7 前 intern() 是”复制”（池里存副本），JDK 7 起是”存引用”（池里放堆对象地址）</strong>。</p>
-<p><strong>进阶题：<code>String s = new String(&quot;a&quot;) + new String(&quot;a&quot;)</code> 一共创建几个对象</strong>（JDK 8 下经典答案是 <strong>6 个</strong>，不计 StringBuilder 内部 <code>char[]</code> 则为 5 个）：</p>
-<table>
-<thead>
-<tr>
-<th align="left">创建的对象</th>
-<th align="left">数量</th>
-<th align="left">说明</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">常量池中的 <code>&quot;a&quot;</code></td>
-<td align="left">1</td>
-<td align="left">两处字面量指向同一个常量池项</td>
-</tr>
-<tr>
-<td align="left">堆上的 <code>new String(&quot;a&quot;)</code></td>
-<td align="left">2</td>
-<td align="left">每次 <code>new</code> 都是新实例</td>
-</tr>
-<tr>
-<td align="left"><code>StringBuilder</code></td>
-<td align="left">1</td>
-<td align="left">编译器自动生成的拼接容器</td>
-</tr>
-<tr>
-<td align="left">StringBuilder 内部的 <code>char[]</code></td>
-<td align="left">1</td>
-<td align="left">默认容量 16 的 <code>char[]</code>（可选计入）</td>
-</tr>
-<tr>
-<td align="left"><code>toString()</code> 产生的 <code>&quot;aa&quot;</code></td>
-<td align="left">1</td>
-<td align="left">新堆对象，<strong>不在常量池中</strong>（所以 <code>s == &quot;aa&quot;</code> 为 false）</td>
-</tr>
-</tbody></table>
-<p>版本差异（加分项）：JDK 9 起（JEP 280）<code>+</code> 编译为 <code>invokedynamic</code> + <code>StringConcatFactory</code>，JDK 9~14 默认仍基于 StringBuilder（计数同上）；<strong>JDK 15 起默认改为 <code>StringConcatHelper</code> 直接操作 <code>byte[]</code>，不再创建 StringBuilder 对象</strong>。另外 JDK 9 还引入了 <code>-XX:+CompactStrings</code>（JEP 254），String 内部由 <code>char[]</code> 改为 <code>byte[]</code> + 编码标记，只含 ASCII 的字符串省一半内存。</p>
-<p><strong>面试怎么答</strong>：先说三件套”Eden 8 + S0&#x2F;S1 各 1”，解释两个 Survivor 是复制算法运转的前提；再讲 TLAB 解决的是”并发分配的无锁化”；最后主动抛出 intern() 的 JDK6&#x2F;7&#x2F;8 对比，并补一句”JDK 7 把字符串常量池移进堆，就是为了让 Minor GC 也能回收它”——这一问就答成了体系。</p>
-<h3 id="1-3-元空间-vs-永久代"><a href="#1-3-元空间-vs-永久代" class="headerlink" title="1.3 元空间 vs 永久代"></a>1.3 元空间 vs 永久代</h3><p><strong>为什么需要了解</strong>：<code>-XX:MaxPermSize</code> 和 <code>-XX:MaxMetaspaceSize</code> 是两道非常常见的面试&#x2F;实战题，而且”元空间默认无限”这句话一半对一半错——它确实无限，但有个触发阈值会悄悄引起 Full GC。</p>
-<p><strong>为什么从永久代迁移到元空间（JEP 122）</strong>：</p>
-<ol>
-<li><strong>永久代大小难以预估</strong>：类元数据（尤其 CGLIB 动态代理、JSP 编译、反射生成类）的数量运行期不可预测。<code>-XX:MaxPermSize</code> 设小了频繁 Full GC 甚至 OOM，设大了浪费内存。</li>
-<li><strong>字符串常量池放永久代易 OOM</strong>：大量 <code>intern()</code> 会撑爆固定大小的永久代，JDK 7 先把字符串池移进堆，JDK 8 干脆把整个永久代移除。</li>
-<li><strong>回收负担重</strong>：永久代与堆混在一起，永久代不足会触发 Full GC，且需要带整理的回收才能调整大小，代价高。</li>
-<li><strong>融合 JRockit</strong>：Oracle 合并 HotSpot 与 JRockit（JRockit 没有永久代），统一用元空间实现更平滑。</li>
-</ol>
-<p><strong>对比表</strong>：</p>
-<table>
-<thead>
-<tr>
-<th align="left">对比项</th>
-<th align="left">永久代（PermGen）</th>
-<th align="left">元空间（Metaspace）</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">存在版本</td>
-<td align="left">JDK 7 及以前，JDK 8 被彻底移除</td>
-<td align="left">JDK 8 起</td>
-</tr>
-<tr>
-<td align="left">物理位置</td>
-<td align="left"><strong>堆的一部分</strong>（HotSpot 实现）</td>
-<td align="left"><strong>本地内存（native memory）</strong>，不占用堆</td>
-</tr>
-<tr>
-<td align="left">默认大小</td>
-<td align="left">固定上限，需 <code>-XX:MaxPermSize</code> 指定（默认约 64~82M）</td>
-<td align="left">无上限，自动扩容，仅受物理内存约束</td>
-</tr>
-<tr>
-<td align="left">存放内容</td>
-<td align="left">类元数据 + 字符串常量池 + 静态变量</td>
-<td align="left">仅类元数据；字符串池已在堆（JDK 7 起），静态变量对象也在堆</td>
-</tr>
-<tr>
-<td align="left">回收与调优</td>
-<td align="left">大小难预估、回收效率低，容易 OOM</td>
-<td align="left">类元数据回收更彻底，可按需扩容</td>
-</tr>
-<tr>
-<td align="left">调优参数</td>
-<td align="left"><code>-XX:PermSize</code> &#x2F; <code>-XX:MaxPermSize</code></td>
-<td align="left"><code>-XX:MetaspaceSize</code>（GC 触发阈值）&#x2F; <code>-XX:MaxMetaspaceSize</code>（上限）</td>
-</tr>
-</tbody></table>
-<p><strong>参数陷阱（必考）</strong>：<code>-XX:MetaspaceSize</code>（默认约 21M）<strong>不是上限，而是触发阈值</strong>——类元数据使用量达到它时，会触发一次 Full GC 去回收类元数据；真正的上限是 <code>-XX:MaxMetaspaceSize</code>，默认不设置（即”无限”，只受进程可寻址内存约束）。配套参数：<code>-XX:MinMetaspaceFreeRatio</code> &#x2F; <code>-XX:MaxMetaspaceFreeRatio</code> 控制 Full GC 后元空间的扩容&#x2F;收缩比例；<code>-XX:CompressedClassSpaceSize</code>（默认 1GB）限制压缩类指针空间。</p>
-<p><strong>元空间的 OOM 场景</strong>：动态生成类不受控——CGLIB&#x2F;ByteBuddy 代理、JSP 首次访问编译、Groovy 脚本热加载、应用热部署且不卸载旧类加载器。症状是 <code>java.lang.OutOfMemoryError: Metaspace</code>，排查重点是”谁在不停造新类”，而不是堆。</p>
-<p><strong>面试怎么答</strong>：答案四段式——① 永久代是方法区在 HotSpot 的实现，元空间是它的替代；② 迁移原因：大小难预估、字符串池拖累、回收代价高、融合 JRockit；③ 关键差异：本地内存、默认无上限；④ 参数考点：<code>MetaspaceSize</code> 是触发阈值不是上限。再主动补一句”实际中元空间 OOM 常见于动态代理和热部署”。</p>
-<h2 id="2-对象的生命周期"><a href="#2-对象的生命周期" class="headerlink" title="2. 对象的生命周期"></a>2. 对象的生命周期</h2><p><strong>为什么需要了解</strong>：<code>new</code> 一个对象背后发生的事、对象在内存里长什么样、JVM 怎么找到它、它什么时候进老年代——这四件事串起来就是”一个 Java 对象的一生”。面试官问对象相关问题时，八成在问这条流水线的某个环节。</p>
-<h3 id="2-1-对象创建过程"><a href="#2-1-对象创建过程" class="headerlink" title="2.1 对象创建过程"></a>2.1 对象创建过程</h3><p>以 <code>new</code> 指令为例（HotSpot 视角，五步）：</p>
-<ol>
-<li><strong>类加载检查</strong>：<code>new</code> 指令在常量池中定位类的符号引用，检查该类是否已加载、解析、初始化。未加载则先执行类加载流程（见第 3 章），并判断类是否可被实例化（接口、抽象类会抛 <code>InstantiationError</code>）。</li>
-<li><strong>分配内存</strong>：在堆上为对象划分空间。分配方式取决于堆是否规整：<ul>
-<li><strong>指针碰撞（Bump the Pointer）</strong>：堆规整（复制&#x2F;整理算法回收后），空闲内存是连续的一块，只需把指针往空闲方向挪动对象大小。Serial、ParNew 等带整理能力的收集器用它。</li>
-<li><strong>空闲列表（Free List）</strong>：堆不规整（标记-清除回收后），JVM 维护一张空闲块列表，从中找一块足够大的分给对象。CMS 用它。</li>
-<li><strong>并发安全</strong>：要么 CAS + 失败重试，要么用 TLAB（每个线程在 Eden 预分配私有缓冲，分配时不竞争堆顶指针）。</li>
-</ul>
-</li>
-<li><strong>初始化零值</strong>：将分配到的内存（实例字段区）全部置零（0、null、false），保证对象字段在不赋初值时可直接使用（<code>int</code> 为 0 而不是垃圾值）。</li>
-<li><strong>设置对象头</strong>：写入对象所属类的元数据指针（Klass Pointer）、对象的 GC 分代年龄（0）、锁状态等（见 2.2）。</li>
-<li><strong>执行 <code>&lt;init&gt;</code> 构造方法</strong>：按程序员写的构造逻辑初始化实例字段，<code>new</code> 完成，返回引用。</li>
-</ol>
-<p><strong>面试怎么答</strong>：按五步背，但重点讲第二步——主动说出”指针碰撞 vs 空闲列表取决于堆是否规整，而堆是否规整取决于收集器算法；并发分配靠 CAS 和 TLAB 解决”——这比背流程更能体现理解深度。</p>
-<h3 id="2-2-对象的内存布局（Mark-Word-Klass-Pointer-实例数据-对齐填充）"><a href="#2-2-对象的内存布局（Mark-Word-Klass-Pointer-实例数据-对齐填充）" class="headerlink" title="2.2 对象的内存布局（Mark Word + Klass Pointer + 实例数据 + 对齐填充）"></a>2.2 对象的内存布局（Mark Word + Klass Pointer + 实例数据 + 对齐填充）</h3><p>一个对象在堆里占三块（HotSpot 64 位 JVM）：</p>
-<table>
-<thead>
-<tr>
-<th align="left">组成部分</th>
-<th align="left">大小</th>
-<th align="left">内容</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left"><strong>对象头</strong>：Mark Word</td>
-<td align="left">8 字节</td>
-<td align="left">对象自身的运行时数据：<strong>哈希码（延迟计算）</strong>、<strong>GC 分代年龄（4 bit）</strong>、<strong>锁状态标志位</strong>（无锁 01 &#x2F; 偏向锁 101 &#x2F; 轻量级锁 00 &#x2F; 重量级锁 10 &#x2F; GC 标记 11）、偏向锁线程 ID、epoch 等</td>
-</tr>
-<tr>
-<td align="left"><strong>对象头</strong>：Klass Pointer</td>
-<td align="left">4 字节（开启压缩）或 8 字节</td>
-<td align="left">指向方法区中类元数据的指针，JVM 靠它知道对象是哪个类的实例</td>
-</tr>
-<tr>
-<td align="left"><strong>实例数据（Instance Data）</strong></td>
-<td align="left">不定</td>
-<td align="left">对象的实例字段值，按类型分配（<code>long</code>&#x2F;<code>double</code> 8 字节、<code>int</code> 4 字节、引用类型按压缩指针 4 字节等）</td>
-</tr>
-<tr>
-<td align="left"><strong>对齐填充（Padding）</strong></td>
-<td align="left">0~7 字节</td>
-<td align="left">对象大小必须是 <strong>8 字节的整数倍</strong>，不足则补齐（64 位 HotSpot 默认对象对齐）</td>
-</tr>
-</tbody></table>
-<p><strong>关键细节</strong>：</p>
-<ul>
-<li><strong>压缩指针</strong>：<code>-XX:+UseCompressedOops</code> 默认开启（64 位且堆 ≤ 32GB），对象引用由 8 字节压到 4 字节，堆 32G 的机器实际能装的引用量翻倍。开启后对象头固定 12 字节（8 + 4），加填充后正好 16 字节对齐。</li>
-<li><strong>Mark Word 是锁状态的总开关</strong>：<code>synchronized</code> 锁升级（偏向 → 轻量 → 重量）的所有信息都写在 Mark Word 的比特位里（详见并发篇）。这也是为什么 Mark Word 里同时要塞哈希码、年龄和锁标志——一个字节能表达的东西都挤在一起。</li>
-<li><strong>GC 年龄只有 4 bit</strong>：最大只能记到 15，所以 <code>-XX:MaxTenuringThreshold</code> 的合法上限是 15（CMS 下默认 6）。</li>
-</ul>
-<p><strong>面试怎么答</strong>：画一遍三块结构图，然后强调两点——① Mark Word 是一把锁 + GC 信息复用的小仓库（哈希码延迟计算、年龄 4 bit、锁标志位）；② 压缩指针让引用 8 字节变 4 字节，前提是堆 ≤ 32G。</p>
-<h3 id="2-3-对象的访问定位（句柄-vs-直接指针）"><a href="#2-3-对象的访问定位（句柄-vs-直接指针）" class="headerlink" title="2.3 对象的访问定位（句柄 vs 直接指针）"></a>2.3 对象的访问定位（句柄 vs 直接指针）</h3><p>对象创建出来，栈上的引用（reference）怎么找到堆里的对象？两种设计：</p>
-<table>
-<thead>
-<tr>
-<th align="left">对比项</th>
-<th align="left">句柄访问（Handle）</th>
-<th align="left">直接指针访问（Direct Pointer）</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">结构</td>
-<td align="left">reference → 句柄池 →（对象实例指针 + 类型指针）</td>
-<td align="left">reference 直接指向对象地址，对象头里带 Klass Pointer</td>
-</tr>
-<tr>
-<td align="left">寻址次数</td>
-<td align="left"><strong>两次</strong>（先找句柄，再找对象）</td>
-<td align="left"><strong>一次</strong></td>
-</tr>
-<tr>
-<td align="left">GC 移动对象时</td>
-<td align="left">只改句柄池里的指针，<strong>reference 不用动</strong></td>
-<td align="left">必须更新所有引用该对象的 reference</td>
-</tr>
-<tr>
-<td align="left">优点</td>
-<td align="left">GC 效率高（对象移动无感）</td>
-<td align="left">速度快（少一次指针定位）、实现简单</td>
-</tr>
-<tr>
-<td align="left">缺点</td>
-<td align="left">慢（多一次寻址）</td>
-<td align="left">GC 移动对象时要额外修正引用</td>
-</tr>
-<tr>
-<td align="left">谁在用</td>
-<td align="left">早期一些 JVM（如 JVM 规范示例）</td>
-<td align="left"><strong>HotSpot 采用直接指针</strong></td>
-</tr>
-</tbody></table>
-<p><strong>HotSpot 选择直接指针的原因</strong>：访问对象是最高频的操作，少一次指针跳转意味着整体访问速度更快；配合压缩指针（UseCompressedOops）还能弥补直接指针内存占用高的劣势。代价是 GC 移动对象（复制、整理）时必须同时修正栈&#x2F;堆里的引用——HotSpot 通过”遍历 GC Roots 时更新引用”来承接这个成本。</p>
-<p><strong>面试怎么答</strong>：两句搞定——“句柄访问两次寻址但 GC 移动对象无感；直接指针一次寻址但 GC 要修引用。HotSpot 选直接指针，因为对象访问是最高频操作，速度优先，压缩指针解决了内存占用问题。”</p>
-<h3 id="2-4-对象晋升到老年代的路径（年龄阈值、动态年龄判断、空间分配担保）"><a href="#2-4-对象晋升到老年代的路径（年龄阈值、动态年龄判断、空间分配担保）" class="headerlink" title="2.4 对象晋升到老年代的路径（年龄阈值、动态年龄判断、空间分配担保）"></a>2.4 对象晋升到老年代的路径（年龄阈值、动态年龄判断、空间分配担保）</h3><p><strong>对象晋升路径全景图</strong>：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">新对象 ──&gt; Eden（TLAB 优先分配）</span><br><span class="line">   │</span><br><span class="line">   ├─ Minor GC 存活 ──复制──&gt; S0 ──&gt; S1（每熬过一轮 Minor GC，对象年龄 +1，角色轮转）</span><br><span class="line">   │</span><br><span class="line">   ├─ 年龄达到 -XX:MaxTenuringThreshold（默认 15，CMS 为 6）──&gt; 晋升老年代</span><br><span class="line">   ├─ 动态年龄判定：Survivor 中&quot;同龄对象总大小&quot;超过 Survivor 空间一半</span><br><span class="line">   │    （-XX:TargetSurvivorRatio，默认 50%），则 ≥ 该年龄的对象直接晋升</span><br><span class="line">   └─ 大对象（超过 -XX:PretenureSizeThreshold，默认 0 即不启用）──&gt; 直接进入老年代</span><br><span class="line"></span><br><span class="line">Minor GC 前先做&quot;空间分配担保&quot;：</span><br><span class="line">   老年代连续空间足够（&gt; 新生代对象总大小 或 历次晋升平均大小）──&gt; 放心 Minor GC</span><br><span class="line">   担保失败 ──&gt; 升级为 Full GC</span><br></pre></td></tr></table></figure>
-
-<p><strong>三个容易答不全的点</strong>：</p>
-<ol>
-<li><strong>动态年龄判断</strong>：不是只有”年龄到 15 才晋升”。如果 S 区里同一年龄的对象加起来已经占了 Survivor 一半空间，说明这些对象大概率会长期存活，就直接把 ≥ 这个年龄的对象全部晋升，避免它们在 S 区里挤占复制算法的目标空间。</li>
-<li><strong>空间分配担保（HandlePromotionFailure）</strong>：Minor GC 前，JVM 要确认老年代是否装得下”这次可能晋升的所有对象”。历史上有 <code>-XX:HandlePromotionFailure</code> 参数，<strong>JDK 6 Update 24 之后该参数已失效</strong>，规则变为：只要老年代连续空间大于新生代对象总大小<strong>或历次晋升的平均大小</strong>，就允许 Minor GC；否则改为 Full GC。</li>
-<li><strong>大对象直接进老年代</strong>：<code>-XX:PretenureSizeThreshold</code>（如 <code>-XX:PretenureSizeThreshold=3m</code>）让超过 3MB 的对象直接进老年代，避免大对象在 Eden 与 Survivor 间反复复制、以及大对象晋升时触发过早的 Full GC。注意它只对 Serial &#x2F; ParNew 生效，G1 用 Humongous Region 承担同样职责。</li>
-</ol>
-<p><strong>面试怎么答</strong>：顺着路径图讲：Minor GC 存活 → S 区轮转 + 年龄累加 → 两条晋升通道（年龄达标、动态年龄判定）→ 一条直达通道（大对象）→ 最后补一句担保机制——“老年代空间不够时 Minor GC 会升级为 Full GC”，这条流水线就完整了。</p>
-<h2 id="3-类加载机制"><a href="#3-类加载机制" class="headerlink" title="3. 类加载机制"></a>3. 类加载机制</h2><p><strong>为什么需要了解</strong>：类加载器决定了”你的代码如何被找到和执行”，是 JVM 与外部世界的第一道边界。框架（Spring、Tomcat、MyBatis）底层大量依赖类加载器，SPI 机制、热部署、JDBC 驱动加载都建立在这套机制上。</p>
-<h3 id="3-1-类的生命周期"><a href="#3-1-类的生命周期" class="headerlink" title="3.1 类的生命周期"></a>3.1 类的生命周期</h3><p>一个类从字节码变成可执行代码，经历 7 个阶段（前 5 个合称”类加载过程”）：</p>
-<p><strong>① 加载（Loading）</strong>：通过全限定名获取类的二进制字节流（<code>.class</code> 文件、JAR、网络、运行时动态生成——CGLIB 就是这样造类的）；把字节流转化为方法区（元空间）的运行时数据结构；在堆中生成 <code>java.lang.Class</code> 对象作为访问入口。</p>
-<p><strong>② 验证（Verification）</strong>：字节码安全校验：文件格式（魔数 0xCAFEBABE）、元数据（父类、接口合法性）、字节码（操作数栈类型是否匹配）、符号引用（能否找到对应类&#x2F;方法）。防止加载恶意字节码破坏 JVM。</p>
-<p><strong>③ 准备（Preparation）</strong>：为<strong>静态变量</strong>分配内存并设<strong>零值</strong>（<code>0</code>、<code>null</code>、<code>false</code>）。注意两个坑：</p>
-<ul>
-<li>此刻还没有执行任何 Java 代码，<code>public static int x = 100;</code> 在准备阶段 x 是 <strong>0</strong>，真正的 100 要等初始化阶段执行 <code>&lt;clinit&gt;</code> 才写入；</li>
-<li>特例：<code>static final</code> 常量（编译期可确定的）会直接赋真实值。</li>
-</ul>
-<p><strong>④ 解析（Resolution）</strong>：把常量池中的<strong>符号引用</strong>（如 <code>java/lang/System</code> 的名字）替换为<strong>直接引用</strong>（内存地址&#x2F;偏移量）。HotSpot 默认把解析推迟到第一次真正使用时（惰性解析），<code>invokedynamic</code>（Lambda、字符串拼接）更是要到运行期才解析。</p>
-<p><strong>⑤ 初始化（Initialization）</strong>：执行 <code>&lt;clinit&gt;()</code>——静态变量赋值 + 静态代码块。<strong>触发条件（主动使用，6 种）</strong>：</p>
-<ol>
-<li><code>new</code>、<code>getstatic</code>、<code>putstatic</code>、<code>invokestatic</code>（创建实例、读写静态字段、调用静态方法）；</li>
-<li>反射调用（<code>Class.forName(&quot;...&quot;)</code> 默认 <code>initialize=true</code> 会初始化；<code>ClassLoader.loadClass()</code> <strong>不会</strong>）；</li>
-<li>初始化子类时，先初始化其父类；</li>
-<li>程序主类（main 方法所在类）；</li>
-<li>JDK 7 起，<code>invokedynamic</code> 指令解析出的目标方法句柄对应的类；</li>
-<li>JDK 8 起，实现类初始化前，若接口定义了 <strong>default 方法</strong>，接口会先被初始化。</li>
-</ol>
-<p><strong>⑥ 使用（Using）</strong>：正常执行。</p>
-<p><strong>⑦ 卸载（Unloading）</strong>：类要被卸载，需同时满足三个条件：该类的所有实例都被回收、该类的 <code>Class</code> 对象不可达、<strong>加载它的类加载器不可达</strong>（第三条是热部署能释放旧代码的关键——Tomcat 每部署一次就新建一个 WebAppClassLoader，停止应用后旧加载器连同它加载的类一起被回收）。</p>
-<p><strong><code>Class.forName()</code> 和 <code>ClassLoader.loadClass()</code> 的区别</strong>（高频题）：</p>
-<table>
-<thead>
-<tr>
-<th align="left">对比项</th>
-<th align="left"><code>Class.forName()</code></th>
-<th align="left"><code>ClassLoader.loadClass()</code></th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">触发阶段</td>
-<td align="left">加载 + 链接 + <strong>初始化</strong>（默认执行 <code>&lt;clinit&gt;</code> 静态块）</td>
-<td align="left">只加载 + 链接（<strong>不初始化</strong>，首次主动使用才初始化）</td>
-</tr>
-<tr>
-<td align="left">典型用途</td>
-<td align="left">JDBC 老驱动 <code>Class.forName(&quot;com.mysql.jdbc.Driver&quot;)</code> 注册驱动</td>
-<td align="left">框架按需加载类（Spring、反射场景）</td>
-</tr>
-<tr>
-<td align="left">是否可控</td>
-<td align="left">重载 <code>forName(name, initialize, loader)</code> 可关掉初始化</td>
-<td align="left">本身不初始化</td>
-</tr>
-</tbody></table>
-<p><strong>面试怎么答</strong>：七阶段（或五阶段）流程 + 一个区分题。重点：准备阶段给静态变量的是零值不是初值；<code>static final</code> 常量例外；主动使用 6 种情形能列举 3 种以上即可，最好带出”初始化子类先初始化父类”。</p>
-<h3 id="3-2-类加载器（Bootstrap-→-Platform-→-Application，JDK-9-的模块化类加载器）"><a href="#3-2-类加载器（Bootstrap-→-Platform-→-Application，JDK-9-的模块化类加载器）" class="headerlink" title="3.2 类加载器（Bootstrap → Platform → Application，JDK 9+ 的模块化类加载器）"></a>3.2 类加载器（Bootstrap → Platform → Application，JDK 9+ 的模块化类加载器）</h3><p><strong>JDK 9+ 的结构（JEP 220 &#x2F; JEP 261，模块化后）</strong>：</p>
-<table>
-<thead>
-<tr>
-<th align="left">类加载器</th>
-<th align="left">加载内容</th>
-<th align="left">父加载器</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left"><strong>Bootstrap ClassLoader</strong></td>
-<td align="left"><code>java.base</code>、<code>java.lang</code> 等<strong>基础模块</strong>（JVM 自带，C++ 实现，<code>null</code> 表示）</td>
-<td align="left">无</td>
-</tr>
-<tr>
-<td align="left"><strong>Platform ClassLoader（平台类加载器）</strong></td>
-<td align="left"><code>java.sql</code>、<code>java.xml</code> 等 <strong>SE 平台模块</strong>（由 Extension 改名而来）</td>
-<td align="left">Bootstrap</td>
-</tr>
-<tr>
-<td align="left"><strong>Application ClassLoader（应用类加载器）</strong></td>
-<td align="left">classpath &#x2F; module-path 上的<strong>应用类</strong></td>
-<td align="left">Platform</td>
-</tr>
-<tr>
-<td align="left">自定义 ClassLoader</td>
-<td align="left">用户指定路径</td>
-<td align="left">Application（或自定义）</td>
-</tr>
-</tbody></table>
-<p><strong>JDK 8 及以前的结构</strong>（面试常考对照）：</p>
-<table>
-<thead>
-<tr>
-<th align="left">类加载器</th>
-<th align="left">加载路径</th>
-<th align="left">父加载器</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">Bootstrap ClassLoader</td>
-<td align="left"><code>JRE/lib/rt.jar</code> 等核心库</td>
-<td align="left">无（顶级）</td>
-</tr>
-<tr>
-<td align="left">Extension ClassLoader</td>
-<td align="left"><code>JRE/lib/ext</code> 扩展库</td>
-<td align="left">Bootstrap</td>
-</tr>
-<tr>
-<td align="left">Application ClassLoader</td>
-<td align="left">应用类路径（ClassPath）</td>
-<td align="left">Extension</td>
-</tr>
-<tr>
-<td align="left">自定义 ClassLoader</td>
-<td align="left">用户自定义路径</td>
-<td align="left">Application</td>
-</tr>
-</tbody></table>
-<blockquote>
-<p><strong>版本差异必考点</strong>：从 <strong>JDK 9（JEP 220）</strong> 起，扩展机制被模块系统（JPMS）取代：Extension ClassLoader 改名为 Platform ClassLoader，<code>rt.jar</code> 被拆分为 <code>jmods</code> 模块——**<code>rt.jar</code> 文件已不存在**。老资料里”<code>JRE/lib/rt.jar</code>“的说法在 JDK 9+ 已失效。</p>
-</blockquote>
-<p><strong>面试怎么答</strong>：JDK 8 说”Bootstrap → Extension → Application”，JDK 9+ 说”Bootstrap → Platform → Application”，并主动点出”rt.jar 没了、Extension 改名叫 Platform”，一句话体现版本意识。</p>
-<h3 id="3-3-双亲委派模型"><a href="#3-3-双亲委派模型" class="headerlink" title="3.3 双亲委派模型"></a>3.3 双亲委派模型</h3><p><strong>双亲委派</strong>：一个类加载器收到加载请求，<strong>先把请求委派给父加载器</strong>，父加载器再往上委派，直到 Bootstrap；只有父加载器返回”找不到”，才轮到子加载器自己尝试加载（<code>findClass</code>）。</p>
-<p><code>ClassLoader.loadClass()</code> 的核心逻辑（流程控制）：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">loadClass(name):</span><br><span class="line">  1. findLoadedClass(name)  → 已加载过？直接返回（保证一个类在一个加载器下只加载一次）</span><br><span class="line">  2. 有父加载器 → 父.loadClass(name)（递归委派）</span><br><span class="line">     没有父加载器 → Bootstrap 尝试加载</span><br><span class="line">  3. 父加载失败 → findClass(name) 自己加载</span><br></pre></td></tr></table></figure>
-
-<p><strong>为什么需要双亲委派</strong>（三个理由）：</p>
-<ol>
-<li><strong>安全性</strong>：<code>java.lang.String</code> 必须由 Bootstrap 加载。如果没有委派，应用可以自定义一个恶意 <code>java.lang.String</code> 顶替核心类；有了委派，所有 <code>java.*</code> 类最终都回到 Bootstrap，杜绝篡改。</li>
-<li><strong>避免重复加载</strong>：同一个类在 JVM 中”类全名 + 加载它的类加载器”共同决定唯一性。委派保证应用里的类都落到同一个加载链上，不会出现”两个一模一样的类”互相 <code>instanceof</code> 失败的诡异问题。</li>
-<li><strong>模块化&#x2F;隔离的基础</strong>：虽然委派是”由上而下统一”，但它同时为”由下而上隔离”（容器、OSGi）提供了扩展点。</li>
-</ol>
-<p><strong>双亲委派的缺点&#x2F;局限</strong>：父加载器加载不了”只对子加载器可见”的类——这正是 SPI 和 Web 容器场景需要打破它的原因。</p>
-<p><strong>如何打破双亲委派（四种方式）</strong>：</p>
-<ol>
-<li>**重写 <code>loadClass()</code>**：直接改流程控制，先自己加载、失败再委派（或反之）。</li>
-<li><strong>线程上下文类加载器（TCCL）</strong>：用于 SPI（JDBC、JNDI 等），见 3.4。</li>
-<li><strong>容器类加载器</strong>：<strong>Tomcat 的 WebAppClassLoader 就是典型</strong>——为了”每个 Web 应用能加载自己 <code>WEB-INF/classes</code> 和 <code>WEB-INF/lib</code> 里不同版本的类”，它把顺序颠倒过来：<strong>先看自己是否已加载，再尝试自己加载（应用类），找不到才委派父加载器</strong>；但 <code>java.*</code> 等 JVM 核心类仍然强制先委派父类，避免破坏基础库。</li>
-<li><strong>OSGi &#x2F; 模块化框架</strong>：每个 bundle 一个类加载器，完全自定义加载顺序（类可以依赖声明关系加载）。</li>
-</ol>
-<p><strong><code>loadClass()</code> 和 <code>findClass()</code> 的区别</strong>（高频题）：</p>
-<table>
-<thead>
-<tr>
-<th align="left">特性</th>
-<th align="left"><code>loadClass()</code></th>
-<th align="left"><code>findClass()</code></th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">职责</td>
-<td align="left"><strong>控制加载流程</strong>（委派机制）</td>
-<td align="left"><strong>实现具体加载逻辑</strong>（读字节流、defineClass）</td>
-</tr>
-<tr>
-<td align="left">重写必要性</td>
-<td align="left">通常不重写（保持委派模型）</td>
-<td align="left">自定义类加载器时<strong>必须重写</strong></td>
-</tr>
-<tr>
-<td align="left">双亲委派角色</td>
-<td align="left">实现委派逻辑</td>
-<td align="left">被委派机制调用（父加载失败后才调用）</td>
-</tr>
-<tr>
-<td align="left">典型用途</td>
-<td align="left">类加载入口</td>
-<td align="left">自定义类加载器扩展资源获取方式</td>
-</tr>
-</tbody></table>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 正确姿势：自定义类加载器只需重写 findClass()，委派机制自动保留</span></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">CustomLoader</span> <span class="keyword">extends</span> <span class="title class_">ClassLoader</span> &#123;</span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">protected</span> Class&lt;?&gt; findClass(String name) &#123;</span><br><span class="line">        <span class="type">byte</span>[] bytes = loadClassBytes(name); <span class="comment">// 自定义：从磁盘/网络/加密文件读字节流</span></span><br><span class="line">        <span class="keyword">return</span> defineClass(name, bytes, <span class="number">0</span>, bytes.length);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 破坏双亲委派才需要重写 loadClass()（谨慎使用，如 Tomcat、SPI 场景）</span></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">BreakingLoader</span> <span class="keyword">extends</span> <span class="title class_">ClassLoader</span> &#123;</span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">protected</span> Class&lt;?&gt; loadClass(String name, <span class="type">boolean</span> resolve) <span class="keyword">throws</span> ClassNotFoundException &#123;</span><br><span class="line">        <span class="comment">// 先自己尝试加载，失败再委派父加载器……</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><img src="/../../assets/java-interview/%E9%9D%A2%E8%AF%95-Java/image-20250725203542235.png" alt="classloader-loadClass-findClass"></p>
-<p><strong>面试怎么答</strong>：先讲流程（findLoadedClass → 父加载器递归 → 自己 findClass），再答”为什么”（安全 + 不重复加载），最后主动给”打破”的两种标准答案——重写 loadClass 和线程上下文类加载器，并举 Tomcat 的例子说明”为什么需要打破”（应用隔离）。</p>
-<h3 id="3-4-线程上下文类加载器"><a href="#3-4-线程上下文类加载器" class="headerlink" title="3.4 线程上下文类加载器"></a>3.4 线程上下文类加载器</h3><p><strong>问题背景</strong>：双亲委派是”父优先”，但存在一类场景<strong>反过来</strong>——<strong>由高层（父加载器加载的）代码去加载低层（子加载器才可见）的实现类</strong>。典型是 JDBC：</p>
-<ul>
-<li><code>DriverManager</code> 在 <code>java.base</code> 模块里，由 <strong>Bootstrap</strong> 加载；</li>
-<li>MySQL 驱动 <code>com.mysql.cj.jdbc.Driver</code> 在应用的 classpath 里，只有 <strong>Application 类加载器</strong>（App ClassLoader）能找到；</li>
-<li>Bootstrap 按双亲委派<strong>永远委派不到</strong> App ClassLoader（委派方向是向下的，找不到就放弃）。</li>
-</ul>
-<p><strong>解决方案：线程上下文类加载器（Thread Context ClassLoader）</strong></p>
-<ul>
-<li>每个线程有一个 <code>contextClassLoader</code>（默认继承父线程的，初始默认是 <strong>App ClassLoader</strong>）；</li>
-<li>高层代码拿不到低层实现时，通过 <code>Thread.currentThread().getContextClassLoader()</code> **反过来借用”当前线程的类加载器”**去加载实现类；</li>
-<li>这就是 <strong>SPI（Service Provider Interface）</strong> 机制的基石：JDBC、JNDI、JAXP、JMS 等所有”核心 API 在 JDK、实现由厂商提供”的标准接口，都靠它工作。</li>
-<li>调用链：<code>DriverManager.getConnection()</code> → <code>Class.forName(driverClass, true, Thread.currentThread().getContextClassLoader())</code>。JDBC 4.0 之后靠 <code>META-INF/services/java.sql.Driver</code> 自动发现驱动，<code>ServiceLoader</code> 同样借助上下文加载器完成加载。</li>
-</ul>
-<p><strong>面试怎么答</strong>：一句话点破本质——“<strong>双亲委派是向下委派，SPI 需要向上借用</strong>，所以引入了线程上下文类加载器”；再举 JDBC 的例子（Bootstrap 加载的 DriverManager 要用 App 加载器加载 MySQL 驱动），最后提一句 Tomcat 和 JDK 9+ 模块化后该机制依旧存在（<code>java.sql</code> 模块在 Platform 层，驱动仍在 classpath）。</p>
-<h2 id="4-垃圾回收"><a href="#4-垃圾回收" class="headerlink" title="4. 垃圾回收"></a>4. 垃圾回收</h2><p><strong>为什么需要了解</strong>：GC 是 JVM 面试的重灾区——从”对象怎么算死”到”谁负责收”再到”怎么调”，层层递进。面试官问 GC 的潜台词是：你<strong>能不能定位线上停顿&#x2F;OOM 问题</strong>，而不只是背名词。</p>
-<h3 id="4-1-如何判断对象已死"><a href="#4-1-如何判断对象已死" class="headerlink" title="4.1 如何判断对象已死"></a>4.1 如何判断对象已死</h3><h4 id="引用计数法"><a href="#引用计数法" class="headerlink" title="引用计数法"></a>引用计数法</h4><p>每个对象维护一个计数器，被引用 +1，引用失效 -1，计数为 0 即回收。简单高效，但<strong>无法解决循环引用</strong>：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">A 和 B 互相引用，且不再被任何外部引用：</span><br><span class="line">A → B（B 的计数器 +1）</span><br><span class="line">B → A（A 的计数器 +1）</span><br><span class="line">外部引用断开后：A、B 的计数器都是 1，永远不为 0 → 永远无法回收</span><br></pre></td></tr></table></figure>
-
-<p>这就像两个已经没人要的东西互相”抱着取暖”，谁都不敢收。因此主流 JVM（HotSpot）都不用它，改用可达性分析。</p>
-<h4 id="可达性分析"><a href="#可达性分析" class="headerlink" title="可达性分析"></a>可达性分析</h4><p>从一组称为 <strong>GC Roots</strong> 的根对象出发，沿引用链向下搜索，<strong>不可达</strong>的对象即为垃圾。GC Roots 包括：</p>
-<table>
-<thead>
-<tr>
-<th align="left">GC Roots 来源</th>
-<th align="left">说明</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left"><strong>虚拟机栈中引用的对象</strong></td>
-<td align="left">栈帧局部变量表、操作数栈里的引用（正在执行的方法局部变量）</td>
-</tr>
-<tr>
-<td align="left"><strong>本地方法栈中引用的对象</strong></td>
-<td align="left">JNI 引用的对象</td>
-</tr>
-<tr>
-<td align="left"><strong>元空间&#x2F;方法区中静态属性引用的对象</strong></td>
-<td align="left"><code>static</code> 变量（如 <code>static Map</code> 缓存——这就是静态缓存泄漏时它”永垂不朽”的原因）</td>
-</tr>
-<tr>
-<td align="left"><strong>元空间&#x2F;方法区中常量引用的对象</strong></td>
-<td align="left">常量池里的引用（如被 <code>intern()</code> 驻留的字符串）</td>
-</tr>
-<tr>
-<td align="left"><strong>被 synchronized 持有锁的对象</strong></td>
-<td align="left">monitor 关联的对象</td>
-</tr>
-<tr>
-<td align="left"><strong>活跃线程（Thread）对象</strong></td>
-<td align="left">所有未被 stop 的线程</td>
-</tr>
-<tr>
-<td align="left"><strong>JVM 内部引用</strong></td>
-<td align="left">基本类型包装类缓存（<code>IntegerCache</code>）、常驻异常对象（<code>NullPointerException</code> 等）、系统类加载器加载的类等</td>
-</tr>
-</tbody></table>
-<h4 id="两次标记与-finalize-的废弃"><a href="#两次标记与-finalize-的废弃" class="headerlink" title="两次标记与 finalize() 的废弃"></a>两次标记与 finalize() 的废弃</h4><p>宣告一个对象真正死亡，在历史上要经过<strong>两次标记</strong>：</p>
-<ol>
-<li><strong>第一次标记</strong>：从 GC Roots 出发，不可达的对象被标记，若其重写且未执行过 <code>finalize()</code>，被放入 <strong>F-Queue</strong> 队列；</li>
-<li><strong>第二次标记</strong>：JVM 用低优先级 Finalizer 线程执行 F-Queue 中的 <code>finalize()</code>，如果对象在方法中把自己重新赋值给某个引用（”自救”），就会被移出队列存活下来；否则彻底死亡。<strong>每个对象的 <code>finalize()</code> 只会执行一次</strong>。</li>
-</ol>
-<p><strong>为什么要废弃 finalize()（JDK 9 起弃用，JDK 18 经 JEP 421 进一步标记移除）</strong>：</p>
-<ul>
-<li><strong>执行时机不确定</strong>：对象”死亡”到 <code>finalize()</code> 执行之间可能隔很久，资源迟迟不释放；</li>
-<li><strong>性能差</strong>：Finalizer 线程 + F-Queue 队列带来额外开销，重写 finalize 的对象回收变慢；</li>
-<li><strong>“自救”反模式</strong>：能复活对象听起来酷，但会导致对象被反复回收、行为不可预测；</li>
-<li><strong>替代方案</strong>：<code>try-with-resources</code>（确定性释放）和 **<code>java.lang.ref.Cleaner</code>**（JDK 9 引入，基于虚引用实现，<code>DirectByteBuffer</code> 清理堆外内存就是用它）。</li>
-</ul>
-<h4 id="四种引用类型"><a href="#四种引用类型" class="headerlink" title="四种引用类型"></a>四种引用类型</h4><table>
-<thead>
-<tr>
-<th align="left">引用类型</th>
-<th align="left">回收时机</th>
-<th align="left">用途</th>
-<th align="left">实现类</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left"><strong>强引用</strong></td>
-<td align="left">永不回收（OOM 也不收）</td>
-<td align="left">日常 <code>new</code> 的对象；静态集合缓存不清理就会泄漏</td>
-<td align="left"><code>Object</code></td>
-</tr>
-<tr>
-<td align="left"><strong>软引用（SoftReference）</strong></td>
-<td align="left"><strong>内存不足、OOM 之前</strong>回收</td>
-<td align="left">内存敏感缓存：能利用内存就留着，内存紧张自动释放</td>
-<td align="left"><code>SoftReference</code></td>
-</tr>
-<tr>
-<td align="left"><strong>弱引用（WeakReference）</strong></td>
-<td align="left"><strong>下一次 GC</strong> 即回收（不管内存够不够）</td>
-<td align="left"><code>WeakHashMap</code>（键是弱引用）、<code>ThreadLocalMap</code> 的 key</td>
-<td align="left"><code>WeakReference</code></td>
-</tr>
-<tr>
-<td align="left"><strong>虚引用（PhantomReference）</strong></td>
-<td align="left">回收后通知（<code>get()</code> <strong>恒为 null</strong>，无法用它取对象）</td>
-<td align="left"><strong>跟踪对象回收时机</strong>：堆外内存清理（<code>DirectByteBuffer</code> + <code>Cleaner</code>）</td>
-<td align="left"><code>PhantomReference</code></td>
-</tr>
-</tbody></table>
-<p><strong>三个必答细节</strong>：</p>
-<ol>
-<li><strong>软引用的版本差异</strong>：JDK 8 及以前按”最近一次 GC 后存活时间”判定（<code>-XX:SoftRefLRUPolicyMSPerMB</code>，默认 1000ms&#x2F;MB）；<strong>JDK 9 起改为基于堆使用率</strong>——堆使用率低于 50% 时软引用对象不回收，该参数不再生效。</li>
-<li>**虚引用必须配合 <code>ReferenceQueue</code>**：对象被回收后，虚引用会被放入队列，清理线程从队列取出引用，知道”对象死了”，再去释放关联的堆外资源。<code>DirectByteBuffer</code> 本身只有几十字节，但它关联的堆外内存可能很大——JVM 靠 <code>Cleaner</code>（内部是 PhantomReference）在 <code>DirectByteBuffer</code> 回收时调用 <code>unsafe.freeMemory</code> 释放堆外内存。</li>
-<li><strong><code>ThreadLocal</code> 泄漏的引用层面解释</strong>：<code>ThreadLocalMap</code> 的 <strong>key（ThreadLocal 本身）是弱引用</strong>，但 <strong>value 是强引用</strong>——所以线程池中长期存活的线程里，<code>ThreadLocal</code> 用完不 <code>remove()</code>，value 就永远被强引用着（key 变 null 也没用），这就是经典泄漏点。</li>
-</ol>
-<p><strong>面试怎么答</strong>：引用计数法一句话带过（”有循环引用问题，所以不用”）；可达性分析讲清 GC Roots 的 6~7 类来源；四种引用按”回收时机 + 用途”讲，务必带出虚引用的实际案例（DirectByteBuffer 堆外内存）；最后主动说”finalize 已废弃，JDK 9 弃用、JEP 421 标记移除，现在用 Cleaner 和 try-with-resources”。</p>
-<h3 id="4-2-垃圾收集算法"><a href="#4-2-垃圾收集算法" class="headerlink" title="4.2 垃圾收集算法"></a>4.2 垃圾收集算法</h3><p>漫画式理解三种基本算法（讲给面试官听，比背定义生动得多）：</p>
-<p><strong>🗑️ 标记-清除（Mark-Sweep）</strong>：像整理旧书架——先把要留下的书一本本贴上标签（<strong>标记</strong>），然后把没贴标签的统统扔进垃圾桶（<strong>清除</strong>）。问题在于：扔完书之后，书架上空出来的位置<strong>东一块西一块</strong>（内存碎片），下次想放一套大百科（大对象）时，可能找不到连续的空间——单个空位加起来够大，但拼不成一整块。</p>
-<p><strong>📦 标记-复制（Copying）</strong>：干脆把房间一分为二，平时只用一半。要打扫时，把幸存的东西全部搬到另一半，然后把这一半直接清空（顺便全屋无碎片，因为搬过来的时候是紧挨着摆的）。缺点很明显：<strong>一半房间常年空着</strong>（空间利用率 50%）。新生代把它改良成 8:1:1，只浪费 10%，而且幸存对象本来就少，搬起来快——完美契合”朝生夕死”。</p>
-<p><strong>🚚 标记-整理（Mark-Compact）</strong>：把幸存的书一本一本往墙根推，全部挤得整整齐齐，腾出一整块连续空间。解决了碎片问题，代价是<strong>搬运很慢</strong>（所有存活对象都要移动）。适合”幸存者多”的区域——老年代。</p>
-<p><strong>对比表</strong>：</p>
-<table>
-<thead>
-<tr>
-<th align="left">算法</th>
-<th align="left">步骤</th>
-<th align="left">优点</th>
-<th align="left">缺点</th>
-<th align="left">适用场景</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">标记-清除</td>
-<td align="left">标记存活 → 清除垃圾</td>
-<td align="left">实现简单、不移动对象</td>
-<td align="left"><strong>内存碎片</strong>；标记&#x2F;清除两次扫描</td>
-<td align="left">CMS 的老年代（配合”碎片整理”兜底）</td>
-</tr>
-<tr>
-<td align="left">标记-复制</td>
-<td align="left">存活对象复制到空闲区 → 整区清空</td>
-<td align="left"><strong>无碎片</strong>、分配只动指针、回收快</td>
-<td align="left"><strong>浪费空间</strong>（需要一块空区）</td>
-<td align="left">新生代（8:1:1 只浪费 10%）</td>
-</tr>
-<tr>
-<td align="left">标记-整理</td>
-<td align="left">标记存活 → 向一端移动 → 清边界外</td>
-<td align="left"><strong>无碎片</strong>、适合存活率高的区域</td>
-<td align="left">移动对象成本高、停顿长</td>
-<td align="left">老年代（Serial Old、Parallel Old）</td>
-</tr>
-</tbody></table>
-<p><strong>分代收集（为什么这样设计）</strong>：基于两个经验假说——<strong>弱分代假说</strong>（绝大多数对象朝生夕死）和<strong>强分代假说</strong>（熬过多次 GC 的对象更可能继续存活）。于是：<strong>新生代</strong>存活率低 → 复制算法，快、无碎片；<strong>老年代</strong>存活率高 → 标记-清除&#x2F;标记-整理，避免反复搬运。<strong>不同区域用不同算法，整体效率最高</strong>——这就是分代收集的全部理由。G1 之后的收集器在物理上不再连续分代，但”把存活率不同的对象分开处理”的思想没变（Region 逻辑分代）。</p>
-<p><strong>面试怎么答</strong>：先画漫画（三个比喻），再落到对比表，最后一句升华：”分代收集不是一种算法，而是’把对象按存活概率分组，各组用最合适的算法’的工程策略。”把”复制算法只浪费 10% 而不是 50%”讲出来，就能体现你看过源码而非背过八股。</p>
-<h3 id="4-3-经典垃圾收集器"><a href="#4-3-经典垃圾收集器" class="headerlink" title="4.3 经典垃圾收集器"></a>4.3 经典垃圾收集器</h3><h4 id="新生代三剑客：Serial-ParNew-Parallel-Scavenge"><a href="#新生代三剑客：Serial-ParNew-Parallel-Scavenge" class="headerlink" title="新生代三剑客：Serial &#x2F; ParNew &#x2F; Parallel Scavenge"></a>新生代三剑客：Serial &#x2F; ParNew &#x2F; Parallel Scavenge</h4><table>
-<thead>
-<tr>
-<th align="left">收集器</th>
-<th align="left">特点</th>
-<th align="left">目标</th>
-<th align="left">何时用</th>
-<th align="left">配套参数</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left"><strong>Serial</strong></td>
-<td align="left">新生代<strong>单线程</strong>收集，STW 全程停顿，Client 模式默认</td>
-<td align="left">简单可靠</td>
-<td align="left">单核 CPU &#x2F; 小内存桌面应用；JDK 8 里 CMS 老年代的后备</td>
-<td align="left"><code>-XX:+UseSerialGC</code></td>
-</tr>
-<tr>
-<td align="left"><strong>ParNew</strong></td>
-<td align="left">Serial 的<strong>多线程</strong>版，其余行为与 Serial 一致</td>
-<td align="left">低延迟搭配</td>
-<td align="left"><strong>只能与 CMS 搭配</strong>（CMS 唯一官方搭档）；JDK 9 起随 CMS 弃用，JDK 14 移除</td>
-<td align="left"><code>-XX:+UseParNewGC</code></td>
-</tr>
-<tr>
-<td align="left"><strong>Parallel Scavenge</strong></td>
-<td align="left"><strong>吞吐量优先</strong>，多线程 + <strong>自适应调节</strong>（<code>-XX:+UseAdaptiveSizePolicy</code>，JVM 自动调新生代比例）</td>
-<td align="left">高吞吐</td>
-<td align="left"><strong>JDK 8 默认收集器</strong>（配 Parallel Old）；后台批处理、计算密集型服务</td>
-<td align="left"><code>-XX:+UseParallelGC</code>，<code>-XX:GCTimeRatio=99</code>（吞吐目标），<code>-XX:MaxGCPauseMillis</code></td>
-</tr>
-</tbody></table>
-<p><strong>注意</strong>：Parallel Scavenge 与其他收集器不同，它关注”吞吐量”（<code>吞吐量 = 运行用户代码时间 / (运行用户代码时间 + GC 时间)</code>），而不是停顿时间——这是它和 CMS&#x2F;G1 的定位分野。</p>
-<h4 id="CMS：四个阶段详解、优缺点、为什么被废弃"><a href="#CMS：四个阶段详解、优缺点、为什么被废弃" class="headerlink" title="CMS：四个阶段详解、优缺点、为什么被废弃"></a>CMS：四个阶段详解、优缺点、为什么被废弃</h4><p>CMS（Concurrent Mark Sweep）是 <strong>JDK 5 引入的第一款真正并发的老年代收集器</strong>，目标：<strong>最短停顿时间</strong>（互联网应用优先响应速度）。基于<strong>标记-清除</strong>算法，回收分 4 个阶段：</p>
-<ol>
-<li><strong>初始标记（Initial Mark，STW）</strong>：只标记 <strong>GC Roots 直接关联</strong>的对象。速度极快，停顿很短。</li>
-<li><strong>并发标记（Concurrent Mark）</strong>：从初始标记的对象出发，<strong>与用户线程并发</strong>做可达性分析，标记所有存活对象。不 STW，但会抢占 CPU。</li>
-<li><strong>重新标记（Remark，STW）</strong>：修正并发标记期间用户线程运行导致的引用变化（用<strong>增量更新 Incremental Update</strong> 记录新引用）。停顿比初始标记长。</li>
-<li><strong>并发清除（Concurrent Sweep）</strong>：与用户线程并发清理垃圾、回收内存。</li>
-</ol>
-<p><strong>优点</strong>：只有初始标记和重新标记两个短暂 STW，整体停顿低。</p>
-<p><strong>缺点（为什么最终被 G1 取代）</strong>：</p>
-<ul>
-<li><strong>内存碎片</strong>：标记-清除不整理内存，长时间运行产生大量碎片，大对象无法分配时提前触发 Full GC；</li>
-<li><strong>占用 CPU</strong>：并发阶段抢占 CPU（默认并发线程数 &#x3D; <code>(CPU核数+3)/4</code>），CPU 核数少时吞吐量明显下降；</li>
-<li><strong>浮动垃圾</strong>：并发标记&#x2F;清除期间新产生的垃圾只能等下次回收，必须预留空间（默认老年代用到 <code>-XX:CMSInitiatingOccupancyFraction=92</code>% 就触发 CMS，留 8% 给浮动垃圾）；</li>
-<li><strong>Concurrent Mode Failure</strong>：并发清除期间老年代空间不足，CMS <strong>退化为 Serial Old 单线程 Full GC</strong>（标记-整理），停顿时间极长——CMS 最怕的灾难场景；</li>
-<li><strong>版本路线</strong>：JDK 9（JEP 291）标记弃用，<strong>JDK 14（JEP 363）正式移除</strong>。经典参数 <code>-XX:+UseConcMarkSweepGC</code> 已不存在。</li>
-</ul>
-<h4 id="G1：Region-布局、Young-GC-Mixed-GC-Full-GC、RSet-和-SATB"><a href="#G1：Region-布局、Young-GC-Mixed-GC-Full-GC、RSet-和-SATB" class="headerlink" title="G1：Region 布局、Young GC &#x2F; Mixed GC &#x2F; Full GC、RSet 和 SATB"></a>G1：Region 布局、Young GC &#x2F; Mixed GC &#x2F; Full GC、RSet 和 SATB</h4><p>G1（Garbage First）是 <strong>JDK 7u4 正式提供、JDK 9（JEP 248）起成为默认收集器</strong>，目标：<strong>在可预测的停顿时间内完成回收</strong>，是 CMS 的官方继任者。</p>
-<p><strong>Region 化堆布局</strong>：把整个堆划分为约 <strong>2048 个大小相等、逻辑连续的 Region</strong>（默认 1MB~32MB，<code>-XX:G1HeapRegionSize</code> 指定）。每个 Region 运行期<strong>动态扮演 Eden &#x2F; Survivor &#x2F; Old 角色</strong>——物理上不再连续分代，逻辑上仍分代。超过 Region 一半大小的对象放入 <strong>Humongous Region</strong>（大对象区），避免大对象在 Region 间复制。</p>
-<p><strong>回收过程</strong>：</p>
-<ol>
-<li><strong>Young GC（STW）</strong>：回收所有 Eden + Survivor Region，存活对象<strong>复制</strong>到新的 Survivor Region，熬过阈值的晋升到 Old Region。Eden Region 越多，耗时越长。</li>
-<li><strong>并发标记（Concurrent Marking）</strong>：与用户线程并发标记全堆存活对象，为 Mixed GC 做准备。</li>
-<li><strong>Mixed GC（STW）</strong>：<strong>只回收”垃圾占比最高、回收收益最大”的老年代 Region</strong>——这就是 “Garbage First” 的含义——而不是回收整个老年代，从而把停顿控制在目标内。回收对象按”收益&#x2F;成本”排序，取性价比最高的集合。</li>
-<li><strong>Full GC（兜底）</strong>：并发标记失败或 Humongous 分配失败时，退化为<strong>单线程 Full GC</strong>（标记-整理），停顿极长，应尽量避免（大堆上 G1 的 Full GC 通常意味着 OOM 前的信号）。</li>
-</ol>
-<p><strong>两个关键数据结构（G1 的精华考点）</strong>：</p>
-<ul>
-<li><strong>RSet（Remembered Set，记忆集）</strong>：记录”<strong>其他 Region 对当前 Region 的引用</strong>“。回收某个 Region 时只需扫描它的 RSet，就能知道”谁引用了我”，<strong>避免回收时全堆扫描</strong>（尤其是”收集新生代时要扫整个老年代”这个代价）。由<strong>写屏障（Write Barrier）</strong>在引用写入时维护，代价是额外的写操作开销（Card Table 精化）。</li>
-<li><strong>SATB（Snapshot-At-The-Beginning，起始快照）</strong>：并发标记基于”<strong>GC 开始时的堆快照</strong>“工作，通过 <strong>pre-write 屏障</strong>记录并发期间”被覆盖的旧引用值”——这样即使并发期间对象被重新引用，也不会被误判为垃圾。相比 CMS 的增量更新（记录新值、重新标记时要重新扫描根），SATB 更保守，<strong>停顿更可预测</strong>。</li>
-</ul>
-<p><strong>停顿模型</strong>：<code>-XX:MaxGCPauseMillis</code>（默认 200ms）给出停顿目标，G1 后台统计每个 Region 的回收耗时与收益，每次 Mixed GC 按性价比挑选 Region 集合，使总停顿贴近目标（软实时）。</p>
-<p><strong>为什么 G1 取代 CMS</strong>：停顿可预测（Region 增量回收 vs CMS 无法控制停顿）；无碎片（复制&#x2F;整理回收）；支持超大堆（TB 级，RSet 避免全堆扫描）；SATB + RSet 的正确性机制比 CMS 增量更新更完善。</p>
-<h4 id="简要：ZGC-和-Shenandoah"><a href="#简要：ZGC-和-Shenandoah" class="headerlink" title="简要：ZGC 和 Shenandoah"></a>简要：ZGC 和 Shenandoah</h4><table>
-<thead>
-<tr>
-<th align="left">收集器</th>
-<th align="left">版本路线</th>
-<th align="left">核心机制</th>
-<th align="left">解决什么问题</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left"><strong>ZGC</strong></td>
-<td align="left">JDK 11 实验（JEP 333），<strong>JDK 15 生产可用</strong>（JEP 377）</td>
-<td align="left"><strong>着色指针（Colored Pointers）</strong>：64 位指针的高位存 4 位元数据（标记位、重映射位等）+ <strong>读屏障</strong>；并发移动对象（并发整理）</td>
-<td align="left"><strong>停顿时间与堆大小无关</strong>：无论 4G 还是 16TB 堆，停顿都小于 1ms，且支持超大堆</td>
-</tr>
-<tr>
-<td align="left"><strong>Shenandoah</strong></td>
-<td align="left">JDK 12 实验（JEP 189），<strong>JDK 15 生产可用</strong>（JEP 379）</td>
-<td align="left"><strong>Brooks 转发指针 + 读屏障</strong>：对象移动时在原位置留一个”指向新家的路标”</td>
-<td align="left">同样实现<strong>低停顿 + 并发整理</strong>；Red Hat 主导，被阿里云等大规模落地</td>
-</tr>
-</tbody></table>
-<p>两者与 G1 的本质区别：<strong>回收（甚至整理、移动对象）全程与用户线程并发，几乎不需要 STW</strong>，把停顿从”几十毫秒”压到”亚毫秒”。它们共同的代价是<strong>读屏障带来的访问开销</strong>（每次访问对象都要多一次判断）。</p>
-<p><strong>收集器总览表</strong>：</p>
-<table>
-<thead>
-<tr>
-<th align="left">收集器</th>
-<th align="left">代</th>
-<th align="left">算法</th>
-<th align="left">目标</th>
-<th align="left">状态</th>
-<th align="left">启用参数</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">Serial</td>
-<td align="left">新生代</td>
-<td align="left">复制</td>
-<td align="left">简单可靠</td>
-<td align="left">仍可用</td>
-<td align="left"><code>-XX:+UseSerialGC</code></td>
-</tr>
-<tr>
-<td align="left">ParNew</td>
-<td align="left">新生代</td>
-<td align="left">复制</td>
-<td align="left">与 CMS 搭配</td>
-<td align="left"><strong>JDK 14 移除</strong></td>
-<td align="left">—</td>
-</tr>
-<tr>
-<td align="left">Parallel Scavenge</td>
-<td align="left">新生代</td>
-<td align="left">复制</td>
-<td align="left">吞吐量</td>
-<td align="left"><strong>JDK 8 默认</strong></td>
-<td align="left"><code>-XX:+UseParallelGC</code></td>
-</tr>
-<tr>
-<td align="left">Serial Old</td>
-<td align="left">老年代</td>
-<td align="left">标记-整理</td>
-<td align="left">简单可靠</td>
-<td align="left">仍可用</td>
-<td align="left">同上</td>
-</tr>
-<tr>
-<td align="left">Parallel Old</td>
-<td align="left">老年代</td>
-<td align="left">标记-整理</td>
-<td align="left">吞吐量</td>
-<td align="left">JDK 8 默认搭档</td>
-<td align="left">同上</td>
-</tr>
-<tr>
-<td align="left">CMS</td>
-<td align="left">老年代</td>
-<td align="left">标记-清除</td>
-<td align="left">低停顿</td>
-<td align="left"><strong>JDK 14 移除</strong></td>
-<td align="left"><code>-XX:+UseConcMarkSweepGC</code>（已失效）</td>
-</tr>
-<tr>
-<td align="left">G1</td>
-<td align="left">整堆 Region</td>
-<td align="left">复制 + 标记-整理</td>
-<td align="left">停顿可预测</td>
-<td align="left"><strong>JDK 9 起默认</strong></td>
-<td align="left"><code>-XX:+UseG1GC</code></td>
-</tr>
-<tr>
-<td align="left">ZGC</td>
-<td align="left">整堆 Region</td>
-<td align="left">着色指针 + 并发整理</td>
-<td align="left">亚毫秒停顿、超大堆</td>
-<td align="left">JDK 15 生产</td>
-<td align="left"><code>-XX:+UseZGC</code></td>
-</tr>
-<tr>
-<td align="left">Shenandoah</td>
-<td align="left">整堆 Region</td>
-<td align="left">转发指针 + 并发整理</td>
-<td align="left">亚毫秒停顿</td>
-<td align="left">JDK 15 生产</td>
-<td align="left"><code>-XX:+UseShenandoahGC</code></td>
-</tr>
-</tbody></table>
-<p><strong>面试怎么答</strong>：按”新生代三剑客 → CMS 四阶段与四大缺点 → G1 三件套（Region、RSet&#x2F;SATB、停顿模型）→ ZGC&#x2F;Shenandoah 一句话”的梯度讲。G1 部分主动把 RSet 和 SATB 讲透（这是区分背书和真懂的分水岭），并准确说出版本：CMS JDK 14 移除、G1 JDK 9 默认、ZGC JDK 15 生产可用。</p>
-<h3 id="4-4-GC-日志与调优"><a href="#4-4-GC-日志与调优" class="headerlink" title="4.4 GC 日志与调优"></a>4.4 GC 日志与调优</h3><p><strong>为什么需要了解</strong>：线上 GC 问题的第一步永远是<strong>看日志</strong>。会开日志、看得懂日志、知道下一步调什么，才构成完整的排查闭环。</p>
-<p><strong>关键参数速查表</strong>：</p>
-<table>
-<thead>
-<tr>
-<th align="left">参数</th>
-<th align="left">默认值</th>
-<th align="left">作用</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left"><code>-Xms</code> &#x2F; <code>-Xmx</code></td>
-<td align="left">1&#x2F;64 物理内存</td>
-<td align="left">堆初始 &#x2F; 最大大小，<strong>生产建议设为相等</strong>，避免运行期扩容抖动</td>
-</tr>
-<tr>
-<td align="left"><code>-Xmn</code></td>
-<td align="left">—</td>
-<td align="left">新生代大小（也可用 <code>-XX:NewRatio=2</code> 指定老年代&#x2F;新生代比值）</td>
-</tr>
-<tr>
-<td align="left"><code>-XX:SurvivorRatio</code></td>
-<td align="left">8</td>
-<td align="left">Eden : Survivor 比例</td>
-</tr>
-<tr>
-<td align="left"><code>-XX:MaxGCPauseMillis</code></td>
-<td align="left">200（G1）</td>
-<td align="left">停顿目标</td>
-</tr>
-<tr>
-<td align="left"><code>-XX:MaxTenuringThreshold</code></td>
-<td align="left">15（CMS 为 6）</td>
-<td align="left">晋升年龄阈值</td>
-</tr>
-<tr>
-<td align="left"><code>-XX:PretenureSizeThreshold</code></td>
-<td align="left">0（不启用）</td>
-<td align="left">大对象直达老年代阈值（仅 Serial&#x2F;ParNew）</td>
-</tr>
-<tr>
-<td align="left"><code>-XX:CMSInitiatingOccupancyFraction</code></td>
-<td align="left">92</td>
-<td align="left">CMS 触发阈值（已随 CMS 移除）</td>
-</tr>
-<tr>
-<td align="left"><code>-XX:InitiatingHeapOccupancyPercent</code></td>
-<td align="left">45</td>
-<td align="left">G1 并发标记启动阈值（老年代占比）</td>
-</tr>
-<tr>
-<td align="left"><code>-XX:+HeapDumpOnOutOfMemoryError</code> &#x2F; <code>-XX:HeapDumpPath</code></td>
-<td align="left">—</td>
-<td align="left">OOM 时自动 dump</td>
-</tr>
-<tr>
-<td align="left"><code>-XX:+UseG1GC</code> &#x2F; <code>-XX:+UseParallelGC</code> &#x2F; <code>-XX:+UseZGC</code></td>
-<td align="left">G1（JDK 9+）</td>
-<td align="left">选择收集器</td>
-</tr>
-</tbody></table>
-<p><strong>如何开启 GC 日志</strong>：</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># JDK 8 及以前</span></span><br><span class="line">java -Xloggc:/logs/gc.log -XX:+PrintGCDetails -XX:+PrintGCDateStamps -XX:+PrintHeapAtGC -jar app.jar</span><br><span class="line"></span><br><span class="line"><span class="comment"># JDK 9+（统一的 -Xlog 语法）</span></span><br><span class="line">java -Xlog:gc*:file=/logs/gc.log:<span class="keyword">time</span>,<span class="built_in">uptime</span>,level,tags -jar app.jar</span><br><span class="line"><span class="comment"># 更细：看年龄分布、分配失败</span></span><br><span class="line">java -Xlog:gc+age=debug:file=/logs/gc.log:<span class="keyword">time</span> -jar app.jar</span><br></pre></td></tr></table></figure>
-
-<p><strong>如何解读一行 GC 日志</strong>（以 Parallel 收集器为例）：</p>
-<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">[GC (Allocation Failure) [PSYoungGen: 24576K-&gt;3584K(28672K)] 24576K-&gt;6090K(84992K), 0.0071 secs] [Times: user=0.03 sys=0.00, real=0.01 secs]</span><br></pre></td></tr></table></figure>
-
-<table>
-<thead>
-<tr>
-<th align="left">片段</th>
-<th align="left">含义</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left"><code>GC (Allocation Failure)</code></td>
-<td align="left">本次是 Minor GC（新生代），原因是 Eden 分配失败；<code>Full GC</code> 则为老年代回收</td>
-</tr>
-<tr>
-<td align="left"><code>PSYoungGen: 24576K-&gt;3584K(28672K)</code></td>
-<td align="left">新生代回收前 24576K → 回收后 3584K（总容量 28672K）</td>
-</tr>
-<tr>
-<td align="left"><code>24576K-&gt;6090K(84992K)</code></td>
-<td align="left">整个堆回收前 → 回收后（总容量）——6090K - 3584K &#x3D; 2506K 是晋升到老年代的量</td>
-</tr>
-<tr>
-<td align="left"><code>0.0071 secs</code></td>
-<td align="left">本次 GC 耗时</td>
-</tr>
-<tr>
-<td align="left"><code>[Times: user=...]</code></td>
-<td align="left">用户态 &#x2F; 内核态 &#x2F; 墙钟耗时</td>
-</tr>
-</tbody></table>
-<p><strong>快速判断健康度的口诀</strong>：Minor GC 频繁但堆用量回收后回不到低位 → 对象分配太快或新生代太小；Full GC 频繁且回收量小 → 老年代有存活对象堆积（<strong>内存泄漏的特征：FGCT 只涨不降</strong>）；GC 停顿超预期 → 看是堆太大、晋升太多还是收集器选择问题。</p>
-<p><strong>调优思路（不是调参数本身，而是”先确认目标，再选收集器，最后微调参数”）</strong>：</p>
-<ol>
-<li><strong>确认目标</strong>：要延迟（响应时间敏感，如在线交易）还是要吞吐（后台批处理）？堆内存在多大范围（64 位服务器上大堆常见）？</li>
-<li><strong>选收集器</strong>：JDK 8 默认 Parallel（吞吐）；延迟敏感换 G1（<code>-XX:+UseG1GC</code>）；大堆 + 亚毫秒停顿上 ZGC（<code>-XX:+UseZGC</code>）；小堆小机器 Serial 反而更好。</li>
-<li><strong>微调参数（一次只改一个，用日志 A&#x2F;B 对比）</strong>：先定 <code>-Xms=-Xmx</code>（消除扩容抖动）→ 再定新生代（<code>-Xmn</code> 或 <code>-XX:SurvivorRatio</code>，观察 Minor GC 频率与晋升量）→ 最后调 GC 细节（停顿目标 <code>-XX:MaxGCPauseMillis</code>、晋升阈值 <code>-XX:MaxTenuringThreshold</code>、G1 的 <code>-XX:InitiatingHeapOccupancyPercent</code>）。<strong>先看日志再动参数，没有日志依据的调优都是玄学</strong>。</li>
-</ol>
-<p><strong>面试怎么答</strong>：参数能精确说出”<code>-XX:+UseG1GC</code>、<code>-XX:MaxGCPauseMillis=200</code>、<code>-XX:InitiatingHeapOccupancyPercent=45</code>“；日志能当场拆解一行（前 → 后 → 总容量 → 耗时）；调优背出”目标 → 选收集器 → 微调”的顺序，并强调”<code>-Xms</code> 与 <code>-Xmx</code> 相等、一次只改一个参数”的工程纪律。</p>
-<h2 id="5-内存溢出与内存泄漏排查"><a href="#5-内存溢出与内存泄漏排查" class="headerlink" title="5. 内存溢出与内存泄漏排查"></a>5. 内存溢出与内存泄漏排查</h2><p><strong>为什么需要了解</strong>：面试官问 OOM 一般不是要定义，而是想听”<strong>线上服务 OOM 了你怎么办</strong>“的完整排查故事。这一节把工具链和实战流程串成一条线。</p>
-<h3 id="5-1-OOM-的常见类型（heap、metaspace、direct-memory、thread）"><a href="#5-1-OOM-的常见类型（heap、metaspace、direct-memory、thread）" class="headerlink" title="5.1 OOM 的常见类型（heap、metaspace、direct memory、thread）"></a>5.1 OOM 的常见类型（heap、metaspace、direct memory、thread）</h3><table>
-<thead>
-<tr>
-<th align="left">OOM &#x2F; Error 类型</th>
-<th align="left">触发场景</th>
-<th align="left">典型原因</th>
-<th align="left">关键参数</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left"><code>java.lang.OutOfMemoryError: Java heap space</code></td>
-<td align="left">堆溢出</td>
-<td align="left">内存泄漏（对象被静态集合等长期持有）；堆配置过小</td>
-<td align="left"><code>-Xmx</code></td>
-</tr>
-<tr>
-<td align="left"><code>java.lang.OutOfMemoryError: Metaspace</code></td>
-<td align="left">元空间溢出</td>
-<td align="left">动态生成类（CGLIB&#x2F;ByteBuddy、JSP 编译、热部署不卸载）</td>
-<td align="left"><code>-XX:MaxMetaspaceSize</code></td>
-</tr>
-<tr>
-<td align="left"><code>java.lang.OutOfMemoryError: Direct buffer memory</code></td>
-<td align="left"><strong>堆外内存</strong>溢出</td>
-<td align="left">NIO &#x2F; Netty 大量分配 <code>DirectByteBuffer</code> 未释放；<code>unsafe.allocateMemory</code></td>
-<td align="left"><code>-XX:MaxDirectMemorySize</code>（默认等于 <code>-Xmx</code>）</td>
-</tr>
-<tr>
-<td align="left"><code>java.lang.OutOfMemoryError: Unable to create new native thread</code></td>
-<td align="left">线程数超限</td>
-<td align="left">线程池无限创建线程；单线程栈太大；系统 ulimit 限制</td>
-<td align="left"><code>-Xss</code>（调小）；<code>ulimit -u</code></td>
-</tr>
-<tr>
-<td align="left"><code>java.lang.OutOfMemoryError: GC overhead limit exceeded</code></td>
-<td align="left">GC 效率过低（<strong>仅 Parallel 系</strong>）</td>
-<td align="left">98% 时间在做 GC，回收不到 2% 堆——堆太小或泄漏的最后挣扎</td>
-<td align="left"><code>-XX:+UseG1GC</code> 可规避该报错路径</td>
-</tr>
-<tr>
-<td align="left"><code>java.lang.OutOfMemoryError: Requested array size exceeds VM limit</code></td>
-<td align="left">数组过大</td>
-<td align="left">单次分配超过堆&#x2F;数组上限</td>
-<td align="left">—</td>
-</tr>
-<tr>
-<td align="left"><code>StackOverflowError</code></td>
-<td align="left">栈深度超限</td>
-<td align="left">无限递归；栈帧过大（方法局部变量过多）；默认栈约 1MB</td>
-<td align="left"><code>-Xss</code></td>
-</tr>
-</tbody></table>
-<p><strong>面试怎么答</strong>：能对号入座——看到 <code>heap space</code> 查堆和泄漏、看到 <code>Metaspace</code> 查动态代理&#x2F;热部署、看到 <code>native thread</code> 查线程数与系统限制、看到 <code>Direct buffer</code> 查 NIO 缓冲——每一种都能给出”先看参数、再查代码”的下一步。</p>
-<h3 id="5-2-排查工具和方法"><a href="#5-2-排查工具和方法" class="headerlink" title="5.2 排查工具和方法"></a>5.2 排查工具和方法</h3><h4 id="四大命令行工具：jmap-jstack-jstat-jcmd"><a href="#四大命令行工具：jmap-jstack-jstat-jcmd" class="headerlink" title="四大命令行工具：jmap &#x2F; jstack &#x2F; jstat &#x2F; jcmd"></a>四大命令行工具：jmap &#x2F; jstack &#x2F; jstat &#x2F; jcmd</h4><table>
-<thead>
-<tr>
-<th align="left">工具</th>
-<th align="left">用途</th>
-<th align="left">常用命令</th>
-<th align="left">关键输出</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left"><strong>jps</strong></td>
-<td align="left">列出 JVM 进程</td>
-<td align="left"><code>jps -l</code></td>
-<td align="left">PID 与主类（排查入口）</td>
-</tr>
-<tr>
-<td align="left"><strong>jstat</strong></td>
-<td align="left">监控 GC &#x2F; 类加载统计</td>
-<td align="left"><code>jstat -gcutil &lt;pid&gt; 1000 5</code></td>
-<td align="left">YGC&#x2F;YGCT、FGC&#x2F;<strong>FGCT</strong>（Full GC 次数与累计耗时——FGCT 只涨不降是泄漏的强信号）</td>
-</tr>
-<tr>
-<td align="left"><strong>jmap</strong></td>
-<td align="left">堆内存快照 &#x2F; 对象统计</td>
-<td align="left"><code>jmap -histo:live &lt;pid&gt; | head -20</code>；<code>jmap -dump:format=b,file=heap.hprof &lt;pid&gt;</code></td>
-<td align="left">各类型对象实例数与占用——<strong>实例数异常多且可”业务解释”的类就是嫌疑犯</strong></td>
-</tr>
-<tr>
-<td align="left"><strong>jstack</strong></td>
-<td align="left">线程栈快照</td>
-<td align="left"><code>jstack &lt;pid&gt; &gt; thread.txt</code></td>
-<td align="left">死锁（输出 <code>Found one Java-level deadlock</code>）、线程状态分布、CPU 高的线程在干什么</td>
-</tr>
-<tr>
-<td align="left"><strong>jcmd</strong></td>
-<td align="left">全能诊断（JDK 7+）</td>
-<td align="left"><code>jcmd &lt;pid&gt; help</code>；<code>jcmd &lt;pid&gt; GC.heap_dump heap.hprof</code>；<code>jcmd &lt;pid&gt; VM.flags</code>；<code>jcmd &lt;pid&gt; Thread.print</code>；<code>jcmd &lt;pid&gt; VM.native_memory</code></td>
-<td align="left">取代部分 jmap&#x2F;jstack 功能，支持 NMT（本地内存跟踪）</td>
-</tr>
-</tbody></table>
-<p><strong>CPU 飙高的定位套路</strong>（附加题）：</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">top -Hp &lt;pid&gt;        <span class="comment"># 找到占用 CPU 最高的线程的 nid（十六进制）</span></span><br><span class="line"><span class="built_in">printf</span> <span class="string">&#x27;%x\n&#x27;</span> &lt;nid&gt;  <span class="comment"># 转十六进制</span></span><br><span class="line">jstack &lt;pid&gt; | grep -A 30 <span class="string">&#x27;&lt;0x十六进制nid&gt;&#x27;</span>  <span class="comment"># 在栈里定位正在执行的代码</span></span><br></pre></td></tr></table></figure>
-
-<h4 id="MAT-JProfiler-分析-dump-文件"><a href="#MAT-JProfiler-分析-dump-文件" class="headerlink" title="MAT &#x2F; JProfiler 分析 dump 文件"></a>MAT &#x2F; JProfiler 分析 dump 文件</h4><ul>
-<li><strong>MAT（Eclipse Memory Analyzer，免费）</strong>：三步走——① <strong>Leak Suspects Report</strong>（泄漏嫌疑自动报告）；② <strong>Dominator Tree</strong>（支配树：按”保留堆大小”排序，找出真正占内存的大头）；③ <strong>Path to GC Roots</strong>（从嫌疑对象出发，反向追踪”为什么它没被回收”的完整引用链，直达泄漏根因）。</li>
-<li><strong>JProfiler（商业）</strong>：实时内存&#x2F;CPU&#x2F;线程监控 + 堆快照分析，功能全但收费，面试提”能实时观察对象分配速率”即可。</li>
-<li><strong>VisualVM &#x2F; jconsole</strong>：JDK 自带图形工具，可在线看堆&#x2F;线程、触发 dump。</li>
-<li><strong>jhat</strong>：JDK 11 已移除，别再用。</li>
-</ul>
-<h4 id="Arthas-在线诊断"><a href="#Arthas-在线诊断" class="headerlink" title="Arthas 在线诊断"></a>Arthas 在线诊断</h4><table>
-<thead>
-<tr>
-<th align="left">命令</th>
-<th align="left">场景</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left"><code>dashboard</code></td>
-<td align="left">大盘：线程、内存、GC 实时面板</td>
-</tr>
-<tr>
-<td align="left"><code>thread -n 3</code></td>
-<td align="left">找出 CPU 占用最高的 3 个线程及栈</td>
-</tr>
-<tr>
-<td align="left"><code>thread -b</code></td>
-<td align="left">定位阻塞其他线程的锁（死锁排查）</td>
-</tr>
-<tr>
-<td align="left"><code>heapdump /tmp/heap.hprof</code></td>
-<td align="left">在线导出堆快照</td>
-</tr>
-<tr>
-<td align="left"><code>vmtool --action getInstances --className com.xx.Cache</code></td>
-<td align="left">在线数出某个类的<strong>存活实例数</strong>——实例数远超预期 &#x3D; 泄漏实锤</td>
-</tr>
-<tr>
-<td align="left"><code>ognl</code> &#x2F; <code>jad</code></td>
-<td align="left">在线执行表达式 &#x2F; 反编译确认代码</td>
-</tr>
-<tr>
-<td align="left"><code>profiler start</code>（内置 async-profiler）</td>
-<td align="left">采样 CPU &#x2F; 分配火焰图</td>
-</tr>
-</tbody></table>
-<p><strong>面试怎么答</strong>：说清”三件套”分工——<strong>jstat 看趋势、jmap 看对象、jstack 看线程</strong>，外加 jcmd 兜底；分析 dump 按 MAT 三步（Leak Suspects → Dominator Tree → Path to GC Roots）；再补一句”生产环境用 Arthas 在线看，不用重启”，工具题就稳了。</p>
-<h3 id="5-3-实战：一个完整的-OOM-排查流程"><a href="#5-3-实战：一个完整的-OOM-排查流程" class="headerlink" title="5.3 实战：一个完整的 OOM 排查流程"></a>5.3 实战：一个完整的 OOM 排查流程</h3><p><strong>故事背景</strong>：某电商订单服务的 JVM 内存告警 “Heap usage &gt; 90%”，每 3 天左右 OOM 重启一次，重启后能撑几天再复发。这是典型的<strong>内存泄漏</strong>（而不是一次性分配过大）——真 OOM 往往几小时内就挂，能”撑几天”说明垃圾回收节节败退。</p>
-<p><strong>第一步：识别症状，确认是泄漏而非压力过大</strong></p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">jstat -gcutil &lt;pid&gt; 5000</span><br><span class="line"><span class="comment"># S0 S1 E O M CCS YGC YGCT FGC FGCT GCT</span></span><br><span class="line"><span class="comment"># 0.00 0.00 85.23 88.31 ... 1200 45.2 3 120.5 165.7</span></span><br></pre></td></tr></table></figure>
-
-<p>观察要点：<strong>Full GC 后老年代占用（O 列）几乎不回落</strong>，FGC 次数和 FGCT 持续上升——回收不掉的东西在持续堆积，这就是泄漏特征。如果是”压力大”，Full GC 后 O 列会明显回落。</p>
-<p><strong>第二步：为 OOM 现场预埋 dump 开关（下次 OOM 自动留证据）</strong></p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">java -Xms128m -Xmx128m \</span><br><span class="line">     -XX:+HeapDumpOnOutOfMemoryError \</span><br><span class="line">     -XX:HeapDumpPath=/logs/heapdump \</span><br><span class="line">     -XX:+UseG1GC \</span><br><span class="line">     -jar MemoryLeakSimulator.jar</span><br></pre></td></tr></table></figure>
-
-<p>生产上正是靠 <code>-XX:+HeapDumpOnOutOfMemoryError</code> 在 OOM 瞬间保存现场，否则进程一挂，什么都查不了。</p>
-<p><strong>第三步：复现现场——运行模拟程序（静态缓存无限增长，增强版）</strong></p>
-<p>以下程序模拟了真实的泄漏场景：<strong>静态 Map 缓存 + 定时加载线程 + 无过期&#x2F;容量上限</strong>，每秒写入约 5MB 用户数据。增强点：加入缓存访问模式、缓存容量统计、以及修复版对比。</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> java.util.*;</span><br><span class="line"><span class="keyword">import</span> java.util.concurrent.*;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">MemoryLeakSimulator</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 静态缓存Map - 典型的内存泄漏根源：生命周期与 JVM 相同，永远不会被回收</span></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> Map&lt;Long, UserProfile&gt; USER_CACHE = <span class="keyword">new</span> <span class="title class_">ConcurrentHashMap</span>&lt;&gt;();</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 模拟后台缓存加载线程池</span></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> <span class="type">ScheduledExecutorService</span> <span class="variable">executor</span> <span class="operator">=</span> Executors.newScheduledThreadPool(<span class="number">2</span>);</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> &#123;</span><br><span class="line">        System.out.println(<span class="string">&quot;===== 内存泄漏模拟程序启动 =====&quot;</span>);</span><br><span class="line"></span><br><span class="line">        <span class="comment">// 1. 定时任务：每秒添加 100 个用户（每个 50KB）到缓存</span></span><br><span class="line">        executor.scheduleAtFixedRate(() -&gt; loadUsersToCache(), <span class="number">0</span>, <span class="number">1</span>, TimeUnit.SECONDS);</span><br><span class="line"></span><br><span class="line">        <span class="comment">// 2. 模拟访问缓存（每 300ms 遍历一次，更新对象字段，增加引用链复杂度）</span></span><br><span class="line">        executor.scheduleAtFixedRate(() -&gt; accessCache(), <span class="number">0</span>, <span class="number">300</span>, TimeUnit.MILLISECONDS);</span><br><span class="line"></span><br><span class="line">        <span class="comment">// 3. JVM 关闭钩子（资源清理）</span></span><br><span class="line">        Runtime.getRuntime().addShutdownHook(<span class="keyword">new</span> <span class="title class_">Thread</span>(() -&gt; &#123;</span><br><span class="line">            executor.shutdown();</span><br><span class="line">            System.out.println(<span class="string">&quot;===== 程序关闭 =====&quot;</span>);</span><br><span class="line">        &#125;));</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 模拟用户数据加载到缓存</span></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">loadUsersToCache</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; <span class="number">100</span>; i++) &#123;</span><br><span class="line">            <span class="type">long</span> <span class="variable">userId</span> <span class="operator">=</span> System.nanoTime(); <span class="comment">// 时间戳模拟用户ID</span></span><br><span class="line">            USER_CACHE.put(userId, <span class="keyword">new</span> <span class="title class_">UserProfile</span>(</span><br><span class="line">                    userId,</span><br><span class="line">                    <span class="string">&quot;user-&quot;</span> + UUID.randomUUID(),</span><br><span class="line">                    <span class="keyword">new</span> <span class="title class_">byte</span>[<span class="number">1024</span> * <span class="number">50</span>] <span class="comment">// 每个用户 50KB（模拟用户头像、附件等）</span></span><br><span class="line">            ));</span><br><span class="line">        &#125;</span><br><span class="line">        System.out.printf(<span class="string">&quot;【缓存加载】当前缓存用户数: %,d 占用内存: ≈%,dMB (老年代压力持续上升)\n&quot;</span>,</span><br><span class="line">                USER_CACHE.size(),</span><br><span class="line">                (USER_CACHE.size() * <span class="number">50</span>) / <span class="number">1024</span></span><br><span class="line">        );</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 模拟缓存访问（业务处理，只更新少量对象，不删除）</span></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">accessCache</span><span class="params">()</span> &#123;</span><br><span class="line">        USER_CACHE.forEach((id, profile) -&gt; &#123;</span><br><span class="line">            <span class="keyword">if</span> (id % <span class="number">100</span> == <span class="number">0</span>) &#123;</span><br><span class="line">                profile.updateLastAccessTime(); <span class="comment">// 修改字段，保持对象活跃</span></span><br><span class="line">            &#125;</span><br><span class="line">        &#125;);</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 用户信息类（内含 50KB 大对象）</span></span><br><span class="line">    <span class="keyword">static</span> <span class="keyword">class</span> <span class="title class_">UserProfile</span> &#123;</span><br><span class="line">        <span class="keyword">private</span> <span class="type">long</span> userId;</span><br><span class="line">        <span class="keyword">private</span> String userName;</span><br><span class="line">        <span class="keyword">private</span> <span class="type">byte</span>[] userData;      <span class="comment">// 大对象，模拟用户上传数据</span></span><br><span class="line">        <span class="keyword">private</span> <span class="type">long</span> lastAccessTime;</span><br><span class="line"></span><br><span class="line">        <span class="keyword">public</span> <span class="title function_">UserProfile</span><span class="params">(<span class="type">long</span> userId, String userName, <span class="type">byte</span>[] userData)</span> &#123;</span><br><span class="line">            <span class="built_in">this</span>.userId = userId;</span><br><span class="line">            <span class="built_in">this</span>.userName = userName;</span><br><span class="line">            <span class="built_in">this</span>.userData = userData;</span><br><span class="line">            <span class="built_in">this</span>.lastAccessTime = System.currentTimeMillis();</span><br><span class="line">        &#125;</span><br><span class="line"></span><br><span class="line">        <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">updateLastAccessTime</span><span class="params">()</span> &#123;</span><br><span class="line">            <span class="built_in">this</span>.lastAccessTime = System.currentTimeMillis();</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>预期输出（复现成功，拿到 dump）</strong>：</p>
-<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">===== 内存泄漏模拟程序启动 =====</span><br><span class="line">【缓存加载】当前缓存用户数: 100 占用内存: ≈4MB</span><br><span class="line">【缓存加载】当前缓存用户数: 200 占用内存: ≈9MB</span><br><span class="line">...</span><br><span class="line">【缓存加载】当前缓存用户数: 2,300 占用内存: ≈112MB</span><br><span class="line">[GC (Allocation Failure) [PSYoungGen: ...] ...]</span><br><span class="line">[Full GC (Ergonomics) ...]   ← 回收后老年代占用依旧高位</span><br><span class="line">【缓存加载】当前缓存用户数: 2,600 占用内存: ≈127MB</span><br><span class="line">java.lang.OutOfMemoryError: Java heap space</span><br><span class="line">Dumping heap to /logs/heapdump/java_pid12345.hprof ...</span><br><span class="line">Heap dump file created [134217728 bytes in 3.5 secs]</span><br></pre></td></tr></table></figure>
-
-<p><strong>第四步：用 MAT 分析 dump（Leak Suspects → Dominator Tree → Path to GC Roots）</strong></p>
-<ol>
-<li>打开 <code>java_pid12345.hprof</code>，执行 <strong>Leak Suspects Report</strong>：<ul>
-<li>报告提示：一个 <code>java.util.concurrent.ConcurrentHashMap</code> 实例保留了 &gt;90% 的堆内存，被一个 <code>static</code> 字段持有；</li>
-</ul>
-</li>
-<li>查看 <strong>Dominator Tree</strong>（支配树）：<ul>
-<li>排名第一：<code>java.util.concurrent.ConcurrentHashMap$Node[]</code>（约 118MB）；</li>
-<li>顺着它看到 <code>MemoryLeakSimulator.USER_CACHE</code>——<strong>一个静态集合持有所有用户数据</strong>；</li>
-</ul>
-</li>
-<li>右键选择 <strong>Path to GC Roots → exclude weak references</strong>：<ul>
-<li>引用链为：<code>USER_CACHE (static) → ConcurrentHashMap$Node → UserProfile → byte[51200]</code>；</li>
-<li>结论：<strong>GC Roots 里的 static 变量把缓存死死拽住，没有任何释放路径</strong>。</li>
-</ul>
-</li>
-</ol>
-<p><strong>第五步：根因定位与代码审计</strong>（对照真实场景）</p>
-<table>
-<thead>
-<tr>
-<th align="left">泄漏类型</th>
-<th align="left">代码证据</th>
-<th align="left">对应真实场景</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">集合类泄漏</td>
-<td align="left"><code>static Map</code> 缓存无容量上限、无过期清理</td>
-<td align="left">用户会话缓存未设 TTL、上传文件缓存未清理</td>
-</tr>
-<tr>
-<td align="left">线程局部变量泄漏</td>
-<td align="left"><code>ThreadLocal</code> 用完未 <code>remove()</code></td>
-<td align="left">线程池中 ThreadLocal 值对象累积</td>
-</tr>
-<tr>
-<td align="left">未关闭资源</td>
-<td align="left">文件流 &#x2F; 数据库连接未关闭</td>
-<td align="left">Finalizer 队列堆积</td>
-</tr>
-<tr>
-<td align="left">监听器未注销</td>
-<td align="left">注册后未移除</td>
-<td align="left">监听器对象持有外部引用</td>
-</tr>
-<tr>
-<td align="left">元空间泄漏</td>
-<td align="left">动态生成类（CGLIB &#x2F; 热部署）</td>
-<td align="left">Metaspace 使用量持续增长</td>
-</tr>
-</tbody></table>
-<p><strong>第六步：修复（两个方向：加淘汰策略 &#x2F; 换弱引用）</strong></p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 方案 A：带容量上限与过期策略的缓存（推荐，Guava Cache）</span></span><br><span class="line"><span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> Cache&lt;Long, UserProfile&gt; USER_CACHE = CacheBuilder.newBuilder()</span><br><span class="line">        .maximumSize(<span class="number">1000</span>)                          <span class="comment">// 容量上限，超限按 LRU 淘汰</span></span><br><span class="line">        .expireAfterAccess(<span class="number">10</span>, TimeUnit.MINUTES)    <span class="comment">// 10 分钟无访问即过期</span></span><br><span class="line">        .build();</span><br><span class="line"></span><br><span class="line"><span class="comment">// 方案 B：弱引用缓存（内存紧张时由 GC 自动回收，不保证回收时机）</span></span><br><span class="line"><span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> Map&lt;Long, WeakReference&lt;UserProfile&gt;&gt; USER_CACHE =</span><br><span class="line">        Collections.synchronizedMap(<span class="keyword">new</span> <span class="title class_">HashMap</span>&lt;&gt;());</span><br><span class="line"></span><br><span class="line"><span class="comment">// 通用纪律：</span></span><br><span class="line"><span class="comment">// 1. ThreadLocal 使用后必须 remove()（尤其是线程池线程）</span></span><br><span class="line"><span class="comment">// 2. 流/连接一律 try-with-resources</span></span><br><span class="line"><span class="comment">// 3. 静态集合必须有容量上限或淘汰策略</span></span><br></pre></td></tr></table></figure>
-
-<p><strong>第七步：验证修复</strong>：同样参数运行，观察 jstat 的 O 列（老年代占用）稳定在低位、FGC 不再增长、运行时间超过原崩溃点。</p>
-<p><strong>排查小抄（面试可背的完整流程）</strong>：</p>
-<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">1. 症状确认：jstat -gcutil 观察 FGC/FGCT 只涨不降 → 泄漏（而非压力）</span><br><span class="line">2. 现场保留：-XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=... （OOM 自动 dump）</span><br><span class="line">3. 复现：小堆参数跑压测/模拟程序，拿到 hprof 文件</span><br><span class="line">4. 分析：MAT 三步——Leak Suspects → Dominator Tree → Path to GC Roots</span><br><span class="line">5. 根因：顺着引用链找到&quot;不该被 GC Roots 持有却持有的地方&quot;（static 集合/ThreadLocal/未关闭资源）</span><br><span class="line">6. 修复：容量上限 + 过期策略 / 弱引用 / remove() / try-with-resources</span><br><span class="line">7. 验证：修复后同样时长，老年代占用曲线平稳、FGC 不增长</span><br></pre></td></tr></table></figure>
-
-<p><strong>面试怎么答</strong>：按七步讲完整个故事，重点不是工具，而是<strong>推理链</strong>——“Full GC 后堆不回落 → 有东西被长期持有 → dump → 引用链指向 static 集合 → 加淘汰策略”。能把”为什么能撑几天才挂”解释成”泄漏速度与堆大小的赛跑”，比背命令更打动人。</p>
-<h2 id="6-性能指标与调优方法论"><a href="#6-性能指标与调优方法论" class="headerlink" title="6. 性能指标与调优方法论"></a>6. 性能指标与调优方法论</h2><p><strong>为什么需要了解</strong>：调优不是”把参数调得好看”，而是”让系统达到业务要求的性能”。不理解 RT&#x2F;TPS 这些指标，就没有量化目标；不会压测，就不知道系统真实容量。这一章先把”指标 → 目标 → 压测验证”的闭环补齐，第 7 章的实战案例全部建立在这套方法论上。</p>
-<h3 id="6-1-RT、TPS、QPS、并发数——四个核心指标"><a href="#6-1-RT、TPS、QPS、并发数——四个核心指标" class="headerlink" title="6.1 RT、TPS、QPS、并发数——四个核心指标"></a>6.1 RT、TPS、QPS、并发数——四个核心指标</h3><p><strong>RT（Response Time，响应时间）</strong>：一个请求从发出到收到完整响应的时间。两个要点：</p>
-<ul>
-<li><strong>看分位值而不是平均值</strong>：平均 RT 会被长尾请求严重污染——1% 的请求耗时 5s，其余 99% 只要 10ms，平均值也会被拉到 60ms 左右，完全反映不了真实体验。业界看 <strong>p95 &#x2F; p99 &#x2F; p999</strong>（95%&#x2F;99%&#x2F;99.9% 的请求分别在多少毫秒内完成），压测报告里”avg&#x3D;45ms, p99&#x3D;180ms”比”avg&#x3D;45ms”信息量大得多。</li>
-<li><strong>RT 要分段定位</strong>：全链路 RT &#x3D; 网络 + 网关 + 应用 + DB&#x2F;缓存 + 下游。调优前先用 traceId&#x2F;日志把耗时拆开，<strong>90% 的”接口慢”慢在 DB 或下游，而不是 JVM</strong>——别一上来就调 GC。</li>
-</ul>
-<p><strong>TPS（Transactions Per Second，每秒事务数）</strong>：每秒完成多少笔业务事务。强调”事务”是<strong>有业务语义的完整操作</strong>（一次下单 &#x3D; 校验 + 扣库存 + 建订单），不是单条 SQL，也不是单个 HTTP 请求。</p>
-<p><strong>QPS（Queries Per Second，每秒查询数）</strong>：每秒完成的读请求数。实践中 QPS 常被泛化为”每秒请求数”（含读含写），与 TPS 混用也没关系——面试讲清楚”<strong>TPS 强调事务完整性，QPS 强调请求吞吐</strong>“即可。</p>
-<p><strong>并发数（Concurrency）</strong>：同一时刻<strong>在途</strong>（已发出、未返回）的请求数，也就是系统同时处理的请求总数。注意它不等于”线程数”——同步模型下一个线程处理一个在途请求，异步模型下（NIO、协程）一个线程可以同时驱动多个在途请求。</p>
-<p><strong>四个指标之间的关系（Little 定律）</strong>：</p>
-<blockquote>
-<p><strong>并发数 &#x3D; TPS × RT</strong></p>
-</blockquote>
-<p>这是排队论 Little 定律的直接应用：系统每秒完成 1000 个事务、每个事务耗时 100ms，则在途请求数 &#x3D; 1000 × 0.1 &#x3D; 100。反过来可反推容量：</p>
-<table>
-<thead>
-<tr>
-<th align="left">RT</th>
-<th align="left">目标 TPS</th>
-<th align="left">需要的并发数</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">50ms</td>
-<td align="left">10,000</td>
-<td align="left">500</td>
-</tr>
-<tr>
-<td align="left">100ms</td>
-<td align="left">5,000</td>
-<td align="left">500</td>
-</tr>
-<tr>
-<td align="left">100ms</td>
-<td align="left">10,000</td>
-<td align="left">1,000</td>
-</tr>
-<tr>
-<td align="left">200ms</td>
-<td align="left">10,000</td>
-<td align="left">2,000</td>
-</tr>
-</tbody></table>
-<p>两个经典用法：</p>
-<ol>
-<li><strong>估算容量</strong>：目标 QPS 10000、压测测得 RT 100ms → 至少需要 1000 个并发槽位（线程池&#x2F;连接池的配置参考）。</li>
-<li><strong>判断瓶颈</strong>：RT 不变、TPS 不再随并发上升 → 已到系统极限；TPS 下降、RT 暴涨 → 某个环节开始排队（线程池打满、连接池耗尽、GC 停顿），<strong>要找瓶颈而不是盲目加线程</strong>。</li>
-</ol>
-<p><strong>面试怎么答</strong>：先报四个定义，再主动给出 Little 定律公式和一个换算例子（”目标 QPS 1 万、RT 100ms，并发就是 1000”），最后补一句”平均 RT 没有意义，看 p99”——公式 + 分位数意识都拿出来，这题就完整了。</p>
-<h3 id="6-2-3S-定理（Speed、Scalability、Stability）"><a href="#6-2-3S-定理（Speed、Scalability、Stability）" class="headerlink" title="6.2 3S 定理（Speed、Scalability、Stability）"></a>6.2 3S 定理（Speed、Scalability、Stability）</h3><p>性能测试的三个维度，简称 <strong>3S</strong>：</p>
-<table>
-<thead>
-<tr>
-<th align="left">维度</th>
-<th align="left">含义</th>
-<th align="left">怎么验证</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left"><strong>Speed（性能）</strong></td>
-<td align="left">单机&#x2F;单实例的处理能力：RT 与吞吐（TPS）</td>
-<td align="left">单机压测，确认 RT 分位值与最大 TPS</td>
-</tr>
-<tr>
-<td align="left"><strong>Scalability（可扩展性）</strong></td>
-<td align="left">加机器，吞吐能否近似线性增长</td>
-<td align="left">1 台 → 2 台 → 4 台压测，画吞吐增长曲线</td>
-</tr>
-<tr>
-<td align="left"><strong>Stability（稳定性）</strong></td>
-<td align="left">长时间运行（72h+）后性能不退化、资源水位稳定</td>
-<td align="left">长稳压测：观察 GC、内存、线程、连接池水位</td>
-</tr>
-</tbody></table>
-<p>三个维度有优先级：<strong>先单机性能（Speed）打底，再验证水平扩展（Scalability），最后长稳（Stability）兜底</strong>。每个维度都有一个经典翻车案例：</p>
-<ul>
-<li><strong>扩展性失败</strong>：1 台机器 TPS 1000，4 台只有 2000 而不是 4000——瓶颈在<strong>共享资源</strong>（DB 连接数、Redis 带宽、分布式锁、热点数据），这就是”加了机器没效果”的真相；</li>
-<li><strong>稳定性失败</strong>：压测 12 小时后 TPS 逐步下滑——典型是<strong>泄漏</strong>：内存泄漏（老年代持续增长）、线程池泄漏（活跃线程只增不降）、连接池泄漏（连接数涨满）。</li>
-</ul>
-<p><strong>面试怎么答</strong>：3S 三个词 + 一句话”先单机性能、再扩展性、后稳定性”，并各举一个翻车案例（加机器吞吐不翻倍 → 查共享资源；长时间压测吞吐下降 → 查泄漏），比单纯背缩写打动人。</p>
-<h3 id="6-3-梯度压测（200-→-500-→-1000-→-2000-→-5000）"><a href="#6-3-梯度压测（200-→-500-→-1000-→-2000-→-5000）" class="headerlink" title="6.3 梯度压测（200 → 500 → 1000 → 2000 → 5000）"></a>6.3 梯度压测（200 → 500 → 1000 → 2000 → 5000）</h3><p><strong>为什么用梯度</strong>：一上来直接上高并发，系统直接雪崩，什么信息都拿不到。梯度压测的意义是**找到”拐点”**——吞吐不再随并发上升、甚至开始下降的那个点，它定义了系统的真实容量。</p>
-<p><strong>标准流程</strong>：</p>
-<ol>
-<li><strong>冒烟压测</strong>：小并发（如 200）跑通链路，确认功能与监控正常；</li>
-<li><strong>梯度加压</strong>：200 → 500 → 1000 → 2000 → 5000 线程逐档施压，每档持续 3~5 分钟（让系统进入稳态），逐档记录 TPS、RT 分位、错误率；</li>
-<li><strong>找拐点</strong>：TPS 曲线从”线性上升”转为”走平或下降”的那一档就是容量上限——继续加压只会让 RT 恶化、错误率飙升；</li>
-<li><strong>资源画像</strong>：每档同步观察 CPU、内存、GC、线程池活跃线程、DB 连接池、MQ 积压，定位瓶颈环节；</li>
-<li><strong>结论输出</strong>：给出”最大支撑 TPS、对应 RT p99、瓶颈在 X”，并<strong>预留 30%~50% 余量</strong>作为生产容量目标——压测极限值直接当线上水位，一个抖动就挂了。</li>
-</ol>
-<p><strong>典型拐点场景</strong>：</p>
-<table>
-<thead>
-<tr>
-<th align="left">现象</th>
-<th align="left">瓶颈</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">TPS 走平但 RT 缓慢上升，CPU 已打满</td>
-<td align="left">计算密集：应用线程&#x2F;GC 是瓶颈</td>
-</tr>
-<tr>
-<td align="left">TPS 走平，活跃线程数打满，RT 陡增</td>
-<td align="left">同步阻塞：下游（DB&#x2F;接口）慢，线程在等</td>
-</tr>
-<tr>
-<td align="left">TPS 下降，GC 停顿变长，老年代持续上升</td>
-<td align="left">内存问题：晋升过快、泄漏</td>
-</tr>
-<tr>
-<td align="left">错误率突然升高，大量超时</td>
-<td align="left">达到某资源上限（连接池耗尽、限流阈值）</td>
-</tr>
-</tbody></table>
-<p><strong>面试怎么答</strong>：讲”梯度 + 拐点 + 余量”三件事——“从 200 逐档加到 5000，每档记录 TPS 和 RT 分位，找到吞吐拐点，按拐点值预留 30~50% 作为容量目标”，再补一句”拐点通常对应一个具体瓶颈（线程池&#x2F;连接池&#x2F;GC），压测的目的就是把它找出来”。</p>
-<h3 id="6-4-压测工具简介（JMeter-wrk-ab）"><a href="#6-4-压测工具简介（JMeter-wrk-ab）" class="headerlink" title="6.4 压测工具简介（JMeter &#x2F; wrk &#x2F; ab）"></a>6.4 压测工具简介（JMeter &#x2F; wrk &#x2F; ab）</h3><table>
-<thead>
-<tr>
-<th align="left">工具</th>
-<th align="left">特点</th>
-<th align="left">适用场景</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left"><strong>JMeter</strong></td>
-<td align="left">GUI 配置测试计划，线程组&#x2F;定时器&#x2F;断言&#x2F;聚合报告插件丰富，支持分布式压测（主控 + 多台施压机）</td>
-<td align="left">完整链路压测、接口回归、需要断言与报表的正式压测</td>
-</tr>
-<tr>
-<td align="left"><strong>wrk</strong></td>
-<td align="left">单机轻量、基于 epoll 多路复用，C 编写，施压机资源占用极低，自带 RT 分位统计（<code>--latency</code>）</td>
-<td align="left">单接口高并发快速压测（网关、单服务）</td>
-</tr>
-<tr>
-<td align="left"><strong>ab</strong>（Apache Bench）</td>
-<td align="left">最简单：<code>-n</code> 请求总数 + <code>-c</code> 并发数，一条命令出结果</td>
-<td align="left">冒烟验证、快速看个大概</td>
-</tr>
-</tbody></table>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># ab：10 万请求、1000 并发</span></span><br><span class="line">ab -n 100000 -c 1000 http://localhost:8080/api/order/list</span><br><span class="line"></span><br><span class="line"><span class="comment"># wrk：8 线程、1000 并发、压 60 秒，--latency 输出 RT 分位（含 p99）</span></span><br><span class="line">wrk -t 8 -c 1000 -d 60s --latency http://localhost:8080/api/order/list</span><br><span class="line"></span><br><span class="line"><span class="comment"># wrk 支持 lua 脚本模拟复杂请求（POST + 随机参数）</span></span><br><span class="line">wrk -t 4 -c 200 -d 60s -s post.lua http://localhost:8080/api/order/create</span><br></pre></td></tr></table></figure>
-
-<figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- post.lua：wrk 请求脚本，POST 一个固定 JSON 请求体</span></span><br><span class="line">wrk.method = <span class="string">&quot;POST&quot;</span></span><br><span class="line">wrk.headers[<span class="string">&quot;Content-Type&quot;</span>] = <span class="string">&quot;application/json&quot;</span></span><br><span class="line">wrk.body = <span class="string">&#x27;&#123;&quot;skuId&quot;:1001,&quot;qty&quot;:2&#125;&#x27;</span></span><br></pre></td></tr></table></figure>
-
-<p><strong>压测的三个纪律</strong>：</p>
-<ol>
-<li><strong>施压机与目标机分离</strong>：施压机资源不够会先把自己压垮，结果失真；并发大时用多台施压机 + JMeter 分布式；</li>
-<li><strong>并发模型要匹配</strong>：wrk&#x2F;ab 的并发是”连接并发”，JMeter 的线程组是”线程并发”，换工具换模型，数字不能直接对比；</li>
-<li><strong>压测要带真实依赖</strong>：单接口 → 核心链路（混合比例）→ 全链路，全链路必须带真实的 DB&#x2F;缓存&#x2F;下游，否则测出的容量和线上无关。</li>
-</ol>
-<p><strong>面试怎么答</strong>：三个工具各一句——“ab 冒烟、wrk 单接口高并发、JMeter 全链路带断言报表”，再强调”施压机和目标机分离、压测要带真实下游依赖”，工具题就过关了。</p>
-<h2 id="7-调优实战案例"><a href="#7-调优实战案例" class="headerlink" title="7. 调优实战案例"></a>7. 调优实战案例</h2><p><strong>为什么需要了解</strong>：前面讲的是”是什么、怎么看”，这一章讲”怎么调”。三个案例覆盖三大典型诉求——吞吐量优先（后台批处理）、响应时间优先（在线接口）、稳定性优先（死锁排查），每个案例都遵循第 6 章的方法论：<strong>先定目标 → 选收集器 → 参数微调 → 用日志和监控验证</strong>。</p>
-<h3 id="7-1-吞吐量优先案例（Parallel-Scavenge-Parallel-Old）"><a href="#7-1-吞吐量优先案例（Parallel-Scavenge-Parallel-Old）" class="headerlink" title="7.1 吞吐量优先案例（Parallel Scavenge + Parallel Old）"></a>7.1 吞吐量优先案例（Parallel Scavenge + Parallel Old）</h3><p><strong>场景描述</strong>：后台批处理服务，每天凌晨跑全量报表生成与积分批量计算，运行窗口 2 小时。业务要求：<strong>在窗口期内跑完所有任务，单位时间处理量（吞吐）越高越好</strong>；单次 GC 停顿允许达到秒级（没有人等着它）。堆内存 8G（<code>-Xms8g -Xmx8g</code>），JDK 8。</p>
-<p><strong>选型</strong>：Parallel Scavenge + Parallel Old（<code>-XX:+UseParallelGC</code>）。JDK 8 默认组合，多线程并行回收、不追求低停顿，正是”高吞吐 + 容忍停顿”场景的标准答案。依据是吞吐量公式：</p>
-<blockquote>
-<p>吞吐量 &#x3D; 用户代码运行时间 &#x2F;（用户代码运行时间 + GC 时间）<br>Parallel 的目标是<strong>让 GC 时间占比尽量小</strong>，而不是让单次停顿尽量短——这是它与 CMS&#x2F;G1 的分野。</p>
-</blockquote>
-<p><strong>关键参数</strong>：</p>
-<table>
-<thead>
-<tr>
-<th align="left">参数</th>
-<th align="left">作用</th>
-<th align="left">本案例取值</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left"><code>-XX:+UseParallelGC</code></td>
-<td align="left">选用 Parallel Scavenge + Parallel Old</td>
-<td align="left">必选</td>
-</tr>
-<tr>
-<td align="left"><code>-Xmn4g</code></td>
-<td align="left">新生代 4G（案例关键：批处理产生大量”朝生夕死”对象）</td>
-<td align="left">4g</td>
-</tr>
-<tr>
-<td align="left"><code>-XX:MaxGCPauseMillis=500</code></td>
-<td align="left">停顿目标（配合自适应策略调整堆布局）</td>
-<td align="left">500ms</td>
-</tr>
-<tr>
-<td align="left"><code>-XX:GCTimeRatio=19</code></td>
-<td align="left">吞吐目标：GC 时间占比 ≤ 1&#x2F;(1+19) &#x3D; 5%</td>
-<td align="left">19</td>
-</tr>
-</tbody></table>
-<p><strong>调优过程（GC 日志前后对比）</strong>：</p>
-<p>优化前（默认配置，新生代被自适应策略压缩到约 260M，老年代被撑到 96%+）：</p>
-<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[Full GC (Ergonomics) [PSYoungGen: 2048K-&gt;0K(267520K)] [ParOldGen: 7860000K-&gt;7859332K(8126464K)] 7862048K-&gt;7859332K(8388608K), [Metaspace: 87324K-&gt;87324K(129024K)], 3.248 secs] [Times: user=11.42 sys=0.35, real=3.25 secs]</span><br><span class="line">[Full GC (Ergonomics) [PSYoungGen: 2048K-&gt;0K(267520K)] [ParOldGen: 7859332K-&gt;7858732K(8126464K)] 7861380K-&gt;7858732K(8388608K), [Metaspace: 87324K-&gt;87324K(129024K)], 3.102 secs] [Times: user=10.98 sys=0.30, real=3.10 secs]</span><br></pre></td></tr></table></figure>
-
-<p>问题解读：<strong>Full GC 每 5 分钟一次、每次 3 秒以上，回收量却极小</strong>（老年代回收后几乎不降）——不是”垃圾多”，而是老年代里全是<strong>还活着的批处理对象</strong>。大量本应在新生代就死掉的对象因为新生代太小被<strong>过早晋升</strong>，把老年代撑满，Full GC 变成”定时打卡”，吞吐损失惨重。</p>
-<p>优化后（<code>-Xmn4g</code> 扩大新生代，<code>GCTimeRatio=19</code>）：</p>
-<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[GC (Allocation Failure) [PSYoungGen: 4194304K-&gt;471859K(4194304K)] 4448972K-&gt;726906K(8388608K), 0.183 secs] [Times: user=1.42 sys=0.05, real=0.18 secs]</span><br><span class="line">[GC (Allocation Failure) [PSYoungGen: 4194304K-&gt;466944K(4194304K)] 4319739K-&gt;721664K(8388608K), 0.179 secs] [Times: user=1.38 sys=0.06, real=0.18 secs]</span><br></pre></td></tr></table></figure>
-
-<p>解读：新生代扩到 4G 后，绝大多数临时对象<strong>死在新生代</strong>（回收后堆从 4.4G 降到 700M，老年代仅约 250M），<strong>只剩 0.18 秒的 Minor GC，Full GC 归零</strong>。总 GC 时间从”每小时约 36 秒 + 每 5 分钟一次 3 秒的 Full GC”降到”每小时约 20 秒纯 Minor GC”，报表窗口期提前 25 分钟跑完。</p>
-<p><strong>jstat 监控输出与分析</strong>：</p>
-<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"># 优化前：FGC 每 5 分钟 +1，FGCT 涨幅明显，老年代 O 列 96%+ 居高不下</span><br><span class="line">jstat -gcutil &lt;pid&gt; 5000</span><br><span class="line">  S0     S1     E      O      M    CCS     YGC    YGCT    FGC    FGCT     GCT</span><br><span class="line">  0.00   0.00  85.22 96.10 97.31 95.22    1230  45.230    12  36.210   81.440</span><br><span class="line">  0.00   0.00  88.31 96.35 97.31 95.22    1245  46.120    13  39.320   85.440</span><br><span class="line">  0.00   0.00  91.02 96.40 97.31 95.22    1260  46.900    14  42.430   89.330</span><br><span class="line"></span><br><span class="line"># 优化后：FGC 恒为 0、FGCT 不再增长，老年代 O 列稳定在 40% 上下</span><br><span class="line">jstat -gcutil &lt;pid&gt; 5000</span><br><span class="line">  S0     S1     E      O      M    CCS     YGC    YGCT    FGC    FGCT     GCT</span><br><span class="line">  0.00   0.00  45.32 38.12 97.30 95.20    1350  46.300     0  0.000    46.300</span><br><span class="line">  0.00   0.00  52.10 40.03 97.30 95.20    1380  47.100     0  0.000    47.100</span><br><span class="line">  0.00   0.00  60.77 42.55 97.30 95.20    1410  47.900     0  0.000    47.900</span><br></pre></td></tr></table></figure>
-
-<p>分析要点：优化后 <strong>FGC 列恒为 0、FGCT 不再增长</strong>，O 列稳定在 40% 上下——晋升速度与处理速度匹配，系统进入良性循环。<strong>FGCT 只涨不降 + O 列居高不下，永远是 Full GC 问题的第一诊断信号</strong>（呼应第 6 章的泄漏排查）。</p>
-<p><strong>小结</strong>：吞吐优先场景三板斧——① 选 Parallel 系；② 把新生代调大，让”朝生夕死”的对象死在新生代；③ 用 <code>GCTimeRatio</code> 明确吞吐目标。<strong>判断吞吐调优是否成功，看 FGCT 增速和窗口期总时长，而不是看单次停顿</strong>。</p>
-<h3 id="7-2-响应时间优先案例（G1）"><a href="#7-2-响应时间优先案例（G1）" class="headerlink" title="7.2 响应时间优先案例（G1）"></a>7.2 响应时间优先案例（G1）</h3><p><strong>场景描述</strong>：交易查询接口服务，对外 SLA 是 <strong>p99 &lt; 500ms</strong>。流量 24 小时持续，峰值 3000 QPS，堆 8G。业务要求：任何请求都不能被长 GC 停顿”惩罚”——接口超时的直接损失是上游重试和用户流失。</p>
-<p><strong>选型</strong>：G1（<code>-XX:+UseG1GC</code>）。理由：可预测停顿模型（Region 增量回收 + 停顿目标），用”吞吐略降”换”停顿可控”，正对响应时间敏感的在线服务。JDK 9+ 默认即 G1，JDK 8 需显式开启。</p>
-<p><strong>关键参数</strong>：</p>
-<table>
-<thead>
-<tr>
-<th align="left">参数</th>
-<th align="left">作用</th>
-<th align="left">本案例取值</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left"><code>-XX:+UseG1GC</code></td>
-<td align="left">启用 G1</td>
-<td align="left">必选</td>
-</tr>
-<tr>
-<td align="left"><code>-XX:MaxGCPauseMillis=200</code></td>
-<td align="left">停顿目标：单次 GC 尽量 ≤ 200ms</td>
-<td align="left">200</td>
-</tr>
-<tr>
-<td align="left"><code>-XX:InitiatingHeapOccupancyPercent=45</code></td>
-<td align="left">堆使用率达 45% 即启动并发标记（为 Mixed GC 备料）</td>
-<td align="left">45</td>
-</tr>
-<tr>
-<td align="left"><code>-XX:G1HeapRegionSize</code></td>
-<td align="left">Region 大小（默认自动；大对象多时可显式设 8m&#x2F;16m）</td>
-<td align="left">自动</td>
-</tr>
-</tbody></table>
-<p><strong>调优过程（Parallel → G1 的 GC 暂停时间对比）</strong>：</p>
-<table>
-<thead>
-<tr>
-<th align="left">指标</th>
-<th align="left">优化前（Parallel + Parallel Old）</th>
-<th align="left">优化后（G1）</th>
-</tr>
-</thead>
-<tbody><tr>
-<td align="left">单次 Young GC</td>
-<td align="left">~80ms</td>
-<td align="left">~50ms</td>
-</tr>
-<tr>
-<td align="left">偶发 Full GC</td>
-<td align="left">每 2<del>3 天一次，**2</del>5 秒**，期间接口集体超时</td>
-<td align="left">无（Mixed GC 兜底，峰值 ~180ms）</td>
-</tr>
-<tr>
-<td align="left">p99 RT</td>
-<td align="left">峰值时段 800ms~1.2s（被 Full GC 污染）</td>
-<td align="left">稳定 &lt; 300ms</td>
-</tr>
-<tr>
-<td align="left">接口超时率</td>
-<td align="left">峰值时段 0.5%~1%</td>
-<td align="left">&lt; 0.01%</td>
-</tr>
-</tbody></table>
-<p><strong>为什么 G1 能把停顿压住</strong>：Full GC 是 G1 的灾难（单线程标记-整理），正常的 GC 压力被拆成 <strong>Young GC + Mixed GC</strong> 两路消化——Young GC 只回收 Eden&#x2F;Survivor Region（快）；Mixed GC 每次只挑”垃圾占比最高的一批老年代 Region”（<code>-XX:G1MixedGCLiveThresholdPercent</code> 控制），把一次大停顿拆成多次小停顿。<code>InitiatingHeapOccupancyPercent=45</code> 意味着堆用到 45% 就开始并发标记、提前为 Mixed GC 备好料，避免堆被撑满后被迫 Full GC。</p>
-<p><strong>G1 调优的两个观察点</strong>：</p>
-<ol>
-<li><strong>看停顿分布</strong>（GC 日志 <code>-Xlog:gc*</code>）：停顿是否逼近 <code>MaxGCPauseMillis</code>；Young GC 停顿超标，说明 Eden Region 太多（调小 <code>-XX:G1NewSizePercent</code>）或晋升量大、复制耗时大；</li>
-<li><strong>看 Mixed GC 周期</strong>：GC 日志出现频繁的 <code>to-space exhausted</code>（复制目标空间不足）或 <code>Evacuation Failure</code>，说明回收速度赶不上分配速度——调高 <code>InitiatingHeapOccupancyPercent</code> 提前启动标记，或调大堆。</li>
-</ol>
-<p><strong>小结</strong>：响应时间优先场景三板斧——① 选 G1；② <code>MaxGCPauseMillis</code> 定停顿目标；③ <code>InitiatingHeapOccupancyPercent</code> 提前备料，让 GC 压力”日常消化”，不给 Full GC 登场的机会。<strong>切换收集器后必须用日志验证停顿分布，不是切了就完事</strong>。</p>
-<h3 id="7-3-死锁排查完整案例（jstack-Arthas）"><a href="#7-3-死锁排查完整案例（jstack-Arthas）" class="headerlink" title="7.3 死锁排查完整案例（jstack + Arthas）"></a>7.3 死锁排查完整案例（jstack + Arthas）</h3><p><strong>场景描述</strong>：订单服务线上偶发”部分请求永久卡死”——不超时、不报错，每个卡死的请求占用一个线程且不释放，线程数只涨不降，最终打满线程池导致服务不可用。重启恢复，几小时后复发。经典死锁特征：<strong>请求不是变慢，而是永远等不到</strong>。</p>
-<p><strong>第一步：构造死锁 demo（复现现场）</strong></p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">DeadlockDemo</span> &#123;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> <span class="type">Object</span> <span class="variable">LOCK_ORDER</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">Object</span>();   <span class="comment">// 订单锁</span></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> <span class="type">Object</span> <span class="variable">LOCK_PAY</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">Object</span>();     <span class="comment">// 支付锁</span></span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> &#123;</span><br><span class="line">        <span class="comment">// 线程 A：持订单锁，等支付锁</span></span><br><span class="line">        <span class="keyword">new</span> <span class="title class_">Thread</span>(() -&gt; &#123;</span><br><span class="line">            <span class="keyword">synchronized</span> (LOCK_ORDER) &#123;</span><br><span class="line">                System.out.println(<span class="string">&quot;thread-A 持有 订单锁，等待 支付锁...&quot;</span>);</span><br><span class="line">                sleep(<span class="number">100</span>);   <span class="comment">// 放大竞争窗口，让死锁必现</span></span><br><span class="line">                <span class="keyword">synchronized</span> (LOCK_PAY) &#123;</span><br><span class="line">                    System.out.println(<span class="string">&quot;thread-A 拿到 支付锁&quot;</span>);</span><br><span class="line">                &#125;</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;, <span class="string">&quot;thread-A&quot;</span>).start();</span><br><span class="line"></span><br><span class="line">        <span class="comment">// 线程 B：持支付锁，等订单锁（与 A 加锁顺序相反 → 死锁）</span></span><br><span class="line">        <span class="keyword">new</span> <span class="title class_">Thread</span>(() -&gt; &#123;</span><br><span class="line">            <span class="keyword">synchronized</span> (LOCK_PAY) &#123;</span><br><span class="line">                System.out.println(<span class="string">&quot;thread-B 持有 支付锁，等待 订单锁...&quot;</span>);</span><br><span class="line">                sleep(<span class="number">100</span>);</span><br><span class="line">                <span class="keyword">synchronized</span> (LOCK_ORDER) &#123;</span><br><span class="line">                    System.out.println(<span class="string">&quot;thread-B 拿到 订单锁&quot;</span>);</span><br><span class="line">                &#125;</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;, <span class="string">&quot;thread-B&quot;</span>).start();</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">sleep</span><span class="params">(<span class="type">long</span> ms)</span> &#123;</span><br><span class="line">        <span class="keyword">try</span> &#123; Thread.sleep(ms); &#125; <span class="keyword">catch</span> (InterruptedException e) &#123; Thread.currentThread().interrupt(); &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>第二步：第一次 jstack 采样</strong></p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">jstack &lt;pid&gt; &gt; dump1.txt</span><br></pre></td></tr></table></figure>
-
-<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line">Found one Java-level deadlock:</span><br><span class="line">=============================</span><br><span class="line">&quot;thread-A&quot;:</span><br><span class="line">  waiting to lock monitor 0x00007fbe7c02d5d0 (object 0x00000007abf345d8, a java.lang.Object),</span><br><span class="line">  which is held by &quot;thread-B&quot;</span><br><span class="line">&quot;thread-B&quot;:</span><br><span class="line">  waiting to lock monitor 0x00007fbe7c02d5c0 (object 0x00000007abf345c8, a java.lang.Object),</span><br><span class="line">  which is held by &quot;thread-A&quot;</span><br><span class="line"></span><br><span class="line">Java stack information for the threads listed above:</span><br><span class="line">===================================================</span><br><span class="line">&quot;thread-A&quot;:</span><br><span class="line">        at DeadlockDemo.lambda$main$1(DeadlockDemo.java:11)</span><br><span class="line">        - waiting to lock &lt;0x00000007abf345d8&gt; (a java.lang.Object)</span><br><span class="line">        - locked &lt;0x00000007abf345c8&gt; (a java.lang.Object)</span><br><span class="line">&quot;thread-B&quot;:</span><br><span class="line">        at DeadlockDemo.lambda$main$2(DeadlockDemo.java:22)</span><br><span class="line">        - waiting to lock &lt;0x00000007abf345c8&gt; (a java.lang.Object)</span><br><span class="line">        - locked &lt;0x00000007abf345d8&gt; (a java.lang.Object)</span><br></pre></td></tr></table></figure>
-
-<p><strong>解读 “Found one Java-level deadlock”<strong>：jstack 会遍历所有线程的 monitor 持有&#x2F;等待关系，</strong>自动发现锁等待环</strong>（A 等的锁被 B 持有、B 等的锁被 A 持有）并直接打印死锁链。看到这段输出就是死锁实锤。两个关键信息：</p>
-<ul>
-<li><code>waiting to lock &lt;对象地址&gt;</code> 与 <code>locked &lt;对象地址&gt;</code>：每个线程在等哪把锁、持有哪把锁，环一眼画出来；</li>
-<li>栈顶方法（<code>DeadlockDemo.java:11</code> &#x2F; <code>:22</code>）：死锁发生在哪两行代码，直接定位到业务代码。</li>
-</ul>
-<p><strong>第三步：第二次 jstack 采样（对比确认）</strong></p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">sleep</span> 30   <span class="comment"># 间隔 30 秒</span></span><br><span class="line">jstack &lt;pid&gt; &gt; dump2.txt</span><br></pre></td></tr></table></figure>
-
-<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">Found one Java-level deadlock:</span><br><span class="line">=============================</span><br><span class="line">&quot;thread-A&quot;:</span><br><span class="line">  waiting to lock monitor 0x00007fbe7c02d5d0 (object 0x00000007abf345d8, a java.lang.Object),</span><br><span class="line">  which is held by &quot;thread-B&quot;</span><br><span class="line">&quot;thread-B&quot;:</span><br><span class="line">  waiting to lock monitor 0x00007fbe7c02d5c0 (object 0x00000007abf345c8, a java.lang.Object),</span><br><span class="line">  which is held by &quot;thread-A&quot;</span><br></pre></td></tr></table></figure>
-
-<p><strong>为什么必须采两次</strong>：单次采样只能说明”此刻有两个线程在互相等待”——也许是瞬时竞争，下一秒就结束了。<strong>死锁是持久的</strong>：30 秒后再次采样，同一对线程<strong>还阻塞在同一对锁上、栈顶方法完全一样</strong>，才能确认是死锁而不是偶发阻塞。对比两份 dump 重点看三点：① 线程名一致；② 锁对象地址一致；③ 栈顶方法一致。</p>
-<p><strong>第四步：Arthas <code>thread -b</code> 确认</strong></p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 生产环境优先用 Arthas：无需 sudo、无需重启</span></span><br><span class="line">$ thread -b</span><br><span class="line"><span class="string">&quot;thread-A&quot;</span> Id=12 BLOCKED on java.lang.Object@7abf345d8</span><br><span class="line">    at DeadlockDemo.lambda$main<span class="variable">$1</span>(DeadlockDemo.java:11)</span><br><span class="line">    -  blocked on java.lang.Object@7abf345d8</span><br><span class="line">    -  locked java.lang.Object@7abf345c8</span><br><span class="line"></span><br><span class="line"><span class="string">&quot;thread-B&quot;</span> Id=13 BLOCKED on java.lang.Object@7abf345c8</span><br><span class="line">    at DeadlockDemo.lambda$main<span class="variable">$2</span>(DeadlockDemo.java:22)</span><br><span class="line">    -  blocked on java.lang.Object@7abf345c8</span><br><span class="line">    -  locked java.lang.Object@7abf345d8</span><br></pre></td></tr></table></figure>
-
-<p><code>thread -b</code>（blocked thread）直接找出<strong>阻塞其他线程的锁与持有者</strong>，一条命令定位死锁环；配合 <code>dashboard</code> 能看到两个线程 <code>BLOCKED</code> 状态卡死不动。</p>
-<p><strong>局限提醒</strong>：jstack 的自动死锁检测只覆盖 <strong>synchronized monitor</strong>。用 ReentrantLock 等 AQS 锁导致的死锁，线程状态是 <code>WAITING (parking)</code> 而不是 <code>BLOCKED</code>，jstack 通常<strong>不会</strong>打印 “Found one Java-level deadlock”——这时靠两次采样对比（同一批线程长期 <code>WAITING</code>）+ Arthas <code>thread -b</code>（它会分析 <code>java.util.concurrent</code> 的锁等待关系）来定位。</p>
-<p><strong>第五步：修复方案</strong></p>
-<p>死锁的根治方向是<strong>消除锁等待环</strong>，三个方案按推荐度排序：</p>
-<p><strong>方案一：统一锁获取顺序</strong>（最推荐，根因修复）——所有线程按同一顺序加锁，环不存在：</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 修复：约定任何线程都先拿 LOCK_ORDER、再拿 LOCK_PAY——等待环不存在，死锁不可能发生</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">FixedDemo</span> &#123;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> <span class="type">Object</span> <span class="variable">LOCK_ORDER</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">Object</span>();</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> <span class="type">Object</span> <span class="variable">LOCK_PAY</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">Object</span>();</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> &#123;</span><br><span class="line">        <span class="type">Runnable</span> <span class="variable">task</span> <span class="operator">=</span> () -&gt; &#123;                       <span class="comment">// 两个线程共用同一套加锁顺序</span></span><br><span class="line">            <span class="keyword">synchronized</span> (LOCK_ORDER) &#123;               <span class="comment">// 先订单锁</span></span><br><span class="line">                sleep(<span class="number">100</span>);</span><br><span class="line">                <span class="keyword">synchronized</span> (LOCK_PAY) &#123;             <span class="comment">// 再支付锁</span></span><br><span class="line">                    System.out.println(Thread.currentThread().getName() + <span class="string">&quot; 完成任务&quot;</span>);</span><br><span class="line">                &#125;</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;;</span><br><span class="line">        <span class="keyword">new</span> <span class="title class_">Thread</span>(task, <span class="string">&quot;thread-A&quot;</span>).start();</span><br><span class="line">        <span class="keyword">new</span> <span class="title class_">Thread</span>(task, <span class="string">&quot;thread-B&quot;</span>).start();</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">sleep</span><span class="params">(<span class="type">long</span> ms)</span> &#123;</span><br><span class="line">        <span class="keyword">try</span> &#123; Thread.sleep(ms); &#125; <span class="keyword">catch</span> (InterruptedException e) &#123; Thread.currentThread().interrupt(); &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>方案二：tryLock 超时放弃</strong>（无法统一顺序时的兜底）——用 ReentrantLock 替换 synchronized，拿不到锁就放弃而不是无限等待：</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">ReentrantLock</span> <span class="variable">lockA</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ReentrantLock</span>();</span><br><span class="line"><span class="type">ReentrantLock</span> <span class="variable">lockB</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ReentrantLock</span>();</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">biz</span><span class="params">()</span> &#123;</span><br><span class="line">    <span class="keyword">if</span> (lockA.tryLock()) &#123;                           <span class="comment">// 第一把锁：拿不到立刻放弃</span></span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            <span class="keyword">try</span> &#123;</span><br><span class="line">                <span class="keyword">if</span> (lockB.tryLock(<span class="number">2</span>, TimeUnit.SECONDS)) &#123;   <span class="comment">// 第二把锁：2 秒超时</span></span><br><span class="line">                    <span class="keyword">try</span> &#123; <span class="comment">/* 业务操作 */</span> &#125;</span><br><span class="line">                    <span class="keyword">finally</span> &#123; lockB.unlock(); &#125;</span><br><span class="line">                &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">                    System.out.println(<span class="string">&quot;拿不到 lockB，放弃本次操作（可重试/降级）&quot;</span>);</span><br><span class="line">                &#125;</span><br><span class="line">            &#125; <span class="keyword">catch</span> (InterruptedException e) &#123;</span><br><span class="line">                Thread.currentThread().interrupt();</span><br><span class="line">            &#125;</span><br><span class="line">        &#125; <span class="keyword">finally</span> &#123;</span><br><span class="line">            lockA.unlock();</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>方案三：消除嵌套锁</strong>（结构性修复）——检查两个锁保护的临界区是否真的需要嵌套：能合并成一把锁就合并，能用 CAS&#x2F;原子类就无锁化，别让加锁顺序成为业务代码的隐性契约。</p>
-<p><strong>排查小抄（面试可背）</strong>：</p>
-<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">1. 症状：请求永久卡死不超时、线程数只涨不降 → 怀疑死锁</span><br><span class="line">2. 第一次 jstack 采样，看是否有 &quot;Found one Java-level deadlock&quot;（synchronized 死锁自动检测）</span><br><span class="line">3. 间隔 30 秒第二次采样，对比同一对线程/锁/栈顶 → 持久阻塞才是死锁</span><br><span class="line">4. Arthas thread -b 确认 + dashboard 看 BLOCKED 状态</span><br><span class="line">5. AQS 锁死锁（WAITING/parking）jstack 不自动报，靠两次采样对比 + thread -b</span><br><span class="line">6. 修复：统一锁顺序 → tryLock 超时 → 消除嵌套锁，改完压测验证</span><br></pre></td></tr></table></figure>
 
       
     </div>

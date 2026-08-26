@@ -189,7 +189,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">82</span>
+          <span class="site-state-item-count">83</span>
           <span class="site-state-item-name">posts</span>
         </a>
       </div>
@@ -250,6 +250,534 @@
     </div>
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/redis-cluster-2025.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/redis-cluster-2025.html" class="post-title-link" itemprop="url">Redis 集群与高可用实战：主从、哨兵与 Cluster</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-08-13 19:00:00" itemprop="dateCreated datePublished" datetime="2026-08-13T19:00:00+08:00">2026-08-13</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/" itemprop="url" rel="index"><span itemprop="name">数据存储</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>3.1k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>11 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <p><strong>单机 Redis 能用，但「扛不住」时只有两个问题：机器挂了怎么办（高可用），数据量大了怎么办（扩容）——分别对应哨兵和 Cluster。</strong> 本文按「单机 → 主从 → 哨兵 → Cluster」的演进线讲透：主从为什么选异步复制、哨兵怎么避免误判（主观下线 vs 客观下线）、Cluster 槽位怎么路由与迁移、以及脑裂在 Redis 里怎么发生。读完你能独立搭出一套哨兵集群，并能在面试中画出主从切换的完整时序。</p>
+<blockquote>
+<p>联动：本文是 <a href="/post/bae4ff13.html">Redis 深度解析</a>（数据结构&#x2F;持久化&#x2F;缓存设计）的高可用续篇；主从复制与 <a href="/post/mysql-ha-2025.html">MySQL 高可用</a> 的主从是同一思路；哨兵选举与 <a href="/post/zookeeper-2025.html">ZooKeeper 原理与实践</a> 的选主机制呼应；脑裂防护与 <a href="/post/es-deep-2025.html">ES 原理深挖</a> 的 minimum_master_nodes 是同一个「过半」思想。</p>
+</blockquote>
+<h2 id="1-定位：演进线就是面试线"><a href="#1-定位：演进线就是面试线" class="headerlink" title="1. 定位：演进线就是面试线"></a>1. 定位：演进线就是面试线</h2><p>Redis 高可用是一个<strong>「一步步加组件」的演进过程</strong>，每个阶段解决一个问题、引入一个新概念：</p>
+<table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>解决什么</th>
+<th>关键机制</th>
+<th>代价&#x2F;限制</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>单机</td>
+<td>基本可用</td>
+<td>无</td>
+<td>单点故障、容量单机上限</td>
+</tr>
+<tr>
+<td><strong>主从</strong></td>
+<td>数据冗余 + 读扩展</td>
+<td>异步复制</td>
+<td>主挂需人工切换</td>
+</tr>
+<tr>
+<td><strong>哨兵</strong></td>
+<td>自动故障转移</td>
+<td>监控 + 选举</td>
+<td>仍是单主写（写不扩容）</td>
+</tr>
+<tr>
+<td><strong>Cluster</strong></td>
+<td>自动分片扩容</td>
+<td>槽位路由</td>
+<td>跨槽多键操作受限</td>
+</tr>
+</tbody></table>
+<p><strong>因果链：主从解决「数据不丢」和「读扛不住」→ 但切换要人工 → 哨兵自动化 → 但写仍是单点 → Cluster 分片让写也能扩容</strong>。<strong>面试答 Redis 高可用，按这条演进线讲，逻辑自动闭环</strong>。</p>
+<h2 id="2-主从复制：异步复制的真相"><a href="#2-主从复制：异步复制的真相" class="headerlink" title="2. 主从复制：异步复制的真相"></a>2. 主从复制：异步复制的真相</h2><h3 id="2-1-复制流程"><a href="#2-1-复制流程" class="headerlink" title="2.1 复制流程"></a>2.1 复制流程</h3><pre class="mermaid">sequenceDiagram
+    participant S as 从节点
+    participant M as 主节点
+    S->>M: 1. 建立连接，请求同步
+    M->>S: 2. 全量同步（RDB 快照 + 缓冲）
+    S->>S: 3. 载入 RDB，应用缓冲增量
+    Note over M,S: 此后：M 每写一条就异步推给 S（增量同步）</pre>
+
+<table>
+<thead>
+<tr>
+<th>机制</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>全量同步</td>
+<td>首次&#x2F;断连太久：主节点生成 RDB 快照传输</td>
+</tr>
+<tr>
+<td>增量同步</td>
+<td>断连短暂：repl_backlog 缓冲补发</td>
+</tr>
+<tr>
+<td>复制偏移量</td>
+<td>主从各自维护 offset，比对差异</td>
+</tr>
+</tbody></table>
+<h3 id="2-2-为什么默认异步复制（面试核心）"><a href="#2-2-为什么默认异步复制（面试核心）" class="headerlink" title="2.2 为什么默认异步复制（面试核心）"></a>2.2 为什么默认异步复制（面试核心）</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>异步复制</th>
+<th>同步复制（WAIT 命令可选）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>主节点写延迟</td>
+<td>无（写完就返回）</td>
+<td>等从节点确认</td>
+</tr>
+<tr>
+<td>一致性</td>
+<td><strong>弱一致</strong>（从节点可能短暂落后）</td>
+<td>强</td>
+</tr>
+<tr>
+<td>故障窗口</td>
+<td>主挂瞬间，未复制的数据丢失</td>
+<td>不丢（但主也写不快）</td>
+</tr>
+<tr>
+<td>生产选择</td>
+<td><strong>默认</strong>（性能优先）</td>
+<td>严格不丢数据的场景（罕见）</td>
+</tr>
+</tbody></table>
+<p><strong>因果链</strong>：Redis 定位是缓存&#x2F;高速存储，<strong>性能优先于强一致</strong>——所以默认异步。<strong>「主节点挂了丢几秒数据」是异步复制的已知代价，用「哨兵秒级切换 + 业务容忍短暂不一致」接受它</strong>（这与 <a href="/post/mysql-ha-2025.html">MySQL 半同步</a> 的选择逻辑对比着看：MySQL 数据价值高所以有半同步选项，Redis 缓存容忍丢）。</p>
+<h3 id="2-3-动手验证：主从复制与主挂现场"><a href="#2-3-动手验证：主从复制与主挂现场" class="headerlink" title="2.3 动手验证：主从复制与主挂现场"></a>2.3 动手验证：主从复制与主挂现场</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 三个容器：主 + 两从</span></span><br><span class="line">docker run -d --name redis-master -p 6379:6379 redis:7 redis-server --appendonly <span class="built_in">yes</span></span><br><span class="line">docker run -d --name redis-slave1 -p 6380:6379 redis:7 redis-server --slaveof 127.0.0.1 6379</span><br><span class="line">docker run -d --name redis-slave2 -p 6381:6379 redis:7 redis-server --slaveof 127.0.0.1 6379</span><br><span class="line"></span><br><span class="line">redis-cli -p 6379 SET k v</span><br><span class="line">redis-cli -p 6380 GET k        <span class="comment"># 从节点能读到（异步复制完成）</span></span><br><span class="line">redis-cli -p 6380 INFO replication   <span class="comment"># role:slave, master_link_status:up</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 主挂掉：从节点仍能读，但停止接受写</span></span><br><span class="line">docker stop redis-master</span><br><span class="line">redis-cli -p 6380 SET k2 v2    <span class="comment"># → 只读错误（从节点不自动升主！）</span></span><br></pre></td></tr></table></figure>
+
+<p>观察点：主挂后从节点<strong>只读拒绝写入</strong>——「主从不做自动切换，必须靠哨兵」的现场证据。判定标准：亲手确认「主从只解决读扩展与冗余，故障转移需要哨兵」，这是理解为什么需要哨兵的第一课。</p>
+<h2 id="3-哨兵：自动故障转移"><a href="#3-哨兵：自动故障转移" class="headerlink" title="3. 哨兵：自动故障转移"></a>3. 哨兵：自动故障转移</h2><h3 id="3-1-三个哨兵能力-主观-客观下线"><a href="#3-1-三个哨兵能力-主观-客观下线" class="headerlink" title="3.1 三个哨兵能力 + 主观&#x2F;客观下线"></a>3.1 三个哨兵能力 + 主观&#x2F;客观下线</h3><table>
+<thead>
+<tr>
+<th>能力</th>
+<th>机制</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>监控</strong></td>
+<td>每秒 PING 主从节点，检查存活</td>
+</tr>
+<tr>
+<td><strong>通知</strong></td>
+<td>主节点变化通知客户端</td>
+</tr>
+<tr>
+<td><strong>自动故障转移</strong></td>
+<td>主挂了：选举新主 → 通知其他从切换主</td>
+</tr>
+</tbody></table>
+<p><strong>下线判定两级</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>判定</th>
+<th>条件</th>
+<th>动作</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>主观下线（sdown）</strong></td>
+<td>单哨兵发现主节点超时（<code>down-after-milliseconds</code>）</td>
+<td>标记 sdown，<strong>开始投票</strong></td>
+</tr>
+<tr>
+<td><strong>客观下线（odown）</strong></td>
+<td>多数哨兵（quorum）都认为挂了</td>
+<td>触发故障转移</td>
+</tr>
+</tbody></table>
+<p><strong>因果链：单哨兵可能误判（网络抖动）→ 必须多数派确认才真切换 → quorum 防误判</strong>。这与 ES 脑裂防护、ZooKeeper 选主是<strong>同一个「过半」思想</strong>（<a href="/post/es-deep-2025.html">ES 原理深挖</a> 已讲过 minimum_master_nodes&#x3D;N&#x2F;2+1）。</p>
+<h3 id="3-2-故障转移的完整时序（面试必画）"><a href="#3-2-故障转移的完整时序（面试必画）" class="headerlink" title="3.2 故障转移的完整时序（面试必画）"></a>3.2 故障转移的完整时序（面试必画）</h3><pre class="mermaid">sequenceDiagram
+    participant S1 as 哨兵1
+    participant S2 as 哨兵2
+    participant S3 as 哨兵3
+    participant A as 主节点
+    participant B as 从节点B
+    S1->>S1: A 超时 → 主观下线
+    S1->>S2: 投票：A 挂了？
+    S1->>S3: 投票：A 挂了？
+    S2-->>S1: 同意
+    S3-->>S1: 同意（达到 quorum=2）
+    S1->>S1: A 客观下线 → 触发故障转移
+    S1->>B: 选 B 为新主（slaveof no one）
+    S2->>B: 其他从节点重定向到 B
+    Note over S1: 客户端感知新主地址（Sentinel 客户端订阅通知）</pre>
+
+<p><strong>选举规则</strong>（面试加分）：新主选择优先级 &#x3D; <strong>复制偏移量最大（数据最新）→ 优先级 → runId 最小</strong>——<strong>「数据最新者优先」防止选举后丢数据</strong>。</p>
+<h3 id="3-3-动手验证：模拟主挂自动切换"><a href="#3-3-动手验证：模拟主挂自动切换" class="headerlink" title="3.3 动手验证：模拟主挂自动切换"></a>3.3 动手验证：模拟主挂自动切换</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 起三个哨兵（sentinel.conf 指向主节点）</span></span><br><span class="line"><span class="keyword">for</span> i <span class="keyword">in</span> 1 2 3; <span class="keyword">do</span> docker run -d --name sentinel<span class="variable">$i</span> -p 2638<span class="variable">$i</span>:26379 redis:7 \</span><br><span class="line">  redis-sentinel /path/sentinel.conf; <span class="keyword">done</span></span><br><span class="line"><span class="comment"># sentinel.conf 核心两行：</span></span><br><span class="line"><span class="comment">#   sentinel monitor mymaster 127.0.0.1 6379 2   （quorum=2）</span></span><br><span class="line"><span class="comment">#   sentinel down-after-milliseconds mymaster 5000</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 杀主节点，观察切换</span></span><br><span class="line">docker stop redis-master</span><br><span class="line"><span class="built_in">sleep</span> 10</span><br><span class="line">redis-cli -p 26381 -c SENTINEL get-master-addr-by-name mymaster</span><br><span class="line"><span class="comment"># → 返回新主地址（从节点 B 已升主）</span></span><br></pre></td></tr></table></figure>
+
+<p>观察点：主节点停止后 5-10 秒内，<code>get-master-addr-by-name</code> 返回的不再是 6379——<strong>故障转移自动完成，无需人工</strong>。判定标准：亲手复现「主挂 → 哨兵自动选新主」，理解「哨兵把人工切换变成了自动化」。</p>
+<h3 id="3-4-哨兵的两大坑：脑裂与误切换"><a href="#3-4-哨兵的两大坑：脑裂与误切换" class="headerlink" title="3.4 哨兵的两大坑：脑裂与误切换"></a>3.4 哨兵的两大坑：脑裂与误切换</h3><table>
+<thead>
+<tr>
+<th>坑</th>
+<th>场景</th>
+<th>后果</th>
+<th>防护</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>脑裂</strong></td>
+<td>主节点网络分区（假死），哨兵选新主；老主恢复后两个主并存</td>
+<td>客户端写入分裂，老主数据丢失</td>
+<td><code>min-replicas-to-write</code>：主节点写前要求至少 N 个从节点可达，否则拒写</td>
+</tr>
+<tr>
+<td>误切换</td>
+<td>单哨兵抖动误判（quorum&#x3D;1）</td>
+<td>不必要切换、短暂不可写</td>
+<td>quorum ≥2 且哨兵数 ≥3（奇数）</td>
+</tr>
+</tbody></table>
+<p><strong>因果链：脑裂的根源是「老主不知道自己已被判死刑」——用 <code>min-replicas-to-write</code> 让老主在失去多数从节点时自动拒写</strong>，「宁可拒绝写入也不接受分裂」与 <a href="/post/dist-tx-2025.html">分布式事务</a> 的「牺牲可用性保一致性」同理。<strong>面试答 Redis 脑裂：min-replicas-to-write + 说明「老主被分区时拒写，恢复后数据不丢」</strong>。</p>
+<h2 id="4-Cluster：分片让写也能扩容"><a href="#4-Cluster：分片让写也能扩容" class="headerlink" title="4. Cluster：分片让写也能扩容"></a>4. Cluster：分片让写也能扩容</h2><h3 id="4-1-槽位路由：16384-个槽"><a href="#4-1-槽位路由：16384-个槽" class="headerlink" title="4.1 槽位路由：16384 个槽"></a>4.1 槽位路由：16384 个槽</h3><p><strong>Cluster 把 key 空间切成 16384 个槽（slot），每个节点负责一段槽</strong>：</p>
+<pre class="mermaid">flowchart LR
+    K["key"] --> H["CRC16(key) % 16384"] --> S["槽号"]
+    S --> N1["节点A: 槽 0-5460"]
+    S --> N2["节点B: 槽 5461-10922"]
+    S --> N3["节点C: 槽 10923-16383"]</pre>
+
+<table>
+<thead>
+<tr>
+<th>机制</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>路由</td>
+<td>客户端算 CRC16 找槽，槽→节点映射表（或经代理）</td>
+</tr>
+<tr>
+<td>重定向</td>
+<td>请求打到错误节点 → <code>MOVED</code>&#x2F;<code>ASK</code> 错误告知正确节点</td>
+</tr>
+<tr>
+<td>槽迁移</td>
+<td>扩容&#x2F;缩容时槽从旧节点搬到新节点（在线）</td>
+</tr>
+<tr>
+<td>副本</td>
+<td>每个节点可有从节点，主挂自动升（类哨兵，内置）</td>
+</tr>
+</tbody></table>
+<h3 id="4-2-Cluster-的限制与应对"><a href="#4-2-Cluster-的限制与应对" class="headerlink" title="4.2 Cluster 的限制与应对"></a>4.2 Cluster 的限制与应对</h3><table>
+<thead>
+<tr>
+<th>限制</th>
+<th>原因</th>
+<th>应对</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>多 key 操作受限</td>
+<td>不同 key 在不同槽&#x2F;节点</td>
+<td><strong>哈希标签（hash tag）</strong>：<code>&#123;user:1&#125;:cart</code> 强制同槽</td>
+</tr>
+<tr>
+<td>跨槽事务</td>
+<td>同上</td>
+<td>hash tag 或应用层补偿</td>
+</tr>
+<tr>
+<td>批量命令受限</td>
+<td>mget 跨节点</td>
+<td>hash tag &#x2F; 客户端分片聚合</td>
+</tr>
+</tbody></table>
+<p><strong>因果链：分片的代价是「数据分散」→ 关联数据必须「强制同槽」（hash tag）</strong>——面试答 Cluster 的坑，先说「多 key 操作受槽位限制」，再补「用 hash tag 让关联 key 同槽」就是完整答案。</p>
+<h3 id="4-3-动手验证：起一个三主三从-Cluster"><a href="#4-3-动手验证：起一个三主三从-Cluster" class="headerlink" title="4.3 动手验证：起一个三主三从 Cluster"></a>4.3 动手验证：起一个三主三从 Cluster</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 官方工具起 6 节点集群（3 主 + 3 从）</span></span><br><span class="line"><span class="keyword">for</span> p <span class="keyword">in</span> 7000 7001 7002 7003 7004 7005; <span class="keyword">do</span></span><br><span class="line">  <span class="built_in">mkdir</span> -p /tmp/redis-<span class="variable">$p</span></span><br><span class="line">  <span class="built_in">cat</span> &gt; /tmp/redis-<span class="variable">$p</span>/redis.conf &lt;&lt;<span class="string">EOF</span></span><br><span class="line"><span class="string">port $p</span></span><br><span class="line"><span class="string">cluster-enabled yes</span></span><br><span class="line"><span class="string">cluster-config-file nodes.conf</span></span><br><span class="line"><span class="string">cluster-node-timeout 5000</span></span><br><span class="line"><span class="string">appendonly yes</span></span><br><span class="line"><span class="string">EOF</span></span><br><span class="line">  docker run -d --name redis-<span class="variable">$p</span> -p <span class="variable">$p</span>:<span class="variable">$p</span> -v /tmp/redis-<span class="variable">$p</span>:/data redis:7 \</span><br><span class="line">    redis-server /data/redis.conf</span><br><span class="line"><span class="keyword">done</span></span><br><span class="line"><span class="comment"># 创建集群（--cluster-replicas 1 = 每主 1 从）</span></span><br><span class="line">redis-cli --cluster create 127.0.0.1:7000 127.0.0.1:7001 127.0.0.1:7002 \</span><br><span class="line">  127.0.0.1:7003 127.0.0.1:7004 127.0.0.1:7005 --cluster-replicas 1</span><br><span class="line"></span><br><span class="line"><span class="comment"># 集群模式读写（-c 自动跟随重定向）</span></span><br><span class="line">redis-cli -c -p 7000 SET user:1:cart <span class="string">&quot;x&quot;</span>    <span class="comment"># 自动路由到对应槽节点</span></span><br><span class="line">redis-cli -c -p 7000 CLUSTER SLOTS            <span class="comment"># 看槽位分布</span></span><br></pre></td></tr></table></figure>
+
+<p>观察点：<code>CLUSTER SLOTS</code> 显示 16384 个槽分成 3 段；<code>-c</code> 模式下 SET 自动完成路由与重定向。判定标准：亲手确认「Cluster 按槽路由、客户端无需知道槽映射」——<strong>扩容只迁移槽，不用改客户端（配合代理&#x2F;客户端集群感知）</strong>。</p>
+<h2 id="5-面试应答：Redis-高可用五连问"><a href="#5-面试应答：Redis-高可用五连问" class="headerlink" title="5. 面试应答：Redis 高可用五连问"></a>5. 面试应答：Redis 高可用五连问</h2><h3 id="5-1-完整话术"><a href="#5-1-完整话术" class="headerlink" title="5.1 完整话术"></a>5.1 完整话术</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>回答要点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>主从复制怎么工作？</td>
+<td>全量 RDB + 增量 backlog；默认异步（性能优先，容忍短暂落后）</td>
+</tr>
+<tr>
+<td>为什么异步？</td>
+<td>同步写要等从节点确认，延迟高；Redis 缓存语义接受弱一致</td>
+</tr>
+<tr>
+<td>哨兵怎么防误判？</td>
+<td>主观下线（单哨兵）→ 投票多数派 → 客观下线才切换；quorum ≥2、哨兵奇数</td>
+</tr>
+<tr>
+<td>新主怎么选？</td>
+<td>复制偏移量最大（数据最新）→ 优先级 → runId</td>
+</tr>
+<tr>
+<td>Redis 脑裂怎么防？</td>
+<td>min-replicas-to-write：老主失去多数从节点时拒写</td>
+</tr>
+<tr>
+<td>Cluster 怎么路由？</td>
+<td>CRC16(key) % 16384 定槽；MOVED&#x2F;ASK 重定向；hash tag 让关联 key 同槽</td>
+</tr>
+<tr>
+<td>什么时候用 Cluster？</td>
+<td>数据量超单机内存或写吞吐不够；否则哨兵够用</td>
+</tr>
+</tbody></table>
+<h3 id="5-2-深挖：与-MySQL-高可用的对照（跨篇联动）"><a href="#5-2-深挖：与-MySQL-高可用的对照（跨篇联动）" class="headerlink" title="5.2 深挖：与 MySQL 高可用的对照（跨篇联动）"></a>5.2 深挖：与 MySQL 高可用的对照（跨篇联动）</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>MySQL</th>
+<th>Redis</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>复制</td>
+<td>binlog 异步&#x2F;半同步（<a href="/post/mysql-ha-2025.html">MySQL 高可用</a>）</td>
+<td>RDB&#x2F;backlog 异步</td>
+</tr>
+<tr>
+<td>自动切换</td>
+<td>MHA&#x2F;Orchestrator</td>
+<td>哨兵</td>
+</tr>
+<tr>
+<td>脑裂防护</td>
+<td>半同步 + 仲裁</td>
+<td>min-replicas-to-write</td>
+</tr>
+<tr>
+<td>扩容</td>
+<td>分库分表（人工）</td>
+<td>Cluster 槽迁移（在线）</td>
+</tr>
+<tr>
+<td>数据价值</td>
+<td>高（强一致优先）</td>
+<td>缓存&#x2F;高速（性能优先）</td>
+</tr>
+</tbody></table>
+<p><strong>一句话：MySQL 与 Redis 的高可用是同构的——复制 → 自动切换 → 脑裂防护，三件套一样，差别只在「一致性 vs 性能」的权重不同</strong>。跨库对照是面试差异化亮点：<strong>「MySQL 选半同步因为数据贵，Redis 选异步因为要快，但脑裂防护思想完全一致」</strong>。</p>
+<h2 id="6-总结"><a href="#6-总结" class="headerlink" title="6. 总结"></a>6. 总结</h2><h3 id="6-1-面试速答表"><a href="#6-1-面试速答表" class="headerlink" title="6.1 面试速答表"></a>6.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>主从解决什么？</td>
+<td>数据冗余 + 读扩展；写仍是单点，主挂需切换</td>
+</tr>
+<tr>
+<td>复制方式？</td>
+<td>全量 RDB + 增量 backlog；默认异步</td>
+</tr>
+<tr>
+<td>哨兵三能力？</td>
+<td>监控、通知、自动故障转移</td>
+</tr>
+<tr>
+<td>sdown&#x2F;odown？</td>
+<td>主观&#x3D;单哨兵判定；客观&#x3D;多数派确认</td>
+</tr>
+<tr>
+<td>新主选举规则？</td>
+<td>偏移量最大 → 优先级 → runId</td>
+</tr>
+<tr>
+<td>脑裂？</td>
+<td>老主假死被分区，恢复后拒写（min-replicas-to-write）</td>
+</tr>
+<tr>
+<td>Cluster 槽位？</td>
+<td>16384 槽，CRC16(key) 路由；MOVED&#x2F;ASK 重定向</td>
+</tr>
+<tr>
+<td>多 key 受限？</td>
+<td>hash tag <code>&#123;key&#125;</code> 强制同槽</td>
+</tr>
+<tr>
+<td>何时用 Cluster？</td>
+<td>容量&#x2F;写吞吐超单机；否则哨兵 + 多从够用</td>
+</tr>
+</tbody></table>
+<h3 id="6-2-实战避坑表"><a href="#6-2-实战避坑表" class="headerlink" title="6.2 实战避坑表"></a>6.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>主挂后丢几秒数据</td>
+<td>异步复制正常窗口</td>
+<td>接受或上 WAIT 同步（牺牲性能）</td>
+</tr>
+<tr>
+<td>从节点只读</td>
+<td>主从不自动升主</td>
+<td>上哨兵</td>
+</tr>
+<tr>
+<td>频繁误切换</td>
+<td>quorum&#x3D;1 单哨兵误判</td>
+<td>quorum≥2、哨兵≥3</td>
+</tr>
+<tr>
+<td>老主恢复后数据分裂</td>
+<td>脑裂</td>
+<td>min-replicas-to-write 拒写</td>
+</tr>
+<tr>
+<td>Cluster 多 key 报错</td>
+<td>key 跨槽</td>
+<td>hash tag 强制同槽</td>
+</tr>
+<tr>
+<td>扩容卡住</td>
+<td>槽迁移中</td>
+<td>监控迁移进度，避免高峰迁移</td>
+</tr>
+<tr>
+<td>复制风暴</td>
+<td>多从同时全量重同步</td>
+<td>主从链式复制&#x2F;控制重连</td>
+</tr>
+</tbody></table>
+<h3 id="6-3-工具速查表"><a href="#6-3-工具速查表" class="headerlink" title="6.3 工具速查表"></a>6.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具&#x2F;命令</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>INFO replication</code></td>
+<td>主从状态&#x2F;偏移量</td>
+</tr>
+<tr>
+<td><code>SENTINEL get-master-addr-by-name</code></td>
+<td>哨兵下查当前主节点</td>
+</tr>
+<tr>
+<td><code>CLUSTER SLOTS</code> &#x2F; <code>CLUSTER NODES</code></td>
+<td>槽位分布与节点状态</td>
+</tr>
+<tr>
+<td><code>redis-cli --cluster create/reshard</code></td>
+<td>集群创建与在线扩容</td>
+</tr>
+<tr>
+<td><code>min-replicas-to-write</code></td>
+<td>脑裂防护核心配置</td>
+</tr>
+<tr>
+<td><code>down-after-milliseconds</code> &#x2F; <code>quorum</code></td>
+<td>哨兵判定参数</td>
+</tr>
+</tbody></table>
+<h3 id="6-4-本篇收尾（P1-完成）"><a href="#6-4-本篇收尾（P1-完成）" class="headerlink" title="6.4 本篇收尾（P1 完成）"></a>6.4 本篇收尾（P1 完成）</h3><p>至此 P1 整改五篇全部完成：<strong>ES 原理深挖 → ES 查询优化 → 分布式事务 → MQ 选型 → Redis 集群</strong>，搜索、一致性、异步、高可用四个方向的深水区全部补齐。P2 还有「缓存一致性实战」「分布式锁与 ID 生成」等主题待填（见各导航页「建设中」表），按需继续。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -1825,496 +2353,6 @@
 </tr>
 </tbody></table>
 <h3 id="6-4-下一篇预告"><a href="#6-4-下一篇预告" class="headerlink" title="6.4 下一篇预告"></a>6.4 下一篇预告</h3><p>查询篇解决「怎么查得对」，下一篇《分布式事务：从 2PC 到 Seata》解决「怎么写得对」——<strong>MySQL 事务管不了 ES，同样管不了多个微服务</strong>：2PC 为什么是「协调者的单点赌博」、TCC 为什么是「业务三阶段」、Saga 为什么是「一条补偿链」，以及 Seata 的 AT 模式怎么用全局锁做到「业务无侵入」——分布式一致性的最后一块拼图。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/es-deep-2025.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="知行栈">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | 知行栈">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/es-deep-2025.html" class="post-title-link" itemprop="url">ES 原理深挖：写入链路、分片与集群健康</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-
-      <time title="Created: 2026-08-13 15:00:00" itemprop="dateCreated datePublished" datetime="2026-08-13T15:00:00+08:00">2026-08-13</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">In</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/" itemprop="url" rel="index"><span itemprop="name">数据存储</span></a>
-        </span>
-    </span>
-
-  
-    <span class="post-meta-break"></span>
-    <span class="post-meta-item" title="Word count in article">
-      <span class="post-meta-item-icon">
-        <i class="far fa-file-word"></i>
-      </span>
-      <span class="post-meta-item-text">Word count in article: </span>
-      <span>3.6k</span>
-    </span>
-    <span class="post-meta-item" title="Reading time">
-      <span class="post-meta-item-icon">
-        <i class="far fa-clock"></i>
-      </span>
-      <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>13 mins.</span>
-    </span>
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <p><strong>ES 面试的深水区只有三个问题：为什么说 ES 是「近实时」而不是实时？数据是怎么分布到分片上的？集群黄了红了到底意味着什么？</strong> 入门篇回答了「ES 是什么、为什么搜得快」（倒排索引、分词），本文下潜到写入链路、分片路由、副本一致性、脑裂与集群健康——面试问「ES 写入流程」「分片数怎么定」「脑裂怎么防」的答案全在这。读完你能画出一次写入的完整旅程，并能在集群变黄&#x2F;变红时说出先查什么。</p>
-<blockquote>
-<p>联动：本文是 <a href="/post/d48132d3.html">Elasticsearch 原理与实践</a>（倒排索引&#x2F;分词&#x2F;基本查询）的深挖续篇；写入链路与 <a href="/post/32511a71.html">MySQL 原理与优化</a> 的 redo log&#x2F;WAL 是同一思想的两种实现（先记日志再落盘）；集群选举与 <a href="/post/zookeeper-2025.html">ZooKeeper 原理与实践</a> 的 Zab 协议呼应。</p>
-</blockquote>
-<h2 id="1-定位：这篇深挖什么"><a href="#1-定位：这篇深挖什么" class="headerlink" title="1. 定位：这篇深挖什么"></a>1. 定位：这篇深挖什么</h2><p>入门篇讲了「ES 为什么快」（倒排索引 + 分片并行），本文回答三个「为什么」：</p>
-<table>
-<thead>
-<tr>
-<th>现象</th>
-<th>表层答案</th>
-<th>本文深挖</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>写入后 1 秒内搜不到</td>
-<td>「refresh 间隔 1 秒」</td>
-<td>§2：写入的三段式旅程，为什么必须这样设计</td>
-</tr>
-<tr>
-<td>主分片数建索引后不能改</td>
-<td>「路由固定」</td>
-<td>§3：hash 路由机制，改了就找不到数据</td>
-</tr>
-<tr>
-<td>集群 yellow 还能用</td>
-<td>「有副本没起来」</td>
-<td>§4：三色健康状态的真实含义与处理</td>
-</tr>
-</tbody></table>
-<p><strong>因果链主线</strong>：ES 的所有「奇怪现象」（近实时、分片不可变、yellow 可用）都不是 bug，是<strong>同一组设计权衡</strong>——「内存快、磁盘慢、网络不可靠」三个约束下，用<strong>批量 + 缓冲 + 冗余</strong>换性能与可用性。<strong>面试答 ES 能答到「每个现象背后的权衡」，就从背结论升级到了懂设计</strong>。</p>
-<h2 id="2-写入链路：一次写入的三段式旅程"><a href="#2-写入链路：一次写入的三段式旅程" class="headerlink" title="2. 写入链路：一次写入的三段式旅程"></a>2. 写入链路：一次写入的三段式旅程</h2><h3 id="2-1-全景：refresh-translog-flush"><a href="#2-1-全景：refresh-translog-flush" class="headerlink" title="2.1 全景：refresh &#x2F; translog &#x2F; flush"></a>2.1 全景：refresh &#x2F; translog &#x2F; flush</h3><pre class="mermaid">sequenceDiagram
-    participant C as 客户端
-    participant P as 主分片
-    participant M as 内存 buffer
-    participant T as translog(磁盘)
-    participant S as segment(磁盘)
-    C->>P: 1. 写入请求（POST doc）
-    P->>M: 2. 写入内存 buffer（未可搜）
-    P->>T: 3. 同步写 translog（先记日志！）
-    Note over P: 每 1 秒：buffer → 内存 segment → 刷成可搜（refresh）
-    Note over P: 每 30 秒或 translog 满：flush 落盘 + translog 清空
-    P-->>C: 4. 返回成功（此时数据还没落盘）</pre>
-
-<p><strong>一次写入的完整旅程</strong>：</p>
-<table>
-<thead>
-<tr>
-<th>步骤</th>
-<th>动作</th>
-<th>数据在哪</th>
-<th>可搜？</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>①</td>
-<td>写入内存 buffer</td>
-<td>内存</td>
-<td>❌</td>
-</tr>
-<tr>
-<td>②</td>
-<td>同步写 translog（事务日志）</td>
-<td>磁盘（日志）</td>
-<td>❌</td>
-</tr>
-<tr>
-<td>③</td>
-<td><strong>refresh（默认 1s）</strong>：buffer → 内存 segment，清空 buffer</td>
-<td>内存 segment</td>
-<td>✅</td>
-</tr>
-<tr>
-<td>④</td>
-<td><strong>flush（默认 30s 或 translog 满）</strong>：segment 落盘，清空 translog</td>
-<td>磁盘</td>
-<td>✅</td>
-</tr>
-</tbody></table>
-<p><strong>三个设计要点的因果链</strong>：</p>
-<ol>
-<li><strong>为什么返回成功时数据还没落盘？</strong> —— 批量写入内存是毫秒级，逐条刷磁盘是毫秒级的几十倍。<strong>ES 选择「先回成功、后落盘」，用 translog 兜底崩溃</strong>：机器挂了，重启后从 translog 重放未落盘的数据——<strong>这与 MySQL 的 WAL（先写 redo log 再改数据页）是同一个思想</strong>，先记日志、后落盘，日志是崩溃恢复的承诺。</li>
-<li><strong>为什么 refresh 1 秒才可搜？</strong> —— 磁盘 segment 是<strong>不可变的</strong>（只能新建不能改），每秒把内存 buffer 攒成一个新 segment 批量落内存。<strong>「近实时」不是缺陷，是「批量化换取吞吐」的必然代价</strong>：要实时可搜就得每请求刷一次盘，吞吐直接崩。1 秒的 refresh 是吞吐与实时性的平衡点。</li>
-<li><strong>translog 为什么要 fsync？</strong> —— 默认每次写入 fsync（<code>index.translog.durability: request</code>）保证 translog 真正落盘，此时才返回成功——<strong>「返回成功」的语义 &#x3D; 「translog 已落盘」</strong>，不是「数据已落盘」。</li>
-</ol>
-<h3 id="2-2-动手验证：亲眼看到「近实时」"><a href="#2-2-动手验证：亲眼看到「近实时」" class="headerlink" title="2.2 动手验证：亲眼看到「近实时」"></a>2.2 动手验证：亲眼看到「近实时」</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 起一个单机 ES（Docker）</span></span><br><span class="line">docker run -d -p 9200:9200 -e discovery.type=single-node --name es-test docker.elastic.co/elasticsearch/elasticsearch:8.13.0</span><br><span class="line"><span class="comment"># 8.x 默认安全：生成密码</span></span><br><span class="line">docker <span class="built_in">exec</span> es-test elasticsearch-reset-password -u elastic -i</span><br><span class="line"></span><br><span class="line"><span class="comment"># 写入一条文档</span></span><br><span class="line">curl -X POST <span class="string">&quot;localhost:9200/test/_doc/1&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> \</span><br><span class="line">  -d <span class="string">&#x27;&#123;&quot;title&quot;:&quot;hello world&quot;&#125;&#x27;</span> --user elastic:PASSWORD</span><br><span class="line"><span class="comment"># 立即搜索——可能搜不到！</span></span><br><span class="line">curl <span class="string">&quot;localhost:9200/test/_search?q=title:hello&quot;</span> --user elastic:PASSWORD</span><br><span class="line"><span class="comment"># sleep 1.2 秒再搜——能搜到了</span></span><br><span class="line"><span class="built_in">sleep</span> 1.2 &amp;&amp; curl <span class="string">&quot;localhost:9200/test/_search?q=title:hello&quot;</span> --user elastic:PASSWORD</span><br></pre></td></tr></table></figure>
-
-<p>观察点：紧接写入的搜索 <code>hits.total</code> 可能为 0，1.2 秒后变 1——<strong>refresh 间隔的现场</strong>。判定标准：亲自复现「写入后短暂搜不到、1 秒后能搜到」，理解「近实时」的字面含义。生产意义：<strong>刚写入就要立刻搜到的场景（订单即时查询）必须调 <code>refresh=true</code>（性能换实时）或用「可搜索快照」技术，不能指望默认 1 秒</strong>。</p>
-<h3 id="2-3-深挖：为什么-Lucene-段不可变是好事"><a href="#2-3-深挖：为什么-Lucene-段不可变是好事" class="headerlink" title="2.3 深挖：为什么 Lucene 段不可变是好事"></a>2.3 深挖：为什么 Lucene 段不可变是好事</h3><p>segment 不可变（只能整体新建）看似低效，实际是三个收益的源头：</p>
-<table>
-<thead>
-<tr>
-<th>收益</th>
-<th>机制</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>免锁</td>
-<td>不可变 &#x3D; 无需并发控制，读路径无锁</td>
-</tr>
-<tr>
-<td>缓存友好</td>
-<td>段的词典&#x2F;倒排表可整体缓存，不会失效</td>
-</tr>
-<tr>
-<td>崩溃恢复简单</td>
-<td>已落盘的段永远有效，恢复只重放 translog</td>
-</tr>
-</tbody></table>
-<p><strong>因果链</strong>：不可变 → 免锁 + 可缓存 → 单机查询吞吐高 → 但更新&#x2F;删除是「标记删除」+「新段覆盖」→ 产生段膨胀 → 后台 <strong>merge</strong>（段合并）压缩段数 → 合并是 CPU&#x2F;IO 大户，<strong>大段合并是 ES 性能问题的常见来源</strong>（集群慢先查 merge 指标）。<strong>面试答「ES 的删除是逻辑删除」时，补一句「靠 merge 物理清理」是加分项</strong>。</p>
-<h2 id="3-分片与副本：数据怎么分布"><a href="#3-分片与副本：数据怎么分布" class="headerlink" title="3. 分片与副本：数据怎么分布"></a>3. 分片与副本：数据怎么分布</h2><h3 id="3-1-路由：为什么主分片数不可变"><a href="#3-1-路由：为什么主分片数不可变" class="headerlink" title="3.1 路由：为什么主分片数不可变"></a>3.1 路由：为什么主分片数不可变</h3><p>文档写入哪个分片由 <code>routing = hash(_id) % number_of_shards</code> 决定：</p>
-<pre class="mermaid">flowchart LR
-    A["文档 _id"] --> B["hash(_id)"] --> C["% 主分片数 (3)"] --> D["分片 0 / 1 / 2"]</pre>
-
-<p><strong>因果链</strong>：主分片数一旦确定就不能改，因为<strong>改了取模的分母，同一文档会被路由到不同分片，旧数据全找不到了</strong>。改分片数只能 <code>_reindex</code> 到新索引（重新 hash 全量重建）。<strong>面试必问「分片数怎么定」的完整答案</strong>：</p>
-<table>
-<thead>
-<tr>
-<th>维度</th>
-<th>建议</th>
-<th>依据</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>分片大小</td>
-<td>每分片 20-50GB</td>
-<td>过大 merge 慢、恢复慢；过小分片数爆炸</td>
-</tr>
-<tr>
-<td>分片数量</td>
-<td>总数据量 ÷ 30GB 左右</td>
-<td>平衡并行度与开销</td>
-</tr>
-<tr>
-<td>上限参考</td>
-<td>单节点 ≤3-5 分片</td>
-<td>每个分片有独立文件句柄&#x2F;内存开销</td>
-</tr>
-<tr>
-<td>副本数</td>
-<td>≥1（生产必配）</td>
-<td>无副本 &#x3D; 单点，节点挂了数据就 red</td>
-</tr>
-</tbody></table>
-<p><strong>工程经验</strong>：分片数定少了后期只能 reindex（全量重建，灾难）；定多了浪费资源。<strong>「按数据规模反推分片数」是设计时的核心决策，不是部署后能改的</strong>。</p>
-<h3 id="3-2-副本：读扩展-故障转移"><a href="#3-2-副本：读扩展-故障转移" class="headerlink" title="3.2 副本：读扩展 + 故障转移"></a>3.2 副本：读扩展 + 故障转移</h3><table>
-<thead>
-<tr>
-<th>能力</th>
-<th>机制</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>读扩展</td>
-<td>副本分担读请求</td>
-<td>搜索默认在主+副本间负载均衡</td>
-</tr>
-<tr>
-<td>故障转移</td>
-<td>主挂了副本自动升主</td>
-<td>不需要人工干预</td>
-</tr>
-<tr>
-<td>写入一致性</td>
-<td>主写成功 → 同步副本</td>
-<td><code>wait_for_active_shards</code> 可等副本确认（牺牲延迟换一致）</td>
-</tr>
-</tbody></table>
-<p><strong>副本不是备份，是「可用的读副本」</strong>：副本与主分片数据实时同步，搜索请求可打到任意副本——<strong>副本数 &#x3D; 读吞吐的扩展维度</strong>。<strong>生产配置原则</strong>：副本数 ≥1 是底线（否则单节点故障即 red），读多写少的搜索场景副本数可 &#x3D; 2。</p>
-<h3 id="3-3-动手验证：看分片分布与路由"><a href="#3-3-动手验证：看分片分布与路由" class="headerlink" title="3.3 动手验证：看分片分布与路由"></a>3.3 动手验证：看分片分布与路由</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 创建指定分片的索引（3 主分片 + 1 副本）</span></span><br><span class="line">curl -X PUT <span class="string">&quot;localhost:9200/orders&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> \</span><br><span class="line">  -d <span class="string">&#x27;&#123;&quot;settings&quot;:&#123;&quot;number_of_shards&quot;:3,&quot;number_of_replicas&quot;:1&#125;&#125;&#x27;</span> --user elastic:PASSWORD</span><br><span class="line"><span class="comment"># 看分片分布</span></span><br><span class="line">curl <span class="string">&quot;localhost:9200/_cat/shards/orders?v&quot;</span> --user elastic:PASSWORD</span><br><span class="line"><span class="comment"># 返回 3 个主分片 + 3 个副本，分布在节点上（单节点时副本 unassigned，集群 yellow）</span></span><br></pre></td></tr></table></figure>
-
-<p>观察点：<code>_cat/shards</code> 里主分片 <code>P</code> 与副本 <code>R</code> 的节点分布；单节点时副本显示 <code>UNASSIGNED</code>、集群变 yellow。判定标准：理解「副本必须分布在不同节点才有意义」——<strong>单节点集群配副本是浪费（副本和主在同节点，挂了一起挂）</strong>，这也是「集群为什么 yellow」的第一个答案。</p>
-<h2 id="4-集群健康：三色状态与脑裂"><a href="#4-集群健康：三色状态与脑裂" class="headerlink" title="4. 集群健康：三色状态与脑裂"></a>4. 集群健康：三色状态与脑裂</h2><h3 id="4-1-三色健康的真实含义"><a href="#4-1-三色健康的真实含义" class="headerlink" title="4.1 三色健康的真实含义"></a>4.1 三色健康的真实含义</h3><table>
-<thead>
-<tr>
-<th>颜色</th>
-<th>含义</th>
-<th>还能用吗</th>
-<th>处理</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>green</td>
-<td>主分片+副本全部就绪</td>
-<td>完全正常</td>
-<td>无需处理</td>
-</tr>
-<tr>
-<td>yellow</td>
-<td>主分片都在，<strong>副本缺失</strong>（unassigned）</td>
-<td>能读能写，<strong>但无故障转移能力</strong></td>
-<td>查为什么副本没起来（节点数不足&#x2F;磁盘满&#x2F;网络隔离）</td>
-</tr>
-<tr>
-<td>red</td>
-<td><strong>有主分片缺失</strong></td>
-<td>该分片数据不可用（部分索引不可搜）</td>
-<td>立即处理：恢复节点或 reroute</td>
-</tr>
-</tbody></table>
-<p><strong>因果链</strong>：yellow 不是「小问题」——它意味着「副本没就位，任何主分片所在节点挂掉，数据就永久丢失（除非还有别的副本）」。<strong>生产铁律：集群 yellow 必须当天处理，不能挂着过夜</strong>——常见的黄色原因（单节点配了副本、新节点加入后副本未分配、磁盘水位线导致不分配）排查路径全部在 <code>_cat/allocation</code> 里。</p>
-<h3 id="4-2-脑裂：集群最大的安全风险"><a href="#4-2-脑裂：集群最大的安全风险" class="headerlink" title="4.2 脑裂：集群最大的安全风险"></a>4.2 脑裂：集群最大的安全风险</h3><p><strong>脑裂 &#x3D; 一个集群分裂成两个「各自认为自己是主」的子集群</strong>，两边同时接受写入，数据分裂，集群永久损坏。</p>
-<p><strong>产生条件</strong>（老版本 <code>discovery.zen.minimum_master_nodes</code> 配置不当）：5 节点集群配 <code>minimum_master_nodes=2</code>——网络分区把集群切成 3+2 两半，两边都能选出主节点，各自接受写入 → 恢复后数据冲突，不可修复。</p>
-<p><strong>防护三板斧</strong>：</p>
-<table>
-<thead>
-<tr>
-<th>手段</th>
-<th>机制</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>discovery.zen.minimum_master_nodes = (节点数/2) + 1</code></td>
-<td>选举需要过半数投票，少数派无法选主</td>
-</tr>
-<tr>
-<td>master 节点独立角色</td>
-<td>master-eligible 节点与 data 节点分离，master 不扛数据压力</td>
-</tr>
-<tr>
-<td>8.x 新机制（cluster.auto_shrink_voting_configuration）</td>
-<td>动态调整投票配置，自动规避多数派问题</td>
-</tr>
-</tbody></table>
-<p><strong>因果链</strong>：脑裂的根源是「少数派认为自己合法」——过半数投票规则让少数派选不出主（3 节点集群配 2 票，2+1 分区时 1 票的少数派选不出主）。<strong>面试答「怎么防脑裂」：一句话「minimum_master_nodes 设为过半」+ 一句解释「让少数派选不出主」</strong>，就到位了。</p>
-<h3 id="4-3-动手验证：复现-yellow-与理解-unassigned"><a href="#4-3-动手验证：复现-yellow-与理解-unassigned" class="headerlink" title="4.3 动手验证：复现 yellow 与理解 unassigned"></a>4.3 动手验证：复现 yellow 与理解 unassigned</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 单节点集群配了 1 副本 → 必然是 yellow</span></span><br><span class="line">curl <span class="string">&quot;localhost:9200/_cluster/health?pretty&quot;</span> --user elastic:PASSWORD</span><br><span class="line"><span class="comment"># status: &quot;yellow&quot;（主分片 3 个 ok，副本 3 个 unassigned）</span></span><br><span class="line">curl <span class="string">&quot;localhost:9200/_cat/shards?v&quot;</span> --user elastic:PASSWORD   <span class="comment"># 副本 R 全 UNASSIGNED</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 模拟故障：停掉唯一节点 → red（集群没有可用节点，直接失联）</span></span><br><span class="line">docker stop es-test</span><br></pre></td></tr></table></figure>
-
-<p>观察点：单节点 + 副本 → yellow 且 unassigned 列表齐全；节点全停 → 集群失联。判定标准：能解释「为什么单节点集群配副本是 yellow 而不是 green」——<strong>副本需要另一台节点才就位</strong>，这个「节点不足 → 副本不分配 → yellow」链条是集群健康的第一课。</p>
-<h2 id="5-面试应答：ES-深水区五连问"><a href="#5-面试应答：ES-深水区五连问" class="headerlink" title="5. 面试应答：ES 深水区五连问"></a>5. 面试应答：ES 深水区五连问</h2><h3 id="5-1-完整话术"><a href="#5-1-完整话术" class="headerlink" title="5.1 完整话术"></a>5.1 完整话术</h3><table>
-<thead>
-<tr>
-<th>面试题</th>
-<th>回答要点</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>ES 写入流程？</td>
-<td>内存 buffer（不可搜）→ 同步 translog → 1s refresh 成内存 segment（可搜）→ 30s flush 落盘清 translog；返回成功 &#x3D; translog 落盘</td>
-</tr>
-<tr>
-<td>为什么近实时？</td>
-<td>批量化换取吞吐：逐条刷盘吞吐崩，1s 攒批是平衡点；要实时用 refresh&#x3D;true 换</td>
-</tr>
-<tr>
-<td>主分片数为什么不能改？</td>
-<td>路由 hash % 分片数，改分母数据全找不到；改分片只能 reindex</td>
-</tr>
-<tr>
-<td>分片数怎么定？</td>
-<td>每分片 20-50GB 反推数量；生产副本 ≥1</td>
-</tr>
-<tr>
-<td>集群 yellow 怎么办？</td>
-<td>副本 unassigned：查节点数&#x2F;磁盘水位&#x2F;分配；必须当天处理，无副本 &#x3D; 无故障转移</td>
-</tr>
-<tr>
-<td>脑裂怎么防？</td>
-<td>minimum_master_nodes &#x3D; 过半（N&#x2F;2+1），少数派选不出主</td>
-</tr>
-</tbody></table>
-<h3 id="5-2-深挖：与-MySQL-WAL-的对照（跨篇联动）"><a href="#5-2-深挖：与-MySQL-WAL-的对照（跨篇联动）" class="headerlink" title="5.2 深挖：与 MySQL WAL 的对照（跨篇联动）"></a>5.2 深挖：与 MySQL WAL 的对照（跨篇联动）</h3><table>
-<thead>
-<tr>
-<th>维度</th>
-<th>MySQL</th>
-<th>ES</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>先记日志再落盘</td>
-<td>redo log（WAL）</td>
-<td>translog</td>
-</tr>
-<tr>
-<td>落盘周期</td>
-<td>每次提交（innodb_flush_log_at_trx_commit）</td>
-<td>30s 或 translog 满</td>
-</tr>
-<tr>
-<td>崩溃恢复</td>
-<td>redo log 重放</td>
-<td>translog 重放</td>
-</tr>
-<tr>
-<td>批量写</td>
-<td>group commit</td>
-<td>refresh 攒批</td>
-</tr>
-</tbody></table>
-<p><strong>一句话：ES 的 translog 就是搜索引擎界的 WAL——「先记日志、后落盘、日志兜底崩溃」是数据库与搜索引擎共同的设计底座</strong>（<a href="/post/32511a71.html">MySQL 原理与优化</a> 的 redo log 章节在此复用）。面试被问「ES 和 MySQL 的写入设计有什么共同点」，答出这一层是明显加分。</p>
-<h2 id="6-总结"><a href="#6-总结" class="headerlink" title="6. 总结"></a>6. 总结</h2><h3 id="6-1-面试速答表"><a href="#6-1-面试速答表" class="headerlink" title="6.1 面试速答表"></a>6.1 面试速答表</h3><table>
-<thead>
-<tr>
-<th>面试题</th>
-<th>一句话答案</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>ES 为什么是近实时？</td>
-<td>每秒 refresh 把内存 buffer 批量刷成 segment，逐条刷盘吞吐会崩</td>
-</tr>
-<tr>
-<td>translog 是什么？</td>
-<td>事务日志，先记日志再落盘，崩溃时重放——搜索引擎界的 WAL</td>
-</tr>
-<tr>
-<td>主分片数能改吗？</td>
-<td>不能：路由 hash % 分片数，改了数据找不到；只能 reindex</td>
-</tr>
-<tr>
-<td>分片大小怎么控制？</td>
-<td>每分片 20-50GB，总数据量反推数量；生产副本 ≥1</td>
-</tr>
-<tr>
-<td>yellow 和 red 区别？</td>
-<td>yellow&#x3D;副本缺失（可读写无故障转移）；red&#x3D;主分片缺失（数据不可用）</td>
-</tr>
-<tr>
-<td>脑裂怎么产生的？</td>
-<td>最小主节点数配置不当，网络分区后少数派也选出主，两边同时写</td>
-</tr>
-<tr>
-<td>怎么防脑裂？</td>
-<td>minimum_master_nodes &#x3D; N&#x2F;2+1，少数派选不出主</td>
-</tr>
-</tbody></table>
-<h3 id="6-2-实战避坑表"><a href="#6-2-实战避坑表" class="headerlink" title="6.2 实战避坑表"></a>6.2 实战避坑表</h3><table>
-<thead>
-<tr>
-<th>症状</th>
-<th>原因</th>
-<th>处理</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>写入后搜不到</td>
-<td>默认 1s refresh</td>
-<td>明确需求：能等 1s 则不改；必须实时则 refresh&#x3D;true&#x2F;可搜索快照</td>
-</tr>
-<tr>
-<td>集群长期 yellow</td>
-<td>副本 unassigned（节点不足&#x2F;磁盘水位）</td>
-<td><code>_cat/allocation</code> 定位；加节点或调水位线</td>
-</tr>
-<tr>
-<td>集群突然 red</td>
-<td>节点挂 + 无副本</td>
-<td>恢复节点；无副本的 red 不可自愈，需快照恢复</td>
-</tr>
-<tr>
-<td>改分片数报错</td>
-<td>路由不可变</td>
-<td>新建索引 + <code>_reindex</code></td>
-</tr>
-<tr>
-<td>集群变慢</td>
-<td>大段 merge 在跑</td>
-<td>监控 merge 指标，错峰触发；分片过大</td>
-</tr>
-<tr>
-<td>单节点配副本</td>
-<td>副本永远 unassigned</td>
-<td>单节点集群副本数设 0，或直接上多节点</td>
-</tr>
-</tbody></table>
-<h3 id="6-3-工具速查表"><a href="#6-3-工具速查表" class="headerlink" title="6.3 工具速查表"></a>6.3 工具速查表</h3><table>
-<thead>
-<tr>
-<th>工具&#x2F;API</th>
-<th>用途</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>GET /_cluster/health</code></td>
-<td>三色健康状态</td>
-</tr>
-<tr>
-<td><code>GET /_cat/shards?v</code></td>
-<td>分片分布与 unassigned 定位</td>
-</tr>
-<tr>
-<td><code>GET /_cat/allocation</code></td>
-<td>分片为什么没分配（磁盘水位等）</td>
-</tr>
-<tr>
-<td><code>GET /_cat/indices?v</code></td>
-<td>索引级状态与大小</td>
-</tr>
-<tr>
-<td><code>GET /_nodes/hot_threads</code></td>
-<td>节点 CPU 热点定位</td>
-</tr>
-<tr>
-<td><code>GET /_cluster/pending_tasks</code></td>
-<td>集群级任务堆积</td>
-</tr>
-</tbody></table>
-<h3 id="6-4-下一篇预告"><a href="#6-4-下一篇预告" class="headerlink" title="6.4 下一篇预告"></a>6.4 下一篇预告</h3><p>原理篇回答「数据怎么存、怎么分布、怎么不丢」，下一篇《ES 查询优化与实战》回答「数据怎么查得快、查得准」：深度分页（from+size 为什么 1 万行内、search_after&#x2F;scroll 的正确用法）、聚合原理、以及<strong>MySQL 与 ES 双写一致性</strong>（binlog 订阅 vs 双写 vs 本地消息表）——搜索场景上生产的最后一块拼图。</p>
 
       
     </div>

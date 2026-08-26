@@ -189,7 +189,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">82</span>
+          <span class="site-state-item-count">83</span>
           <span class="site-state-item-name">posts</span>
         </a>
       </div>
@@ -250,6 +250,571 @@
     </div>
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/7d52b3c4.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/7d52b3c4.html" class="post-title-link" itemprop="url">进程与线程：从模型到调度</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-08-12 21:00:00" itemprop="dateCreated datePublished" datetime="2026-08-12T21:00:00+08:00">2026-08-12</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/" itemprop="url" rel="index"><span itemprop="name">操作系统</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>4.9k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>18 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <p><strong>进程（process）是正在运行的程序实例</strong>：程序是磁盘上的静态代码，进程是它被加载进内存后的一套完整运行环境。同一个程序可以同时跑出多个进程——开两个 IDE 窗口就是两个进程。本文回答三个问题：进程&#x2F;线程&#x2F;协程到底是什么、CPU 怎么把时间分给它们、切换到底贵在哪——并对照你天天用的技术（线程池大小、虚拟线程、容器 PID 1、Go 的 goroutine），看这些设计怎么从本文的机制里长出来。</p>
+<blockquote>
+<p><strong>系列地图（操作系统）</strong>：① <strong>进程与线程（本文：执行单元与调度）</strong> → ② 内存管理（地址空间与物理内存）→ ③ 文件系统与磁盘 IO（数据落盘）→ ④ IO 模型（等待数据的方式）→ ⑤ Linux 资源排查实战（工具收拢）。本文的切换成本是 ④ 里「BIO 为什么不行」的根因，本文的栈内存是 ② 里「线程多了为什么 OOM」的依据。</p>
+</blockquote>
+<h2 id="1-进程模型：正在运行的程序"><a href="#1-进程模型：正在运行的程序" class="headerlink" title="1. 进程模型：正在运行的程序"></a>1. 进程模型：正在运行的程序</h2><h3 id="1-1-程序的四个组成部分"><a href="#1-1-程序的四个组成部分" class="headerlink" title="1.1 程序的四个组成部分"></a>1.1 程序的四个组成部分</h3><p>一个进程由四部分构成：</p>
+<table>
+<thead>
+<tr>
+<th>组成</th>
+<th>内容</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>程序代码</td>
+<td>指令序列</td>
+<td>只读段，可共享（同一程序多进程共享代码段）</td>
+</tr>
+<tr>
+<td>地址空间</td>
+<td>虚拟内存布局</td>
+<td>代码段、数据段、堆、栈</td>
+</tr>
+<tr>
+<td>运行状态</td>
+<td>寄存器、程序计数器</td>
+<td>中断&#x2F;切换时用于保存现场</td>
+</tr>
+<tr>
+<td>系统资源</td>
+<td>文件描述符、信号、IPC</td>
+<td>打开的文件、管道、socket</td>
+</tr>
+</tbody></table>
+<p>内核用<strong>进程控制块（PCB，Process Control Block）</strong>统一管理进程的一切，Linux 里叫 <code>task_struct</code>：PID、状态、寄存器快照、内存映射、打开的文件表、CPU 使用统计……可以把它理解为进程在操作系统里的「档案袋」。</p>
+<pre class="mermaid">flowchart TD
+    PCB["Process Control Block&lt;br/>(task_struct)"] --> ID["PID / PPID"]
+    PCB --> STATE["Process state&lt;br/>R / S / D / Z / T"]
+    PCB --> REGS["Register file &amp; PC&lt;br/>(context save area)"]
+    PCB --> MEM["Memory mapping&lt;br/>code / data / heap / stack"]
+    PCB --> FILES["Open file descriptors"]
+    PCB --> STAT["CPU time &amp; scheduling info"]
+    PCB --> IPC["Signals / semaphores / pipes"]</pre>
+
+<p>注意 PCB 存在<strong>内核内存</strong>里，用户程序访问不到——这是第 4 节要讲「分态」的原因之一。</p>
+<h3 id="1-2-生命周期：五个状态"><a href="#1-2-生命周期：五个状态" class="headerlink" title="1.2 生命周期：五个状态"></a>1.2 生命周期：五个状态</h3><p>进程一生在几个状态间迁移，<code>ps</code> 输出的 S 列就是当前状态：</p>
+<pre class="mermaid">stateDiagram-v2
+    [*] --> New: fork()
+    New --> Ready: accepted by scheduler
+    Ready --> Running: schedule
+    Running --> Ready: time slice expired
+    Running --> Blocked: I/O wait
+    Blocked --> Ready: I/O complete
+    Running --> Zombie: exit()
+    Zombie --> [*]: reaped by parent (wait)</pre>
+
+<table>
+<thead>
+<tr>
+<th>状态</th>
+<th>含义</th>
+<th>ps 标识</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>就绪（Ready）</td>
+<td>一切就绪，只等 CPU</td>
+<td><code>R</code></td>
+</tr>
+<tr>
+<td>运行（Running）</td>
+<td>正在 CPU 上执行</td>
+<td><code>R</code></td>
+</tr>
+<tr>
+<td>阻塞（Blocked）</td>
+<td>等 I&#x2F;O 或锁</td>
+<td><code>S</code>（可中断睡眠）&#x2F; <code>D</code>（不可中断）</td>
+</tr>
+<tr>
+<td>僵尸（Zombie）</td>
+<td>已退出、等父进程回收</td>
+<td><code>Z</code></td>
+</tr>
+<tr>
+<td>孤儿（Orphan）</td>
+<td>父进程先死，被 1 号进程收养</td>
+<td>无专门标识</td>
+</tr>
+</tbody></table>
+<p><strong>僵尸进程是「已退出但还没被父进程 <code>wait()</code> 回收」的进程</strong>：不占 CPU 不占内存（PCB 还占着），但 PID 不释放，多了会耗尽 PID 上限。父进程用 <code>wait()</code>&#x2F;<code>waitpid()</code> 收尸，Java 里对应的就是 <code>Process.waitFor()</code>。父进程先死了怎么办？孤儿进程由 1 号进程（init&#x2F;systemd）自动收养回收——所以孤儿不可怕，僵尸要防。</p>
+<p>Java 里反而不容易造出僵尸——JDK 的 Process 内部有 reaper 线程自动 <code>waitpid</code> 回收子进程。真正常见的坑是「<strong>起了子进程但没人读它的输出流</strong>」：子进程写满管道缓冲区（64KB）后永久阻塞，表现为整个流程卡死（1.3 有实验）。僵尸进程更多出现在 C&#x2F;Shell 场景（1.3 给造法）。</p>
+<h3 id="1-3-动手验证：用-ps-观察进程状态"><a href="#1-3-动手验证：用-ps-观察进程状态" class="headerlink" title="1.3 动手验证：用 ps 观察进程状态"></a>1.3 动手验证：用 ps 观察进程状态</h3><p>实操命令：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">ps -eo pid,ppid,<span class="built_in">stat</span>,cmd | <span class="built_in">head</span> -20          <span class="comment"># 全量进程 + 状态列</span></span><br><span class="line">ps -eo pid,ppid,<span class="built_in">stat</span>,cmd | grep -i defunct   <span class="comment"># 找出所有僵尸进程</span></span><br><span class="line">top -p &lt;pid&gt;                                 <span class="comment"># 单进程视图，S 列即状态</span></span><br></pre></td></tr></table></figure>
+
+<p>STAT 列对照：<code>R</code>（运行&#x2F;就绪）、<code>S</code>（可中断睡眠，最常见——等 I&#x2F;O、等锁）、<code>D</code>（不可中断睡眠，多在等磁盘）、<code>Z</code>（僵尸）。多进程部署的 Java 应用（如 Elasticsearch 的 JVM + 运维子进程）用 <code>ps --ppid &lt;父pid&gt;</code> 按父子过滤，一眼看到它起了哪些子进程。</p>
+<p>想亲手造一个僵尸进程，三行 C 足够（需要 gcc）：</p>
+<figure class="highlight c"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#<span class="keyword">include</span> <span class="string">&lt;unistd.h&gt;</span></span></span><br><span class="line"><span class="type">int</span> <span class="title function_">main</span><span class="params">()</span> &#123; <span class="keyword">if</span> (fork() == <span class="number">0</span>) &#123; _exit(<span class="number">0</span>); &#125; sleep(<span class="number">60</span>); <span class="keyword">return</span> <span class="number">0</span>; &#125;</span><br></pre></td></tr></table></figure>
+
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">gcc -o zombie zombie.c &amp;&amp; ./zombie &amp;   <span class="comment"># 子进程已退出，父进程睡眠不回收</span></span><br><span class="line">ps -eo pid,ppid,<span class="built_in">stat</span>,cmd | grep Z      <span class="comment"># 能看到一个 Z 状态</span></span><br></pre></td></tr></table></figure>
+
+<p>再复现 Java 侧的「卡死」版本——子进程狂输出、父进程不读流，管道缓冲区写满后子进程永久阻塞：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">Process</span> <span class="variable">p</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ProcessBuilder</span>(<span class="string">&quot;sh&quot;</span>, <span class="string">&quot;-c&quot;</span>, <span class="string">&quot;while true; do echo x; done&quot;</span>).start();</span><br><span class="line"><span class="comment">// 不调用 p.getInputStream().read()：子进程写满 64KB 管道缓冲后永久卡住</span></span><br><span class="line">p.waitFor(); <span class="comment">// 永远等不到，日志卡在这一行</span></span><br></pre></td></tr></table></figure>
+
+<p>此时 <code>ps -eo pid,stat,cmd | grep &lt;子进程名&gt;</code> 看到的是 <code>S</code>（阻塞在写管道）而不是 <code>Z</code>。修法是起一个线程消费输出流，或 <code>p.getInputStream().readAllBytes()</code>（对无限输出的进程慎用，会积压内存）。</p>
+<p><strong>容器里的僵尸问题</strong>（K8s 排查常客）：pod 的 PID 1 如果不回收子进程（不调用 <code>waitpid</code>），子进程退出就变僵尸且<strong>没有 init 来收养</strong>——因为容器里没有 systemd，PID 1 就是你的应用。K8s 官方推荐用 <code>tini</code>&#x2F;<code>init</code> 镜像做 PID 1（自带 reaping + 转发信号），Java 应用直接以 <code>java</code> 做 PID 1 反而相对安全（JVM 的 reaper 线程会回收自己启动的子进程）；真正积僵尸的是 shell 做入口镜像、或 C 程序 fork 的场景。排查命令不变：<code>ps -eo pid,ppid,stat,cmd | grep -i defunct</code>——pod 里看到 Z 残留，先查入口是不是裸 shell。</p>
+<h2 id="2-线程：进程内的执行流"><a href="#2-线程：进程内的执行流" class="headerlink" title="2. 线程：进程内的执行流"></a>2. 线程：进程内的执行流</h2><p><strong>线程（thread）是 CPU 调度的最小单位，进程是资源分配的最小单位</strong>。一个进程可以有多个线程：共享进程的地址空间和文件描述符，各自独立持有栈和寄存器。</p>
+<table>
+<thead>
+<tr>
+<th>共享（进程级）</th>
+<th>独占（线程级）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>代码段、数据段</td>
+<td>栈（调用现场）</td>
+</tr>
+<tr>
+<td>堆（new 出来的对象）</td>
+<td>寄存器</td>
+</tr>
+<tr>
+<td>文件描述符</td>
+<td>线程局部存储（TLS）</td>
+</tr>
+<tr>
+<td>信号处理、全局变量</td>
+<td>调度上下文（PC、SP）</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart LR
+    subgraph Process[Process address space]
+        CODE["Code &amp; data"] --- HEAP["Heap"]
+        FILES["File descriptors"]
+    end
+    subgraph T1["Thread 1"]
+        S1["Stack &amp; registers"]
+    end
+    subgraph T2["Thread 2"]
+        S2["Stack &amp; registers"]
+    end
+    CODE --- T1
+    CODE --- T2
+    HEAP --- T1
+    HEAP --- T2
+    FILES --- T1
+    FILES --- T2</pre>
+
+<h3 id="2-1-三种线程模型"><a href="#2-1-三种线程模型" class="headerlink" title="2.1 三种线程模型"></a>2.1 三种线程模型</h3><table>
+<thead>
+<tr>
+<th>模型</th>
+<th>调度在哪</th>
+<th>代表</th>
+<th>特点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1:1 内核线程</td>
+<td>内核</td>
+<td>Linux pthread、Java 平台线程</td>
+<td>内核原生支持，但每个线程都占内核资源</td>
+</tr>
+<tr>
+<td>M:N 用户线程</td>
+<td>用户态库</td>
+<td>Java 早期绿色线程（已废弃）</td>
+<td>灵活但调度映射复杂，难调优</td>
+</tr>
+<tr>
+<td>协程&#x2F;虚拟线程</td>
+<td>用户态 + JVM</td>
+<td>Go goroutine、Java 虚拟线程</td>
+<td>栈上调度，阻塞不占内核线程，百万级并发</td>
+</tr>
+</tbody></table>
+<p><strong>Java 平台线程是 1:1 内核线程</strong>——每 new 一个 <code>Thread</code> 就创建一个内核线程，所以线程数量上不去；<strong>Java 虚拟线程（JDK 21 正式版）是 JVM 用户态调度的协程</strong>：线程数可以到几十万，阻塞 I&#x2F;O 时让出底层载体线程（carrier thread），这就是「百万并发」的来源。</p>
+<p><strong>对照 Go 的 goroutine</strong>（面试常被连起来问）：Go 的 GMP 模型和虚拟线程同构——G（goroutine）&#x3D; 虚拟线程，M（machine）&#x3D; 载体线程，P（processor）&#x3D; 调度器配额。G 在 channel&#x2F;syscall 上阻塞时让出 M，M 挂上别的 G 继续跑；Go 不区分「平台线程&#x2F;虚拟线程」，所有 goroutine 默认都在这个模型里。区别在阻塞边界：<strong>Java 虚拟线程遇到 synchronized 会 pin 住载体线程（JDK 21 已基本修复），Go 没有这个历史包袱</strong>——所以「Go 天然高并发」的底层原因，就是它从语言诞生起就建在协程模型上。</p>
+<h3 id="2-2-为什么线程比进程轻"><a href="#2-2-为什么线程比进程轻" class="headerlink" title="2.2 为什么线程比进程轻"></a>2.2 为什么线程比进程轻</h3><p>创建进程要分配&#x2F;复制地址空间（fork 走写时拷贝），创建线程只是多一个栈和一份调度上下文；切换进程要换页表（TLB 全部失效重载），切换线程共享同一地址空间，只换栈指针和寄存器。一句话：<strong>线程省掉了「换地址空间」这个最贵的步骤</strong>。</p>
+<h3 id="2-3-动手验证：看-JVM-里的线程"><a href="#2-3-动手验证：看-JVM-里的线程" class="headerlink" title="2.3 动手验证：看 JVM 里的线程"></a>2.3 动手验证：看 JVM 里的线程</h3><p><code>top -Hp &lt;jvm_pid&gt;</code> 按线程查看（PID 列实际是 TID）；<code>jstack &lt;pid&gt;</code> 输出每个 Java 线程的栈，状态列能直接对上内核状态：</p>
+<table>
+<thead>
+<tr>
+<th>jstack 状态</th>
+<th>内核状态</th>
+<th>典型场景</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>RUNNABLE</td>
+<td>R</td>
+<td>正在计算；I&#x2F;O 轮询（epoll 等待）也算 RUNNABLE</td>
+</tr>
+<tr>
+<td>TIMED_WAITING（sleep&#x2F;park）</td>
+<td>S</td>
+<td><code>Thread.sleep</code>、<code>LockSupport.parkNanos</code></td>
+</tr>
+<tr>
+<td>WAITING（park）</td>
+<td>S</td>
+<td>等 <code>join</code>、condition 的 <code>await</code></td>
+</tr>
+<tr>
+<td>BLOCKED</td>
+<td>S</td>
+<td>等 <code>synchronized</code> 监视器锁</td>
+</tr>
+</tbody></table>
+<p><strong>一个常见误判</strong>：<code>top</code> 看 Java 进程 CPU 高，<code>top -Hp</code> 发现只有少数 TID 在忙——说明瓶颈在锁竞争或单线程阻塞，线程池开再大也没用，要先看 jstack 找锁。</p>
+<p>虚拟线程的并发上限实验（JDK 21+）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 平台线程：5 万在默认 ulimit 下大概率 OOM 或撞线程数限制（默认栈 1MB）</span></span><br><span class="line"><span class="keyword">try</span> (<span class="type">var</span> <span class="variable">ex</span> <span class="operator">=</span> Executors.newFixedThreadPool(<span class="number">50_000</span>)) &#123; &#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 虚拟线程：10 万轻松——栈按需分配、休眠时释放，不占内核线程</span></span><br><span class="line"><span class="keyword">try</span> (<span class="type">var</span> <span class="variable">ex</span> <span class="operator">=</span> Executors.newVirtualThreadPerTaskExecutor()) &#123;</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; <span class="number">100_000</span>; i++) &#123;</span><br><span class="line">        ex.submit(() -&gt; &#123; Thread.sleep(<span class="number">1000</span>); <span class="keyword">return</span> <span class="literal">null</span>; &#125;);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>同样「10 万个线程睡 1 秒」：平台线程先撞上限，虚拟线程几秒内起完、内存低一个数量级——这就是 1:1 内核线程模型和协程模型的分水岭，也是高并发网关（Netty 连接层 + 虚拟线程业务层）新架构的底气。</p>
+<h2 id="3-调度：CPU-时间怎么分"><a href="#3-调度：CPU-时间怎么分" class="headerlink" title="3. 调度：CPU 时间怎么分"></a>3. 调度：CPU 时间怎么分</h2><p><strong>调度器（scheduler）负责从就绪任务里选一个上 CPU</strong>。单核机器上「同时运行」其实是时间片轮流，调度器决定谁先、谁多、谁被饿死。</p>
+<h3 id="3-1-调度算法演进"><a href="#3-1-调度算法演进" class="headerlink" title="3.1 调度算法演进"></a>3.1 调度算法演进</h3><table>
+<thead>
+<tr>
+<th>算法</th>
+<th>思路</th>
+<th>优点</th>
+<th>缺点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>FCFS 先来先服务</td>
+<td>按到达顺序</td>
+<td>简单、公平</td>
+<td>长任务堵住短任务（护航效应）</td>
+</tr>
+<tr>
+<td>SJF 最短作业优先</td>
+<td>先跑最短的</td>
+<td>平均等待最小</td>
+<td>需预知运行时间，长任务饿死</td>
+</tr>
+<tr>
+<td>RR 时间片轮转</td>
+<td>固定时间片轮换</td>
+<td>响应快</td>
+<td>时间片大小难定：太大退化成 FCFS，太小切换开销爆炸</td>
+</tr>
+<tr>
+<td>优先级调度</td>
+<td>高优先级先跑</td>
+<td>满足交互需求</td>
+<td>低优先级饿死，需老化机制</td>
+</tr>
+<tr>
+<td>MLFQ 多级反馈队列</td>
+<td>多级队列 + 动态升降级</td>
+<td>兼顾交互与吞吐</td>
+<td>参数多，难调</td>
+</tr>
+<tr>
+<td>CFS 完全公平（Linux）</td>
+<td>按 vruntime 红黑树取最小</td>
+<td>公平、O(log n)</td>
+<td>不是硬实时</td>
+</tr>
+</tbody></table>
+<h3 id="3-2-Linux-CFS：把公平量化成-vruntime"><a href="#3-2-Linux-CFS：把公平量化成-vruntime" class="headerlink" title="3.2 Linux CFS：把公平量化成 vruntime"></a>3.2 Linux CFS：把公平量化成 vruntime</h3><p>Linux 默认调度器 CFS（Completely Fair Scheduler）把「公平」量化成 <strong>vruntime（虚拟运行时间）</strong>：每个进程按权重累积 vruntime，<strong>谁 vruntime 最小谁上 CPU</strong>。就绪队列用红黑树按 vruntime 排序，取最左节点 O(log n)。权重由 nice 值决定：nice 越大权重越小、vruntime 涨得越快——nice 0 的进程比 nice 19 的「值钱」得多。</p>
+<pre class="mermaid">flowchart TD
+    A["CPU tick / new task arrives"] --> B["Compute vruntime for each runnable task"]
+    B --> C["Pick task with min vruntime&lt;br/>(leftmost in red-black tree)"]
+    C --> D["Run for time slice"]
+    D --> E{"Preempted or&lt;br/>slice expired?"}
+    E -- No --> D
+    E -- Yes --> A</pre>
+
+<p>一个反直觉但重要的点：<strong>CFS 是「按比例分」而不是「轮流分」</strong>——睡眠（I&#x2F;O 等待）期间 vruntime 不涨，所以 IO 密集进程醒来后天然排前面，响应快；CPU 密集进程也不会被饿死，只是分到的比例低。</p>
+<h3 id="3-3-上下文切换：切换到底贵在哪"><a href="#3-3-上下文切换：切换到底贵在哪" class="headerlink" title="3.3 上下文切换：切换到底贵在哪"></a>3.3 上下文切换：切换到底贵在哪</h3><p><strong>上下文切换（context switch）是把 CPU 从当前任务切到另一个任务的完整过程</strong>，发生在时间片耗尽、任务主动让出（I&#x2F;O、锁等待）或中断时。</p>
+<table>
+<thead>
+<tr>
+<th>切换类型</th>
+<th>成本量级</th>
+<th>拆解</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>进程切换</td>
+<td>1-10 µs</td>
+<td>保存&#x2F;恢复寄存器 + 切换页表（TLB 全失效）+ 内核态进出</td>
+</tr>
+<tr>
+<td>线程切换</td>
+<td>0.5-2 µs</td>
+<td>同进程：只换寄存器快照和栈，不碰页表</td>
+</tr>
+<tr>
+<td>系统调用</td>
+<td>0.1-1 µs</td>
+<td>只进出内核态，不换任务</td>
+</tr>
+</tbody></table>
+<p>所以<strong>线程数量远超 CPU 核数时，大量时间花在切换而不是干活上</strong>——这就是「线程池核心线程数 ≈ CPU 核数（CPU 密集）或 ×(1+IO 等待&#x2F;计算比)（IO 密集）」的底层依据。</p>
+<p>真实场景：压测 TPS 上不去，<code>vmstat 1</code> 里 <code>cs</code>（context switch）列每秒几十万——线程池 300 线程跑 8 核机器，大半时间在切线程。缩到 40 线程后 TPS 反而翻倍。排查命令：<code>pidstat -w 1</code> 看自愿&#x2F;非自愿切换，<code>/proc/&lt;pid&gt;/status</code> 里的 <code>voluntary_ctxt_switches</code> 字段。</p>
+<h3 id="3-4-动手验证：调优先级、测切换开销"><a href="#3-4-动手验证：调优先级、测切换开销" class="headerlink" title="3.4 动手验证：调优先级、测切换开销"></a>3.4 动手验证：调优先级、测切换开销</h3><p>调整 nice 值改调度权重（范围 -20 ~ 19，普通用户只能调大，调小需要 root）：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">nice</span> -n -5 java -jar app.jar          <span class="comment"># 以更高优先级启动</span></span><br><span class="line">renice -n -5 -p $(pgrep java)         <span class="comment"># 运行中调整，top 的 NI 列会变</span></span><br></pre></td></tr></table></figure>
+
+<p>低延迟服务（如网关）把自身进程 nice 调高、把批处理任务（日志压缩、报表）nice 调低，让 CFS 把时间片多分给前者——「按 vruntime 分时间」在生产里的直接用法。</p>
+<p>上下文切换开销实测（Linux）：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">vmstat 1          <span class="comment"># cs 列：每秒上下文切换次数</span></span><br><span class="line">pidstat -w 1      <span class="comment"># 自愿（cswch）与非自愿（nvcswch）切换分开看</span></span><br></pre></td></tr></table></figure>
+
+<p>真实复盘案例：某服务 8 核机器，线程池 300 线程，TPS 卡在 4000 上不去；<code>vmstat 1</code> 显示 <code>cs</code> 每秒 30 万+，<code>pidstat -w</code> 显示每个 worker 每秒上万次非自愿切换（时间片被抢）。线程池缩到 64 后 <code>cs</code> 降到 5 万，TPS 升到 9000。排查链路固定为：<code>vmstat 1</code> 看 cs → <code>top -Hp</code> 确认线程数 → 调线程池 → 复测 cs 与 TPS。</p>
+<p><strong>判定标准</strong>：cs 超过「核数 × 2 万&#x2F;秒」（8 核约 16 万）就要警惕切换占比过高；<code>vmstat</code> 里 <code>%sy</code>（内核态时间）占比异常高，也常是切换或 syscall 过多的信号。</p>
+<h2 id="4-用户态与内核态：系统调用的代价"><a href="#4-用户态与内核态：系统调用的代价" class="headerlink" title="4. 用户态与内核态：系统调用的代价"></a>4. 用户态与内核态：系统调用的代价</h2><p><strong>用户态（user mode）与内核态（kernel mode）是 CPU 的两种特权级别</strong>：内核态能执行特权指令（访问硬件、改页表），用户态不行。用户程序想动硬件，必须通过<strong>系统调用（syscall）</strong>请内核代劳。分态的目的是安全和隔离：你写的代码不能直接改别人的内存、不能直接写硬盘。</p>
+<h3 id="4-1-系统调用链路"><a href="#4-1-系统调用链路" class="headerlink" title="4.1 系统调用链路"></a>4.1 系统调用链路</h3><p>Java 里一次文件读取，底层链路是这样的：</p>
+<pre class="mermaid">sequenceDiagram
+    participant Java as Java (user mode)
+    participant Libc as glibc (user mode)
+    participant Kernel as Kernel (kernel mode)
+    participant Disk as Disk / Page Cache
+    Java->>Libc: FileInputStream.read()
+    Libc->>Kernel: syscall read(fd, buf, len)
+    Kernel->>Disk: page cache lookup / device I/O
+    Disk-->>Kernel: data
+    Kernel-->>Libc: copy to user buffer, return len
+    Libc-->>Java: bytes</pre>
+
+<p>每发一次 syscall 就有一次用户态↔内核态切换。<strong>态切换本身不重（亚微秒级），重的是它打断 CPU 流水线、每次都要校验参数和权限</strong>。由此推出两个工程结论：</p>
+<ul>
+<li>读 1 字节和读 4KB 都是 1 次 <code>read</code> syscall——<strong>缓冲（<code>BufferedInputStream</code>）的意义就在这里</strong>：把 N 次小 syscall 合并成一次大的；</li>
+<li>高性能框架都在「少 syscall」上做文章：批量读写、mmap、sendfile 零拷贝（一次 syscall 在内核态内完成磁盘→socket 拷贝，详见操作系统系列的 IO 模型篇）。</li>
+</ul>
+<h3 id="4-2-两种模式的对照"><a href="#4-2-两种模式的对照" class="headerlink" title="4.2 两种模式的对照"></a>4.2 两种模式的对照</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>用户态</th>
+<th>内核态</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>权限</td>
+<td>受限指令集</td>
+<td>特权指令（I&#x2F;O、内存管理、中断）</td>
+</tr>
+<tr>
+<td>谁在跑</td>
+<td>业务代码、JVM</td>
+<td>内核代码、驱动</td>
+</tr>
+<tr>
+<td>进入方式</td>
+<td>正常执行</td>
+<td>系统调用 &#x2F; 中断 &#x2F; 异常</td>
+</tr>
+<tr>
+<td>崩溃影响</td>
+<td>只崩自己的进程</td>
+<td>可能崩整个系统</td>
+</tr>
+</tbody></table>
+<h3 id="4-3-动手验证：strace-数一数系统调用"><a href="#4-3-动手验证：strace-数一数系统调用" class="headerlink" title="4.3 动手验证：strace 数一数系统调用"></a>4.3 动手验证：strace 数一数系统调用</h3><p><code>strace</code> 是系统调用追踪器，Java 程序同样适用（macOS 用 <code>dtruss</code> 替代，生产环境以 Linux 为准）：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">strace -c java -version                       <span class="comment"># 统计 syscall 类型与次数</span></span><br><span class="line">strace -p &lt;jvm_pid&gt; -f -e trace=<span class="built_in">read</span>,write    <span class="comment"># 附加运行中的 JVM，只看读写</span></span><br></pre></td></tr></table></figure>
+
+<p>输出里 <code>openat</code>&#x2F;<code>read</code>&#x2F;<code>write</code>&#x2F;<code>futex</code> 占绝大多数——<code>futex</code> 对应锁（线程等待&#x2F;唤醒），<code>read</code>&#x2F;<code>write</code> 对应 IO。观察点：<strong>一次业务操作触发的 syscall 数量</strong>——数量级压不下来，调 JVM 参数都是隔靴搔痒。</p>
+<p>缓冲读 vs 非缓冲读，同样的「读 10MB 文件」：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 方式一：FileInputStream 逐字节读 → 1000 万次 read syscall，秒级</span></span><br><span class="line"><span class="keyword">try</span> (<span class="type">var</span> <span class="variable">in</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">FileInputStream</span>(<span class="string">&quot;data.bin&quot;</span>)) &#123;</span><br><span class="line">    <span class="keyword">while</span> (in.read() != -<span class="number">1</span>) &#123; &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 方式二：BufferedInputStream 逐字节读 → 底层每次填满 8KB 缓冲，约 1300 次 read</span></span><br><span class="line"><span class="keyword">try</span> (<span class="type">var</span> <span class="variable">in</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">BufferedInputStream</span>(<span class="keyword">new</span> <span class="title class_">FileInputStream</span>(<span class="string">&quot;data.bin&quot;</span>))) &#123;</span><br><span class="line">    <span class="keyword">while</span> (in.read() != -<span class="number">1</span>) &#123; &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>实测方式一耗时是方式二的百倍以上（每次 syscall 都要进出内核态、校验参数、拷贝一字节）；<code>strace -c</code> 下方式一的 <code>read</code> 计数约 1000 万，方式二约 1300。生产排查时 IO 路径慢，先找「小读小写」——把 N 次小 IO 合并成一次大 IO，收益立竿见影。</p>
+<h2 id="5-总结与避坑清单"><a href="#5-总结与避坑清单" class="headerlink" title="5. 总结与避坑清单"></a>5. 总结与避坑清单</h2><h3 id="5-1-面试速答表"><a href="#5-1-面试速答表" class="headerlink" title="5.1 面试速答表"></a>5.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>进程和线程的区别？</td>
+<td>进程是资源分配单位，线程是调度单位；线程共享进程的地址空间和文件描述符，各自独立栈和寄存器</td>
+</tr>
+<tr>
+<td>为什么线程比进程轻？</td>
+<td>创建省了地址空间复制（写时拷贝），切换省了页表刷新（TLB）</td>
+</tr>
+<tr>
+<td>线程切换开销多大？</td>
+<td>微秒级：寄存器 + 栈 + 内核态进出；进程切换还多一次页表切换</td>
+</tr>
+<tr>
+<td>协程和线程的区别？</td>
+<td>协程在用户态调度，不依赖内核，创建&#x2F;切换成本低一个数量级，适合 IO 密集</td>
+</tr>
+<tr>
+<td>Java 线程是哪种模型？</td>
+<td>平台线程 1:1 内核线程；虚拟线程（JDK 21）是 JVM 调度的协程</td>
+</tr>
+<tr>
+<td>什么是僵尸进程？</td>
+<td>已退出但父进程没 wait() 回收，PCB 未释放；孤儿进程由 init 收养，僵尸必须防</td>
+</tr>
+</tbody></table>
+<h3 id="5-2-实战避坑清单"><a href="#5-2-实战避坑清单" class="headerlink" title="5.2 实战避坑清单"></a>5.2 实战避坑清单</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>TPS 上不去，vmstat 的 cs 每秒几十万</td>
+<td>线程过多，大量时间花在上下文切换</td>
+<td>按核数与 IO 密集度收缩线程池；新项目优先虚拟线程</td>
+</tr>
+<tr>
+<td>起了子进程后主流程卡死</td>
+<td>没人读子进程输出流，管道缓冲写满（64KB）后子进程阻塞</td>
+<td>起线程消费输出流；用完 waitFor() 并关闭流</td>
+</tr>
+<tr>
+<td>内存充足但 new Thread 报 OOM</td>
+<td>进程线程数 &#x2F; 虚拟内存受限（<code>ulimit -u</code>）</td>
+<td>检查 ulimit；或换虚拟线程</td>
+</tr>
+<tr>
+<td>线程池开满 2000 线程响应反而更差</td>
+<td>切换开销 &gt; 并发收益</td>
+<td>线程数 ≈ CPU 核数 × (1 + IO 等待占比 &#x2F; CPU 占比)</td>
+</tr>
+</tbody></table>
+<h3 id="5-3-工具速查表"><a href="#5-3-工具速查表" class="headerlink" title="5.3 工具速查表"></a>5.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>对应本节概念</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>ps -eo pid,ppid,stat,cmd</code></td>
+<td>进程状态、父子关系、僵尸</td>
+<td>1. 进程模型</td>
+</tr>
+<tr>
+<td><code>top -Hp &lt;pid&gt;</code></td>
+<td>每个线程的 CPU 占用</td>
+<td>2. 线程、3. 调度</td>
+</tr>
+<tr>
+<td><code>jstack &lt;pid&gt;</code></td>
+<td>Java 线程栈与状态</td>
+<td>2. 线程（映射内核状态）</td>
+</tr>
+<tr>
+<td><code>vmstat 1</code> &#x2F; <code>pidstat -w 1</code></td>
+<td>每秒切换次数 &#x2F; 自愿·非自愿切换</td>
+<td>3. 上下文切换</td>
+</tr>
+<tr>
+<td><code>nice</code> &#x2F; <code>renice</code></td>
+<td>调度权重（top 的 NI 列）</td>
+<td>3. CFS 权重</td>
+</tr>
+<tr>
+<td><code>strace -c</code></td>
+<td>syscall 类型与次数</td>
+<td>4. 用户态&#x2F;内核态</td>
+</tr>
+</tbody></table>
+<p>三个收获：<strong>进程管资源、线程管执行、调度管时间</strong>；切换成本从大到小是 进程切换 &gt; 线程切换 &gt; 系统调用；Java 的并发问题最终都能映射到这几层上——线程池大小、虚拟线程选型、进程卡死排查，根因都在本节讲的内核机制里，排查工具见上表。</p>
+<p>实操建议：</p>
+<ol>
+<li>压测先看 <code>vmstat 1</code> 的 <code>cs</code> 列，切换率异常高先缩线程池，不要先加并发。</li>
+<li>用了 <code>Runtime.exec()</code> &#x2F; <code>ProcessBuilder</code> 一定 <code>waitFor()</code> + 关流，防僵尸进程。</li>
+<li>新项目 IO 密集型并发优先评估虚拟线程（JDK 21+），平台线程留给 CPU 密集和需要可控栈的场景。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告</strong>：线程的「栈内存」在进程里只是地址空间的一角——第 2 篇《内存管理：虚拟内存与分页》讲地址空间怎么组织、虚拟地址怎么翻译成物理地址、以及容器里 JVM 被 OOM 杀的完整链路。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -2046,669 +2611,6 @@
 <li>**缓存与存储数据混用的实例必须用 <code>volatile-*</code>**。</li>
 <li><strong>上线后盯 <code>evicted_keys</code> 和命中率</strong>，策略选对的标准是”被淘汰的都是冷 key”。</li>
 </ol>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/629ad3df.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="知行栈">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | 知行栈">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/629ad3df.html" class="post-title-link" itemprop="url">MySQL 索引原理与实践</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-
-      <time title="Created: 2026-08-11 23:55:00" itemprop="dateCreated datePublished" datetime="2026-08-11T23:55:00+08:00">2026-08-11</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">In</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/" itemprop="url" rel="index"><span itemprop="name">后端开发</span></a>
-        </span>
-          , 
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/" itemprop="url" rel="index"><span itemprop="name">数据存储</span></a>
-        </span>
-          , 
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/%E5%90%8E%E7%AB%AF%E5%BC%80%E5%8F%91/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/MySQL/" itemprop="url" rel="index"><span itemprop="name">MySQL</span></a>
-        </span>
-    </span>
-
-  
-    <span class="post-meta-break"></span>
-    <span class="post-meta-item" title="Word count in article">
-      <span class="post-meta-item-icon">
-        <i class="far fa-file-word"></i>
-      </span>
-      <span class="post-meta-item-text">Word count in article: </span>
-      <span>7.5k</span>
-    </span>
-    <span class="post-meta-item" title="Reading time">
-      <span class="post-meta-item-icon">
-        <i class="far fa-clock"></i>
-      </span>
-      <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>27 mins.</span>
-    </span>
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <blockquote>
-<p>本文是《<a href="/post/32511a71.html">MySQL 原理与优化</a>》的<strong>索引专题深挖篇</strong>，把该文第 2 章”索引”展开成完整知识体系：B+ 树的底层结构为什么长这样、聚簇索引与非聚簇索引的本质区别、以及日常建索引时真正管用的实践要点。索引是 MySQL 面试的必考区，也是 1-3 年 Java 后端从”会写 SQL”到”会优化 SQL”的分水岭——多表 join 能写出来是基本功，慢 SQL 能自己建索引治好才是进阶。</p>
-<p>本文按”为什么需要索引 → B+ 树底层结构 → 聚簇与非聚簇 → 联合索引与最左前缀 → EXPLAIN 与索引失效 → 建索引实践”六章组织，每章末尾给结论，第 7 章是高频面试速答。全文默认讨论 InnoDB 引擎 + MySQL 5.7&#x2F;8.0。</p>
-</blockquote>
-<h2 id="1-为什么需要索引"><a href="#1-为什么需要索引" class="headerlink" title="1. 为什么需要索引"></a>1. 为什么需要索引</h2><h3 id="1-1-没有索引的查询：全表扫描"><a href="#1-1-没有索引的查询：全表扫描" class="headerlink" title="1.1 没有索引的查询：全表扫描"></a>1.1 没有索引的查询：全表扫描</h3><p>MySQL 的数据以<strong>页</strong>为单位存在磁盘上（默认 16 KB&#x2F;页，<code>innodb_page_size</code>）。一张 1000 万行的表，数据占几千个页。没有索引时，查询只能从第一页扫到最后一页，逐行判断条件——这就是<strong>全表扫描</strong>，复杂度 O(n)，一次查询就是几千次磁盘 IO。</p>
-<p>几个关键数字，记住它们才能理解索引的价值：</p>
-<table>
-<thead>
-<tr>
-<th>存储&#x2F;操作</th>
-<th>延迟量级</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>内存访问</td>
-<td>约 100 ns</td>
-</tr>
-<tr>
-<td>SSD 随机读</td>
-<td>约 0.1 ms</td>
-</tr>
-<tr>
-<td>HDD 随机读</td>
-<td>约 10 ms</td>
-</tr>
-<tr>
-<td>一次磁盘 IO（读一页）</td>
-<td>机械盘毫秒级，SSD 亚毫秒级</td>
-</tr>
-</tbody></table>
-<p>一次全表扫描 &#x3D; 数千次这样的随机 IO。而索引的目标，是把”扫几千页”变成”读 2~3 个页”。</p>
-<h3 id="1-2-索引的本质：一张有序的”目录”"><a href="#1-2-索引的本质：一张有序的”目录”" class="headerlink" title="1.2 索引的本质：一张有序的”目录”"></a>1.2 索引的本质：一张有序的”目录”</h3><p>索引本质上是一份<strong>独立于表数据、按键排序的目录结构</strong>，类似新华字典的拼音检字表：</p>
-<ul>
-<li>没有检字表：从第 1 页翻到第 900 页找”栈”字；</li>
-<li>有检字表：先定位”zhan”在拼音表的哪个区间，再翻到对应正文页。</li>
-</ul>
-<p>数据库索引同理：先在索引里用<strong>二分查找</strong>定位到目标键，再顺着指针拿到数据所在页。查找次数从 O(n) 降到 O(log n)，而且是<strong>页级</strong>的 log n——这正是 B+ 树多叉设计的用武之地（见第 2 章）。</p>
-<p>当然索引不是免费的午餐，它有两个代价：</p>
-<ul>
-<li><strong>空间</strong>：每个索引都是一份额外的有序结构，占用磁盘与 Buffer Pool 内存；</li>
-<li><strong>写放大</strong>：每次 INSERT&#x2F;UPDATE&#x2F;DELETE 都要同步维护索引，索引越多，写入越慢（详见 6.3）。</li>
-</ul>
-<h3 id="1-3-为什么偏偏是-B-树"><a href="#1-3-为什么偏偏是-B-树" class="headerlink" title="1.3 为什么偏偏是 B+ 树"></a>1.3 为什么偏偏是 B+ 树</h3><p>工程师拿到”有序目录”的需求，天然会想到几类候选结构。逐一排除：</p>
-<table>
-<thead>
-<tr>
-<th>候选结构</th>
-<th>等值查找</th>
-<th>范围查询</th>
-<th>磁盘友好度</th>
-<th>结论</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>哈希表</td>
-<td>O(1)，最快</td>
-<td>不支持（无序）</td>
-<td>一般</td>
-<td>InnoDB 仅在内存中用自适应哈希索引加速热点页，不做持久化索引</td>
-</tr>
-<tr>
-<td>二叉查找树&#x2F;AVL&#x2F;红黑树</td>
-<td>O(log n)</td>
-<td>需要中序遍历</td>
-<td>差</td>
-<td>树高 log₂n，10 亿数据约 30 层 &#x3D; 30 次磁盘 IO；且平衡调整频繁</td>
-</tr>
-<tr>
-<td>B 树</td>
-<td>O(log n)</td>
-<td>需要回溯父节点</td>
-<td>中</td>
-<td>所有节点都存数据，单页装下的键少，树偏高（对比见 2.5）</td>
-</tr>
-<tr>
-<td>跳表</td>
-<td>O(log n)</td>
-<td>好（内存中）</td>
-<td>差</td>
-<td>链式结构对磁盘页对齐不友好，Redis 的 ZSet 用在内存场景</td>
-</tr>
-<tr>
-<td><strong>B+ 树</strong></td>
-<td>O(log n)</td>
-<td>好（叶子链表顺序扫）</td>
-<td><strong>最好</strong></td>
-<td><strong>InnoDB 的选择</strong></td>
-</tr>
-</tbody></table>
-<p><strong>结论</strong>：等值、范围、磁盘 IO、写入稳定性四者权衡下来，B+ 树是磁盘数据库索引的最优解。为什么这么说，第 2 章把它的底层结构拆开看。</p>
-<h2 id="2-B-树索引的底层结构"><a href="#2-B-树索引的底层结构" class="headerlink" title="2. B+ 树索引的底层结构"></a>2. B+ 树索引的底层结构</h2><h3 id="2-1-先理解磁盘-IO-模型：页、树高、IO-次数"><a href="#2-1-先理解磁盘-IO-模型：页、树高、IO-次数" class="headerlink" title="2.1 先理解磁盘 IO 模型：页、树高、IO 次数"></a>2.1 先理解磁盘 IO 模型：页、树高、IO 次数</h3><p>InnoDB 的索引和数据都以页为单位读写，一次磁盘 IO 至少读一个页。所以<strong>一次索引查找的磁盘 IO 次数 ≈ 树的层数</strong>。层数就是 B+ 树的设计核心：把树做得越矮，查询就越快。</p>
-<p>B+ 树的层数由”每个页能装多少键”决定，这个数字叫<strong>分支因子</strong>。以 8 字节的 BIGINT 主键 + 6 字节页指针为例，一条索引记录约 14 字节：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">每页可存键数 ≈ 16 KB ÷ 14 B ≈ 1170 条</span><br></pre></td></tr></table></figure>
-
-<p>也就是说，一个非叶子页能带 1170 个孩子。树的容量是几何级数增长的：</p>
-<table>
-<thead>
-<tr>
-<th>层数</th>
-<th>可支撑数据量（按叶子页 15 行&#x2F;页估算）</th>
-<th>实际 IO 次数</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>2 层</td>
-<td>1170 × 15 ≈ 1.7 万行</td>
-<td>1 次</td>
-</tr>
-<tr>
-<td>3 层</td>
-<td>1170 × 1170 × 15 ≈ 2000 万行</td>
-<td>2 次</td>
-</tr>
-<tr>
-<td>4 层</td>
-<td>百亿行</td>
-<td>3 次</td>
-</tr>
-</tbody></table>
-<p>注意 IO 次数比层数少 1：<strong>根页常驻 Buffer Pool 内存</strong>，不需要读磁盘。所以 1000 万行的表按主键查，真实磁盘 IO 只要 2 次。这就是”3 层 B+ 树支撑千万级数据”这句话的来历。</p>
-<h3 id="2-2-B-树长什么样"><a href="#2-2-B-树长什么样" class="headerlink" title="2.2 B+ 树长什么样"></a>2.2 B+ 树长什么样</h3><figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">         内部节点（非叶子）：只存&quot;键 + 指向子页的指针&quot;，不存数据</span><br><span class="line">                 [ 21 ]        [ 45 ]        [ 79 ]</span><br><span class="line">                /      \      /       \      /      \</span><br><span class="line">        ┌───────┘        └───┘         └────┘        └───────┐</span><br><span class="line">        ↓                    ↓                  ↓</span><br><span class="line">  叶子节点页              叶子节点页           叶子节点页</span><br><span class="line">[1|2|5|8|11|15]  &lt;───&gt;  [21|23|28|34|40]  &lt;───&gt;  [45|49|56|...]</span><br><span class="line">   数据或主键值            数据或主键值          数据或主键值</span><br><span class="line">     ●────────────────────●────────────────────●─────────</span><br><span class="line">       叶子节点之间用链表串联（InnoDB 中为双向链表）</span><br></pre></td></tr></table></figure>
-
-<p>两个核心设计：</p>
-<ul>
-<li><strong>内部节点只存键 + 指针</strong>。一个页能装下 1170 个键，整棵树被压得很矮——这是 B+ 树 vs B 树最大的区别（2.5 详述）；</li>
-<li><strong>所有数据都在叶子节点</strong>，叶子之间用链表串联。范围查询找到起点后，沿链表顺序往下读即可，天然支持顺序扫描。</li>
-</ul>
-<h3 id="2-3-页内二分查找"><a href="#2-3-页内二分查找" class="headerlink" title="2.3 页内二分查找"></a>2.3 页内二分查找</h3><p>B+ 树的查找分两个阶段：<strong>沿树逐层下探</strong>（每次读一页），<strong>在页内二分查找</strong>（内存操作）。</p>
-<p>以 <code>WHERE id = 45</code> 为例，完整路径：</p>
-<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">第 1 次 IO（根页，常驻内存）: 在 [21, 45, 79] 中二分 → 45 在第二个区间 → 取 45 的左指针</span><br><span class="line">第 2 次 IO（中间页）:          页内记录是 [23, 28, 34, 40, 45, ...] → 二分命中 45</span><br><span class="line">第 3 次 IO（叶子页）:          找到完整行数据（聚簇索引）或主键值（二级索引，见第 3 章）</span><br></pre></td></tr></table></figure>
-
-<p>页内记录按键有序，二分查找是纯内存操作，代价可忽略。整条链路的主导成本只有那 2 次磁盘 IO。</p>
-<h3 id="2-4-插入与页分裂"><a href="#2-4-插入与页分裂" class="headerlink" title="2.4 插入与页分裂"></a>2.4 插入与页分裂</h3><p>B+ 树的插入规则很简单：找到应插入的叶子页，放进去；<strong>页满了就分裂成两页，并把新的最小键上提到父节点</strong>（父节点可能继续分裂，向上递归）。</p>
-<p>页分裂的代价很大——要写两个新页、改父节点，可能连锁向上分裂。所以<strong>插入顺序直接决定索引的健康度</strong>：</p>
-<ul>
-<li><strong>顺序插入（自增主键）</strong>：永远追加在最右叶子页，只有这一个页反复分裂，代价最小，叶子页空间利用率接近 100%；</li>
-<li><strong>乱序插入（UUID 主键）</strong>：随机落在任意页，页频繁分裂，分裂后两页都只装一半数据——<strong>空间利用率跌到约 50%，索引膨胀一倍，还会产生大量碎片</strong>。</li>
-</ul>
-<p>这一条直接导出了第 3 章的结论：主键不要用 UUID。</p>
-<h3 id="2-5-B-树-vs-B-树：好在哪里"><a href="#2-5-B-树-vs-B-树：好在哪里" class="headerlink" title="2.5 B+ 树 vs B 树：好在哪里"></a>2.5 B+ 树 vs B 树：好在哪里</h3><table>
-<thead>
-<tr>
-<th>对比维度</th>
-<th>B 树</th>
-<th>B+ 树</th>
-<th>对磁盘数据库意味着什么</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>数据存储位置</td>
-<td>所有节点都存数据</td>
-<td>只有叶子节点存数据</td>
-<td>B+ 树单页能装更多键，树更矮，IO 更少</td>
-</tr>
-<tr>
-<td>单页键容量</td>
-<td>少（每条记录 14B+行数据）</td>
-<td>多（纯键 + 指针）</td>
-<td>同样 2000 万行，B 树要多 1~2 层</td>
-</tr>
-<tr>
-<td>范围查询</td>
-<td>要回溯父节点、中序遍历</td>
-<td>叶子链表顺序扫描</td>
-<td><code>id &gt; 100</code> 的效率高一个量级</td>
-</tr>
-<tr>
-<td>全表扫描</td>
-<td>需要遍历整棵树</td>
-<td>直接扫叶子链表，近似顺序读</td>
-<td>顺序 IO 比随机 IO 快几个数量级</td>
-</tr>
-<tr>
-<td>写放大</td>
-<td>中间节点存数据，更新频繁</td>
-<td>内部节点纯指针，结构稳定</td>
-<td>支持更高并发写入</td>
-</tr>
-</tbody></table>
-<p><strong>本节小结</strong>：B+ 树用”非叶子纯索引 → 高分支因子 → 矮树”换来更少的磁盘 IO；用”叶子链表”换来高效的范围查询和顺序读。这两个特性叠加，就是 InnoDB 把它选为默认索引结构的全部理由。</p>
-<h2 id="3-聚簇索引与非聚簇索引"><a href="#3-聚簇索引与非聚簇索引" class="headerlink" title="3. 聚簇索引与非聚簇索引"></a>3. 聚簇索引与非聚簇索引</h2><h3 id="3-1-聚簇索引：数据就是索引"><a href="#3-1-聚簇索引：数据就是索引" class="headerlink" title="3.1 聚簇索引：数据就是索引"></a>3.1 聚簇索引：数据就是索引</h3><p><strong>聚簇索引（Clustered Index，InnoDB 中即主键索引）的叶子节点直接存完整行数据</strong>。也就是说，InnoDB 的表数据本身就是一棵 B+ 树——数据物理上按键有序组织，这叫<strong>索引组织表（Index-Organized Table）</strong>。</p>
-<p>每个表<strong>只能有一个</strong>聚簇索引，由 InnoDB 按以下优先级自动决定：</p>
-<ol>
-<li>显式定义的<strong>主键</strong>；</li>
-<li>如果没有主键，取<strong>第一个非空 UNIQUE 索引</strong>；</li>
-<li>都没有，InnoDB 自动生成一个<strong>隐藏的 6 字节 ROWID</strong> 作为聚簇索引（表结构设计缺陷，见 3.5）。</li>
-</ol>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">CREATE TABLE</span> t_user (</span><br><span class="line">    id   <span class="type">BIGINT</span> <span class="keyword">PRIMARY KEY</span> AUTO_INCREMENT,   <span class="comment">-- 聚簇索引</span></span><br><span class="line">    name <span class="type">VARCHAR</span>(<span class="number">32</span>),</span><br><span class="line">    age  <span class="type">INT</span></span><br><span class="line">);</span><br><span class="line"><span class="comment">-- 主键查找：一次叶子命中直接拿到整行，无需任何额外步骤</span></span><br><span class="line"><span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> t_user <span class="keyword">WHERE</span> id <span class="operator">=</span> <span class="number">100</span>;</span><br></pre></td></tr></table></figure>
-
-<p>聚簇索引叶子页里除了业务列，还藏着 InnoDB 的隐藏列（<code>trx_id</code> 事务 ID、<code>roll_pointer</code> 回滚指针），MVCC 的版本链就挂在它们上面——这是《MySQL 原理与优化》事务章节的内容，此处不展开。</p>
-<h3 id="3-2-非聚簇索引（二级索引）：列值-主键"><a href="#3-2-非聚簇索引（二级索引）：列值-主键" class="headerlink" title="3.2 非聚簇索引（二级索引）：列值 + 主键"></a>3.2 非聚簇索引（二级索引）：列值 + 主键</h3><p><strong>二级索引（Secondary Index，又称非聚簇索引&#x2F;辅助索引）的叶子节点只存两样东西：索引列的值 + 主键值</strong>。</p>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">ALTER TABLE</span> t_user <span class="keyword">ADD</span> INDEX idx_name (name);</span><br><span class="line"><span class="comment">-- 索引内容示意（按 name 排序）：</span></span><br><span class="line"><span class="comment">--   (&#x27;alice&#x27;, 3)  (&#x27;bob&#x27;, 8)  (&#x27;charlie&#x27;, 12)  ...</span></span><br></pre></td></tr></table></figure>
-
-<p>一个关键细节（面试常考）：<strong>InnoDB 二级索引叶子存的是主键值，而不是行指针</strong>（MyISAM 的索引叶子存的是行指针&#x2F;文件偏移）。为什么？因为聚簇索引里数据页分裂、移动是常态，如果二级索引存指针，每次数据挪动都要回写所有二级索引；而主键值永远不变。代价是：<strong>主键越长，每个二级索引越大</strong>——这是 3.5 主键要短的核心原因。</p>
-<p>一张表可以建多个二级索引，它们与数据的物理顺序无关，各自独立。</p>
-<h3 id="3-3-两种索引对比"><a href="#3-3-两种索引对比" class="headerlink" title="3.3 两种索引对比"></a>3.3 两种索引对比</h3><table>
-<thead>
-<tr>
-<th>维度</th>
-<th>聚簇索引（主键索引）</th>
-<th>二级索引（非聚簇索引）</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>叶子节点内容</td>
-<td>完整行数据</td>
-<td>索引列值 + 主键值</td>
-</tr>
-<tr>
-<td>每表数量</td>
-<td>只能有 1 个</td>
-<td>可以有多个</td>
-</tr>
-<tr>
-<td>与数据关系</td>
-<td>数据即索引，物理顺序 &#x3D; 主键序</td>
-<td>独立结构，与物理顺序无关</td>
-</tr>
-<tr>
-<td>查找路径</td>
-<td>命中叶子即拿到整行</td>
-<td>命中叶子只拿到主键，可能需要回表</td>
-</tr>
-<tr>
-<td>创建方式</td>
-<td>主键自动生成</td>
-<td><code>CREATE INDEX</code> 显式创建</td>
-</tr>
-<tr>
-<td>主键值变化</td>
-<td>—</td>
-<td>所有二级索引需要跟着改</td>
-</tr>
-</tbody></table>
-<h3 id="3-4-回表与覆盖索引"><a href="#3-4-回表与覆盖索引" class="headerlink" title="3.4 回表与覆盖索引"></a>3.4 回表与覆盖索引</h3><p>回表是这两个概念之间的”差价”，一句话定义：<strong>二级索引只存”列值 + 主键”，当查询需要的字段不在索引里时，只能拿主键再到聚簇索引查一遍完整行，这次”回头”就是回表</strong>。</p>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 表 t_user：id 主键，idx_name(name)</span></span><br><span class="line"><span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> t_user <span class="keyword">WHERE</span> name <span class="operator">=</span> <span class="string">&#x27;alice&#x27;</span>;</span><br><span class="line"><span class="comment">-- 执行路径：</span></span><br><span class="line"><span class="comment">--   1) 走 idx_name，二分定位到 (&#x27;alice&#x27;, 3)</span></span><br><span class="line"><span class="comment">--   2) 拿到主键 3，回聚簇索引查 id=3 的完整行</span></span><br></pre></td></tr></table></figure>
-
-<p>每次回表都是一次聚簇索引查找（约 1~2 次磁盘 IO）。如果命中了 100 行，就是 100 次回表——这就是大范围查询慢的真相。</p>
-<p><strong>覆盖索引</strong>：查询所需的列<strong>全部包含在索引中</strong>，无需回表。它不是一个新索引类型，而是一种”索引刚好够用”的状态：</p>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 查询只需要 name 和 id（主键），而 idx_name 里恰好都有</span></span><br><span class="line"><span class="keyword">SELECT</span> id, name <span class="keyword">FROM</span> t_user <span class="keyword">WHERE</span> name <span class="operator">=</span> <span class="string">&#x27;alice&#x27;</span>;</span><br><span class="line"><span class="comment">-- Extra: Using index（即覆盖索引命中，无回表）</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> t_user <span class="keyword">WHERE</span> name <span class="operator">=</span> <span class="string">&#x27;alice&#x27;</span>;</span><br><span class="line"><span class="comment">-- Extra: NULL / Using where（需要回表）</span></span><br></pre></td></tr></table></figure>
-
-<p>注意二级索引天然包含主键，所以”查 id + 查索引列”这类查询几乎总是可以做成覆盖索引。设计实践里，<strong>用空间换回表</strong>是有性价比的（见 6.2 覆盖性原则）。</p>
-<h3 id="3-5-主键怎么选：自增-vs-UUID-vs-业务主键"><a href="#3-5-主键怎么选：自增-vs-UUID-vs-业务主键" class="headerlink" title="3.5 主键怎么选：自增 vs UUID vs 业务主键"></a>3.5 主键怎么选：自增 vs UUID vs 业务主键</h3><p>结合 2.4 的页分裂和 3.2 的”叶子存主键”，主键选择可以一次性推出来：</p>
-<table>
-<thead>
-<tr>
-<th>候选</th>
-<th>插入顺序性</th>
-<th>索引膨胀</th>
-<th>结论</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>BIGINT 自增</td>
-<td>顺序插入，无页分裂</td>
-<td>8 字节，二级索引最小</td>
-<td><strong>首选</strong></td>
-</tr>
-<tr>
-<td>雪花 ID（BIGINT）</td>
-<td>基本有序，可接受</td>
-<td>8 字节</td>
-<td>分布式场景首选</td>
-</tr>
-<tr>
-<td>UUID（36 字符串&#x2F;16B binary）</td>
-<td>完全乱序，页分裂频繁，碎片多</td>
-<td>大，且乱序会加剧膨胀</td>
-<td>避免</td>
-</tr>
-<tr>
-<td>业务主键（如 18 位身份证号）</td>
-<td>视业务而定</td>
-<td>长字符串，所有二级索引跟着变大</td>
-<td>避免，用唯一索引约束替代</td>
-</tr>
-</tbody></table>
-<p><strong>实践结论</strong>：</p>
-<ul>
-<li>主键用<strong>无业务含义的 BIGINT 自增</strong>（单机）或雪花 ID（分布式），一列定生死：乱序、过长都是慢性病，上线后很难改；</li>
-<li>业务上的唯一性（身份证号、手机号、订单号）用 <strong>UNIQUE 索引</strong>约束，而不是塞进主键；</li>
-<li>主键与唯一索引的语义区别：主键不能为 NULL，唯一索引允许 NULL（且多个 NULL 不冲突）。</li>
-</ul>
-<p><strong>本节小结</strong>：聚簇索引 &#x3D; 整张表的数据本体；二级索引 &#x3D; “索引列 + 主键”的副本。两者之间的差价是回表，覆盖索引是抹平差价的手段；而主键的选择（顺序、长度）决定所有二级索引的生死。</p>
-<h2 id="4-联合索引与最左前缀"><a href="#4-联合索引与最左前缀" class="headerlink" title="4. 联合索引与最左前缀"></a>4. 联合索引与最左前缀</h2><h3 id="4-1-联合索引的内部排序"><a href="#4-1-联合索引的内部排序" class="headerlink" title="4.1 联合索引的内部排序"></a>4.1 联合索引的内部排序</h3><p>联合索引 <code>(a, b, c)</code> 底层就是一棵 B+ 树，只是排序规则变成了<strong>先按 a 排，a 相同再按 b 排，b 相同再按 c 排</strong>：</p>
-<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">(a=1,b=2)  (a=1,b=5)  (a=1,b=5,c=9)  (a=2,b=1)  (a=2,b=3)  ...</span><br><span class="line">└─── 先看 a ───┘  └──────── 再看 b ────────┘  └── 再看 c ──┘</span><br></pre></td></tr></table></figure>
-
-<p>这个”字典序”就是最左前缀原则的全部来源：<strong>索引能用来定位的条件，必须是从最左列开始的一段连续前缀</strong>。因为索引里的顺序是”先 a 后 b 后 c”，只给 b 的值，索引无法知道去哪一区间找。</p>
-<h3 id="4-2-最左前缀：哪些查询能用上-a-b-c"><a href="#4-2-最左前缀：哪些查询能用上-a-b-c" class="headerlink" title="4.2 最左前缀：哪些查询能用上 (a, b, c)"></a>4.2 最左前缀：哪些查询能用上 <code>(a, b, c)</code></h3><table>
-<thead>
-<tr>
-<th>查询条件</th>
-<th>能用到的索引部分</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>a = 1</code></td>
-<td>a</td>
-<td>完整使用</td>
-</tr>
-<tr>
-<td><code>a = 1 AND b = 2</code></td>
-<td>a + b</td>
-<td>完整使用</td>
-</tr>
-<tr>
-<td><code>a = 1 AND b = 2 AND c = 3</code></td>
-<td>a + b + c</td>
-<td>完整使用</td>
-</tr>
-<tr>
-<td><code>b = 2</code></td>
-<td>无</td>
-<td>缺最左列 a，索引失效（全表扫描或索引全扫）</td>
-</tr>
-<tr>
-<td><code>a = 1 AND c = 3</code></td>
-<td>只用 a</td>
-<td>跳过 b，c 无法用于索引定位（5.6+ 可被索引下推部分挽回，见 4.3）</td>
-</tr>
-<tr>
-<td><code>b = 2 AND a = 1</code></td>
-<td>a + b</td>
-<td>优化器会重排等值条件，等价于 <code>a=1 AND b=2</code></td>
-</tr>
-</tbody></table>
-<p>两个补充规则：</p>
-<ul>
-<li><strong>等值条件顺序无关</strong>：优化器会自动把等值条件按索引列序重排，所以 <code>b=2 AND a=1</code> 和 <code>a=1 AND b=2</code> 效果一样；</li>
-<li><strong>范围条件后面的列”断链”<strong>：<code>a &gt; 1 AND b = 2</code> 中，a 用于索引定位，但 b 无法用于定位——索引定位只能在第一个范围条件上停止（b&#x3D;2 只能退化为索引层过滤，8.0 前回表后过滤，8.0 中可被 ICP 拦截，见 4.3）。所以</strong>等值列放前面、范围列放后面</strong>是联合索引设计的铁律（见 6.2）。</li>
-</ul>
-<h3 id="4-3-索引下推（ICP）：把过滤提前到索引层"><a href="#4-3-索引下推（ICP）：把过滤提前到索引层" class="headerlink" title="4.3 索引下推（ICP）：把过滤提前到索引层"></a>4.3 索引下推（ICP）：把过滤提前到索引层</h3><p>MySQL 5.6 引入的索引下推（Index Condition Pushdown），解决的是”联合索引部分失效”场景下的回表浪费：</p>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 联合索引 (name, age)，注意 age 也恰好是索引列</span></span><br><span class="line"><span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> t_user <span class="keyword">WHERE</span> name <span class="keyword">LIKE</span> <span class="string">&#x27;张%&#x27;</span> <span class="keyword">AND</span> age <span class="operator">=</span> <span class="number">30</span>;</span><br></pre></td></tr></table></figure>
-
-<ul>
-<li><strong>5.6 之前</strong>：引擎层把 <code>name LIKE &#39;张%&#39;</code> 命中的所有记录（含 <code>age != 30</code> 的）<strong>全部回表</strong>，由 Server 层过滤 <code>age = 30</code>——假设命中 1 万条，就回表 1 万次；</li>
-<li><strong>5.6 之后（ICP）</strong>：引擎层在**遍历二级索引时直接判断 <code>age = 30</code>**，只把满足条件的行回表——假设只剩 50 条，就回表 50 次。</li>
-</ul>
-<p>执行计划里看到 <code>Extra: Using index condition</code> 即命中 ICP。注意前提：过滤条件里的列（这里的 age）必须是索引列。</p>
-<h3 id="4-4-索引与排序：ORDER-BY-免排序"><a href="#4-4-索引与排序：ORDER-BY-免排序" class="headerlink" title="4.4 索引与排序：ORDER BY 免排序"></a>4.4 索引与排序：ORDER BY 免排序</h3><p>B+ 树的叶子天然有序，所以<strong>只要排序字段是联合索引的一个连续前缀，ORDER BY 就能直接按索引顺序取数据，省掉 filesort</strong>（内存&#x2F;磁盘排序，代价很高）：</p>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 联合索引 (a, b, c)</span></span><br><span class="line"><span class="keyword">WHERE</span> a <span class="operator">=</span> <span class="number">1</span> <span class="keyword">ORDER</span> <span class="keyword">BY</span> b      <span class="comment">-- 能用：a 等值确定前缀，b 天然有序 → 免排序</span></span><br><span class="line"><span class="keyword">ORDER</span> <span class="keyword">BY</span> a, b               <span class="comment">-- 能用：整体就是索引序</span></span><br><span class="line"><span class="keyword">WHERE</span> a <span class="operator">=</span> <span class="number">1</span> <span class="keyword">ORDER</span> <span class="keyword">BY</span> b <span class="keyword">DESC</span> <span class="comment">-- 能用：反向扫描（8.0 之前需注意混合升降序不行）</span></span><br><span class="line"><span class="keyword">ORDER</span> <span class="keyword">BY</span> a <span class="keyword">DESC</span>, b <span class="keyword">ASC</span>      <span class="comment">-- 8.0 之前不行（需 filesort）；8.0 建降序索引后可以</span></span><br><span class="line"><span class="keyword">ORDER</span> <span class="keyword">BY</span> b                  <span class="comment">-- 不行：缺最左列 a，索引序不等于 b 的序</span></span><br></pre></td></tr></table></figure>
-
-<p>看到 <code>Extra: Using filesort</code> 就要警惕——它通常意味着一次额外的排序开销，优先考虑把排序列放进索引（或调整索引列序）。</p>
-<p><strong>本节小结</strong>：联合索引 &#x3D; 一棵按”字典序”排序的树；最左前缀是它的使用规则，等值前置、范围后置是它的设计规则；ICP 在索引层提前过滤，覆盖索引&#x2F;索引序消灭回表与 filesort——这四个机制全部围绕”减少聚簇索引访问”服务。</p>
-<h2 id="5-EXPLAIN-与索引失效排查"><a href="#5-EXPLAIN-与索引失效排查" class="headerlink" title="5. EXPLAIN 与索引失效排查"></a>5. EXPLAIN 与索引失效排查</h2><h3 id="5-1-EXPLAIN-速查"><a href="#5-1-EXPLAIN-速查" class="headerlink" title="5.1 EXPLAIN 速查"></a>5.1 EXPLAIN 速查</h3><p>慢 SQL 排查的第一动作永远是 <code>EXPLAIN SELECT ...</code>。重点看五个字段：</p>
-<table>
-<thead>
-<tr>
-<th>字段</th>
-<th>含义</th>
-<th>怎么看</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>type</code></td>
-<td>访问类型，从好到坏：<code>system</code> &gt; <code>const</code> &gt; <code>eq_ref</code> &gt; <code>ref</code> &gt; <code>range</code> &gt; <code>index</code> &gt; <code>ALL</code></td>
-<td><code>ALL</code>（全表扫描）和 <code>index</code>（全索引扫描）是优化信号</td>
-</tr>
-<tr>
-<td><code>key</code></td>
-<td>实际用到的索引</td>
-<td><code>NULL</code> 说明没用索引</td>
-</tr>
-<tr>
-<td><code>key_len</code></td>
-<td>索引实际用到的字节数</td>
-<td>比设计值短，说明只用了部分前缀（列没吃满）</td>
-</tr>
-<tr>
-<td><code>rows</code></td>
-<td>估算扫描行数</td>
-<td>越大越慢，与实际返回行数差距过大说明统计不准</td>
-</tr>
-<tr>
-<td><code>Extra</code></td>
-<td>附加信息</td>
-<td>见下表</td>
-</tr>
-</tbody></table>
-<p><code>Extra</code> 常见取值：</p>
-<table>
-<thead>
-<tr>
-<th>Extra 取值</th>
-<th>含义</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>Using index</code></td>
-<td>覆盖索引，无回表（好）</td>
-</tr>
-<tr>
-<td><code>Using index condition</code></td>
-<td>索引下推生效（好）</td>
-</tr>
-<tr>
-<td><code>Using where</code></td>
-<td>存储引擎返回后 Server 层过滤（可能回表）</td>
-</tr>
-<tr>
-<td><code>Using filesort</code></td>
-<td>需要额外排序（差）</td>
-</tr>
-<tr>
-<td><code>Using temporary</code></td>
-<td>需要临时表（差，常见于 GROUP BY 没用上索引）</td>
-</tr>
-</tbody></table>
-<p><code>key_len</code> 计算示例（面试手算题）：utf8mb4 字符集下 <code>VARCHAR(32)</code> 可空列，<code>32 × 4 + 2（变长长度字节）+ 1（NULL 标记）= 131</code> 字节。联合索引 <code>(a, b)</code> 的 key_len 只等于 a 的长度，说明 b 没用上。</p>
-<h3 id="5-2-索引失效场景清单"><a href="#5-2-索引失效场景清单" class="headerlink" title="5.2 索引失效场景清单"></a>5.2 索引失效场景清单</h3><table>
-<thead>
-<tr>
-<th>场景</th>
-<th>示例</th>
-<th>原因与正解</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>对索引列做函数&#x2F;运算</td>
-<td><code>WHERE DATE(create_time) = &#39;2026-08-01&#39;</code></td>
-<td>索引存的是列原值，无法按函数结果定位。正解：<code>create_time &gt;= &#39;2026-08-01&#39; AND create_time &lt; &#39;2026-08-02&#39;</code>，或 8.0 函数索引</td>
-</tr>
-<tr>
-<td>隐式类型转换</td>
-<td>字符串列 <code>WHERE phone = 13800000000</code>（数值）</td>
-<td>列上发生类型转换，见 5.3</td>
-</tr>
-<tr>
-<td><code>LIKE &#39;%xx&#39;</code> 前导模糊</td>
-<td><code>WHERE name LIKE &#39;%张&#39;</code></td>
-<td>无法确定扫描起点。<code>张%</code> 可以走 range</td>
-</tr>
-<tr>
-<td><code>OR</code> 连接非索引列</td>
-<td><code>WHERE name = &#39;a&#39; OR age &gt; 30</code>（age 无索引）</td>
-<td>优化器无法保证只走 name 索引。正解：拆两条 SQL 或给 age 建索引</td>
-</tr>
-<tr>
-<td>违反最左前缀</td>
-<td>联合索引 <code>(a,b,c)</code> 查 <code>WHERE b = 2</code></td>
-<td>见 4.2</td>
-</tr>
-<tr>
-<td>范围条件断链</td>
-<td><code>WHERE a &gt; 1 AND b = 2</code></td>
-<td>b 无法用于定位，只能过滤（等值列放前，见 4.2）</td>
-</tr>
-<tr>
-<td><code>NOT IN</code> &#x2F; <code>!=</code> &#x2F; <code>NOT LIKE</code></td>
-<td><code>WHERE status != 1</code></td>
-<td><strong>非绝对失效</strong>：返回比例高时优化器主动选全表扫描，比例低时可能走 range，取决于统计信息</td>
-</tr>
-<tr>
-<td>数据量过小</td>
-<td>几千行的表</td>
-<td>优化器认为全表扫描更快（扫描几个页 vs 走索引还要回表），是合理决策，不是 bug</td>
-</tr>
-</tbody></table>
-<p>两个常见误解要澄清：</p>
-<ul>
-<li><strong><code>IS NULL</code> 走不走索引？</strong> 走。InnoDB 二级索引允许存 NULL，<code>IS NULL</code> 是 ref 级别的索引查找；</li>
-<li><strong><code>!=</code> 一定失效？</strong> 不一定。它是优化器基于成本的选择，与数据分布有关——用 <code>EXPLAIN</code> 验证而不是背结论。</li>
-</ul>
-<h3 id="5-3-隐式类型转换：最容易踩的坑"><a href="#5-3-隐式类型转换：最容易踩的坑" class="headerlink" title="5.3 隐式类型转换：最容易踩的坑"></a>5.3 隐式类型转换：最容易踩的坑</h3><p>MySQL 的规则：<strong>字符串列与数值比较时，字符串被转换为数值</strong>——转换发生在<strong>列</strong>上，索引失效；数值列与字符串比较时，字符串被转成数值，列不受影响，索引可用。</p>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- phone 是 VARCHAR 列：</span></span><br><span class="line"><span class="keyword">WHERE</span> phone <span class="operator">=</span> <span class="number">13800000000</span>;   <span class="comment">-- 等效于 CAST(phone AS 数字)，列上做转换 → 索引失效</span></span><br><span class="line"><span class="keyword">WHERE</span> phone <span class="operator">=</span> <span class="string">&#x27;13800000000&#x27;</span>; <span class="comment">-- 字符串比较，索引可用 ✓</span></span><br><span class="line"></span><br><span class="line"><span class="comment">-- id 是 BIGINT 列：</span></span><br><span class="line"><span class="keyword">WHERE</span> id <span class="operator">=</span> <span class="string">&#x27;100&#x27;</span>;            <span class="comment">-- 字符串转数字，列不受影响，索引可用 ✓</span></span><br></pre></td></tr></table></figure>
-
-<p><strong>实践规则</strong>：Java 里用 MyBatis&#x2F;JPA 传参时，<code>phone</code> 这类字符串字段传参类型必须和列类型一致（DTO 里是 <code>String</code>），否则会掉进这个坑且线上很难发现。排查技巧：<code>EXPLAIN</code> 里 <code>key</code> 为 NULL 但条件明明有索引，先检查类型。</p>
-<h3 id="5-4-优化器选错索引"><a href="#5-4-优化器选错索引" class="headerlink" title="5.4 优化器选错索引"></a>5.4 优化器选错索引</h3><p>优化器基于<strong>统计信息</strong>（采样估算行数）选索引，统计不准确时可能选错：</p>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">ANALYZE <span class="keyword">TABLE</span> t_user;                  <span class="comment">-- 更新统计信息（最常见解法）</span></span><br><span class="line">EXPLAIN <span class="keyword">SELECT</span> ...;                    <span class="comment">-- 复看执行计划</span></span><br><span class="line"><span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> t_user FORCE INDEX (idx); <span class="comment">-- 强制指定（最后手段，表结构/数据变化后可能失效，慎用）</span></span><br></pre></td></tr></table></figure>
-
-<p>统计信息与真实分布差太远、或者优化器对”回表成本”的估算有误时，选错就发生了。另外 8.0 可以用 <code>EXPLAIN ANALYZE</code> 拿到实际执行耗时，比看估算 rows 更可靠。</p>
-<p><strong>本节小结</strong>：看 <code>type</code> 是否 ALL、<code>key</code> 是否 NULL、<code>Extra</code> 是否有 filesort&#x2F;temporary 三个信号；失效排查按”函数&#x2F;运算 → 隐式转换 → LIKE → OR → 最左前缀 → 范围断链”的顺序过一遍；选错索引先 <code>ANALYZE TABLE</code>，<code>FORCE INDEX</code> 是最后手段。</p>
-<h2 id="6-日常建索引的实践要点"><a href="#6-日常建索引的实践要点" class="headerlink" title="6. 日常建索引的实践要点"></a>6. 日常建索引的实践要点</h2><h3 id="6-1-建索引的决策流程"><a href="#6-1-建索引的决策流程" class="headerlink" title="6.1 建索引的决策流程"></a>6.1 建索引的决策流程</h3><p>不要”凭感觉建索引”，按下面的流程走：</p>
-<ol>
-<li><strong>定位慢 SQL</strong>：开启慢查询日志（<code>long_query_time = 1</code>，或阈值按业务调），或用 <code>performance_schema</code>&#x2F;监控平台捞 Top SQL；</li>
-<li><strong>EXPLAIN 分析</strong>：确认是不是全表扫描（<code>type = ALL</code>）、有没有 filesort、rows 是否过大；</li>
-<li><strong>设计索引</strong>：把 SQL 的 <code>WHERE</code> 等值列、<code>JOIN</code> 关联列、<code>ORDER BY</code> 排序列、<code>GROUP BY</code> 列列出来，按 6.2 的规则排成联合索引；</li>
-<li><strong>验证</strong>：<code>EXPLAIN</code> 对比建索引前后的 <code>type</code>、<code>rows</code>、<code>Extra</code>，确认覆盖到查询；</li>
-<li><strong>上线观察</strong>：索引对写放大有代价，上线后观察慢日志和写入延迟，确认收益 &gt; 成本。</li>
-</ol>
-<h3 id="6-2-选列与排序的四个原则"><a href="#6-2-选列与排序的四个原则" class="headerlink" title="6.2 选列与排序的四个原则"></a>6.2 选列与排序的四个原则</h3><p><strong>① 区分度优先</strong>：索引的价值在于”过滤”，区分度低的列（性别、状态位）单独建索引收益极低——过滤完还是半张表。用 <code>SHOW INDEX FROM t</code> 看 <code>Cardinality</code>（估算基数），基数&#x2F;总行数越大越好。区分度低的列适合放在联合索引<strong>靠后的位置</strong>做等值过滤（见③）。</p>
-<p><strong>② 等值列在前，范围&#x2F;排序列在后</strong>：等值条件（<code>=</code>）能精确确定扫描区间，范围条件（<code>&gt;</code>、<code>BETWEEN</code>、<code>LIKE &#39;x%&#39;</code>）会让后面的列断链。排序&#x2F;分组列放在最后，顺便免掉 filesort（4.4）。</p>
-<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 经典场景：用户订单页&quot;查某用户最近订单&quot;</span></span><br><span class="line"><span class="comment">-- WHERE user_id = ? ORDER BY created_at DESC</span></span><br><span class="line"><span class="comment">-- 联合索引 (user_id, created_at)：user_id 等值定位，created_at 天然有序免排序 ✓</span></span><br><span class="line"><span class="keyword">CREATE</span> INDEX idx_user_time <span class="keyword">ON</span> t_order (user_id, created_at);</span><br></pre></td></tr></table></figure>
-
-<p><strong>③ 尽量让查询覆盖</strong>：查询只返回索引列的列时，把高频 SELECT 的列塞进索引尾部队列，用空间换回表。典型：列表页查 <code>(id, name, status)</code>，就建 <code>(name, status)</code> 或让联合索引带上它们。</p>
-<p><strong>④ 先查后建，宁缺毋滥</strong>：没有慢 SQL 就没有索引需求；小表（万行以内）全表扫描只有几个页的 IO，索引的收益可以忽略，别为”仪式感”建索引。</p>
-<h3 id="6-3-索引的成本：为什么不能建太多"><a href="#6-3-索引的成本：为什么不能建太多" class="headerlink" title="6.3 索引的成本：为什么不能建太多"></a>6.3 索引的成本：为什么不能建太多</h3><p>每个索引都是<strong>一份独立的排序副本</strong>，代价具体到数字：</p>
-<ul>
-<li><strong>写放大</strong>：一条 INSERT 要写 1 份聚簇索引 + N 份二级索引；UPDATE 修改了索引列，对应索引也要改；DELETE 同理。索引从 3 个加到 8 个，写入开销接近翻倍；</li>
-<li><strong>空间</strong>：每加一个索引，就是表数据的 20%~100% 的额外存储（取决于列宽），同时挤占 Buffer Pool 内存，降低缓存命中率；</li>
-<li><strong>唯一索引更贵</strong>：插入前要立即判断唯一性，无法利用 change buffer 的延迟合并（普通二级索引可以）。</li>
-</ul>
-<p><strong>量化建议</strong>：单表索引控制在 <strong>5~6 个以内</strong>，能用联合索引覆盖的查询就不要拆成多个单列索引。</p>
-<h3 id="6-4-冗余索引与维护"><a href="#6-4-冗余索引与维护" class="headerlink" title="6.4 冗余索引与维护"></a>6.4 冗余索引与维护</h3><ul>
-<li><strong>联合索引吞并单列索引</strong>：有 <code>(a, b)</code> 就没必要保留单列 <code>(a)</code>——前者完全覆盖后者的能力。但 <code>(b, a)</code> 与 <code>(a, b)</code> 是两种不同结构，别删错；</li>
-<li><strong>8.0 的 <code>INVISIBLE</code> 索引</strong>：拿不准要不要删的索引，先 <code>ALTER TABLE ... ALTER INDEX idx INVISIBLE</code> 无痛隐藏，观察一段时间没有报错再 DROP，比直接删安全得多；</li>
-<li><strong>索引碎片</strong>：页分裂会留下碎片。<code>SHOW TABLE STATUS LIKE &#39;t_order&#39;</code> 看 <code>Data_free</code>，碎片明显时 <code>OPTIMIZE TABLE t_order</code> 重建表（注意锁表时间，选业务低峰）；</li>
-<li><strong>前缀索引</strong>：超长字符串（URL、邮箱）建 <code>url(20)</code> 前缀索引，但会损失区分度，且<strong>无法用于覆盖索引和 ORDER BY</strong>——权衡后使用；</li>
-<li><strong>8.0 函数索引</strong>：<code>CREATE INDEX idx_date ON t ( (DATE(create_time)) )</code>，专门兜底”函数查询”场景，但优先还是改写 SQL。</li>
-</ul>
-<h3 id="6-5-三个典型业务场景"><a href="#6-5-三个典型业务场景" class="headerlink" title="6.5 三个典型业务场景"></a>6.5 三个典型业务场景</h3><figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 场景一：登录防重。账号唯一索引 + 防重插入</span></span><br><span class="line"><span class="keyword">CREATE</span> <span class="keyword">UNIQUE</span> INDEX uk_phone <span class="keyword">ON</span> t_user (phone);</span><br><span class="line"><span class="keyword">INSERT INTO</span> t_user (phone) <span class="keyword">VALUES</span> (<span class="string">&#x27;13800000000&#x27;</span>)</span><br><span class="line">    <span class="keyword">ON</span> DUPLICATE KEY <span class="keyword">UPDATE</span> phone <span class="operator">=</span> phone;  <span class="comment">-- 或用 INSERT IGNORE</span></span><br><span class="line"></span><br><span class="line"><span class="comment">-- 场景二：订单列表（状态 + 时间范围过滤 + 分页）</span></span><br><span class="line"><span class="comment">-- WHERE status = 1 AND created_at &gt; ? ORDER BY created_at LIMIT 20</span></span><br><span class="line"><span class="keyword">CREATE</span> INDEX idx_status_time <span class="keyword">ON</span> t_order (status, created_at);</span><br><span class="line"><span class="comment">-- 注意 status 区分度低，放前面做等值过滤合理；若 status 只有两三个值，</span></span><br><span class="line"><span class="comment">-- 且该 SQL 返回行数占比高，可考虑只用 (created_at) 让索引层过滤范围</span></span><br><span class="line"></span><br><span class="line"><span class="comment">-- 场景三：深分页（LIMIT 100000, 10 前 10 万行全部回表）</span></span><br><span class="line"><span class="comment">-- 延迟关联：先用覆盖索引取出 id，再回表拿整行</span></span><br><span class="line"><span class="keyword">SELECT</span> t.<span class="operator">*</span> <span class="keyword">FROM</span> t_order t</span><br><span class="line"><span class="keyword">JOIN</span> (<span class="keyword">SELECT</span> id <span class="keyword">FROM</span> t_order <span class="keyword">ORDER</span> <span class="keyword">BY</span> created_at LIMIT <span class="number">100000</span>, <span class="number">10</span>) tmp</span><br><span class="line">  <span class="keyword">ON</span> t.id <span class="operator">=</span> tmp.id;</span><br></pre></td></tr></table></figure>
-
-<h3 id="6-6-常用命令清单"><a href="#6-6-常用命令清单" class="headerlink" title="6.6 常用命令清单"></a>6.6 常用命令清单</h3><figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">SHOW</span> INDEX <span class="keyword">FROM</span> t_user;                    <span class="comment">-- 看索引与 Cardinality</span></span><br><span class="line"><span class="keyword">SHOW</span> <span class="keyword">CREATE TABLE</span> t_user;                  <span class="comment">-- 看完整建表语句</span></span><br><span class="line">EXPLAIN <span class="keyword">SELECT</span> ...;                        <span class="comment">-- 看执行计划</span></span><br><span class="line">ANALYZE <span class="keyword">TABLE</span> t_user;                      <span class="comment">-- 更新统计信息</span></span><br><span class="line">OPTIMIZE <span class="keyword">TABLE</span> t_user;                     <span class="comment">-- 重建表、回收碎片（业务低峰）</span></span><br><span class="line"><span class="keyword">SET</span> <span class="keyword">GLOBAL</span> slow_query_log <span class="operator">=</span> <span class="keyword">ON</span>;            <span class="comment">-- 开启慢查询日志</span></span><br><span class="line">EXPLAIN ANALYZE <span class="keyword">SELECT</span> ...;                <span class="comment">-- 8.0：返回实际执行耗时</span></span><br></pre></td></tr></table></figure>
-
-<p><strong>本节小结</strong>：建索引 &#x3D; 先有慢 SQL 证据，再按”等值列在前、范围&#x2F;排序列在后、高频查询尽量覆盖、区分度决定值不值得”四原则设计联合索引；同时记住每条索引的写放大和空间成本，5~6 个是常见上限；冗余索引、碎片、隐式转换是上线后最常补的课。</p>
-<h2 id="7-面试高频题速答（1-3-年档）"><a href="#7-面试高频题速答（1-3-年档）" class="headerlink" title="7. 面试高频题速答（1-3 年档）"></a>7. 面试高频题速答（1-3 年档）</h2><table>
-<thead>
-<tr>
-<th>问题</th>
-<th>速答</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>为什么 InnoDB 用 B+ 树而不是 B 树？</td>
-<td>内部节点不存数据 → 单页键多 → 树矮 IO 少；叶子链表 → 范围查询和顺序扫描高效；写放大更小</td>
-</tr>
-<tr>
-<td>聚簇索引和非聚簇索引的区别？</td>
-<td>聚簇叶子存整行、每表一个、决定物理顺序；二级索引叶子存”列值 + 主键”、可多个、与物理顺序无关</td>
-</tr>
-<tr>
-<td>为什么二级索引存主键而不是行指针？</td>
-<td>数据页移动&#x2F;分裂时主键不变，避免级联更新所有二级索引；代价是主键越长索引越大</td>
-</tr>
-<tr>
-<td>什么是回表和覆盖索引？</td>
-<td>二级索引缺字段时拿主键回头查聚簇索引叫回表；查询列全在索引里则无需回表（Extra: Using index）</td>
-</tr>
-<tr>
-<td>联合索引 <code>(a,b,c)</code>，<code>WHERE b=1 AND c=2</code> 能用吗？</td>
-<td>不能定位，最左列缺失；只能全索引扫描，8.0 下可被 ICP 在索引层过滤</td>
-</tr>
-<tr>
-<td>索引下推解决什么问题？</td>
-<td>让二级索引遍历时直接过滤部分失效的索引列，减少回表次数（Extra: Using index condition）</td>
-</tr>
-<tr>
-<td>什么场景索引会失效？</td>
-<td>函数&#x2F;运算、隐式类型转换、<code>LIKE &#39;%x&#39;</code>、OR 非索引列、违反最左前缀、范围后断链</td>
-</tr>
-<tr>
-<td>自增主键 vs UUID？</td>
-<td>自增顺序插入无页分裂、索引小；UUID 乱序导致页分裂、碎片、空间利用率掉到 50% 附近</td>
-</tr>
-<tr>
-<td>索引是不是越多越好？</td>
-<td>不是。每个索引都是写放大 + 空间成本，单表 5~6 个为常见上限，用联合索引替代多个单列索引</td>
-</tr>
-<tr>
-<td>唯一索引和普通索引怎么选？</td>
-<td>需要业务防重&#x2F;唯一约束用唯一索引；否则用普通索引（可走 change buffer，写入更便宜）</td>
-</tr>
-</tbody></table>
-<h2 id="8-总结"><a href="#8-总结" class="headerlink" title="8. 总结"></a>8. 总结</h2><p>一条主线串起全文：<strong>B+ 树用”矮树 + 叶子链表”把磁盘 IO 次数从 O(n) 压到 O(层数)<strong>；</strong>聚簇索引就是表数据本体，二级索引是”列 + 主键”的副本，回表是两者之间的差价</strong>；<strong>联合索引按字典序组织，最左前缀决定能用不能用，等值前置决定用得好不好</strong>；<strong>EXPLAIN 的 type&#x2F;key&#x2F;Extra 三件套 + 隐式转换、函数、LIKE 这些失效清单，是排查慢 SQL 的标准动作</strong>；最后落到实践：先慢日志，后 EXPLAIN，再按”区分度、列序、覆盖、成本”四原则建索引。</p>
-<p>索引优化是 MySQL 学习中性价比最高的投入——它不需要改代码，不需要扩机器，一条 <code>CREATE INDEX</code> 常常把慢 SQL 从秒级降到毫秒级。但这张”免费的优化券”也有规则：建错了（冗余、过度）会拖垮写入，建歪了（列序、类型）等于没建。</p>
-<p>延伸阅读（按学习顺序）：</p>
-<ul>
-<li><a href="/post/32511a71.html">MySQL 原理与优化</a>：架构、事务、锁、MVCC 的完整体系，索引的上位知识；</li>
-<li><a href="/post/mysql-ha-2025.html">MySQL 高可用与分库分表实战</a>：单机撑不住之后的扩展方案，索引设计在其中依然有效；</li>
-<li><a href="/docs/nav/mysql-nav.html">MySQL 导航</a>：本文在”后端能力链”中的定位与推荐学习顺序；</li>
-<li>缓存互补：<a href="/post/bae4ff13.html">Redis 深度解析</a>：索引救不了的读瓶颈，交给缓存。</li>
-</ul>
 
       
     </div>
