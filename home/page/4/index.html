@@ -1569,7 +1569,7 @@
   
 
   <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/74359cea.html">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/rag-service-2026.html">
 
     <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
       <meta itemprop="image" content="/images/avatar.gif">
@@ -1587,7 +1587,7 @@
     </span>
       <header class="post-header">
         <h2 class="post-title" itemprop="name headline">
-          <a href="/post/74359cea.html" class="post-title-link" itemprop="url">算法篇二：数组、链表、栈、队列与双指针</a>
+          <a href="/post/rag-service-2026.html" class="post-title-link" itemprop="url">AI 在 Java 后端的落地实践：RAG 服务化与向量检索上生产</a>
         </h2>
 
         <div class="post-meta-container">
@@ -1606,7 +1606,7 @@
       </span>
       <span class="post-meta-item-text">In</span>
         <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84%E4%B8%8E%E7%AE%97%E6%B3%95/" itemprop="url" rel="index"><span itemprop="name">数据结构与算法</span></a>
+          <a href="/categories/AI%E5%A4%A7%E6%A8%A1%E5%9E%8B/" itemprop="url" rel="index"><span itemprop="name">AI大模型</span></a>
         </span>
     </span>
 
@@ -1617,14 +1617,14 @@
         <i class="far fa-file-word"></i>
       </span>
       <span class="post-meta-item-text">Word count in article: </span>
-      <span>3.6k</span>
+      <span>4.8k</span>
     </span>
     <span class="post-meta-item" title="Reading time">
       <span class="post-meta-item-icon">
         <i class="far fa-clock"></i>
       </span>
       <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>13 mins.</span>
+      <span>18 mins.</span>
     </span>
 </div>
 
@@ -1635,175 +1635,557 @@
     
     
     <div class="post-body" itemprop="articleBody">
-          <p><strong>线性结构手撕是笔试的第一道门槛：链表反转、环检测、括号匹配、滑动窗口，四类题覆盖笔试的 30% 且全部有固定模板。</strong> 本篇给每类题「模板代码 + 变体 + 复杂度 + 易错点」，按面试真实节奏组织：看到信号词 → 套模板 → 写变体。读完你能做到：这四类题 15 分钟内写出通过全部用例的代码。</p>
-<blockquote>
-<p>系列地图（数据结构与算法）：① 复杂度分析与高频结构速查（度量衡）→ ② <strong>本文：数组、链表、栈、队列与双指针（线性结构手撕）</strong> → ③ 哈希表&#x2F;二叉树与递归（面试 80% 题型的落点）。</p>
+          <blockquote>
+<p>本篇回答一个问题：<strong>RAG 从「能跑的脚本」到「生产可用的服务」，中间差了什么？</strong> <a href="/post/rag-2026.html">RAG原理与实践</a> 讲「检索怎么做好」，本篇讲「检索怎么作为一个服务跑在生产上」——接口设计、索引流水线、权限隔离、降级链路、容量评估，全部以 Java 后端视角展开。</p>
 </blockquote>
-<h2 id="1-数组：连续内存的-O-1-访问"><a href="#1-数组：连续内存的-O-1-访问" class="headerlink" title="1. 数组：连续内存的 O(1) 访问"></a>1. 数组：连续内存的 O(1) 访问</h2><h3 id="1-1-数组的本质：下标即地址"><a href="#1-1-数组的本质：下标即地址" class="headerlink" title="1.1 数组的本质：下标即地址"></a>1.1 数组的本质：下标即地址</h3><p><code>arr[i]</code> 的寻址是 <code>起始地址 + i × 元素大小</code>——<strong>一步乘法一个加法，这就是 O(1) 访问的来源</strong>。而插入&#x2F;删除要挪动后续所有元素，O(n)。</p>
-<p><strong>面试问「数组和链表本质区别」的底层答案</strong>：数组的 O(1) 访问来自「内存连续 + 下标寻址」，链表的 O(1) 插入来自「指针修改 + 无需移动」——<strong>两者都是物理结构决定的，不是实现细节</strong>。</p>
-<h3 id="1-2-模板一：原地操作（双指针同向）"><a href="#1-2-模板一：原地操作（双指针同向）" class="headerlink" title="1.2 模板一：原地操作（双指针同向）"></a>1.2 模板一：原地操作（双指针同向）</h3><p>「原地删除重复元素」「移除指定值」这类题，核心是<strong>用新指针覆盖写，原地完成</strong>：</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// LeetCode 26：原地删除有序数组的重复项，返回新长度</span></span><br><span class="line"><span class="keyword">public</span> <span class="type">int</span> <span class="title function_">removeDuplicates</span><span class="params">(<span class="type">int</span>[] nums)</span> &#123;</span><br><span class="line">    <span class="type">int</span> <span class="variable">slow</span> <span class="operator">=</span> <span class="number">0</span>;                                    <span class="comment">// slow 指向「已去重区的末尾」</span></span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">fast</span> <span class="operator">=</span> <span class="number">1</span>; fast &lt; nums.length; fast++) &#123;</span><br><span class="line">        <span class="keyword">if</span> (nums[fast] != nums[slow]) &#123;              <span class="comment">// 发现新元素</span></span><br><span class="line">            nums[++slow] = nums[fast];               <span class="comment">// 覆盖式写入——原地、O(1) 空间</span></span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> slow + <span class="number">1</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>模板要点</strong>：快指针扫描（读），慢指针标注结果区（写）——<strong>读快写慢，覆盖推进</strong>。变体：「移除元素」（保留等于 val 之外的）、「移动零」（把零移到末尾）全是同一个骨架。</p>
-<h3 id="1-3-模板二：左右指针（有序数组的两数之和）"><a href="#1-3-模板二：左右指针（有序数组的两数之和）" class="headerlink" title="1.3 模板二：左右指针（有序数组的两数之和）"></a>1.3 模板二：左右指针（有序数组的两数之和）</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// LeetCode 167：有序数组两数之和 = target</span></span><br><span class="line"><span class="keyword">public</span> <span class="type">int</span>[] twoSum(<span class="type">int</span>[] nums, <span class="type">int</span> target) &#123;</span><br><span class="line">    <span class="type">int</span> <span class="variable">l</span> <span class="operator">=</span> <span class="number">0</span>, r = nums.length - <span class="number">1</span>;</span><br><span class="line">    <span class="keyword">while</span> (l &lt; r) &#123;</span><br><span class="line">        <span class="type">int</span> <span class="variable">sum</span> <span class="operator">=</span> nums[l] + nums[r];</span><br><span class="line">        <span class="keyword">if</span> (sum == target) <span class="keyword">return</span> <span class="keyword">new</span> <span class="title class_">int</span>[]&#123;l + <span class="number">1</span>, r + <span class="number">1</span>&#125;;</span><br><span class="line">        <span class="keyword">else</span> <span class="keyword">if</span> (sum &lt; target) l++;      <span class="comment">// 和太小，左边前进</span></span><br><span class="line">        <span class="keyword">else</span> r--;                        <span class="comment">// 和太大，右边后退</span></span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> <span class="keyword">new</span> <span class="title class_">int</span>[]&#123;-<span class="number">1</span>, -<span class="number">1</span>&#125;;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>为什么左右指针能行</strong>：数组有序 → <code>nums[l]+nums[r] &lt; target</code> 时，<code>nums[l]</code> 与任何更右的元素和都太小（右指针是当前最大），只能 l++；对称地，&gt;target 只能 r–。<strong>每一步排除一行&#x2F;一列搜索空间，总步数 ≤ n——这就是 O(n) 的证明，面试官追问「为什么不是 O(n²)」就答这个</strong>。</p>
-<h3 id="1-4-动手验证：手写数组二分并测复杂度"><a href="#1-4-动手验证：手写数组二分并测复杂度" class="headerlink" title="1.4 动手验证：手写数组二分并测复杂度"></a>1.4 动手验证：手写数组二分并测复杂度</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 模板三：二分查找（写对边界是手撕题的生死线）</span></span><br><span class="line"><span class="keyword">public</span> <span class="type">int</span> <span class="title function_">binarySearch</span><span class="params">(<span class="type">int</span>[] nums, <span class="type">int</span> target)</span> &#123;</span><br><span class="line">    <span class="type">int</span> <span class="variable">l</span> <span class="operator">=</span> <span class="number">0</span>, r = nums.length - <span class="number">1</span>;</span><br><span class="line">    <span class="keyword">while</span> (l &lt;= r) &#123;                                 <span class="comment">// 注意是 &lt;=，l==r 时还要查</span></span><br><span class="line">        <span class="type">int</span> <span class="variable">mid</span> <span class="operator">=</span> l + (r - l) / <span class="number">2</span>;                   <span class="comment">// 防溢出写法：不用 (l+r)/2</span></span><br><span class="line">        <span class="keyword">if</span> (nums[mid] == target) <span class="keyword">return</span> mid;</span><br><span class="line">        <span class="keyword">else</span> <span class="keyword">if</span> (nums[mid] &lt; target) l = mid + <span class="number">1</span>;    <span class="comment">// 区间右移</span></span><br><span class="line">        <span class="keyword">else</span> r = mid - <span class="number">1</span>;                            <span class="comment">// 区间左移</span></span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> -<span class="number">1</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>观察点：三个易错点——<code>&lt;=</code> vs <code>&lt;</code>（决定死循环）、<code>mid+1/mid-1</code> vs <code>mid</code>（决定收敛）、<code>l + (r-l)/2</code> vs <code>(l+r)/2</code>（防溢出）。判定标准：把 target 换成「不存在」的值跑一遍（比如数组 [1,3,5,7] 查 4）——不死的循环 + 返回 -1 即模板正确。<strong>用一万个元素实测：任何查找最多 14 次比较（2¹⁴ ≈ 16384）——log₂ 的体感</strong>。</p>
-<h2 id="2-链表：指针操作是手撕的主战场"><a href="#2-链表：指针操作是手撕的主战场" class="headerlink" title="2. 链表：指针操作是手撕的主战场"></a>2. 链表：指针操作是手撕的主战场</h2><h3 id="2-1-模板一：反转链表（最高频链表题）"><a href="#2-1-模板一：反转链表（最高频链表题）" class="headerlink" title="2.1 模板一：反转链表（最高频链表题）"></a>2.1 模板一：反转链表（最高频链表题）</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// LeetCode 206：反转链表（迭代版）</span></span><br><span class="line"><span class="keyword">public</span> ListNode <span class="title function_">reverseList</span><span class="params">(ListNode head)</span> &#123;</span><br><span class="line">    <span class="type">ListNode</span> <span class="variable">prev</span> <span class="operator">=</span> <span class="literal">null</span>, cur = head;</span><br><span class="line">    <span class="keyword">while</span> (cur != <span class="literal">null</span>) &#123;</span><br><span class="line">        <span class="type">ListNode</span> <span class="variable">next</span> <span class="operator">=</span> cur.next;   <span class="comment">// ① 先存下一个（否则断了找不到）</span></span><br><span class="line">        cur.next = prev;            <span class="comment">// ② 当前指向前一个（反转）</span></span><br><span class="line">        prev = cur;                 <span class="comment">// ③ prev 前进</span></span><br><span class="line">        cur = next;                 <span class="comment">// ④ cur 前进</span></span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> prev;                    <span class="comment">// 新头 = 原来的尾</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>模板要点：三指针 prev&#x2F;cur&#x2F;next，四步走「存下 → 反转 → 前移 → 前移」</strong>。易错点：第①步不存 next 直接改指针，链表就断了。变体：「反转前 N 个」「K 个一组反转」都是这个模板的递归&#x2F;循环扩展。</p>
-<h3 id="2-2-模板二：环检测（快慢指针）"><a href="#2-2-模板二：环检测（快慢指针）" class="headerlink" title="2.2 模板二：环检测（快慢指针）"></a>2.2 模板二：环检测（快慢指针）</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// LeetCode 141：环形链表——龟兔赛跑</span></span><br><span class="line"><span class="keyword">public</span> <span class="type">boolean</span> <span class="title function_">hasCycle</span><span class="params">(ListNode head)</span> &#123;</span><br><span class="line">    <span class="type">ListNode</span> <span class="variable">slow</span> <span class="operator">=</span> head, fast = head;</span><br><span class="line">    <span class="keyword">while</span> (fast != <span class="literal">null</span> &amp;&amp; fast.next != <span class="literal">null</span>) &#123;</span><br><span class="line">        slow = slow.next;            <span class="comment">// 慢指针：一步</span></span><br><span class="line">        fast = fast.next.next;       <span class="comment">// 快指针：两步</span></span><br><span class="line">        <span class="keyword">if</span> (slow == fast) <span class="keyword">return</span> <span class="literal">true</span>;   <span class="comment">// 相遇 → 有环</span></span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> <span class="literal">false</span>;                    <span class="comment">// fast 走到 null → 无环</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>为什么快慢必相遇</strong>：有环时快指针每次相对慢指针靠近 1 步，环长 k 则最多 k 次追上——O(n) 时间、O(1) 空间。<strong>面试变体「找环入口」</strong>：相遇后让一个指针从头出发，另一个从相遇点，都走一步，再次相遇点即入口（数学推导：头到入口距离 &#x3D; 相遇点到入口的「回头距离」）。<strong>记住结论即可，推导一句话带过</strong>：「快慢指针第一次相遇时，慢指针没走完一整圈」——这句话值一个加分项。</p>
-<h3 id="2-3-模板三：合并两个有序链表"><a href="#2-3-模板三：合并两个有序链表" class="headerlink" title="2.3 模板三：合并两个有序链表"></a>2.3 模板三：合并两个有序链表</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// LeetCode 21：递归版——两个有序链表合并</span></span><br><span class="line"><span class="keyword">public</span> ListNode <span class="title function_">mergeTwoLists</span><span class="params">(ListNode l1, ListNode l2)</span> &#123;</span><br><span class="line">    <span class="keyword">if</span> (l1 == <span class="literal">null</span>) <span class="keyword">return</span> l2;               <span class="comment">// 终止条件：一方空了，直接接另一方</span></span><br><span class="line">    <span class="keyword">if</span> (l2 == <span class="literal">null</span>) <span class="keyword">return</span> l1;</span><br><span class="line">    <span class="keyword">if</span> (l1.val &lt; l2.val) &#123;                   <span class="comment">// 小者当头，递归合并剩余</span></span><br><span class="line">        l1.next = mergeTwoLists(l1.next, l2);</span><br><span class="line">        <span class="keyword">return</span> l1;</span><br><span class="line">    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">        l2.next = mergeTwoLists(l1, l2.next);</span><br><span class="line">        <span class="keyword">return</span> l2;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>模板要点：终止条件（空）→ 选小者 → 递归合并剩余 → 返回头</strong>。复杂度 O(n+m) 时间、O(n+m) 递归栈。<strong>变体「合并 K 个有序链表」</strong>：两两合并（O(k·n)）或堆优化（O(n log k)）——第三篇堆会用到。</p>
-<h3 id="2-4-动手验证：反转-环检测组合拳"><a href="#2-4-动手验证：反转-环检测组合拳" class="headerlink" title="2.4 动手验证：反转 + 环检测组合拳"></a>2.4 动手验证：反转 + 环检测组合拳</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 构造 1→2→3→4→5，反转后验证 5→4→3→2→1</span></span><br><span class="line"><span class="type">ListNode</span> <span class="variable">head</span> <span class="operator">=</span> buildList(<span class="number">1</span>, <span class="number">5</span>);</span><br><span class="line"><span class="type">ListNode</span> <span class="variable">reversed</span> <span class="operator">=</span> reverseList(head);</span><br><span class="line"><span class="comment">// 再构造一个环：1→2→3→2（3 指向 2），验证 hasCycle 返回 true</span></span><br></pre></td></tr></table></figure>
-
-<p>观察点：反转后逐节点打印验证顺序；环的构造是「把尾节点的 next 指回中间的节点」。判定标准：反转打印输出 5,4,3,2,1 且环检测返回 true——<strong>两个模板都能独立手写，是链表关的过关标准</strong>。面试 5 分钟里能默写出这两个模板，说明指针操作真的熟了。</p>
-<h2 id="3-栈：后进先出的场景识别"><a href="#3-栈：后进先出的场景识别" class="headerlink" title="3. 栈：后进先出的场景识别"></a>3. 栈：后进先出的场景识别</h2><h3 id="3-1-模板一：括号匹配（栈的教科书题）"><a href="#3-1-模板一：括号匹配（栈的教科书题）" class="headerlink" title="3.1 模板一：括号匹配（栈的教科书题）"></a>3.1 模板一：括号匹配（栈的教科书题）</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// LeetCode 20：有效括号</span></span><br><span class="line"><span class="keyword">public</span> <span class="type">boolean</span> <span class="title function_">isValid</span><span class="params">(String s)</span> &#123;</span><br><span class="line">    Deque&lt;Character&gt; stack = <span class="keyword">new</span> <span class="title class_">ArrayDeque</span>&lt;&gt;();</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">char</span> c : s.toCharArray()) &#123;</span><br><span class="line">        <span class="keyword">if</span> (c == <span class="string">&#x27;(&#x27;</span> || c == <span class="string">&#x27;[&#x27;</span> || c == <span class="string">&#x27;&#123;&#x27;</span>) &#123;</span><br><span class="line">            stack.push(c);                          <span class="comment">// 左括号入栈</span></span><br><span class="line">        &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">            <span class="keyword">if</span> (stack.isEmpty()) <span class="keyword">return</span> <span class="literal">false</span>;      <span class="comment">// 右括号但栈空 → 不匹配</span></span><br><span class="line">            <span class="type">char</span> <span class="variable">top</span> <span class="operator">=</span> stack.pop();</span><br><span class="line">            <span class="keyword">if</span> (!match(top, c)) <span class="keyword">return</span> <span class="literal">false</span>;       <span class="comment">// 栈顶与当前不配对 → 不匹配</span></span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> stack.isEmpty();                         <span class="comment">// 全部匹配完且栈空才算有效</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>信号词识别</strong>：成对出现、嵌套结构、需要「最近匹配」——都是栈。<strong>「最近匹配」是栈的灵魂</strong>：后进先出天然对应「最内层的先闭合」这个语义。</p>
-<h3 id="3-2-模板二：单调栈（下一个更大元素）"><a href="#3-2-模板二：单调栈（下一个更大元素）" class="headerlink" title="3.2 模板二：单调栈（下一个更大元素）"></a>3.2 模板二：单调栈（下一个更大元素）</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// LeetCode 739：每日温度——下一个更高温度等几天</span></span><br><span class="line"><span class="keyword">public</span> <span class="type">int</span>[] dailyTemperatures(<span class="type">int</span>[] temps) &#123;</span><br><span class="line">    <span class="type">int</span>[] ans = <span class="keyword">new</span> <span class="title class_">int</span>[temps.length];</span><br><span class="line">    Deque&lt;Integer&gt; stack = <span class="keyword">new</span> <span class="title class_">ArrayDeque</span>&lt;&gt;();     <span class="comment">// 栈里存下标，值单调递减</span></span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; temps.length; i++) &#123;</span><br><span class="line">        <span class="keyword">while</span> (!stack.isEmpty() &amp;&amp; temps[stack.peek()] &lt; temps[i]) &#123;</span><br><span class="line">            <span class="type">int</span> <span class="variable">idx</span> <span class="operator">=</span> stack.pop();                 <span class="comment">// 栈顶「终于等到了更高温度」</span></span><br><span class="line">            ans[idx] = i - idx;                    <span class="comment">// 答案 = 距离</span></span><br><span class="line">        &#125;</span><br><span class="line">        stack.push(i);                             <span class="comment">// 当前下标入栈（等它的更大值）</span></span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> ans;                                    <span class="comment">// 栈里剩下的都是「等不到」的，保持 0</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>单调栈的核心</strong>：维护「还没找到答案的候选」序列，且保持单调（这里递减）——新元素来临时，把所有「比它小的栈顶」一次性弹出并结算答案。<strong>每个元素入栈出栈各一次 → O(n)<strong>，暴力是 O(n²)。</strong>变体「接雨水」是单调栈的最难变体</strong>，掌握这个模板后接雨水只是「结算逻辑变化」。</p>
-<h3 id="3-3-动手验证：手写一个最小栈"><a href="#3-3-动手验证：手写一个最小栈" class="headerlink" title="3.3 动手验证：手写一个最小栈"></a>3.3 动手验证：手写一个最小栈</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// LeetCode 155：支持 getMin 的栈，getMin 要 O(1)</span></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">MinStack</span> &#123;</span><br><span class="line">    Deque&lt;Integer&gt; data = <span class="keyword">new</span> <span class="title class_">ArrayDeque</span>&lt;&gt;();</span><br><span class="line">    Deque&lt;Integer&gt; min = <span class="keyword">new</span> <span class="title class_">ArrayDeque</span>&lt;&gt;();       <span class="comment">// 辅助栈：同步维护当前最小值</span></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">push</span><span class="params">(<span class="type">int</span> x)</span> &#123;</span><br><span class="line">        data.push(x);</span><br><span class="line">        min.push(min.isEmpty() ? x : Math.min(x, min.peek()));  <span class="comment">// 每个状态的最小值都存</span></span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">pop</span><span class="params">()</span> &#123; data.pop(); min.pop(); &#125;   <span class="comment">// 同步弹——保证两栈状态对齐</span></span><br><span class="line">    <span class="keyword">public</span> <span class="type">int</span> <span class="title function_">getMin</span><span class="params">()</span> &#123; <span class="keyword">return</span> min.peek(); &#125;     <span class="comment">// O(1) 拿最小值</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>观察点：push 3,5,2 后 getMin()&#x3D;2，pop 后 getMin() 恢复为 3——<strong>辅助栈记录的是「每个历史时刻的最小值」</strong>。判定标准：任意操作序列下 getMin 都正确且 O(1)——<strong>「用空间换时间的思路」在这里具象化：辅助栈 O(n) 空间换 O(1) 查询</strong>。</p>
-<h2 id="4-队列：先进先出与滑动窗口"><a href="#4-队列：先进先出与滑动窗口" class="headerlink" title="4. 队列：先进先出与滑动窗口"></a>4. 队列：先进先出与滑动窗口</h2><h3 id="4-1-模板一：用队列做层序（树的层序遍历）"><a href="#4-1-模板一：用队列做层序（树的层序遍历）" class="headerlink" title="4.1 模板一：用队列做层序（树的层序遍历）"></a>4.1 模板一：用队列做层序（树的层序遍历）</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 二叉树的层序遍历（用队列，逐层出队）</span></span><br><span class="line"><span class="keyword">public</span> List&lt;List&lt;Integer&gt;&gt; <span class="title function_">levelOrder</span><span class="params">(TreeNode root)</span> &#123;</span><br><span class="line">    List&lt;List&lt;Integer&gt;&gt; result = <span class="keyword">new</span> <span class="title class_">ArrayList</span>&lt;&gt;();</span><br><span class="line">    <span class="keyword">if</span> (root == <span class="literal">null</span>) <span class="keyword">return</span> result;</span><br><span class="line">    Deque&lt;TreeNode&gt; queue = <span class="keyword">new</span> <span class="title class_">ArrayDeque</span>&lt;&gt;();</span><br><span class="line">    queue.offer(root);</span><br><span class="line">    <span class="keyword">while</span> (!queue.isEmpty()) &#123;</span><br><span class="line">        <span class="type">int</span> <span class="variable">size</span> <span class="operator">=</span> queue.size();                 <span class="comment">// 关键：先记下本层节点数</span></span><br><span class="line">        List&lt;Integer&gt; level = <span class="keyword">new</span> <span class="title class_">ArrayList</span>&lt;&gt;();</span><br><span class="line">        <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; size; i++) &#123;         <span class="comment">// 只弹出本层的 size 个</span></span><br><span class="line">            <span class="type">TreeNode</span> <span class="variable">node</span> <span class="operator">=</span> queue.poll();</span><br><span class="line">            level.add(node.val);</span><br><span class="line">            <span class="keyword">if</span> (node.left != <span class="literal">null</span>) queue.offer(node.left);</span><br><span class="line">            <span class="keyword">if</span> (node.right != <span class="literal">null</span>) queue.offer(node.right);</span><br><span class="line">        &#125;</span><br><span class="line">        result.add(level);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> result;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>模板要点：<code>int size = queue.size()</code> 是本层与下一层的分界线</strong>——漏掉这句，层就混了。BFS（最短路径）和层序遍历是同一套代码的两种用法。</p>
-<h3 id="4-2-模板二：滑动窗口（最长无重复子串）"><a href="#4-2-模板二：滑动窗口（最长无重复子串）" class="headerlink" title="4.2 模板二：滑动窗口（最长无重复子串）"></a>4.2 模板二：滑动窗口（最长无重复子串）</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// LeetCode 3：无重复字符的最长子串</span></span><br><span class="line"><span class="keyword">public</span> <span class="type">int</span> <span class="title function_">lengthOfLongestSubstring</span><span class="params">(String s)</span> &#123;</span><br><span class="line">    Map&lt;Character, Integer&gt; lastPos = <span class="keyword">new</span> <span class="title class_">HashMap</span>&lt;&gt;();   <span class="comment">// 字符 → 最近出现位置</span></span><br><span class="line">    <span class="type">int</span> <span class="variable">left</span> <span class="operator">=</span> <span class="number">0</span>, maxLen = <span class="number">0</span>;</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">right</span> <span class="operator">=</span> <span class="number">0</span>; right &lt; s.length(); right++) &#123;</span><br><span class="line">        <span class="type">char</span> <span class="variable">c</span> <span class="operator">=</span> s.charAt(right);</span><br><span class="line">        <span class="keyword">if</span> (lastPos.containsKey(c)) &#123;</span><br><span class="line">            left = Math.max(left, lastPos.get(c) + <span class="number">1</span>);   <span class="comment">// 窗口左边界右移过重复字符</span></span><br><span class="line">        &#125;</span><br><span class="line">        lastPos.put(c, right);                           <span class="comment">// 记录/更新位置</span></span><br><span class="line">        maxLen = Math.max(maxLen, right - left + <span class="number">1</span>);</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> maxLen;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>滑动窗口的本质：窗口右边界负责「扩展」，左边界负责「收缩」，两指针只前进不后退 → O(n)<strong>。</strong>信号词</strong>：「最长&#x2F;最短连续子数组&#x2F;子串」+「满足某条件」→ 滑动窗口。变体：「最小覆盖子串」（窗口收缩时记录）、「长度最小的子数组」（和 ≥ target）。</p>
-<h3 id="4-3-动手验证：滑动窗口-vs-暴力对比"><a href="#4-3-动手验证：滑动窗口-vs-暴力对比" class="headerlink" title="4.3 动手验证：滑动窗口 vs 暴力对比"></a>4.3 动手验证：滑动窗口 vs 暴力对比</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 暴力 O(n²)：枚举所有子串</span></span><br><span class="line"><span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; n; i++) <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">j</span> <span class="operator">=</span> i; j &lt; n; j++) &#123; check(s.substring(i, j+<span class="number">1</span>)); &#125;</span><br><span class="line"><span class="comment">// 滑动窗口 O(n)：n=10 万时暴力 ~50 亿次检查（跑不动），窗口 10 万次（毫秒级）</span></span><br></pre></td></tr></table></figure>
-
-<p>观察点：n&#x3D;10 万时暴力版直接卡死，窗口版瞬间出结果。判定标准：亲眼看到「O(n²) 跑不动、O(n) 秒回」的对比——<strong>这就是为什么笔试必须会滑动窗口：暴力在 LeetCode 中等题几乎全超时</strong>。</p>
-<h2 id="5-双指针三件套：面试最省代码的技巧"><a href="#5-双指针三件套：面试最省代码的技巧" class="headerlink" title="5. 双指针三件套：面试最省代码的技巧"></a>5. 双指针三件套：面试最省代码的技巧</h2><h3 id="5-1-三指针套路总览"><a href="#5-1-三指针套路总览" class="headerlink" title="5.1 三指针套路总览"></a>5.1 三指针套路总览</h3><table>
+<h2 id="1-从实验到服务：RAG-落地的完整闭环"><a href="#1-从实验到服务：RAG-落地的完整闭环" class="headerlink" title="1. 从实验到服务：RAG 落地的完整闭环"></a>1. 从实验到服务：RAG 落地的完整闭环</h2><h3 id="1-1-脚本-RAG-的四个问题"><a href="#1-1-脚本-RAG-的四个问题" class="headerlink" title="1.1 脚本 RAG 的四个问题"></a>1.1 脚本 RAG 的四个问题</h3><p>实验阶段的 RAG 通常长这样：一个 Python 脚本，启动时解析文档 → 分块 → 调 embedding 接口 → 灌进本地向量库 → 收到问题直接查库拼接 prompt。它能回答「效果好不好」，但上不了生产：</p>
+<table>
 <thead>
 <tr>
-<th>套路</th>
-<th>信号词</th>
-<th>复杂度</th>
-<th>典型题</th>
+<th>问题</th>
+<th>实验脚本表现</th>
+<th>生产要求</th>
 </tr>
 </thead>
 <tbody><tr>
-<td>快慢指针</td>
-<td>链表环&#x2F;中点&#x2F;倒数第 K</td>
-<td>O(n)&#x2F;O(1)</td>
-<td>环检测、链表中点</td>
+<td><strong>不可用</strong></td>
+<td>向量库挂在脚本进程里，重启全丢</td>
+<td>服务独立部署，库高可用</td>
 </tr>
 <tr>
-<td>左右指针</td>
-<td>有序数组、两数之和</td>
-<td>O(n)&#x2F;O(1)</td>
-<td>两数之和、反转数组</td>
+<td><strong>不可扩展</strong></td>
+<td>一个进程既管入库又管检索</td>
+<td>读写分离，各自独立扩展</td>
 </tr>
 <tr>
-<td>滑动窗口</td>
-<td>连续子数组&#x2F;子串</td>
-<td>O(n)&#x2F;O(1)~O(n)</td>
-<td>最长无重复、最小覆盖</td>
+<td><strong>不可治理</strong></td>
+<td>谁都能查所有知识，无权限概念</td>
+<td>知识按租户&#x2F;部门隔离，审计可追</td>
+</tr>
+<tr>
+<td><strong>不可观测</strong></td>
+<td>报错就是 print，效果好坏靠感觉</td>
+<td>延迟、召回、成本全部可度量</td>
 </tr>
 </tbody></table>
-<p><strong>双指针的共同原理：让指针只前进不后退，把 O(n²) 的枚举压缩成 O(n) 的扫描</strong>——每步排除一个不可行的候选区间。<strong>面试答「为什么双指针 O(n)」就答这一句</strong>，比背代码有说服力。</p>
-<h3 id="5-2-快慢指针变体：找链表中点"><a href="#5-2-快慢指针变体：找链表中点" class="headerlink" title="5.2 快慢指针变体：找链表中点"></a>5.2 快慢指针变体：找链表中点</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 链表中点（快慢指针，快指针到终点时慢指针恰在中点）</span></span><br><span class="line"><span class="keyword">public</span> ListNode <span class="title function_">middleNode</span><span class="params">(ListNode head)</span> &#123;</span><br><span class="line">    <span class="type">ListNode</span> <span class="variable">slow</span> <span class="operator">=</span> head, fast = head;</span><br><span class="line">    <span class="keyword">while</span> (fast != <span class="literal">null</span> &amp;&amp; fast.next != <span class="literal">null</span>) &#123;   <span class="comment">// fast 一次两步，slow 一次一步</span></span><br><span class="line">        slow = slow.next;</span><br><span class="line">        fast = fast.next.next;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> slow;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>用途</strong>：归并排序的链表版找中点、回文链表判断（先中点再反转后半）。<strong>「找中点」是快慢指针的第二高频用法，和环检测并列为链表题的两个必背模板</strong>。</p>
-<h3 id="5-3-动手验证：双指针-vs-暴力枚举两数之和"><a href="#5-3-动手验证：双指针-vs-暴力枚举两数之和" class="headerlink" title="5.3 动手验证：双指针 vs 暴力枚举两数之和"></a>5.3 动手验证：双指针 vs 暴力枚举两数之和</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 暴力：两两枚举 O(n²)</span></span><br><span class="line"><span class="comment">// 左右指针：O(n) —— 100 万元素时暴力 ~5×10¹¹ 次（几分钟），双指针 ~10⁶ 次（毫秒）</span></span><br></pre></td></tr></table></figure>
-
-<p>观察点：100 万元素的数组，暴力枚举直接等不到结果，双指针瞬间返回。判定标准：跑通且时间差肉眼可见——<strong>笔试现场你能靠体感判断「这题该用双指针」而不是「先暴力再说」</strong>。</p>
-<h2 id="6-总结"><a href="#6-总结" class="headerlink" title="6. 总结"></a>6. 总结</h2><h3 id="6-1-面试速答表"><a href="#6-1-面试速答表" class="headerlink" title="6.1 面试速答表"></a>6.1 面试速答表</h3><table>
+<p><strong>因果链</strong>：实验脚本的「简单」来自<strong>把所有环节耦合在一个进程里</strong>——一旦拆成「对外接口、索引流水线、检索链路、模型网关」四件事，就不得不回答服务化的一系列设计问题，这正是本篇的主线。</p>
+<h3 id="1-2-服务化的四个目标"><a href="#1-2-服务化的四个目标" class="headerlink" title="1.2 服务化的四个目标"></a>1.2 服务化的四个目标</h3><table>
 <thead>
 <tr>
-<th>面试题</th>
-<th>一句话答案</th>
+<th>目标</th>
+<th>具体含义</th>
+<th>对应章节</th>
 </tr>
 </thead>
 <tbody><tr>
-<td>数组和链表本质区别？</td>
-<td>数组连续内存下标寻址 O(1) 访问、O(n) 插入；链表指针修改 O(1) 插入、O(n) 访问</td>
+<td><strong>功能闭环</strong></td>
+<td>入库、检索、问答有稳定接口</td>
+<td>第 2、3 章</td>
 </tr>
 <tr>
-<td>反转链表怎么写？</td>
-<td>三指针 prev&#x2F;cur&#x2F;next：存下 → 反转 → 前移 → 前移</td>
+<td><strong>安全可控</strong></td>
+<td>知识隔离、权限过滤、审计</td>
+<td>第 4 章</td>
 </tr>
 <tr>
-<td>链表有没有环？</td>
-<td>快慢指针，fast 两步 slow 一步，相遇即有环，O(n)&#x2F;O(1)</td>
+<td><strong>可用性</strong></td>
+<td>依赖故障（向量库&#x2F;模型）有降级路径</td>
+<td>第 5、6 章</td>
 </tr>
 <tr>
-<td>怎么找环入口？</td>
-<td>相遇后一个指针从头走、一个从相遇点走，再相遇即入口</td>
-</tr>
-<tr>
-<td>括号匹配？</td>
-<td>栈：左入栈右出栈，栈空&#x2F;不配对即 false，结束栈必须空</td>
-</tr>
-<tr>
-<td>下一个更大元素？</td>
-<td>单调栈：维护未结算候选，新元素结算所有小于它的栈顶，O(n)</td>
-</tr>
-<tr>
-<td>最长无重复子串？</td>
-<td>滑动窗口：右扩左缩，哈希记录位置，O(n)</td>
-</tr>
-<tr>
-<td>为什么双指针 O(n)？</td>
-<td>指针只前进不后退，每步排除一个不可行区间</td>
+<td><strong>可度量</strong></td>
+<td>延迟&#x2F;召回&#x2F;成本有指标有预算</td>
+<td>第 7、8 章</td>
 </tr>
 </tbody></table>
-<h3 id="6-2-实战避坑表"><a href="#6-2-实战避坑表" class="headerlink" title="6.2 实战避坑表"></a>6.2 实战避坑表</h3><table>
+<h3 id="1-3-整体架构"><a href="#1-3-整体架构" class="headerlink" title="1.3 整体架构"></a>1.3 整体架构</h3><pre class="mermaid">flowchart TB
+    U["业务系统 / 前端"] --> G["检索服务 API 网关&lt;br/>/search /chat /ingest"]
+    G --> S["检索服务（Java/Spring Boot）"]
+    S --> |"chat"| R["RAG 链路&lt;br/>检索→重排→拼装"]
+    S --> |"ingest"| P["索引流水线&lt;br/>解析→分块→embedding→入库"]
+    R --> V[("向量库")]
+    P --> V
+    R --> E["Embedding 网关&lt;br/>批量/缓存/降级"]
+    P --> E
+    R --> L[("LLM（自部署/API）")]
+    V --> B["BM25/ES 兜底"]
+    S --> M["指标/日志/追踪"]</pre>
+
+<p>架构决策一句话：<strong>检索服务只做编排，向量库、模型、embedding 全部是独立依赖</strong>——每个依赖都要回答「它挂了怎么办」，这就是第 5、6 章的内容。</p>
+<h2 id="2-检索服务的接口设计"><a href="#2-检索服务的接口设计" class="headerlink" title="2. 检索服务的接口设计"></a>2. 检索服务的接口设计</h2><h3 id="2-1-三个核心接口"><a href="#2-1-三个核心接口" class="headerlink" title="2.1 三个核心接口"></a>2.1 三个核心接口</h3><table>
 <thead>
 <tr>
-<th>坑</th>
-<th>表现</th>
-<th>处理</th>
+<th>接口</th>
+<th>场景</th>
+<th>同步&#x2F;异步</th>
+<th>说明</th>
 </tr>
 </thead>
 <tbody><tr>
-<td>反转链表断链</td>
-<td>改了 cur.next 后找不到下一个</td>
-<td>先 <code>ListNode next = cur.next</code> 再反转</td>
+<td><code>POST /search</code></td>
+<td>纯检索（RAG 之外也可用）</td>
+<td>同步</td>
+<td>输入 query + 过滤条件，返回 chunks</td>
 </tr>
 <tr>
-<td>二分死循环</td>
-<td>l 和 r 不收敛</td>
-<td><code>mid+1/mid-1</code> 而不是 mid；用 <code>l &lt;= r</code></td>
+<td><code>POST /chat</code></td>
+<td>问答（检索 + 生成）</td>
+<td>同步（SSE 流式）</td>
+<td>一次调用包含完整 RAG 链路</td>
 </tr>
 <tr>
-<td>二分溢出</td>
-<td><code>(l+r)/2</code> 大数组溢出</td>
-<td><code>l + (r-l)/2</code></td>
-</tr>
-<tr>
-<td>层序串层</td>
-<td>出队时把下一层也出了</td>
-<td><code>int size = queue.size()</code> 定本层边界</td>
-</tr>
-<tr>
-<td>滑动窗口左边界回退</td>
-<td>left 移动到重复字符左边</td>
-<td><code>left = Math.max(left, ...)</code> 保证单调</td>
-</tr>
-<tr>
-<td>栈为空还 pop</td>
-<td>右括号先于左括号</td>
-<td>先判 isEmpty 再 pop</td>
+<td><code>POST /ingest</code></td>
+<td>文档入库&#x2F;更新&#x2F;删除</td>
+<td><strong>异步</strong></td>
+<td>返回任务 ID，轮询&#x2F;回调查状态</td>
 </tr>
 </tbody></table>
-<h3 id="6-3-手撕检查清单（面试前过一遍）"><a href="#6-3-手撕检查清单（面试前过一遍）" class="headerlink" title="6.3 手撕检查清单（面试前过一遍）"></a>6.3 手撕检查清单（面试前过一遍）</h3><ul>
-<li><input disabled="" type="checkbox"> 反转链表（迭代+递归两版）5 分钟默写</li>
-<li><input disabled="" type="checkbox"> 环检测 + 环入口 5 分钟默写</li>
-<li><input disabled="" type="checkbox"> 二分查找（含 <code>&lt;=</code>&#x2F;<code>mid+1</code>&#x2F;防溢出三细节）5 分钟默写</li>
-<li><input disabled="" type="checkbox"> 括号匹配 + 单调栈模板 5 分钟默写</li>
-<li><input disabled="" type="checkbox"> 滑动窗口模板（最长无重复）5 分钟默写</li>
-<li><input disabled="" type="checkbox"> 能说出每题复杂度并解释「为什么不是更差」</li>
+<p><strong>因果链</strong>：<code>/ingest</code> 必须异步——文档解析、分块、embedding 是大模型调用（慢、贵、可能失败），同步接口要么拖垮调用方，要么超时后状态不明；异步 + 任务表才能支持「失败重试、进度可见、结果审计」。</p>
+<h3 id="2-2-接口参数设计"><a href="#2-2-接口参数设计" class="headerlink" title="2.2 接口参数设计"></a>2.2 接口参数设计</h3><figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// /search 请求体</span></span><br><span class="line"><span class="punctuation">&#123;</span></span><br><span class="line">  <span class="attr">&quot;query&quot;</span><span class="punctuation">:</span> <span class="string">&quot;如何配置数据库连接池&quot;</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;knowledgeBase&quot;</span><span class="punctuation">:</span> <span class="string">&quot;dev-docs&quot;</span><span class="punctuation">,</span>        <span class="comment">// 知识库 ID（权限校验的关键）</span></span><br><span class="line">  <span class="attr">&quot;topK&quot;</span><span class="punctuation">:</span> <span class="number">5</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;filters&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;department&quot;</span><span class="punctuation">:</span> <span class="string">&quot;backend&quot;</span> <span class="punctuation">&#125;</span><span class="punctuation">,</span>  <span class="comment">// 元数据过滤</span></span><br><span class="line">  <span class="attr">&quot;scoreThreshold&quot;</span><span class="punctuation">:</span> <span class="number">0.6</span><span class="punctuation">,</span>              <span class="comment">// 低于阈值的 chunk 直接丢弃</span></span><br><span class="line">  <span class="attr">&quot;userId&quot;</span><span class="punctuation">:</span> <span class="string">&quot;u_1024&quot;</span>                  <span class="comment">// 权限上下文，服务端不信任请求体里的其他身份信息</span></span><br><span class="line"><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>动手验证：最小检索服务</strong></p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@RestController</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">SearchController</span> &#123;</span><br><span class="line">    <span class="meta">@PostMapping(&quot;/search&quot;)</span></span><br><span class="line">    <span class="keyword">public</span> SearchResult <span class="title function_">search</span><span class="params">(<span class="meta">@RequestBody</span> SearchRequest req)</span> &#123;</span><br><span class="line">        <span class="comment">// 1. 权限校验：userId 有权限访问 knowledgeBase 吗？</span></span><br><span class="line">        authService.assertCanRead(req.getUserId(), req.getKnowledgeBase());</span><br><span class="line">        <span class="comment">// 2. 向量检索 + 元数据过滤</span></span><br><span class="line">        List&lt;Chunk&gt; hits = vectorStore.similaritySearch(</span><br><span class="line">            SearchRequest.builder(req.getQuery()).topK(req.getTopK())</span><br><span class="line">                .filter(<span class="string">&quot;knowledgeBase = &quot;</span> + req.getKnowledgeBase()).build());</span><br><span class="line">        <span class="comment">// 3. 阈值过滤 + 返回</span></span><br><span class="line">        <span class="keyword">return</span> SearchResult.of(hits.stream()</span><br><span class="line">            .filter(c -&gt; c.getScore() &gt;= req.getScoreThreshold()).toList());</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>观察点：接口的<strong>前两行就是权限校验</strong>——检索服务的正确性不只是「结果对不对」，更是「不该看到的结果一条都不能出」。判定标准：权限校验必须发生在检索之前（否则过滤器被绕过时数据已出库）。</p>
+<h3 id="2-3-流式问答：chat-接口的-SSE"><a href="#2-3-流式问答：chat-接口的-SSE" class="headerlink" title="2.3 流式问答：chat 接口的 SSE"></a>2.3 流式问答：chat 接口的 SSE</h3><p><code>/chat</code> 用 SSE（<code>text/event-stream</code>）返回，而不是等全部生成完再返回：</p>
+<table>
+<thead>
+<tr>
+<th>方式</th>
+<th>首字延迟</th>
+<th>用户体感</th>
+<th>服务端资源</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>一次性返回</td>
+<td>数秒</td>
+<td>转圈，像死机</td>
+<td>连接占用时间相同</td>
+</tr>
+<tr>
+<td>SSE 流式</td>
+<td>数百 ms</td>
+<td>看到字在出</td>
+<td>连接占用时间相同</td>
+</tr>
+</tbody></table>
+<p><strong>动手验证</strong>：Spring WebFlux + <code>SseEmitter</code>，或直接用 Spring AI 的 <code>StreamingChatClient</code>（见 <a href="/post/java-ai-frameworks-2026.html">Spring AI与LangChain4j实战</a>）——前端 <code>fetch</code> 读流即可。判定标准：<strong>首字延迟是问答服务的第一体验指标</strong>，流式是标配不是加分项。</p>
+<h2 id="3-索引更新流水线：知识怎么进系统"><a href="#3-索引更新流水线：知识怎么进系统" class="headerlink" title="3. 索引更新流水线：知识怎么进系统"></a>3. 索引更新流水线：知识怎么进系统</h2><h3 id="3-1-全量重建-vs-增量更新"><a href="#3-1-全量重建-vs-增量更新" class="headerlink" title="3.1 全量重建 vs 增量更新"></a>3.1 全量重建 vs 增量更新</h3><table>
+<thead>
+<tr>
+<th>方式</th>
+<th>场景</th>
+<th>代价</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>全量重建</td>
+<td>首次上线、文档批量导入、分块策略升级</td>
+<td>慢（全量 embedding），但实现简单、结果一致</td>
+</tr>
+<tr>
+<td>增量更新</td>
+<td>日常单文档增删改</td>
+<td>快，但要处理「文档变更了，旧 chunk 怎么办」</td>
+</tr>
+</tbody></table>
+<p><strong>核心问题：增量更新的「文档 → chunk」映射</strong>——向量库只认 chunk，不认文档；文档更新时必须按 <code>documentId</code> 把旧 chunk 全部删掉再插新的，否则旧片段残留、新片段重复。</p>
+<p><strong>动手验证：双缓冲版本切换（全量重建不打折）</strong></p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 知识库版本表：当前查询只认 active 版本</span></span><br><span class="line"><span class="keyword">CREATE TABLE</span> kb_version (</span><br><span class="line">  kb_id <span class="type">VARCHAR</span>(<span class="number">64</span>), version <span class="type">BIGINT</span>, status ENUM(<span class="string">&#x27;building&#x27;</span>,<span class="string">&#x27;active&#x27;</span>,<span class="string">&#x27;archived&#x27;</span>), created_at DATETIME</span><br><span class="line">);</span><br><span class="line"><span class="comment">-- 重建流程：新版本插入新表/新集合 → 全量完成 → status 切 active → 旧版本归档删除</span></span><br></pre></td></tr></table></figure>
+
+<p>观察点：重建期间用户查的是<strong>旧版本</strong>（active 不变），切版本是原子操作，全程服务不中断。判定标准：任何「重建期间检索结果不一致&#x2F;报错」都是双缓冲没做好的信号。</p>
+<h3 id="3-2-流水线的四步与失败处理"><a href="#3-2-流水线的四步与失败处理" class="headerlink" title="3.2 流水线的四步与失败处理"></a>3.2 流水线的四步与失败处理</h3><pre class="mermaid">flowchart LR
+    A["1 解析&lt;br/>(pdf/word → 文本)"] --> B["2 分块&lt;br/>(chunk + 元数据)"]
+    B --> C["3 Embedding&lt;br/>(批量调模型)"]
+    C --> D["4 入库&lt;br/>(写向量库)"]
+    C -.失败.-> E["重试队列&lt;br/>(指数退避)"]</pre>
+
+<p><strong>因果链</strong>：流水线每步都可能失败（文件损坏、embedding 限流、向量库抖动），<strong>没有重试队列的流水线，失败就静默丢文档</strong>——用户问「为什么新文档答不出来」，排查半天才发现入库任务失败了没人知道。</p>
+<p><strong>动手验证：任务状态表</strong></p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">CREATE TABLE</span> ingest_task (</span><br><span class="line">  id <span class="type">BIGINT</span> AUTO_INCREMENT <span class="keyword">PRIMARY KEY</span>,</span><br><span class="line">  doc_id <span class="type">VARCHAR</span>(<span class="number">64</span>), kb_id <span class="type">VARCHAR</span>(<span class="number">64</span>),</span><br><span class="line">  status ENUM(<span class="string">&#x27;pending&#x27;</span>,<span class="string">&#x27;processing&#x27;</span>,<span class="string">&#x27;success&#x27;</span>,<span class="string">&#x27;failed&#x27;</span>),</span><br><span class="line">  retry_count <span class="type">INT</span> <span class="keyword">DEFAULT</span> <span class="number">0</span>,</span><br><span class="line">  error_msg TEXT, updated_at DATETIME</span><br><span class="line">);</span><br></pre></td></tr></table></figure>
+
+<p>重试策略：失败任务重试 3 次（指数退避 1s&#x2F;5s&#x2F;30s），仍失败进失败队列人工处理；<strong>状态表 + 定时扫描</strong>替代「丢线程里自生自灭」。判定标准：任意时刻能回答「这份文档入库到哪一步了」。</p>
+<h2 id="4-多知识库与权限控制"><a href="#4-多知识库与权限控制" class="headerlink" title="4. 多知识库与权限控制"></a>4. 多知识库与权限控制</h2><h3 id="4-1-为什么必须隔离"><a href="#4-1-为什么必须隔离" class="headerlink" title="4.1 为什么必须隔离"></a>4.1 为什么必须隔离</h3><p>知识库问答最大的风险不是「答不对」，是<strong>越权出数据</strong>：销售部门的同事能问到财务文档。生产环境必须有明确的知识边界。</p>
+<h3 id="4-2-三种隔离方案对比"><a href="#4-2-三种隔离方案对比" class="headerlink" title="4.2 三种隔离方案对比"></a>4.2 三种隔离方案对比</h3><table>
+<thead>
+<tr>
+<th>方案</th>
+<th>隔离粒度</th>
+<th>优点</th>
+<th>缺点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>独立向量库&#x2F;实例</td>
+<td>租户级</td>
+<td>物理隔离最彻底，互不影响性能</td>
+<td>运维成本 ×N，不能跨库检索</td>
+</tr>
+<tr>
+<td>独立集合&#x2F;表</td>
+<td>知识库级</td>
+<td>逻辑隔离，管理简单</td>
+<td>单个库容量受限，查询跨集合麻烦</td>
+</tr>
+<tr>
+<td>元数据过滤</td>
+<td>任意粒度（文档级）</td>
+<td>最灵活，一次部署全租户共享</td>
+<td><strong>过滤条件漏配 &#x3D; 越权</strong>，必须服务端强制</td>
+</tr>
+</tbody></table>
+<p><strong>推荐组合</strong>：<strong>元数据过滤为主 + 权限上下文服务端强制</strong>。<code>knowledgeBase</code> 和 <code>userId</code> 不来自前端请求，而是来自服务端从登录态解析的上下文——前端传什么都不可信。</p>
+<h3 id="4-3-文档级权限过滤的泄漏风险"><a href="#4-3-文档级权限过滤的泄漏风险" class="headerlink" title="4.3 文档级权限过滤的泄漏风险"></a>4.3 文档级权限过滤的泄漏风险</h3><p>元数据过滤在检索时只返回匹配 chunk，但<strong>过滤条件必须与文档权限同源</strong>：</p>
+<p><strong>因果链（泄漏路径）</strong>：文档 A 属于部门 X → 检索请求只带了 <code>department=X</code> → 系统相信了请求参数 → 部门 Y 的用户伪造参数 → 检索到文档 A 的 chunk → <strong>数据泄漏</strong>。防御：权限不是「检索条件」，是「服务端强制注入的约束」，来源只能是登录态&#x2F;Token 解析出的身份。</p>
+<p><strong>动手验证</strong>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 错误示范：把前端传来的 filter 直接拼进检索</span></span><br><span class="line"><span class="comment">// 正确做法：filter 里强制注入服务端权限上下文</span></span><br><span class="line">Map&lt;String, String&gt; enforcedFilter = <span class="keyword">new</span> <span class="title class_">HashMap</span>&lt;&gt;(req.getFilters());</span><br><span class="line">enforcedFilter.put(<span class="string">&quot;allowedDepts&quot;</span>, authService.getUserDepts(req.getUserId()));</span><br><span class="line">List&lt;Chunk&gt; hits = vectorStore.similaritySearch(query, enforcedFilter);</span><br></pre></td></tr></table></figure>
+
+<p>观察点：<code>enforcedFilter</code> 里服务端追加的键，前端<strong>无法覆盖</strong>（合并时后者胜出，或直接拒绝请求体里的同名键）。判定标准：去掉前端 filter 参数，权限过滤依然生效。</p>
+<h2 id="5-Embedding-网关与模型调用治理"><a href="#5-Embedding-网关与模型调用治理" class="headerlink" title="5. Embedding 网关与模型调用治理"></a>5. Embedding 网关与模型调用治理</h2><h3 id="5-1-为什么-embedding-调用需要独立网关"><a href="#5-1-为什么-embedding-调用需要独立网关" class="headerlink" title="5.1 为什么 embedding 调用需要独立网关"></a>5.1 为什么 embedding 调用需要独立网关</h3><p>Embedding 是 RAG 里<strong>调用量最大、最容易被打爆</strong>的环节：一个 1000 页的文档集，分块后可能产生数万个 chunk，每个 chunk 一次 embedding 调用。直接散在各处调：</p>
+<ul>
+<li>并发不可控 → 触发模型服务限流 → 入库失败</li>
+<li>重复计算 → 相同 chunk 反复 embedding（浪费钱）</li>
+<li>依赖不可观测 → 模型服务慢&#x2F;挂了没有任何反馈</li>
 </ul>
-<h3 id="6-4-系列预告"><a href="#6-4-系列预告" class="headerlink" title="6.4 系列预告"></a>6.4 系列预告</h3><p><strong>下一篇（算法篇三）：哈希表、二叉树与递归</strong>——面试 80% 题型的落点：HashMap 原理与工程对照、二叉树遍历三法、树的经典题模板（最大深度&#x2F;验证 BST&#x2F;最近公共祖先），并解释为什么树题 90% 用递归。</p>
+<p><strong>Embedding 网关职责</strong>：批量合并、结果缓存、限流重试、降级。</p>
+<h3 id="5-2-批量与合并"><a href="#5-2-批量与合并" class="headerlink" title="5.2 批量与合并"></a>5.2 批量与合并</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 伪代码：收集式批量——同一批次内的请求合并成一次大 batch 调用</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">EmbeddingGateway</span> &#123;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> BlockingQueue&lt;EmbeddingRequest&gt; queue;</span><br><span class="line">    <span class="comment">// 生产者：ingest 流水线 put()</span></span><br><span class="line">    <span class="comment">// 消费者：每 100ms 或满 64 条，合并调用模型 batch 接口</span></span><br><span class="line">    <span class="comment">// 收益：单条 1ms 的延迟预算换 10 倍吞吐，且模型 batch 接口本身更快</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>因果链</strong>：单条调用模型 API（网络往返 × N）→ 高并发下模型服务限流 + 高延迟；<strong>合并成 batch（网络往返 × 1）</strong>→ 吞吐 ↑、限流 ↓、成本 ↓（很多厂商按 batch 计价更便宜）。</p>
+<h3 id="5-3-降级策略：embedding-挂了怎么办"><a href="#5-3-降级策略：embedding-挂了怎么办" class="headerlink" title="5.3 降级策略：embedding 挂了怎么办"></a>5.3 降级策略：embedding 挂了怎么办</h3><table>
+<thead>
+<tr>
+<th>故障</th>
+<th>降级动作</th>
+<th>服务表现</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>embedding 服务超时</td>
+<td>重试 2 次（退避）→ 放弃该批，任务标 failed 可重跑</td>
+<td>入库暂停，检索不受影响</td>
+</tr>
+<tr>
+<td>embedding 服务长时间不可用</td>
+<td><strong>检索降级为纯 BM25&#x2F;关键词检索</strong>（见 6.2）</td>
+<td>问答变差但<strong>不宕机</strong></td>
+</tr>
+<tr>
+<td>向量库不可用</td>
+<td>同上：BM25 兜底（需保留纯文本索引）</td>
+<td>不宕机</td>
+</tr>
+</tbody></table>
+<p><strong>动手验证</strong>：手动停掉 embedding 服务进程，观察系统行为——正确实现下，已入库的检索应该照常工作（检索链路的 embedding 只用于「查询向量化」，查询侧 embedding 缓存了热点 query 或降级关键词）。判定标准：<strong>任何单点依赖故障都不应该让整个问答服务 502</strong>。</p>
+<h2 id="6-检索链路的可用性设计"><a href="#6-检索链路的可用性设计" class="headerlink" title="6. 检索链路的可用性设计"></a>6. 检索链路的可用性设计</h2><h3 id="6-1-延迟预算拆解"><a href="#6-1-延迟预算拆解" class="headerlink" title="6.1 延迟预算拆解"></a>6.1 延迟预算拆解</h3><p>一次 <code>/chat</code> 调用的 2 秒预算怎么分配（示例）：</p>
+<table>
+<thead>
+<tr>
+<th>环节</th>
+<th>预算</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>查询 embedding</td>
+<td>200ms</td>
+<td>缓存命中则 0ms</td>
+</tr>
+<tr>
+<td>向量检索</td>
+<td>100ms</td>
+<td>百万级向量 HNSW 索引下是毫秒级</td>
+</tr>
+<tr>
+<td>Rerank</td>
+<td>200ms</td>
+<td>只对 top-50 重排，不是全量</td>
+</tr>
+<tr>
+<td>LLM 生成</td>
+<td>1.5s（首字）</td>
+<td><strong>最大头</strong>，SSE 流式下用户感知快</td>
+</tr>
+<tr>
+<td>链路开销</td>
+<td>0ms</td>
+<td>检索与生成<strong>并行不了</strong>（生成依赖检索结果），但检索内部可并行</td>
+</tr>
+</tbody></table>
+<p><strong>因果链</strong>：延迟大头永远在 LLM 生成，<strong>检索侧优化到 300ms 以下后，再优化对用户体验无感</strong>——预算应该花在「缓存命中率」和「rerank 是否必要」上，而不是死磕向量检索的 20ms。</p>
+<h3 id="6-2-降级链路：向量库-→-BM25-兜底"><a href="#6-2-降级链路：向量库-→-BM25-兜底" class="headerlink" title="6.2 降级链路：向量库 → BM25 兜底"></a>6.2 降级链路：向量库 → BM25 兜底</h3><p>生产环境的必答题：<strong>向量库（Milvus&#x2F;ES 向量索引，选型对比见 <a href="/post/vector-db-2026.html">向量数据库原理与实践</a>）故障时，检索服务还能不能回答？</strong></p>
+<p>方案：<strong>检索时向量 + 关键词双路召回</strong>，向量路失败自动切关键词路：</p>
+<pre class="mermaid">flowchart LR
+    Q["query"] --> V["向量检索"]
+    Q --> K["关键词检索&lt;br/>(ES/BM25，纯文本索引)"]
+    V -->|"成功(≥2s/报错)"| R["Rerank 合并"]
+    K -->|"兜底"| R</pre>
+
+<p>代价：需要额外维护一份纯文本索引（解析后的 chunk 文本同步进 ES）——<strong>这份索引在检索质量上也有价值</strong>（混合检索本身更好，见 <a href="/post/rag-2026.html">RAG原理与实践</a> 5.3），一举两得。</p>
+<p><strong>动手验证</strong>：停掉向量库容器，直接查 <code>/search</code>——正确实现下返回 BM25 结果（质量略降，服务不挂）。判定标准：<strong>故障演练表里必须有一项「向量库宕机」</strong>，没有做过的系统不算有降级链路。</p>
+<h3 id="6-3-多级缓存"><a href="#6-3-多级缓存" class="headerlink" title="6.3 多级缓存"></a>6.3 多级缓存</h3><table>
+<thead>
+<tr>
+<th>缓存层级</th>
+<th>缓存什么</th>
+<th>命中收益</th>
+<th>失效策略</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Embedding 级</td>
+<td>query → 向量</td>
+<td>省 1 次模型调用（最贵的一层）</td>
+<td>query 完全相同时命中，热点问答命中率高</td>
+</tr>
+<tr>
+<td>检索级</td>
+<td>query → 检索结果</td>
+<td>省检索链路</td>
+<td>TTL 短（分钟级），知识更新时按 kb 失效</td>
+</tr>
+<tr>
+<td>问答级</td>
+<td>query → 完整回答</td>
+<td>省全链路（最省）</td>
+<td>TTL 长（小时级），<strong>知识更新时必须主动失效</strong></td>
+</tr>
+</tbody></table>
+<p><strong>因果链（问答级缓存的陷阱）</strong>：问答级缓存命中率最高、最省钱 → 但知识库更新后缓存不失效 → 用户问新知识得到旧回答 → <strong>缓存一致性比缓存命中率更重要</strong>。实现：每份缓存带 <code>kb_version</code> 键（见 3.1 双缓冲），知识版本切换时按前缀批量失效。</p>
+<h3 id="6-4-限流与成本控制"><a href="#6-4-限流与成本控制" class="headerlink" title="6.4 限流与成本控制"></a>6.4 限流与成本控制</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>策略</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>用户级限流</td>
+<td>每用户每分钟 N 次 chat（LLM 调用最贵，必须按用户限制）</td>
+</tr>
+<tr>
+<td>服务级限流</td>
+<td>向量库&#x2F;模型网关 QPS 上限，防止上游被打爆</td>
+</tr>
+<tr>
+<td>成本告警</td>
+<td>按知识库&#x2F;按部门统计 token 消耗，超预算告警（见第 7 章）</td>
+</tr>
+</tbody></table>
+<h2 id="7-可观测性与成本"><a href="#7-可观测性与成本" class="headerlink" title="7. 可观测性与成本"></a>7. 可观测性与成本</h2><h3 id="7-1-三个必看的指标"><a href="#7-1-三个必看的指标" class="headerlink" title="7.1 三个必看的指标"></a>7.1 三个必看的指标</h3><table>
+<thead>
+<tr>
+<th>指标</th>
+<th>定义</th>
+<th>怎么用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>P95 首字延迟</strong></td>
+<td>用户看到第一个字的时间</td>
+<td>问答体验的核心 SLA；SSE 下 LLM 生成占大头</td>
+</tr>
+<tr>
+<td><strong>检索召回率（抽检）</strong></td>
+<td>抽样人工判断「相关文档有没有被检索出来」</td>
+<td>指标退化 &#x3D; 分块&#x2F;embedding&#x2F;rerank 该调了（见 <a href="/post/rag-2026.html">RAG原理与实践</a> 第 8 章评测）</td>
+</tr>
+<tr>
+<td><strong>成本&#x2F;每问答</strong></td>
+<td>一次 chat 的 token 费用</td>
+<td>按知识库、按部门分账，异常暴涨告警</td>
+</tr>
+</tbody></table>
+<h3 id="7-2-日志与链路追踪"><a href="#7-2-日志与链路追踪" class="headerlink" title="7.2 日志与链路追踪"></a>7.2 日志与链路追踪</h3><p>一次 <code>/chat</code> 调用跨 5 个环节（权限 → 检索 → rerank → 拼装 → 生成），没有 trace 就没法回答「慢在哪」：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 每个环节打一个 span（或用 OpenTelemetry 自动埋点）</span></span><br><span class="line"><span class="comment"># chat 请求日志一行打全链路：耗时分解 + 命中缓存级别 + token 用量</span></span><br><span class="line">&#123;<span class="string">&quot;query&quot;</span>:<span class="string">&quot;连接池配置&quot;</span>,<span class="string">&quot;kb&quot;</span>:<span class="string">&quot;dev-docs&quot;</span>,<span class="string">&quot;search_ms&quot;</span>:85,<span class="string">&quot;rerank_ms&quot;</span>:190,</span><br><span class="line"> <span class="string">&quot;embedding_cache&quot;</span>:<span class="literal">true</span>,<span class="string">&quot;first_token_ms&quot;</span>:820,<span class="string">&quot;prompt_tokens&quot;</span>:3120,<span class="string">&quot;cost_cny&quot;</span>:0.021&#125;</span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p>评测与线上质量监控的完整方案见 <a href="/post/llm-eval-observability-2026.html">LLM评测与可观测性</a>——本篇只讲「服务怎么观测」，评测体系看那篇。</p>
+</blockquote>
+<h3 id="7-3-成本核算模板"><a href="#7-3-成本核算模板" class="headerlink" title="7.3 成本核算模板"></a>7.3 成本核算模板</h3><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>计算</th>
+<th>示例</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Embedding 成本</td>
+<td>chunk 数 × 每千 token 单价</td>
+<td>10 万 chunk × 0.001 元 &#x3D; 100 元（一次性）</td>
+</tr>
+<tr>
+<td>问答成本</td>
+<td>chat 次数 × 平均 prompt+completion tokens × 单价</td>
+<td>1 万次&#x2F;日 × 0.03 元 &#x3D; 300 元&#x2F;日</td>
+</tr>
+<tr>
+<td>向量库存储</td>
+<td>维度 × chunk 数 × 4 字节</td>
+<td>1536 维 × 100 万 chunk ≈ 6GB</td>
+</tr>
+</tbody></table>
+<p><strong>动手验证</strong>：给每个 chat 请求记录 token 用量，按周聚合出「top10 贵知识库」——通常会发现<strong>文档冗余（同一内容重复入库）是最大的浪费源</strong>，比调模型便宜得多。</p>
+<h2 id="8-性能压测与容量评估"><a href="#8-性能压测与容量评估" class="headerlink" title="8. 性能压测与容量评估"></a>8. 性能压测与容量评估</h2><h3 id="8-1-从业务量倒推容量"><a href="#8-1-从业务量倒推容量" class="headerlink" title="8.1 从业务量倒推容量"></a>8.1 从业务量倒推容量</h3><table>
+<thead>
+<tr>
+<th>业务参数</th>
+<th>数值</th>
+<th>推算</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>日活跃用户</td>
+<td>1 万</td>
+<td>—</td>
+</tr>
+<tr>
+<td>人均每日问答</td>
+<td>10 次</td>
+<td>日 chat 量 10 万</td>
+</tr>
+<tr>
+<td>峰值系数</td>
+<td>5×（上班高峰）</td>
+<td>峰值 QPS ≈ 10万&#x2F;(8×3600)×5 ≈ <strong>17 QPS</strong></td>
+</tr>
+<tr>
+<td>每次 chat 的 LLM 耗时</td>
+<td>3s</td>
+<td>需要的并发 ≈ 17 × 3 &#x3D; <strong>51 路并发</strong></td>
+</tr>
+</tbody></table>
+<p><strong>结论</strong>：多数内部知识库问答系统是「低 QPS、高并发占用」——瓶颈在 LLM 并发数，不在向量检索。压测时<strong>用真实 LLM 调用</strong>（mock 掉生成环节会高估吞吐 10 倍以上）。</p>
+<h3 id="8-2-压测方法与瓶颈定位"><a href="#8-2-压测方法与瓶颈定位" class="headerlink" title="8.2 压测方法与瓶颈定位"></a>8.2 压测方法与瓶颈定位</h3><p>压测方法照搬 <a href="/post/5e9c8515.html">Zeus-Doc 性能压测实战</a> 的完整方法论：场景设计 → 阶梯加压 → 瓶颈定位 → 优化验证。</p>
+<table>
+<thead>
+<tr>
+<th>瓶颈可能</th>
+<th>症状</th>
+<th>验证</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Embedding 限流</td>
+<td>入库任务大量 failed</td>
+<td>看模型服务日志的限流计数</td>
+</tr>
+<tr>
+<td>向量检索</td>
+<td>检索延迟随 QPS 恶化</td>
+<td>监控向量库自身指标（CPU&#x2F;内存&#x2F;查询延迟）</td>
+</tr>
+<tr>
+<td>LLM 推理</td>
+<td>首字延迟随并发飙升</td>
+<td>自部署看推理服务指标（见 <a href="/post/llm-inference-2026.html">LLM推理与部署实战</a>）；API 看限流错误码</td>
+</tr>
+</tbody></table>
+<p><strong>动手验证</strong>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 场景：20 并发 × 每线程 50 次 chat，观察首字延迟分位</span></span><br><span class="line"><span class="comment"># 用 k6/压测工具压 /chat，同时看四个指标：</span></span><br><span class="line"><span class="comment">#   首字 P95、检索延迟、embedding 限流错误数、LLM 错误数</span></span><br><span class="line"><span class="comment"># 判定标准：首字 P95 &gt; 3s 或错误率 &gt; 1%，先分瓶颈再优化，不要盲目加机器</span></span><br></pre></td></tr></table></figure>
+
+<h2 id="9-与现有业务系统的集成"><a href="#9-与现有业务系统的集成" class="headerlink" title="9. 与现有业务系统的集成"></a>9. 与现有业务系统的集成</h2><h3 id="9-1-身份体系与权限对接"><a href="#9-1-身份体系与权限对接" class="headerlink" title="9.1 身份体系与权限对接"></a>9.1 身份体系与权限对接</h3><p>检索服务不维护自己的用户体系——<strong>从现有 SSO&#x2F;网关解析登录态</strong>（JWT&#x2F;Session），拿到 userId + 部门 + 角色，权限上下文从这来（呼应 4.3 的「服务端强制注入」）。</p>
+<h3 id="9-2-数据源对接"><a href="#9-2-数据源对接" class="headerlink" title="9.2 数据源对接"></a>9.2 数据源对接</h3><table>
+<thead>
+<tr>
+<th>知识来源</th>
+<th>对接方式</th>
+<th>注意</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>MySQL 业务数据</td>
+<td>定时任务&#x2F;CDC（Canal）拉取 → 流水线</td>
+<td>与 <a href="/post/es-query-2025.html">ES 双写一致性</a> 同款问题：<strong>更新失败要能对账重跑</strong></td>
+</tr>
+<tr>
+<td>文件系统&#x2F;对象存储</td>
+<td>上传接口 + 监听触发 ingest</td>
+<td>文档版本管理（同 documentId 覆盖）</td>
+</tr>
+<tr>
+<td>现有 ES 索引</td>
+<td>同步文本 → chunk</td>
+<td>纯文本索引就是 6.2 的 BM25 兜底，一份数据两个用途</td>
+</tr>
+</tbody></table>
+<h3 id="9-3-部署形态"><a href="#9-3-部署形态" class="headerlink" title="9.3 部署形态"></a>9.3 部署形态</h3><table>
+<thead>
+<tr>
+<th>组件</th>
+<th>部署</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>检索服务</td>
+<td>K8s Deployment（多副本）</td>
+<td>无状态，水平扩展只加副本（<a href="/post/k8s-2025.html">K8s 部署</a>）</td>
+</tr>
+<tr>
+<td>索引流水线</td>
+<td>K8s CronJob &#x2F; 消息队列消费</td>
+<td>与检索服务<strong>资源隔离</strong>：重活不挤占在线链路</td>
+</tr>
+<tr>
+<td>向量库</td>
+<td>独立部署（StatefulSet）</td>
+<td>有状态，滚动升级注意兼容（<a href="/post/k8s-2025.html">K8s StatefulSet</a>）</td>
+</tr>
+</tbody></table>
+<p><strong>因果链（部署陷阱）</strong>：入库流水线（重 CPU、重 IO）和在线检索跑在同一份资源池 → 大文档导入时在线问答变慢。<strong>离线&#x2F;在线资源隔离</strong>是检索服务 SLA 的基本保障。</p>
+<h3 id="9-4-与-Spring-AI-的关系"><a href="#9-4-与-Spring-AI-的关系" class="headerlink" title="9.4 与 Spring AI 的关系"></a>9.4 与 Spring AI 的关系</h3><p><a href="/post/java-ai-frameworks-2026.html">Spring AI与LangChain4j实战</a> 解决了「Java 里怎么调模型、怎么接向量库」——本篇解决的是「接好之后，怎么组织成服务」：Spring AI 的 <code>VectorStore</code> 是组件，本篇的检索服务是把组件编排进接口&#x2F;权限&#x2F;降级&#x2F;观测体系。两者是<strong>组件与架构</strong>的关系。</p>
+<h2 id="10-落地检查清单"><a href="#10-落地检查清单" class="headerlink" title="10. 落地检查清单"></a>10. 落地检查清单</h2><table>
+<thead>
+<tr>
+<th>#</th>
+<th>检查项</th>
+<th>不做的后果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>&#x2F;ingest 是异步任务 + 状态表</td>
+<td>文档入库失败无人知，问答缺知识</td>
+</tr>
+<tr>
+<td>2</td>
+<td>权限上下文来自服务端，不由前端传</td>
+<td>越权检索，数据泄漏</td>
+</tr>
+<tr>
+<td>3</td>
+<td>embedding 有批量、缓存、降级</td>
+<td>入库慢 + 限流 + 浪费钱</td>
+</tr>
+<tr>
+<td>4</td>
+<td>向量库故障有 BM25 兜底（已演练过）</td>
+<td>向量库一挂，问答全挂</td>
+</tr>
+<tr>
+<td>5</td>
+<td>问答级缓存带知识版本号，更新即失效</td>
+<td>知识更新后答旧话</td>
+</tr>
+<tr>
+<td>6</td>
+<td>chat 全链路有 trace + token 成本记录</td>
+<td>慢在哪、贵在哪全靠猜</td>
+</tr>
+<tr>
+<td>7</td>
+<td>用真实 LLM 压过测，P95 首字 &lt; 3s</td>
+<td>上线即体验崩</td>
+</tr>
+<tr>
+<td>8</td>
+<td>离线流水线与在线检索资源隔离</td>
+<td>导文档把在线问答拖垮</td>
+</tr>
+</tbody></table>
+<p><strong>最后一句</strong>：RAG 服务的生产化，80% 的工作不在「检索算法」而在「工程治理」——接口、权限、降级、观测、容量。这些做好了，RAG 才从「AI 玩具」变成「业务系统的一部分」。</p>
 
       
     </div>
@@ -1853,7 +2235,7 @@
       <i class="fa fa-coffee"></i>
     </span>
       <span>Reading time total &asymp;</span>
-    <span title="Reading time total">35:39</span>
+    <span title="Reading time total">35:40</span>
   </span>
 </div>
   <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
