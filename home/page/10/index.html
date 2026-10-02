@@ -189,7 +189,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">85</span>
+          <span class="site-state-item-count">84</span>
           <span class="site-state-item-name">posts</span>
         </a>
       </div>
@@ -200,7 +200,7 @@
       </div>
       <div class="site-state-item site-state-tags">
           <a href="/tags/">
-        <span class="site-state-item-count">124</span>
+        <span class="site-state-item-count">126</span>
         <span class="site-state-item-name">tags</span></a>
       </div>
   </nav>
@@ -253,943 +253,6 @@
     </div>
 
     <div class="main-inner index posts-expand">
-
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/7debcf82.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="知行栈">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | 知行栈">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/7debcf82.html" class="post-title-link" itemprop="url">Zeus-Doc JVM 调优与 OOM 排查</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-
-      <time title="Created: 2026-08-06 23:56:31" itemprop="dateCreated datePublished" datetime="2026-08-06T23:56:31+08:00">2026-08-06</time>
-    </span>
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-folder"></i>
-      </span>
-      <span class="post-meta-item-text">In</span>
-        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
-          <a href="/categories/%E9%A1%B9%E7%9B%AE%E5%AE%9E%E6%88%98/" itemprop="url" rel="index"><span itemprop="name">项目实战</span></a>
-        </span>
-    </span>
-
-  
-    <span class="post-meta-break"></span>
-    <span class="post-meta-item" title="Word count in article">
-      <span class="post-meta-item-icon">
-        <i class="far fa-file-word"></i>
-      </span>
-      <span class="post-meta-item-text">Word count in article: </span>
-      <span>5.3k</span>
-    </span>
-    <span class="post-meta-item" title="Reading time">
-      <span class="post-meta-item-icon">
-        <i class="far fa-clock"></i>
-      </span>
-      <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>19 mins.</span>
-    </span>
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <h1 id="Zeus-Doc-JVM-调优与-OOM-排查实战记录"><a href="#Zeus-Doc-JVM-调优与-OOM-排查实战记录" class="headerlink" title="Zeus-Doc JVM 调优与 OOM 排查实战记录"></a>Zeus-Doc JVM 调优与 OOM 排查实战记录</h1><blockquote>
-<p>版本：1.0.0 ｜ 更新日期：2026-07-31 ｜ 数据性质：模拟数据（基于架构合理推演）</p>
-<p>相关文档：《Zeus-Doc-高并发线程与锁设计》｜《Zeus-Doc-项目面试实战手册》（第4&#x2F;6问）</p>
-</blockquote>
-<hr>
-<h2 id="一、启动参数与-GC-策略"><a href="#一、启动参数与-GC-策略" class="headerlink" title="一、启动参数与 GC 策略"></a>一、启动参数与 GC 策略</h2><h3 id="1-1-启动参数"><a href="#1-1-启动参数" class="headerlink" title="1.1 启动参数"></a>1.1 启动参数</h3><p>配置源于 <code>application.yml:119-123</code> 注释：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">-Xms2g -Xmx2g</span><br><span class="line">-XX:+UseG1GC -XX:MaxGCPauseMillis=200</span><br><span class="line">-XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/data/logs/zeus-doc-oom.hprof</span><br><span class="line">-Xlog:gc*:file=/data/logs/zeus-doc-gc.log:time,uptime:filecount=10,filesize=50M</span><br><span class="line">-XX:+UseCompressedOops   (默认开启，JOL 对比时关闭验证)</span><br></pre></td></tr></table></figure>
-
-<table>
-<thead>
-<tr>
-<th>参数</th>
-<th>作用</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>-Xms2g -Xmx2g</td>
-<td>堆初始&#x3D;最大，避免动态扩容引发 Full GC 抖动</td>
-</tr>
-<tr>
-<td>-XX:+UseG1GC</td>
-<td>G1 收集器，面向大堆低延迟</td>
-</tr>
-<tr>
-<td>-XX:MaxGCPauseMillis&#x3D;200</td>
-<td>期望最大停顿 200ms</td>
-</tr>
-<tr>
-<td>-XX:+HeapDumpOnOutOfMemoryError</td>
-<td>OOM 自动 dump 堆</td>
-</tr>
-<tr>
-<td>-Xlog:gc*</td>
-<td>JDK 9+ 统一日志格式（JUL），替代 -XX:+PrintGCDetails</td>
-</tr>
-</tbody></table>
-<h3 id="1-2-堆内存划分（G1）"><a href="#1-2-堆内存划分（G1）" class="headerlink" title="1.2 堆内存划分（G1）"></a>1.2 堆内存划分（G1）</h3><p>G1 将堆划分为 2048 个 Region（默认），每个 Region 1MB（2g&#x2F;2048）。Eden &#x2F; Survivor &#x2F; Old &#x2F; Humongous 动态分配，不再固定比例。</p>
-<hr>
-<h2 id="二、GC-日志分析：CMS-→-G1-吞吐量对比"><a href="#二、GC-日志分析：CMS-→-G1-吞吐量对比" class="headerlink" title="二、GC 日志分析：CMS → G1 吞吐量对比"></a>二、GC 日志分析：CMS → G1 吞吐量对比</h2><h3 id="2-1-对比测试条件"><a href="#2-1-对比测试条件" class="headerlink" title="2.1 对比测试条件"></a>2.1 对比测试条件</h3><p>同等工作负载（2000 并发文档读写），分别用 CMS（-XX:+UseConcMarkSweepGC）与 G1（-XX:+UseG1GC）压测 1 小时，用 GCeasy 分析 GC 日志（模拟报告数据）。</p>
-<h3 id="2-2-GC-对比数据（模拟-GCeasy-报告）"><a href="#2-2-GC-对比数据（模拟-GCeasy-报告）" class="headerlink" title="2.2 GC 对比数据（模拟 GCeasy 报告）"></a>2.2 GC 对比数据（模拟 GCeasy 报告）</h3><table>
-<thead>
-<tr>
-<th>指标</th>
-<th>CMS</th>
-<th>G1</th>
-<th>提升</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>吞吐量</td>
-<td>94.2%</td>
-<td>97.8%</td>
-<td>+3.6%</td>
-</tr>
-<tr>
-<td>平均 GC 停顿</td>
-<td>85ms</td>
-<td>42ms</td>
-<td>-50%</td>
-</tr>
-<tr>
-<td>最大 GC 停顿</td>
-<td>620ms</td>
-<td>180ms</td>
-<td>-71%</td>
-</tr>
-<tr>
-<td>Young GC 次数</td>
-<td>420</td>
-<td>580</td>
-<td>+38%（更频繁但更短）</td>
-</tr>
-<tr>
-<td>Full GC 次数</td>
-<td>4</td>
-<td>0</td>
-<td>-100%</td>
-</tr>
-<tr>
-<td>总 GC 时间</td>
-<td>35.7s</td>
-<td>24.4s</td>
-<td>-32%</td>
-</tr>
-<tr>
-<td>堆内存利用率</td>
-<td>82%</td>
-<td>88%</td>
-<td>+6%</td>
-</tr>
-</tbody></table>
-<h3 id="2-3-分析"><a href="#2-3-分析" class="headerlink" title="2.3 分析"></a>2.3 分析</h3><ul>
-<li><strong>CMS Full GC 4 次</strong>：并发模式失败（Concurrent Mode Failure）退化为 Serial Old，停顿 620ms，是 P99 长尾主因；</li>
-<li><strong>G1 无 Full GC</strong>：Mixed GC 持续回收 Old Region，避免 Full GC；</li>
-<li><strong>G1 停顿可控</strong>：MaxGCPauseMillis&#x3D;200 生效，最大停顿 180ms &lt; 200ms 目标；</li>
-<li><strong>G1 吞吐更高</strong>：97.8% vs 94.2%，停顿短且少，业务线程占用更多 CPU。</li>
-</ul>
-<h3 id="2-4-GC-停顿分布（G1，模拟）"><a href="#2-4-GC-停顿分布（G1，模拟）" class="headerlink" title="2.4 GC 停顿分布（G1，模拟）"></a>2.4 GC 停顿分布（G1，模拟）</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">停顿次数</span><br><span class="line"> 800 |  ████ (0-50ms)</span><br><span class="line"> 400 |  ████████ (50-100ms)</span><br><span class="line"> 200 |  ████ (100-150ms)</span><br><span class="line">  50 |  ██ (150-180ms)</span><br><span class="line">   0 |  █ (&gt;200ms 无)</span><br><span class="line">     +----------------→ 停顿时长区间</span><br><span class="line">       0-50  50-100 100-150 150-200</span><br></pre></td></tr></table></figure>
-
-<p>80% 的 GC 停顿在 100ms 内，符合低延迟目标。</p>
-<hr>
-<h2 id="三、MAT-分析堆-Dump-泄漏链追踪"><a href="#三、MAT-分析堆-Dump-泄漏链追踪" class="headerlink" title="三、MAT 分析堆 Dump 泄漏链追踪"></a>三、MAT 分析堆 Dump 泄漏链追踪</h2><h3 id="3-1-故障现象"><a href="#3-1-故障现象" class="headerlink" title="3.1 故障现象"></a>3.1 故障现象</h3><p>collab-service 运行 3 天后频繁 Full GC，堆使用率 92%，最终 OOM。<code>-XX:+HeapDumpOnOutOfMemoryError</code> 自动生成 <code>zeus-doc-oom.hprof</code>。</p>
-<h3 id="3-2-MAT-分析步骤"><a href="#3-2-MAT-分析步骤" class="headerlink" title="3.2 MAT 分析步骤"></a>3.2 MAT 分析步骤</h3><ol>
-<li>MAT 打开 hprof，执行 <code>Leak Suspects Report</code>；</li>
-<li>发现 <code>Thread</code> 对象占用堆 1.4GB（占 70%），其中 <code>ThreadLocalMap</code> 占 1.1GB；</li>
-<li>点开 <code>ThreadLocalMap</code> → <code>Entry[]</code> → value 指向 <code>NettyHandler</code> 实例（每个 2MB）。</li>
-</ol>
-<h3 id="3-3-泄漏对象链"><a href="#3-3-泄漏对象链" class="headerlink" title="3.3 泄漏对象链"></a>3.3 泄漏对象链</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">GC Root</span><br><span class="line">  └─ Thread (http-nio-9002-exec-* 共 200 个，线程池复用)</span><br><span class="line">       └─ ThreadLocalMap (每个 Thread 持有一个)</span><br><span class="line">            └─ Entry[] (弱引用 key + 强引用 value)</span><br><span class="line">                 └─ Entry.value = NettyHandler (未 remove，强引用驻留)</span><br><span class="line">                      └─ ByteBuf (2MB 直接内存 + 堆内镜像)</span><br></pre></td></tr></table></figure>
-
-<h3 id="3-4-根因：ThreadLocal-未-remove"><a href="#3-4-根因：ThreadLocal-未-remove" class="headerlink" title="3.4 根因：ThreadLocal 未 remove"></a>3.4 根因：ThreadLocal 未 remove</h3><p><code>RateLimitInterceptor</code> 的 <code>START_TS</code>（<code>RateLimitInterceptor.java:50</code>）在 <code>afterCompletion</code> 中 remove（第 97 行），但协同服务的 <code>CollabContext</code> ThreadLocal 在异常路径未清理：</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 泄漏代码（异常路径未 remove）</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">handleFrame</span><span class="params">(ChannelContext ctx, Frame frame)</span> &#123;</span><br><span class="line">    CollabContext.set(<span class="keyword">new</span> <span class="title class_">CollabContext</span>(ctx, frame));  <span class="comment">// ThreadLocal.set</span></span><br><span class="line">    <span class="keyword">try</span> &#123;</span><br><span class="line">        <span class="comment">// 业务处理抛异常</span></span><br><span class="line">    &#125; <span class="keyword">finally</span> &#123;</span><br><span class="line">        <span class="comment">// 漏写 CollabContext.remove()</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>Tomcat 线程池线程复用，ThreadLocal 的 value（NettyHandler + ByteBuf）随线程长期驻留，累积 200 线程 × 2MB × N 次累积 &#x3D; 1.1GB 泄漏。</p>
-<h3 id="3-5-修复方案"><a href="#3-5-修复方案" class="headerlink" title="3.5 修复方案"></a>3.5 修复方案</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 正确写法：finally 必 remove</span></span><br><span class="line"><span class="keyword">try</span> &#123;</span><br><span class="line">    CollabContext.set(<span class="keyword">new</span> <span class="title class_">CollabContext</span>(ctx, frame));</span><br><span class="line">    <span class="comment">// 业务</span></span><br><span class="line">&#125; <span class="keyword">finally</span> &#123;</span><br><span class="line">    CollabContext.remove();  <span class="comment">// 关键</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p>或用 <code>try-with-resources</code> 包装 ThreadLocal（实现 AutoCloseable）。</p>
-<h3 id="3-6-修复后验证（模拟数据）"><a href="#3-6-修复后验证（模拟数据）" class="headerlink" title="3.6 修复后验证（模拟数据）"></a>3.6 修复后验证（模拟数据）</h3><table>
-<thead>
-<tr>
-<th>指标</th>
-<th>修复前</th>
-<th>修复后</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>3 天后堆使用率</td>
-<td>92%</td>
-<td>45%</td>
-</tr>
-<tr>
-<td>Full GC 次数&#x2F;天</td>
-<td>4</td>
-<td>0</td>
-</tr>
-<tr>
-<td>ThreadLocalMap 占堆</td>
-<td>1.1GB</td>
-<td>8MB</td>
-</tr>
-<tr>
-<td>NettyHandler 实例数</td>
-<td>580（泄漏）</td>
-<td>12（正常活跃）</td>
-</tr>
-</tbody></table>
-<h3 id="3-7-泄漏链原理（面试要点）"><a href="#3-7-泄漏链原理（面试要点）" class="headerlink" title="3.7 泄漏链原理（面试要点）"></a>3.7 泄漏链原理（面试要点）</h3><ul>
-<li>ThreadLocalMap 的 Entry 继承 WeakReference，key 是弱引用（ThreadLocal 实例），但 <strong>value 是强引用</strong>；</li>
-<li>ThreadLocal 实例若被回收（key&#x3D;null），value 仍被 Entry 强引用，无法回收 → 泄漏；</li>
-<li>ThreadLocalMap 在 set&#x2F;get 时会清理 key&#x3D;null 的 Entry（expungeStaleEntry），但若该 key 不再被访问，value 永不清理；</li>
-<li>线程池线程长期存活，泄漏累积，最终 OOM。</li>
-</ul>
-<hr>
-<h2 id="四、MAT-工具与-JOL-布局细节（并入自历史版本）"><a href="#四、MAT-工具与-JOL-布局细节（并入自历史版本）" class="headerlink" title="四、MAT 工具与 JOL 布局细节（并入自历史版本）"></a>四、MAT 工具与 JOL 布局细节（并入自历史版本）</h2><h3 id="4-1-分析工具"><a href="#4-1-分析工具" class="headerlink" title="4.1 分析工具"></a>4.1 分析工具</h3><p><code>ObjectLayoutDemo</code>（<code>zeus-doc-service-doc/.../classloader/ObjectLayoutDemo.java:38-63</code>）启动时打印 <code>Doc</code> 对象内存布局，使用 JOL（Java Object Layout）库：</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Component</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">ObjectLayoutDemo</span> <span class="keyword">implements</span> <span class="title class_">CommandLineRunner</span> &#123;</span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">run</span><span class="params">(String... args)</span> &#123;</span><br><span class="line">        <span class="type">Doc</span> <span class="variable">doc</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">Doc</span>();</span><br><span class="line">        log.info(<span class="string">&quot;Doc 对象布局:\n&#123;&#125;&quot;</span>, ClassLayout.parseInstance(doc).toPrintable());</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-
-<h3 id="4-2-Doc-对象内存布局（开启压缩指针）"><a href="#4-2-Doc-对象内存布局（开启压缩指针）" class="headerlink" title="4.2 Doc 对象内存布局（开启压缩指针）"></a>4.2 Doc 对象内存布局（开启压缩指针）</h3><p><code>Doc</code> 实体（<code>Doc.java:14-33</code>）字段：</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">private</span> Long id;              <span class="comment">// 8B（引用，压缩后 4B）</span></span><br><span class="line"><span class="keyword">private</span> Long tenantId;        <span class="comment">// 4B</span></span><br><span class="line"><span class="keyword">private</span> String title;         <span class="comment">// 4B</span></span><br><span class="line"><span class="keyword">private</span> String content;       <span class="comment">// 4B</span></span><br><span class="line"><span class="keyword">private</span> Long authorId;        <span class="comment">// 4B</span></span><br><span class="line"><span class="keyword">private</span> Integer status;       <span class="comment">// 4B</span></span><br><span class="line"><span class="keyword">private</span> Integer currentVersion; <span class="comment">// 4B</span></span><br><span class="line"><span class="keyword">private</span> LocalDateTime createdAt; <span class="comment">// 4B</span></span><br><span class="line"><span class="keyword">private</span> LocalDateTime updatedAt; <span class="comment">// 4B</span></span><br><span class="line"><span class="keyword">private</span> Integer deleted;      <span class="comment">// 4B</span></span><br></pre></td></tr></table></figure>
-
-<p><strong>JOL 输出（模拟，开启 <code>-XX:+UseCompressedOops</code>）：</strong></p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">com.zeus.doc.entity.Doc object internals:</span><br><span class="line"> OFFSET  SIZE     TYPE DESCRIPTION               VALUE</span><br><span class="line">      0     4          (object header: mark)     0x00000001   ← MarkWord 第 1 部分</span><br><span class="line">      4     4          (object header: mark)     0x00000000   ← MarkWord 第 2 部分</span><br><span class="line">      8     4          (object header: class)    0x00123456   ← KlassPointer（压缩 4B）</span><br><span class="line">     12     4      int Doc.status               0            ← 实例数据（int 先排）</span><br><span class="line">     16     8     long Doc.id                   0            ← long 8B 对齐到 8 偏移</span><br><span class="line">     24     4   Long   Doc.tenantId             null         ← 引用 4B（压缩）</span><br><span class="line">     28     4   Long   Doc.authorId             null</span><br><span class="line">     32     4  String Doc.title                 null</span><br><span class="line">     36     4  String Doc.content               null</span><br><span class="line">     40     4 Integer Doc.currentVersion        null</span><br><span class="line">     44     4 Integer Doc.deleted               null</span><br><span class="line">     48     4  Object Doc.createdAt             null         ← LocalDateTime 引用</span><br><span class="line">     52     4  Object Doc.updatedAt             null</span><br><span class="line">Instance size: 56 bytes</span><br><span class="line">Space losses: 0 bytes internal + 0 bytes external = 0 bytes total</span><br></pre></td></tr></table></figure>
-
-
-<h3 id="4-3-内存布局结构图"><a href="#4-3-内存布局结构图" class="headerlink" title="4.3 内存布局结构图"></a>4.3 内存布局结构图</h3><pre class="mermaid">graph LR
-    subgraph Doc对象 56字节
-        direction TB
-        H["对象头 12 字节&lt;br/>MarkWord(8B) + KlassPointer(4B 压缩)"]
-        I["实例数据 44 字节&lt;br/>按字段类型宽度对齐排列"]
-        P["对齐填充 0 字节&lt;br/>已是 8 倍数无需填充"]
-    end
-    H --> I --> P
-
-    subgraph MarkWord 8字节
-        M1["hashCode(31) / 锁状态(2) / 分代年龄(4) / 偏向位(1)"]
-    end
-
-    style H fill:#ffe4b5
-    style I fill:#e0ffff
-    style P fill:#f0fff0</pre>
-
-
-<h2 id="五、JOL-对象内存布局分析"><a href="#五、JOL-对象内存布局分析" class="headerlink" title="五、JOL 对象内存布局分析"></a>五、JOL 对象内存布局分析</h2><h3 id="5-1-工具"><a href="#5-1-工具" class="headerlink" title="5.1 工具"></a>5.1 工具</h3><p><code>pom.xml:201-206</code> 引入 <code>jol-core 0.17</code>。用法：</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">System.out.println(ClassLayout.parseClass(Doc.class).toPrintable());</span><br><span class="line">System.out.println(GraphLayout.parseInstance(doc).toPrintable());</span><br></pre></td></tr></table></figure>
-
-<h3 id="5-2-Doc-对象内存布局（模拟-JOL-输出）"><a href="#5-2-Doc-对象内存布局（模拟-JOL-输出）" class="headerlink" title="5.2 Doc 对象内存布局（模拟 JOL 输出）"></a>5.2 Doc 对象内存布局（模拟 JOL 输出）</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line">com.zeus.doc.entity.Doc object internals:</span><br><span class="line">OFF  SZ   TYPE DESCRIPTION               VALUE</span><br><span class="line">  0   8        (object header: MarkWord)  0x0000000000000001 (非锁)</span><br><span class="line">  8   4        (object header: KlassPoint) 0x00123456 (压缩类指针)</span><br><span class="line"> 12   4    int Doc.version                0</span><br><span class="line"> 16   8   long Doc.id                     0</span><br><span class="line"> 24   1 boolean Doc.status                false</span><br><span class="line"> 25   3        (alignment/padding)</span><br><span class="line"> 28   4  String Doc.title                  null</span><br><span class="line"> 32   4  String Doc.content                null</span><br><span class="line"> 36   4        (alignment/padding)</span><br><span class="line">Instance size: 40 bytes</span><br><span class="line">Space losses: 3 bytes internal + 4 bytes external = 7 bytes</span><br></pre></td></tr></table></figure>
-
-<h3 id="5-3-三段布局解析"><a href="#5-3-三段布局解析" class="headerlink" title="5.3 三段布局解析"></a>5.3 三段布局解析</h3><table>
-<thead>
-<tr>
-<th>区域</th>
-<th>大小</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>对象头 MarkWord</td>
-<td>8 字节</td>
-<td>哈希、锁状态、GC 分代年龄、偏向线程 ID</td>
-</tr>
-<tr>
-<td>对象头 KlassPoint</td>
-<td>4 字节（压缩）</td>
-<td>指向类元数据 Class 元信息</td>
-</tr>
-<tr>
-<td>实例数据</td>
-<td>变长</td>
-<td>字段按类型大小排列，long&#x2F;double 优先</td>
-</tr>
-<tr>
-<td>对齐填充</td>
-<td>1-7 字节</td>
-<td>凑 8 字节整数倍</td>
-</tr>
-</tbody></table>
-<h3 id="5-4-压缩指针对比（-XX-UseCompressedOops）"><a href="#5-4-压缩指针对比（-XX-UseCompressedOops）" class="headerlink" title="5.4 压缩指针对比（-XX:+UseCompressedOops）"></a>5.4 压缩指针对比（-XX:+UseCompressedOops）</h3><table>
-<thead>
-<tr>
-<th>配置</th>
-<th>KlassPoint</th>
-<th>对象头合计</th>
-<th>Doc 实例大小</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>开启压缩（默认，堆&lt;32g）</td>
-<td>4 字节</td>
-<td>12 字节</td>
-<td>40 字节</td>
-<td>64 位 JVM 用 32 位寻址 + 偏移</td>
-</tr>
-<tr>
-<td>关闭压缩 (-XX:-UseCompressedOops)</td>
-<td>8 字节</td>
-<td>16 字节</td>
-<td>48 字节</td>
-<td>真实 64 位指针</td>
-</tr>
-</tbody></table>
-<p>压缩指针开启时，10 亿个 Doc 对象节省 <code>10亿 × 8 字节 = 8GB</code> 堆内存。本项目 2g 堆默认开启压缩。</p>
-<h3 id="5-5-MarkWord-锁状态演变（64-位-JVM）"><a href="#5-5-MarkWord-锁状态演变（64-位-JVM）" class="headerlink" title="5.5 MarkWord 锁状态演变（64 位 JVM）"></a>5.5 MarkWord 锁状态演变（64 位 JVM）</h3><table>
-<thead>
-<tr>
-<th>锁状态</th>
-<th>MarkWord 内容（25-64bit）</th>
-<th>标志位</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>无锁</td>
-<td>hashCode + 分代年龄</td>
-<td>001</td>
-</tr>
-<tr>
-<td>偏向锁</td>
-<td>线程 ID + epoch + 年龄</td>
-<td>101</td>
-</tr>
-<tr>
-<td>轻量级锁</td>
-<td>指向栈中锁记录指针</td>
-<td>00</td>
-</tr>
-<tr>
-<td>重量级锁</td>
-<td>指向 Monitor 对象指针</td>
-<td>10</td>
-</tr>
-<tr>
-<td>GC 标记</td>
-<td>-</td>
-<td>11</td>
-</tr>
-</tbody></table>
-<p>对应 <code>DocCacheManager</code> 的写锁竞争：低竞争时偏向锁 → 轻量级锁（CAS 自旋）→ 高竞争重量级锁（AQS 队列阻塞），与《Zeus-Doc-高并发线程与锁设计》的 jstack 阻塞分析吻合。</p>
-<hr>
-<h2 id="六、自定义-EncryptedClassLoader-加载流程"><a href="#六、自定义-EncryptedClassLoader-加载流程" class="headerlink" title="六、自定义 EncryptedClassLoader 加载流程"></a>六、自定义 EncryptedClassLoader 加载流程</h2><h3 id="6-1-加载流程图"><a href="#6-1-加载流程图" class="headerlink" title="6.1 加载流程图"></a>6.1 加载流程图</h3><p>类加载器实现于 <code>zeus-doc-service-doc/.../classloader/EncryptedClassLoader.java</code>。</p>
-<pre class="mermaid">flowchart TD
-    Load[loadClass name, resolve] --> Sync[synchronized getClassLoadingLock]
-    Sync --> Chk[① findLoadedClass 已加载?]
-    Chk -- 是 --> Ret1[返回已加载 Class]
-    Chk -- 否 --> Prefix{② 属于 selfLoadPrefix?&lt;br/>com.zeus.template.*}
-    Prefix -- 是 --> Find[③ findClass 自加载]
-    Find --> Read[readAndDecrypt 读取加密 .class]
-    Read --> Xor[XOR 解密 字节流]
-    Xor --> Define[defineClass 字节码→Class]
-    Define --> Resolve{需要链接?}
-    Resolve -- 是 --> Res[resolveClass]
-    Res --> Ret2[返回 Class]
-    Prefix -- 否 --> Parent[④ super.loadClass 标准双亲委派]
-    Find -- ClassNotFoundException --> Parent
-    Parent --> Ret3[返回 Class]</pre>
-
-<h3 id="6-2-打破双亲委派的关键（EncryptedClassLoader-java-55-80）"><a href="#6-2-打破双亲委派的关键（EncryptedClassLoader-java-55-80）" class="headerlink" title="6.2 打破双亲委派的关键（EncryptedClassLoader.java:55-80）"></a>6.2 打破双亲委派的关键（EncryptedClassLoader.java:55-80）</h3><p>重写 <code>loadClass</code>（而非 <code>findClass</code>）改变了默认委托顺序：</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 标准双亲委派：先 parent.loadClass，再 findClass</span></span><br><span class="line"><span class="comment">// 本类改为：先 findLoadedClass，再（若命中 selfLoadPrefix）findClass，最后 super.loadClass</span></span><br><span class="line"><span class="keyword">if</span> (name.startsWith(selfLoadPrefix)) &#123;</span><br><span class="line">    c = findClass(name);   <span class="comment">// 优先自己加载（第 66 行）</span></span><br><span class="line">    ...</span><br><span class="line">    <span class="keyword">return</span> c;</span><br><span class="line">&#125;</span><br><span class="line"><span class="keyword">return</span> <span class="built_in">super</span>.loadClass(name, resolve);  <span class="comment">// 第 78 行，回退双亲委派</span></span><br></pre></td></tr></table></figure>
-
-<h3 id="6-3-应用场景"><a href="#6-3-应用场景" class="headerlink" title="6.3 应用场景"></a>6.3 应用场景</h3><p>文档模板引擎的沙箱隔离：不同租户的模板代码（<code>com.zeus.template.*</code>）用不同 ClassLoader 实例加载，同名类多版本共存，更新模板无需重启应用。加密 .class 文件防篡改（XOR 演示，生产用 AES）。</p>
-<h3 id="6-4-打破双亲委派的单元测试报告（模拟）"><a href="#6-4-打破双亲委派的单元测试报告（模拟）" class="headerlink" title="6.4 打破双亲委派的单元测试报告（模拟）"></a>6.4 打破双亲委派的单元测试报告（模拟）</h3><table>
-<thead>
-<tr>
-<th>测试用例</th>
-<th>验证点</th>
-<th>结果</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>testLoadTemplateClass</td>
-<td>template 类由 EncryptedClassLoader 加载</td>
-<td>通过，日志「自加载类 com.zeus.template.X」</td>
-</tr>
-<tr>
-<td>testParentDelegationForJdk</td>
-<td>java.lang.String 仍由 Bootstrap 加载</td>
-<td>通过，未走自加载</td>
-</tr>
-<tr>
-<td>testSameNameDifferentVersion</td>
-<td>同名类两实例 classLoader 不同</td>
-<td>通过，<code>c1 != c2</code></td>
-</tr>
-<tr>
-<td>testEncryptedClassDecrypt</td>
-<td>XOR 解密后字节码合法</td>
-<td>通过，defineClass 成功</td>
-</tr>
-<tr>
-<td>testClassNotFoundFallback</td>
-<td>自加载失败回退父加载器</td>
-<td>通过，走 super.loadClass</td>
-</tr>
-</tbody></table>
-<p><strong>关键断言</strong>：</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 不同 ClassLoader 加载同名类，Class 对象不相等</span></span><br><span class="line">Class&lt;?&gt; c1 = cl1.loadClass(<span class="string">&quot;com.zeus.template.Hello&quot;</span>);</span><br><span class="line">Class&lt;?&gt; c2 = cl2.loadClass(<span class="string">&quot;com.zeus.template.Hello&quot;</span>);</span><br><span class="line"><span class="keyword">assert</span> c1 != c2;                    <span class="comment">// 不同命名空间</span></span><br><span class="line"><span class="keyword">assert</span> c1.getClassLoader() == cl1;  <span class="comment">// 加载器正确</span></span><br></pre></td></tr></table></figure>
-
-<hr>
-<h2 id="七、OOM-综合排查方法论"><a href="#七、OOM-综合排查方法论" class="headerlink" title="七、OOM 综合排查方法论"></a>七、OOM 综合排查方法论</h2><h3 id="7-1-排查三件套"><a href="#7-1-排查三件套" class="headerlink" title="7.1 排查三件套"></a>7.1 排查三件套</h3><table>
-<thead>
-<tr>
-<th>工具</th>
-<th>用途</th>
-<th>命令</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>jstack</td>
-<td>线程栈，定位死锁&#x2F;阻塞</td>
-<td><code>jstack &lt;pid&gt;</code></td>
-</tr>
-<tr>
-<td>jmap</td>
-<td>堆直方图，定位对象占用</td>
-<td><code>jmap -histo:live &lt;pid&gt;</code></td>
-</tr>
-<tr>
-<td>MAT</td>
-<td>堆 dump 离线分析，泄漏链</td>
-<td>MAT 打开 hprof</td>
-</tr>
-</tbody></table>
-<h3 id="7-2-在线诊断"><a href="#7-2-在线诊断" class="headerlink" title="7.2 在线诊断"></a>7.2 在线诊断</h3><ul>
-<li>Arthas：<code>dashboard</code> 看概览，<code>thread -n 5</code> 看 CPU TOP5，<code>jad</code> 反编译，<code>watch</code> 方法观测；</li>
-<li>Prometheus + Grafana：JVM Exporter 暴露 GC&#x2F;堆指标，<code>management.endpoints</code> 已开启（<code>application.yml:103-107</code>）。</li>
-</ul>
-<h3 id="7-3-常见-OOM-类型与对策"><a href="#7-3-常见-OOM-类型与对策" class="headerlink" title="7.3 常见 OOM 类型与对策"></a>7.3 常见 OOM 类型与对策</h3><table>
-<thead>
-<tr>
-<th>OOM 类型</th>
-<th>根因</th>
-<th>对策</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>Java heap space</td>
-<td>堆内存不足&#x2F;泄漏</td>
-<td>MAT 分析泄漏链，本报告第三节</td>
-</tr>
-<tr>
-<td>Metaspace</td>
-<td>类加载过多（动态生成）</td>
-<td>限制 -XX:MaxMetaspaceSize，排查类加载器泄漏</td>
-</tr>
-<tr>
-<td>Direct buffer memory</td>
-<td>Netty 堆外内存泄漏</td>
-<td>-XX:MaxDirectMemorySize，ByteBuf release</td>
-</tr>
-<tr>
-<td>GC overhead limit exceeded</td>
-<td>GC 回收跟不上分配</td>
-<td>调整堆大小或 GC 策略，见第二节</td>
-</tr>
-</tbody></table>
-<hr>
-<h2 id="八、调优结论与-JVM-参数推荐"><a href="#八、调优结论与-JVM-参数推荐" class="headerlink" title="八、调优结论与 JVM 参数推荐"></a>八、调优结论与 JVM 参数推荐</h2><h3 id="8-1-生产推荐参数（doc-service，8C-16G-容器）"><a href="#8-1-生产推荐参数（doc-service，8C-16G-容器）" class="headerlink" title="8.1 生产推荐参数（doc-service，8C 16G 容器）"></a>8.1 生产推荐参数（doc-service，8C 16G 容器）</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">-Xms4g -Xmx4g</span><br><span class="line">-XX:+UseG1GC</span><br><span class="line">-XX:MaxGCPauseMillis=200</span><br><span class="line">-XX:InitiatingHeapOccupancyPercent=45   (G1 触发并发标记的堆占用阈值，默认45)</span><br><span class="line">-XX:G1HeapRegionSize=4m                 (Region 大小，4g 堆建议 4m)</span><br><span class="line">-XX:+HeapDumpOnOutOfMemoryError</span><br><span class="line">-XX:HeapDumpPath=/data/logs/zeus-doc-oom.hprof</span><br><span class="line">-Xlog:gc*:file=/data/logs/zeus-doc-gc.log:time,uptime:filecount=10,filesize=50M</span><br><span class="line">-XX:+UseCompressedOops</span><br></pre></td></tr></table></figure>
-
-<h3 id="8-2-关键调优结论"><a href="#8-2-关键调优结论" class="headerlink" title="8.2 关键调优结论"></a>8.2 关键调优结论</h3><ol>
-<li><strong>G1 优于 CMS</strong>：吞吐 +3.6%，最大停顿降 71%，无 Full GC；</li>
-<li><strong>ThreadLocal 必须 remove</strong>：finally 清理是铁律，否则线程池复用导致泄漏（本报告核心案例）；</li>
-<li><strong>压缩指针默认开</strong>：堆&lt;32g 时省 8 字节&#x2F;指针，2g 堆下 Doc 对象省 17% 内存；</li>
-<li><strong>EncryptedClassLoader 隔离有效</strong>：单元测试验证同名类多版本共存，打破双亲委派仅对指定包生效；</li>
-<li><strong>OOM 三件套</strong>：jstack 定阻塞、jmap 定占用、MAT 定泄漏链，缺一不可。</li>
-</ol>
-<hr>
-<p>本报告为 JVM 调优实战基线。ThreadLocal 泄漏案例详见《Zeus-Doc-项目面试实战手册》第4问，类加载器原理见《Zeus-Doc-项目面试实战手册》第6问。</p>
-<hr>
-<h2 id="附1、JVM-启动参数（补充章节）"><a href="#附1、JVM-启动参数（补充章节）" class="headerlink" title="附1、JVM 启动参数（补充章节）"></a>附1、JVM 启动参数（补充章节）</h2><p><strong>配置位置：</strong> <code>zeus-doc-service-doc/src/main/resources/application.yml:119-123</code>（注释说明，实际由部署脚本 <code>JAVA_OPTS</code> 传入）。</p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 堆内存</span></span><br><span class="line">-Xms2g                          <span class="comment"># 初始堆，与 Xmx 相同避免动态扩缩引起抖动</span></span><br><span class="line">-Xmx2g                          <span class="comment"># 最大堆 2G（4C8G 节点，留 6G 给堆外/Netty/系统）</span></span><br><span class="line">-Xmn768m                        <span class="comment"># 年轻代（G1 下可不设，由 G1 自适应分区）</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># GC 收集器：G1</span></span><br><span class="line">-XX:+UseG1GC</span><br><span class="line">-XX:MaxGCPauseMillis=200        <span class="comment"># 期望最大停顿 200ms</span></span><br><span class="line">-XX:G1HeapRegionSize=4m         <span class="comment"># Region 大小（2G 堆 → 512 个 Region）</span></span><br><span class="line">-XX:InitiatingHeapOccupancyPercent=45   <span class="comment"># 堆使用率 45% 触发并发标记</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># OOM 自动 Dump</span></span><br><span class="line">-XX:+HeapDumpOnOutOfMemoryError</span><br><span class="line">-XX:HeapDumpPath=/data/logs/zeus-doc-oom.hprof</span><br><span class="line"></span><br><span class="line"><span class="comment"># GC 日志（JDK 17 统一日志）</span></span><br><span class="line">-Xlog:gc*:file=/data/logs/zeus-doc-gc.log:<span class="keyword">time</span>,<span class="built_in">uptime</span>:filecount=10,filesize=50M</span><br><span class="line"></span><br><span class="line"><span class="comment"># 压缩指针（默认开启，JOL 对比时关闭验证）</span></span><br><span class="line">-XX:+UseCompressedOops</span><br><span class="line">-XX:+UseCompressedClassPointers</span><br><span class="line"></span><br><span class="line"><span class="comment"># 容器感知（K8s 内）</span></span><br><span class="line">-XX:+UseContainerSupport</span><br><span class="line">-XX:InitialRAMPercentage=50.0</span><br><span class="line">-XX:MaxRAMPercentage=50.0</span><br></pre></td></tr></table></figure>
-
-<p><strong>参数选择理由：</strong></p>
-<table>
-<thead>
-<tr>
-<th>参数</th>
-<th>值</th>
-<th>理由</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>-Xms/-Xmx</code></td>
-<td>2g&#x2F;2g</td>
-<td>文档服务中等负载；相等避免动态扩缩抖动</td>
-</tr>
-<tr>
-<td><code>UseG1GC</code></td>
-<td>启用</td>
-<td>JDK 17 默认，可控停顿 + 适合多核大堆</td>
-</tr>
-<tr>
-<td><code>MaxGCPauseMillis</code></td>
-<td>200ms</td>
-<td>接口 99 线 RT 目标 100ms，GC 停顿占比 &lt; 50%</td>
-</tr>
-<tr>
-<td><code>HeapDumpOnOOM</code></td>
-<td>启用</td>
-<td>OOM 时自动 dump 便于 MAT 分析</td>
-</tr>
-<tr>
-<td><code>RegionSize</code></td>
-<td>4m</td>
-<td>2G 堆 512 Region，G1 推荐区间</td>
-</tr>
-</tbody></table>
-<hr>
-<h2 id="附2、GC-日志分析（CMS-→-G1-对比）（补充章节）"><a href="#附2、GC-日志分析（CMS-→-G1-对比）（补充章节）" class="headerlink" title="附2、GC 日志分析（CMS → G1 对比）（补充章节）"></a>附2、GC 日志分析（CMS → G1 对比）（补充章节）</h2><h3 id="2-1-调优前：CMS（JDK-8-历史包袱，模拟数据）"><a href="#2-1-调优前：CMS（JDK-8-历史包袱，模拟数据）" class="headerlink" title="2.1 调优前：CMS（JDK 8 历史包袱，模拟数据）"></a>2.1 调优前：CMS（JDK 8 历史包袱，模拟数据）</h3><p>应用早期使用 CMS，4G 堆下表现：</p>
-<table>
-<thead>
-<tr>
-<th>指标</th>
-<th>CMS 调优前</th>
-<th>CMS 调优后</th>
-<th>问题</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>Young GC 频率</td>
-<td>1.8s&#x2F;次</td>
-<td>3.2s&#x2F;次</td>
-<td>频繁</td>
-</tr>
-<tr>
-<td>Young GC 停顿</td>
-<td>45ms</td>
-<td>30ms</td>
-<td>-</td>
-</tr>
-<tr>
-<td>Full GC 频率</td>
-<td>12min&#x2F;次</td>
-<td>35min&#x2F;次</td>
-<td>Concurrency Mode Failure</td>
-</tr>
-<tr>
-<td>Full GC 停顿</td>
-<td>1.8s</td>
-<td>1.2s</td>
-<td>STW 过长</td>
-</tr>
-<tr>
-<td>吞吐量</td>
-<td>91.2%</td>
-<td>94.5%</td>
-<td>低</td>
-</tr>
-<tr>
-<td>99 线 RT</td>
-<td>180ms</td>
-<td>120ms</td>
-<td>Full GC 时毛刺严重</td>
-</tr>
-</tbody></table>
-<blockquote>
-<p>模拟数据。CMS 的 Full GC（STW 1.2s）导致接口 99 线 RT 毛刺，是切 G1 的主因。</p>
-</blockquote>
-<h3 id="2-2-调优后：G1（JDK-17，模拟数据）"><a href="#2-2-调优后：G1（JDK-17，模拟数据）" class="headerlink" title="2.2 调优后：G1（JDK 17，模拟数据）"></a>2.2 调优后：G1（JDK 17，模拟数据）</h3><p>切换 G1，2G 堆下 GCeasy 报告关键指标：</p>
-<table>
-<thead>
-<tr>
-<th>指标</th>
-<th>G1 值</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>吞吐量</td>
-<td>97.8%</td>
-<td>提升 3.3pp</td>
-</tr>
-<tr>
-<td>平均 GC 停顿</td>
-<td>42ms</td>
-<td>-</td>
-</tr>
-<tr>
-<td>最大 GC 停顿</td>
-<td>185ms</td>
-<td>满足 MaxGCPauseMillis&#x3D;200</td>
-</tr>
-<tr>
-<td>Young GC 频率</td>
-<td>4.5s&#x2F;次</td>
-<td>-</td>
-</tr>
-<tr>
-<td>Mixed GC 频率</td>
-<td>90s&#x2F;次</td>
-<td>回收老年代 + 年轻代</td>
-</tr>
-<tr>
-<td>Full GC</td>
-<td>0 次（24h）</td>
-<td>G1 极少 Full GC</td>
-</tr>
-</tbody></table>
-<blockquote>
-<p>模拟数据。GCeasy 在线分析工具报告。</p>
-</blockquote>
-<h3 id="2-3-CMS-vs-G1-吞吐量对比"><a href="#2-3-CMS-vs-G1-吞吐量对比" class="headerlink" title="2.3 CMS vs G1 吞吐量对比"></a>2.3 CMS vs G1 吞吐量对比</h3><pre class="mermaid">xychart-beta
-    title "CMS vs G1 吞吐量与最大停顿对比（模拟数据）"
-    x-axis ["CMS调优前", "CMS调优后", "G1"]
-    y-axis "吞吐量(%)" 88 --> 100
-    bar [91.2, 94.5, 97.8]
-    line [91.2, 94.5, 97.8]</pre>
-
-<h3 id="2-4-G1-GC-日志关键片段（模拟）"><a href="#2-4-G1-GC-日志关键片段（模拟）" class="headerlink" title="2.4 G1 GC 日志关键片段（模拟）"></a>2.4 G1 GC 日志关键片段（模拟）</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">[2026-07-31T10:23:15.832+0800][12.345s] GC(45) Pause Young (Normal) (G1 Evacuation Pause)</span><br><span class="line">  Young regions: 86 -&gt; 0</span><br><span class="line">  Eden regions: 512 -&gt; 0(512)            // 4MB×512=2G Eden 全回收</span><br><span class="line">  Survivor regions: 0 -&gt; 18</span><br><span class="line">  Old regions: 95 -&gt; 95</span><br><span class="line">  Humongous regions: 3 -&gt; 3</span><br><span class="line">  Metaspace: 78M -&gt; 78M</span><br><span class="line">  Pause time: 38ms                       // 远低于 200ms 目标</span><br></pre></td></tr></table></figure>
-
-<h3 id="2-5-GC-调优经验"><a href="#2-5-GC-调优经验" class="headerlink" title="2.5 GC 调优经验"></a>2.5 GC 调优经验</h3><ol>
-<li><strong>G1 自适应能力强</strong>：设 <code>MaxGCPauseMillis=200</code> 后，G1 自动调整 Region&#x2F;Evacuation 比例，无需手动设 <code>-Xmn</code>。</li>
-<li><strong>避免 Humongous 对象</strong>：大对象（&gt; Region&#x2F;2 &#x3D; 2M）直接进老年代，触发频繁 Mixed GC。本项目文档正文 TEXT 字段若超 2M 应走对象存储而非堆内。</li>
-<li>**<code>IHOP=45</code>**：默认 45%，老年代占用达 45% 触发并发标记，提前回收避免 Full GC。</li>
-</ol>
-<hr>
-<h2 id="附3、MAT-分析堆-Dump：NettyHandler-ThreadLocal-泄漏链（补充章节）"><a href="#附3、MAT-分析堆-Dump：NettyHandler-ThreadLocal-泄漏链（补充章节）" class="headerlink" title="附3、MAT 分析堆 Dump：NettyHandler + ThreadLocal 泄漏链（补充章节）"></a>附3、MAT 分析堆 Dump：NettyHandler + ThreadLocal 泄漏链（补充章节）</h2><h3 id="3-1-OOM-现象"><a href="#3-1-OOM-现象" class="headerlink" title="3.1 OOM 现象"></a>3.1 OOM 现象</h3><p>协同服务（<code>zeus-doc-service-collab</code>）运行 3 天后频繁 Full GC，最终 OOM：</p>
-<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">java.lang.OutOfMemoryError: Java heap space</span><br><span class="line">    at io.netty.buffer.PooledByteBufAllocator$PoolThreadCache.allocate(...)</span><br></pre></td></tr></table></figure>
-
-<h3 id="3-2-排查过程"><a href="#3-2-排查过程" class="headerlink" title="3.2 排查过程"></a>3.2 排查过程</h3><p><strong>步骤 1：获取堆 Dump</strong></p>
-<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># OOM 时自动 dump（已配 HeapDumpOnOOM）</span></span><br><span class="line"><span class="built_in">ls</span> -lh /data/logs/zeus-collab-oom.hprof</span><br><span class="line"><span class="comment"># 或运行时手动 dump</span></span><br><span class="line">jmap -dump:format=b,file=/tmp/collab.hprof &lt;pid&gt;</span><br></pre></td></tr></table></figure>
-
-<p><strong>步骤 2：MAT 加载，执行 Leak Suspects 报告</strong></p>
-<p>MAT <code>Leak Suspects</code> 报告显示：</p>
-<blockquote>
-<p><strong>Problem Suspect 1:</strong> <code>io.netty.handler.codec.http.HttpObjectDecoder</code> 占用 1.2GB（55% 堆）<br>Thread <code>worker-3</code> 持有 <code>ByteBuf</code> 链 480MB 未释放</p>
-<p><strong>Problem Suspect 2:</strong> <code>java.lang.ThreadLocal$ThreadLocalMap</code> 占用 680MB（31% 堆）<br><code>ThreadLocal</code> 中存 <code>UserContext</code> + <code>ByteBuffer</code>，key 为弱引用被回收但 value 强引用残留</p>
-</blockquote>
-<p><strong>步骤 3：追踪泄漏链（Path To GC Roots）</strong></p>
-<p>MAT <code>Path To GC Roots → exclude weak/soft references</code>：</p>
-<pre class="mermaid">graph TD
-    GC["GC Roots&lt;br/>worker-3 线程栈"] -->|强引用| TH["ThreadLocal.ThreadLocalMap&lt;br/>table[N]"]
-    TH -->|value 强引用| UC["UserContext 对象&lt;br/>(未 remove)"]
-    UC -->|持有| BB["ByteBuf（Netty 堆内）&lt;br/>480MB"]
-    UC -->|持有| CH["ChannelHandlerContext&lt;br/>已断开但未清理"]
-    CH -->|持有| RB["RecvByteBufAllocator$Handle&lt;br/>累积读取缓冲"]
-
-    style UC fill:#ff6b6b
-    style BB fill:#ff6b6b</pre>
-
-<p><strong>根因：</strong> WebSocket 连接断开后，<code>ThreadLocal&lt;UserContext&gt;</code> 未调用 <code>remove()</code>，导致：</p>
-<ol>
-<li><code>UserContext</code> 残留持有 <code>ChannelHandlerContext</code>（已断开但对象未 GC）；</li>
-<li><code>ChannelHandlerContext</code> 持有 <code>ByteBuf</code> 累积缓冲（480MB）；</li>
-<li>线程池线程复用，ThreadLocal 越积越多。</li>
-</ol>
-<h3 id="3-3-修复方案"><a href="#3-3-修复方案" class="headerlink" title="3.3 修复方案"></a>3.3 修复方案</h3><p><strong>修复 1：ThreadLocal 必须清理</strong></p>
-<p>参照 <code>RateLimitInterceptor.afterCompletion</code>（<code>RateLimitInterceptor.java:96-98</code>）的模式：</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Override</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">afterCompletion</span><span class="params">(...)</span> &#123;</span><br><span class="line">    START_TS.remove();   <span class="comment">// 必须 remove，防止线程池线程复用导致内存泄漏</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><code>DocDetailService</code> 的每个 CompletableFuture 任务都在 <code>finally</code> 清理（<code>DocDetailService.java:63,72,81</code>）：</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">CompletableFuture&lt;Doc&gt; metaFuture = CompletableFuture.supplyAsync(() -&gt; &#123;</span><br><span class="line">    <span class="keyword">try</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> docMapper.selectById(docId);</span><br><span class="line">    &#125; <span class="keyword">finally</span> &#123;</span><br><span class="line">        UserContext.clear();   <span class="comment">// TTL 上下文清理防泄漏</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;, docExecutor);</span><br></pre></td></tr></table></figure>
-
-<p><code>DocService.auditAsync</code> 同样在 <code>finally</code> 清理（<code>DocService.java:151</code>）：</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Async(&quot;audit-executor&quot;)</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">auditAsync</span><span class="params">(...)</span> &#123;</span><br><span class="line">    <span class="keyword">try</span> &#123; ... &#125; <span class="keyword">catch</span> (...) &#123; ... &#125;</span><br><span class="line">    <span class="keyword">finally</span> &#123; UserContext.clear(); &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>修复 2：Netty Channel 断开时释放 ByteBuf</strong></p>
-<p>在 <code>WebSocketFrameHandler</code> 的 <code>channelInactive</code> 中释放累积 ByteBuf，并清理 <code>ChannelHandlerContext</code> 关联的 ThreadLocal。</p>
-<p><strong>修复 3：线程池用 TTL 包装</strong></p>
-<p><code>ThreadPoolConfig.java:103</code> 用 <code>TtlExecutorUtil.wrap(executor)</code> 包装，TTL 在任务执行前后自动 transmittable + clear，避免 ThreadLocal 残留。</p>
-<h3 id="3-4-修复后验证（模拟数据）"><a href="#3-4-修复后验证（模拟数据）" class="headerlink" title="3.4 修复后验证（模拟数据）"></a>3.4 修复后验证（模拟数据）</h3><table>
-<thead>
-<tr>
-<th>指标</th>
-<th>修复前</th>
-<th>修复后</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>堆内存趋势</td>
-<td>3 天涨至 OOM</td>
-<td>稳定在 1.2G</td>
-</tr>
-<tr>
-<td>ThreadLocal 残留</td>
-<td>680MB</td>
-<td>8MB</td>
-</tr>
-<tr>
-<td>Full GC 频率</td>
-<td>3 天后频繁</td>
-<td>7 天 0 次</td>
-</tr>
-<tr>
-<td>Netty ByteBuf 持有</td>
-<td>1.2GB</td>
-<td>50MB</td>
-</tr>
-</tbody></table>
-<blockquote>
-<p>模拟数据。修复后连续运行 7 天堆内存平稳。</p>
-</blockquote>
-<h3 id="3-5-ThreadLocal-泄漏防护清单"><a href="#3-5-ThreadLocal-泄漏防护清单" class="headerlink" title="3.5 ThreadLocal 泄漏防护清单"></a>3.5 ThreadLocal 泄漏防护清单</h3><table>
-<thead>
-<tr>
-<th>位置</th>
-<th>清理点</th>
-<th>代码</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>拦截器</td>
-<td>afterCompletion</td>
-<td><code>RateLimitInterceptor.java:97</code></td>
-</tr>
-<tr>
-<td>异步任务</td>
-<td>finally</td>
-<td><code>DocDetailService.java:63</code> &#x2F; <code>DocService.java:151</code></td>
-</tr>
-<tr>
-<td>线程池</td>
-<td>TTL 包装</td>
-<td><code>ThreadPoolConfig.java:103</code></td>
-</tr>
-<tr>
-<td>Netty Channel</td>
-<td>channelInactive</td>
-<td>释放 ByteBuf + clear ThreadLocal</td>
-</tr>
-</tbody></table>
-<hr>
-<h2 id="附4、EncryptedClassLoader-加载流程（补充章节）"><a href="#附4、EncryptedClassLoader-加载流程（补充章节）" class="headerlink" title="附4、EncryptedClassLoader 加载流程（补充章节）"></a>附4、EncryptedClassLoader 加载流程（补充章节）</h2><h3 id="5-1-应用场景"><a href="#5-1-应用场景" class="headerlink" title="5.1 应用场景"></a>5.1 应用场景</h3><p>文档模板引擎的沙箱隔离与热加载：不同租户的模板代码互相隔离，更新模板无需重启应用。<code>EncryptedClassLoader</code>（<code>zeus-doc-service-doc/.../classloader/EncryptedClassLoader.java</code>）实现加密 class 文件的解密加载，并对指定包名打破双亲委派。</p>
-<h3 id="5-2-findClass-解密加载流程图"><a href="#5-2-findClass-解密加载流程图" class="headerlink" title="5.2 findClass() 解密加载流程图"></a>5.2 findClass() 解密加载流程图</h3><pre class="mermaid">flowchart TD
-    Load["loadClass(name, resolve)&lt;br/>EncryptedClassLoader.java:56"] --> Chk["1. findLoadedClass(name)&lt;br/>检查是否已加载&lt;br/>行 59"]
-    Chk -->|已加载| Ret["返回已加载的 Class"]
-    Chk -->|未加载| Prefix{2. name.startsWith&lt;br/>selfLoadPrefix&lt;br/>com.zeus.template.*&lt;br/>行 64}
-    Prefix -->|否 标准类| Parent["3. super.loadClass&lt;br/>标准双亲委派&lt;br/>行 78"]
-    Parent --> RetParent["父加载器加载&lt;br/>如 java.lang.String"]
-    Prefix -->|是 模板类| Find["findClass(name)&lt;br/>打破双亲委派&lt;br/>行 66"]
-    Find --> Path["拼路径&lt;br/>classDir + name.replace '.' -> '/' + .class&lt;br/>行 87"]
-    Path --> Exist{文件存在?}
-    Exist -->|否| CNF["抛 ClassNotFoundException&lt;br/>行 90"]
-    CNF --> Fallback["回退父加载器&lt;br/>行 74"]
-    Exist -->|是| Read["readAndDecrypt&lt;br/>FileChannel + XOR 解密&lt;br/>行 92"]
-    Read --> Loop["循环读取 8192B 缓冲&lt;br/>逐字节 XOR xorKey 解密&lt;br/>行 100-115"]
-    Loop --> Define["defineClass(name, bytes, 0, len)&lt;br/>JVM 校验字节码&lt;br/>行 94"]
-    Define --> Resolve{resolve?}
-    Resolve -->|是| Res["resolveClass(c)&lt;br/>行 68"]
-    Resolve -->|否| RetDef["返回 Class"]
-    Res --> RetDef
-
-    style Prefix fill:#ffe4b5
-    style Find fill:#ff6b6b
-    style Define fill:#e0ffff</pre>
-
-<h3 id="5-3-打破双亲委派的关键"><a href="#5-3-打破双亲委派的关键" class="headerlink" title="5.3 打破双亲委派的关键"></a>5.3 打破双亲委派的关键</h3><p>标准 <code>ClassLoader.loadClass</code> 流程：<code>findLoadedClass → parent.loadClass → findClass</code>（先委托父加载器）。</p>
-<p><code>EncryptedClassLoader.loadClass</code>（<code>EncryptedClassLoader.java:56-80</code>）改为：<code>findLoadedClass → 若属于 selfLoadPrefix 则自己 findClass → 否则 super.loadClass</code>。</p>
-<p>即对 <code>com.zeus.template.*</code> 包名，<strong>优先自己加载，不先委托父加载器</strong>，这是打破双亲委派的核心。其它包名（如 <code>java.lang.String</code>）仍走标准双亲委派，保证核心类安全。</p>
-<h3 id="5-4-加密解密细节"><a href="#5-4-加密解密细节" class="headerlink" title="5.4 加密解密细节"></a>5.4 加密解密细节</h3><p><code>readAndDecrypt</code>（<code>EncryptedClassLoader.java:100-120</code>）使用 <code>FileChannel</code> + <code>ByteBuffer</code> 读取加密 class，逐字节 XOR 解密：</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">private</span> <span class="type">byte</span>[] readAndDecrypt(File f) &#123;</span><br><span class="line">    <span class="keyword">try</span> (<span class="type">FileInputStream</span> <span class="variable">fis</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">FileInputStream</span>(f);</span><br><span class="line">         <span class="type">FileChannel</span> <span class="variable">ch</span> <span class="operator">=</span> fis.getChannel();</span><br><span class="line">         <span class="type">ByteArrayOutputStream</span> <span class="variable">out</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">ByteArrayOutputStream</span>()) &#123;</span><br><span class="line">        <span class="type">ByteBuffer</span> <span class="variable">buf</span> <span class="operator">=</span> ByteBuffer.allocate(<span class="number">8192</span>);</span><br><span class="line">        <span class="keyword">while</span> (ch.read(buf) != -<span class="number">1</span>) &#123;</span><br><span class="line">            buf.flip();</span><br><span class="line">            <span class="type">byte</span>[] arr = <span class="keyword">new</span> <span class="title class_">byte</span>[buf.limit()];</span><br><span class="line">            buf.get(arr);</span><br><span class="line">            <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; arr.length; i++) &#123;</span><br><span class="line">                arr[i] ^= xorKey;    <span class="comment">// XOR 解密（演示，生产用 AES）</span></span><br><span class="line">            &#125;</span><br><span class="line">            out.write(arr);</span><br><span class="line">            buf.clear();</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> out.toByteArray();</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<blockquote>
-<p>生产环境应换用 AES（XOR 易被破解），密钥由 KMS 管理。</p>
-</blockquote>
-<hr>
-<h2 id="附5、打破双亲委派单元测试报告（补充章节）"><a href="#附5、打破双亲委派单元测试报告（补充章节）" class="headerlink" title="附5、打破双亲委派单元测试报告（补充章节）"></a>附5、打破双亲委派单元测试报告（补充章节）</h2><h3 id="6-1-测试代码"><a href="#6-1-测试代码" class="headerlink" title="6.1 测试代码"></a>6.1 测试代码</h3><p><code>EncryptedClassLoaderTest.java:36-75</code>，验证两个核心命题：</p>
-<ol>
-<li>同一类名被不同 ClassLoader 加载后 <code>instanceof</code> 返回 false（类隔离）</li>
-<li><code>java.lang.String</code> 仍走双亲委派（核心类不被篡改）</li>
-</ol>
-<h3 id="6-2-测试流程"><a href="#6-2-测试流程" class="headerlink" title="6.2 测试流程"></a>6.2 测试流程</h3><pre class="mermaid">sequenceDiagram
-    participant T as Test 测试类
-    participant L1 as EncryptedClassLoader 实例1
-    participant L2 as EncryptedClassLoader 实例2
-    participant FS as 文件系统&lt;br/>加密 .class
-
-    T->>FS: 取 EncryptedClassLoaderTest.class 字节码
-    T->>FS: XOR 加密写入 com/zeus/template/HelloTemplate.class
-    T->>L1: new EncryptedClassLoader(dir, "com.zeus.template", 0x5A, parent)
-    T->>L2: new EncryptedClassLoader(dir, "com.zeus.template", 0x5A, parent)
-    T->>L1: loadClass("com.zeus.template.HelloTemplate")
-    L1->>FS: findClass 解密加载
-    L1-->>T: c1 (Class 对象)
-    T->>L2: loadClass("com.zeus.template.HelloTemplate")
-    L2->>FS: findClass 解密加载
-    L2-->>T: c2 (Class 对象)
-
-    Note over T: 断言1: assertNotSame(c1, c2) ✓&lt;br/>不同加载器 → 不同 Class 对象
-    T->>L1: c1.newInstance() → instance1
-    Note over T: 断言2: c2.isInstance(instance1) == false ✓&lt;br/>类隔离核心证明</pre>
-
-<h3 id="6-3-测试断言与结果"><a href="#6-3-测试断言与结果" class="headerlink" title="6.3 测试断言与结果"></a>6.3 测试断言与结果</h3><table>
-<thead>
-<tr>
-<th>断言</th>
-<th>期望</th>
-<th>实际</th>
-<th>结论</th>
-</tr>
-</thead>
-<tbody><tr>
-<td><code>assertNotSame(c1, c2)</code></td>
-<td>不同 Class 对象</td>
-<td>通过</td>
-<td>不同 ClassLoader 加载同一类名 → 不同 Class 实例</td>
-</tr>
-<tr>
-<td><code>assertEquals(className, c1.getName())</code></td>
-<td>类名相同</td>
-<td>通过</td>
-<td>类名一致</td>
-</tr>
-<tr>
-<td><code>c2.isInstance(instance1)</code></td>
-<td>false</td>
-<td>false</td>
-<td><strong>类隔离核心证明</strong>：c1 的实例不能被 c2 的类型识别</td>
-</tr>
-<tr>
-<td><code>strClass.getClassLoader() != loader</code></td>
-<td>父加载器加载</td>
-<td>通过</td>
-<td><code>java.lang.String</code> 仍走双亲委派</td>
-</tr>
-</tbody></table>
-<blockquote>
-<p>测试代码：<code>EncryptedClassLoaderTest.java:62-74</code>（类隔离）、<code>EncryptedClassLoaderTest.java:81-89</code>（核心类双亲委派保留）。</p>
-</blockquote>
-<h3 id="6-4-类隔离原理"><a href="#6-4-类隔离原理" class="headerlink" title="6.4 类隔离原理"></a>6.4 类隔离原理</h3><p>JVM 中一个类的唯一标识 &#x3D; <strong>全限定类名 + ClassLoader 实例</strong>。同名类被不同 ClassLoader 加载后，是两个完全独立的 Class：</p>
-<ul>
-<li><code>c1 != c2</code>（对象引用不同）</li>
-<li><code>c1.equals(c2)</code> 为 false</li>
-<li><code>c1.isInstance(c2的实例)</code> 为 false</li>
-<li><code>instanceof</code> 检查时 <code>instance1 instanceof c2</code> 编译报错（运行时 <code>c2.isInstance(instance1)</code> 为 false）</li>
-</ul>
-<p><strong>这就是 Tomcat WebappClassLoader 实现应用隔离的原理</strong>：每个 Web 应用独立 ClassLoader，同名类互不干扰。</p>
-<h3 id="6-5-打破双亲委派的三大场景"><a href="#6-5-打破双亲委派的三大场景" class="headerlink" title="6.5 打破双亲委派的三大场景"></a>6.5 打破双亲委派的三大场景</h3><table>
-<thead>
-<tr>
-<th>场景</th>
-<th>实现</th>
-<th>本项目对标</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>Tomcat 应用隔离</td>
-<td>WebappClassLoader 优先加载 <code>WEB-INF/classes</code></td>
-<td><code>EncryptedClassLoader</code> 优先加载 <code>com.zeus.template.*</code></td>
-</tr>
-<tr>
-<td>SPI（JDBC DriverManager）</td>
-<td>Thread.contextClassLoader 反向加载</td>
-<td>-</td>
-</tr>
-<tr>
-<td>热部署&#x2F;沙箱</td>
-<td>不同 ClassLoader 加载同类名多版本</td>
-<td>租户模板隔离</td>
-</tr>
-</tbody></table>
-<hr>
-<h2 id="附6、JVM-调优总结（补充章节）"><a href="#附6、JVM-调优总结（补充章节）" class="headerlink" title="附6、JVM 调优总结（补充章节）"></a>附6、JVM 调优总结（补充章节）</h2><h3 id="7-1-关键结论"><a href="#7-1-关键结论" class="headerlink" title="7.1 关键结论"></a>7.1 关键结论</h3><table>
-<thead>
-<tr>
-<th>维度</th>
-<th>调优前</th>
-<th>调优后</th>
-<th>提升</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>GC 收集器</td>
-<td>CMS（Full GC 1.2s）</td>
-<td>G1（最大停顿 185ms）</td>
-<td>停顿降 85%</td>
-</tr>
-<tr>
-<td>吞吐量</td>
-<td>91.2%</td>
-<td>97.8%</td>
-<td>+6.6pp</td>
-</tr>
-<tr>
-<td>OOM 频率</td>
-<td>3 天一次</td>
-<td>7 天 0 次</td>
-<td>-</td>
-</tr>
-<tr>
-<td>堆内存稳定</td>
-<td>3 天涨满</td>
-<td>稳定 1.2G</td>
-<td>-</td>
-</tr>
-<tr>
-<td>对象体积（Doc）</td>
-<td>关闭压缩 80B</td>
-<td>开启压缩 56B</td>
-<td>-30%</td>
-</tr>
-</tbody></table>
-<h3 id="7-2-调优检查清单"><a href="#7-2-调优检查清单" class="headerlink" title="7.2 调优检查清单"></a>7.2 调优检查清单</h3><ol>
-<li><input disabled="" type="checkbox"> <code>-Xms = -Xmx</code>，避免动态扩缩</li>
-<li><input disabled="" type="checkbox"> G1 + <code>MaxGCPauseMillis</code> 设目标</li>
-<li><input disabled="" type="checkbox"> <code>HeapDumpOnOutOfMemoryError</code> 必开</li>
-<li><input disabled="" type="checkbox"> GC 日志开启（<code>-Xlog:gc*</code>）</li>
-<li><input disabled="" type="checkbox"> 压缩指针默认开启（<code>UseCompressedOops</code>）</li>
-<li><input disabled="" type="checkbox"> ThreadLocal 必须 <code>remove()</code>（拦截器&#x2F;异步任务 finally）</li>
-<li><input disabled="" type="checkbox"> 线程池 TTL 包装传递上下文</li>
-<li><input disabled="" type="checkbox"> Netty ByteBuf 断连释放</li>
-<li><input disabled="" type="checkbox"> 大对象（&gt;2M）不入堆（走对象存储）</li>
-<li><input disabled="" type="checkbox"> 容器感知参数（<code>UseContainerSupport</code>）</li>
-</ol>
-<hr>
-<p><em>报告完。GC&#x2F;MAT&#x2F;JOL 数据为模拟分析，生产需以实际 dump 为准。</em></p>
-<hr>
-<h2 id="系列导航"><a href="#系列导航" class="headerlink" title="系列导航"></a>系列导航</h2><p>本文属于《项目实战》系列，系列入口见 <a href="/docs/nav/5964f4da.html">项目实战导航</a>，配套体系见 <a href="/post/720ca998.html">Java 后端面试导航</a> 与 <a href="/docs/">博客导航</a>。</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
 
     
 
@@ -5482,8 +4545,1094 @@
 
 
 
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/ef0e86a4.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/ef0e86a4.html" class="post-title-link" itemprop="url">Zeus-Doc 启动与部署运维实战</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-08-06 23:55:05" itemprop="dateCreated datePublished" datetime="2026-08-06T23:55:05+08:00">2026-08-06</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E9%A1%B9%E7%9B%AE%E5%AE%9E%E6%88%98/" itemprop="url" rel="index"><span itemprop="name">项目实战</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>6.6k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>24 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h1 id="Zeus-Doc-启动与部署运维实战"><a href="#Zeus-Doc-启动与部署运维实战" class="headerlink" title="Zeus-Doc 启动与部署运维实战"></a>Zeus-Doc 启动与部署运维实战</h1><blockquote>
+<p>版本：2.0.0 ｜ 更新日期：2026-10-02 ｜ 启动模式：全功能（17 个中间件 + 7 个微服务 + 前端）</p>
+<p>本手册面向第一次接触本项目的同学，按”复制粘贴就能跑”的标准编写：每一步都给出命令、预期输出、以及卡住时怎么办。</p>
+<p>相关文档：《Zeus-Doc 架构设计与技术选型》｜《Zeus-Doc 排障实战复盘》｜《Zeus-Doc JVM 调优与 OOM 排查》｜《Zeus-Doc 性能压测实战》｜《Zeus-Doc 高并发线程与锁设计》</p>
+</blockquote>
+<hr>
+<h2 id="目录"><a href="#目录" class="headerlink" title="目录"></a>目录</h2><ul>
+<li>一、跑起来之前（环境准备）</li>
+<li>二、五步启动（复制粘贴即可）</li>
+<li>三、启动后：怎么看状态、怎么看日志</li>
+<li>四、启动后：怎么看中间件里的数据</li>
+<li>五、常见问题（小白高频）</li>
+<li>六、进阶：K8s 部署与生产实践</li>
+<li>附录 A：全端口速查表</li>
+<li>附录 B：启动 Checklist</li>
+</ul>
+<hr>
+<h2 id="一、跑起来之前（环境准备）"><a href="#一、跑起来之前（环境准备）" class="headerlink" title="一、跑起来之前（环境准备）"></a>一、跑起来之前（环境准备）</h2><h3 id="1-1-硬件要求"><a href="#1-1-硬件要求" class="headerlink" title="1.1 硬件要求"></a>1.1 硬件要求</h3><table>
+<thead>
+<tr>
+<th align="left">配置项</th>
+<th align="left">要求</th>
+<th align="left">说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">内存</td>
+<td align="left"><strong>16GB 及以上</strong>（Docker 至少分 8GB）</td>
+<td align="left">17 个中间件容器 + 7 个微服务 JVM 同时运行；本文档实测环境为 48GB 机器 &#x2F; Docker 分配 23GB</td>
+</tr>
+<tr>
+<td align="left">CPU</td>
+<td align="left">4 核及以上</td>
+<td align="left">8 核更流畅</td>
+</tr>
+<tr>
+<td align="left">磁盘</td>
+<td align="left">40GB 可用</td>
+<td align="left">镜像 + 数据卷</td>
+</tr>
+</tbody></table>
+<h3 id="1-2-软件要求"><a href="#1-2-软件要求" class="headerlink" title="1.2 软件要求"></a>1.2 软件要求</h3><p>逐条执行右侧命令，输出与”期望结果”一致才继续。</p>
+<table>
+<thead>
+<tr>
+<th align="left">软件</th>
+<th align="left">版本要求</th>
+<th align="left">校验命令</th>
+<th align="left">期望结果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">Docker Desktop</td>
+<td align="left">24+</td>
+<td align="left"><code>docker --version</code></td>
+<td align="left"><code>Docker version 24</code> 及以上</td>
+</tr>
+<tr>
+<td align="left">Docker Compose</td>
+<td align="left">v2+</td>
+<td align="left"><code>docker compose version</code></td>
+<td align="left"><code>Docker Compose version v2</code> 及以上</td>
+</tr>
+<tr>
+<td align="left">JDK</td>
+<td align="left">17</td>
+<td align="left"><code>java -version</code></td>
+<td align="left">显示 17（若为其它版本，启动脚本会自动探测 JDK 17 路径）</td>
+</tr>
+<tr>
+<td align="left">Maven</td>
+<td align="left">3.8+</td>
+<td align="left"><code>mvn -version</code></td>
+<td align="left"><code>Java version: 17.x</code>（若显示 8，检查 <code>~/.mavenrc</code> 里的 <code>JAVA_HOME</code>）</td>
+</tr>
+<tr>
+<td align="left">Node.js（前端）</td>
+<td align="left">18+</td>
+<td align="left"><code>node -v &amp;&amp; npm -v</code></td>
+<td align="left">能输出版本号即可</td>
+</tr>
+<tr>
+<td align="left">curl</td>
+<td align="left">任意</td>
+<td align="left"><code>curl --version</code></td>
+<td align="left">能输出版本号即可</td>
+</tr>
+</tbody></table>
+<blockquote>
+<p>⚠️ <strong>Docker Desktop 必须先打开</strong>：执行 <code>docker info</code> 能输出信息才算就绪；报 <code>Cannot connect to the Docker daemon</code> 就是没启动。</p>
+</blockquote>
+<h3 id="1-3-一分钟自检"><a href="#1-3-一分钟自检" class="headerlink" title="1.3 一分钟自检"></a>1.3 一分钟自检</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 在项目根目录执行，四项全部有输出即可开始</span></span><br><span class="line">docker info --format <span class="string">&#x27;Docker 就绪, CPU=&#123;&#123;.NCPU&#125;&#125; 内存=&#123;&#123;.MemTotal&#125;&#125;&#x27;</span> \</span><br><span class="line">  &amp;&amp; mvn -version | <span class="built_in">head</span> -1 \</span><br><span class="line">  &amp;&amp; node -v \</span><br><span class="line">  &amp;&amp; curl -s --version | <span class="built_in">head</span> -1</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="二、五步启动（复制粘贴即可）"><a href="#二、五步启动（复制粘贴即可）" class="headerlink" title="二、五步启动（复制粘贴即可）"></a>二、五步启动（复制粘贴即可）</h2><table>
+<thead>
+<tr>
+<th align="left">步骤</th>
+<th align="left">做什么</th>
+<th align="left">大致耗时</th>
+<th align="left">完成标志</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">第 1 步</td>
+<td align="left">启动 17 个中间件</td>
+<td align="left">首次 5-10 分钟；之后 1-2 分钟</td>
+<td align="left"><code>docker compose ps</code> 核心中间件 healthy</td>
+</tr>
+<tr>
+<td align="left">第 2 步</td>
+<td align="left">编译打包</td>
+<td align="left">1-3 分钟</td>
+<td align="left"><code>BUILD SUCCESS</code></td>
+</tr>
+<tr>
+<td align="left">第 3 步</td>
+<td align="left">启动 7 个微服务</td>
+<td align="left">1-3 分钟</td>
+<td align="left">7 个服务健康 + Nacos 注册 7 个</td>
+</tr>
+<tr>
+<td align="left">第 4 步</td>
+<td align="left">启动前端</td>
+<td align="left">1 分钟</td>
+<td align="left">浏览器能打开登录页</td>
+</tr>
+<tr>
+<td align="left">第 5 步</td>
+<td align="left">跑验证脚本</td>
+<td align="left">1-2 分钟</td>
+<td align="left">链路灯 + 主从灯全绿</td>
+</tr>
+</tbody></table>
+<h3 id="2-1-第-1-步：启动全部中间件（17-个容器）"><a href="#2-1-第-1-步：启动全部中间件（17-个容器）" class="headerlink" title="2.1 第 1 步：启动全部中间件（17 个容器）"></a>2.1 第 1 步：启动全部中间件（17 个容器）</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> deploy/docker</span><br><span class="line">docker compose up -d</span><br></pre></td></tr></table></figure>
+
+<p>启动完成后查看状态：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">docker compose ps</span><br></pre></td></tr></table></figure>
+
+<p>预期看到 17 行容器（elasticsearch8 &#x2F; node-exporter &#x2F; influxdb &#x2F; prometheus &#x2F; grafana &#x2F; mysql8 &#x2F; mysql-slave &#x2F; redis7 &#x2F; rocketmq-namesrv &#x2F; skywalking-oap &#x2F; minio &#x2F; nacos2 &#x2F; rocketmq-broker &#x2F; seata-server &#x2F; skywalking-ui &#x2F; sentinel-dashboard &#x2F; zookeeper），其中 <strong>mysql &#x2F; mysql-slave &#x2F; redis &#x2F; nacos &#x2F; es &#x2F; minio &#x2F; zookeeper &#x2F; seata 显示 healthy</strong> 即可继续。</p>
+<p>三个必须知道的点：</p>
+<ol>
+<li><strong>首次启动 MySQL 会初始化数据库</strong>（自动执行 <code>deploy/sql/</code> 下 01-04 四个脚本，创建 11 个业务库），耗时 3-5 分钟；从库首次初始化还要从主库拉全量快照（更久）。以后启动复用数据卷，秒级完成。</li>
+<li><strong>若 <code>docker compose up -d</code> 中途报错 <code>network ... not found</code><strong>：这是 Docker 网络重建竞态，</strong>再执行一次 <code>docker compose up -d</code> 即可</strong>；仍失败就对报错容器执行 <code>docker compose up -d --force-recreate &lt;容器名&gt;</code>。</li>
+<li><strong>rocketmq-broker &#x2F; sentinel &#x2F; skywalking-oap 三个容器长期显示 unhealthy 属正常</strong>：它们的 healthcheck 命令在镜像里不存在（镜像无 netstat&#x2F;curl），是已知缺陷而非故障；功能验证方法见 3.2 与 4.3。</li>
+</ol>
+<blockquote>
+<p>📌 本机 MinIO 的宿主端口是 <strong>9900（API）&#x2F; 9901（Console）</strong>，不是官方默认的 9000&#x2F;9001——因为 9000&#x2F;9001 被 gateway 和 user 服务占用。该调整在 <code>deploy/docker/docker-compose.override.yml</code> 中定义，<code>docker compose</code> 会自动叠加，无需手工干预。</p>
+</blockquote>
+<h3 id="2-2-第-2-步：编译打包"><a href="#2-2-第-2-步：编译打包" class="headerlink" title="2.2 第 2 步：编译打包"></a>2.2 第 2 步：编译打包</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 回到项目根目录</span></span><br><span class="line"><span class="built_in">cd</span> ../..</span><br><span class="line">mvn package -DskipTests</span><br></pre></td></tr></table></figure>
+
+<p>预期输出 <code>BUILD SUCCESS</code>，10 个模块。产物位于各服务 <code>target/*.jar</code>。</p>
+<h3 id="2-3-第-3-步：启动-7-个微服务（一键脚本）"><a href="#2-3-第-3-步：启动-7-个微服务（一键脚本）" class="headerlink" title="2.3 第 3 步：启动 7 个微服务（一键脚本）"></a>2.3 第 3 步：启动 7 个微服务（一键脚本）</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">bash deploy/scripts/start-full.sh</span><br></pre></td></tr></table></figure>
+
+<p>脚本会自动完成：注入 MySQL&#x2F;Redis 密码等<strong>必需环境变量</strong>、处理 <strong>collab 端口拆分</strong>与 <strong>ZooKeeper 2182 &#x2F; MinIO 9900</strong> 等本机参数、按依赖顺序启动并逐个健康检查，最后确认 Nacos 注册数量。</p>
+<p>启动完成后：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">bash deploy/scripts/start-full.sh status   <span class="comment"># 查看状态</span></span><br><span class="line">bash deploy/scripts/start-full.sh stop     <span class="comment"># 停止全部（保留数据卷）</span></span><br><span class="line">bash deploy/scripts/start-full.sh middleware   <span class="comment"># 只启动中间件</span></span><br></pre></td></tr></table></figure>
+
+<p>微服务日志统一在 <code>/tmp/zeus-doc-full/*.log</code>。</p>
+<details>
+<summary><b>不想用脚本？手动分步启动（点开对照）</b></summary>
+
+<p>以下是脚本内部执行的等价命令，<strong>必须带全环境变量</strong>，否则会连不上数据库&#x2F;中间件：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> &lt;项目根目录&gt;</span><br><span class="line"></span><br><span class="line"><span class="built_in">export</span> MYSQL_USER=root MYSQL_PWD=<span class="string">&#x27;zeus@2024&#x27;</span> REDIS_PWD=<span class="string">&#x27;zeus@redis&#x27;</span></span><br><span class="line">JVM=<span class="string">&quot;-Xms256m -Xmx512m -XX:MaxMetaspaceSize=384m -XX:+UseG1GC -Duser.timezone=Asia/Shanghai \</span></span><br><span class="line"><span class="string">  -Dspring.cloud.nacos.discovery.ip=127.0.0.1&quot;</span></span><br><span class="line"></span><br><span class="line">java <span class="variable">$JVM</span> -jar zeus-doc-gateway/target/zeus-doc-gateway.jar                       <span class="comment"># 9000</span></span><br><span class="line">java <span class="variable">$JVM</span> -jar zeus-doc-service-user/target/zeus-doc-service-user.jar             <span class="comment"># 9001</span></span><br><span class="line">java <span class="variable">$JVM</span> -jar zeus-doc-service-doc/target/zeus-doc-service-doc.jar               <span class="comment"># 9002</span></span><br><span class="line"><span class="comment"># collab 特殊：ZK 用宿主端口 2182；Netty 占 9003、Tomcat 让位到 9013（两者默认同端口，必冲突）</span></span><br><span class="line">ZK_ADDR=127.0.0.1:2182 java <span class="variable">$JVM</span> -Dserver.port=9013 -Dspring.cloud.nacos.discovery.port=9003 \</span><br><span class="line">  -jar zeus-doc-service-collab/target/zeus-doc-service-collab.jar</span><br><span class="line">java <span class="variable">$JVM</span> -jar zeus-doc-service-search/target/zeus-doc-service-search.jar         <span class="comment"># 9004</span></span><br><span class="line"><span class="comment"># file 特殊：连宿主 9900 的 MinIO + compose 里的账号</span></span><br><span class="line">MINIO_HOST=127.0.0.1 MINIO_PORT=9900 MINIO_AK=zeus MINIO_SK=<span class="string">&#x27;zeus@minio2024&#x27;</span> \</span><br><span class="line">  java <span class="variable">$JVM</span> -jar zeus-doc-service-file/target/zeus-doc-service-file.jar           <span class="comment"># 9005</span></span><br><span class="line">java <span class="variable">$JVM</span> -jar zeus-doc-service-audit/target/zeus-doc-service-audit.jar           <span class="comment"># 9006</span></span><br></pre></td></tr></table></figure>
+
+<p>启动顺序：Gateway → User → Doc 起完后再起其余四个（可并行）。</p>
+<p>各服务必须有值的变量一览：</p>
+<table>
+<thead>
+<tr>
+<th align="left">服务</th>
+<th align="left">必需变量&#x2F;参数</th>
+<th align="left">缺了会怎样</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">全部</td>
+<td align="left"><code>MYSQL_USER/MYSQL_PWD/REDIS_PWD</code></td>
+<td align="left">连不上 MySQL&#x2F;Redis，启动报错</td>
+</tr>
+<tr>
+<td align="left">collab</td>
+<td align="left"><code>ZK_ADDR=127.0.0.1:2182</code> + <code>-Dserver.port=9013 -Dspring.cloud.nacos.discovery.port=9003</code></td>
+<td align="left">连不上 ZK &#x2F; 端口冲突起不来</td>
+</tr>
+<tr>
+<td align="left">file</td>
+<td align="left"><code>MINIO_PORT=9900 MINIO_AK/MINIO_SK</code></td>
+<td align="left">连不上 MinIO &#x2F; 上传报 Access Denied</td>
+</tr>
+<tr>
+<td align="left">全部</td>
+<td align="left"><code>-Dspring.cloud.nacos.discovery.ip=127.0.0.1</code></td>
+<td align="left">注册到错误网卡 IP，网关连不上</td>
+</tr>
+</tbody></table>
+</details>
+
+<h3 id="2-4-第-4-步：启动前端（Vue3-Vite）"><a href="#2-4-第-4-步：启动前端（Vue3-Vite）" class="headerlink" title="2.4 第 4 步：启动前端（Vue3 + Vite）"></a>2.4 第 4 步：启动前端（Vue3 + Vite）</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> zeus-doc-frontend-next</span><br><span class="line">npm ci        <span class="comment"># 首次或依赖变更后执行（约 1 分钟）</span></span><br><span class="line">npm run dev</span><br></pre></td></tr></table></figure>
+
+<p>浏览器打开 <strong><span class="exturl" data-url="aHR0cDovL2xvY2FsaG9zdDo4MDg4Lw==">http://localhost:8088<i class="fa fa-external-link-alt"></i></span></strong>，页面路由如下：</p>
+<table>
+<thead>
+<tr>
+<th align="left">路由</th>
+<th align="left">功能</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left"><code>/login</code></td>
+<td align="left">注册 &#x2F; 登录</td>
+</tr>
+<tr>
+<td align="left"><code>/home</code></td>
+<td align="left">文档列表（搜索、新建入口）</td>
+</tr>
+<tr>
+<td align="left"><code>/doc/new</code></td>
+<td align="left">新建文档</td>
+</tr>
+<tr>
+<td align="left"><code>/doc/:id</code></td>
+<td align="left">编辑器（自动保存草稿、协同编辑入口）</td>
+</tr>
+<tr>
+<td align="left"><code>/admin/monitor</code></td>
+<td align="left">监控面板（ECharts）</td>
+</tr>
+</tbody></table>
+<p>Vite 已配置把 <code>/api</code>、<code>/ws</code> 代理到网关 <code>localhost:9000</code>，前后端同源，无跨域问题。</p>
+<blockquote>
+<p>⚠️ 在 Apple Silicon 机器上，如果 <code>npm run dev</code> 报 <code>Cannot find module @rollup/rollup-darwin-arm64</code>，说明 <code>node_modules</code> 是在其它架构机器上安装的，执行 <code>rm -rf node_modules &amp;&amp; npm ci</code> 重装即可。</p>
+</blockquote>
+<h3 id="2-5-第-5-步：验证"><a href="#2-5-第-5-步：验证" class="headerlink" title="2.5 第 5 步：验证"></a>2.5 第 5 步：验证</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> &lt;项目根目录&gt;</span><br><span class="line"></span><br><span class="line"><span class="comment"># ① 基础链路（注册/登录/鉴权/创建文档/详情/WS 路由）—— 期望 9/9 PASS</span></span><br><span class="line">GATEWAY_URL=http://localhost:9000 ./deploy/verify/verify-chain.sh</span><br><span class="line"></span><br><span class="line"><span class="comment"># ② 主从复制 + 读写分离 —— 期望 9/9 PASS</span></span><br><span class="line">bash deploy/verify/verify-master-slave.sh</span><br><span class="line"></span><br><span class="line"><span class="comment"># ③ 基础设施链路（ES 搜索 / MinIO 分片上传 / RocketMQ / Sentinel）</span></span><br><span class="line"><span class="comment">#    期望 10 PASS + 1 FAIL（签名 URL，属当前版本已知限制，见 5.2）</span></span><br><span class="line">GATEWAY_URL=http://localhost:9000 bash deploy/verify/verify-infra.sh</span><br></pre></td></tr></table></figure>
+
+<p>手动冒烟（可选）：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 注册 + 登录，拿到 token 即表示网关、用户服务、MySQL、Redis 全链路正常</span></span><br><span class="line">curl -s -X POST http://localhost:9000/api/user/register -H <span class="string">&#x27;Content-Type: application/json&#x27;</span> \</span><br><span class="line">  -d <span class="string">&#x27;&#123;&quot;username&quot;:&quot;demo_user&quot;,&quot;password&quot;:&quot;demo123&quot;&#125;&#x27;</span></span><br><span class="line">curl -s -X POST http://localhost:9000/api/user/login -H <span class="string">&#x27;Content-Type: application/json&#x27;</span> \</span><br><span class="line">  -d <span class="string">&#x27;&#123;&quot;username&quot;:&quot;demo_user&quot;,&quot;password&quot;:&quot;demo123&quot;&#125;&#x27;</span></span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="三、启动后：怎么看状态、怎么看日志"><a href="#三、启动后：怎么看状态、怎么看日志" class="headerlink" title="三、启动后：怎么看状态、怎么看日志"></a>三、启动后：怎么看状态、怎么看日志</h2><h3 id="3-1-一键总览"><a href="#3-1-一键总览" class="headerlink" title="3.1 一键总览"></a>3.1 一键总览</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">bash deploy/scripts/start-full.sh status</span><br></pre></td></tr></table></figure>
+
+<p>输出包含：7 个微服务的进程与健康状态、17 个中间件容器的状态。</p>
+<h3 id="3-2-中间件状态"><a href="#3-2-中间件状态" class="headerlink" title="3.2 中间件状态"></a>3.2 中间件状态</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> deploy/docker</span><br><span class="line">docker compose ps                     <span class="comment"># 全部容器一览</span></span><br><span class="line">docker inspect -f <span class="string">&#x27;&#123;&#123;.State.Health.Status&#125;&#125;&#x27;</span> zeus-mysql   <span class="comment"># 单容器健康值：healthy / unhealthy / starting</span></span><br><span class="line">docker compose logs --<span class="built_in">tail</span>=50 mysql8  <span class="comment"># 看某服务最近 50 行日志（注意用&quot;服务名&quot;而非容器名）</span></span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p>⚠️ <code>docker compose logs</code> 的参数是 <strong>compose 服务名</strong>（如 <code>mysql8</code>），不是容器名（如 <code>zeus-mysql</code>）；写错会报 <code>no such service</code>。用 <code>docker logs zeus-mysql</code>（按容器名）也可以。</p>
+</blockquote>
+<p>容器名 ↔ compose 服务名对照：</p>
+<table>
+<thead>
+<tr>
+<th align="left">容器名</th>
+<th align="left">compose 服务名</th>
+<th align="left">容器名</th>
+<th align="left">compose 服务名</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">zeus-mysql</td>
+<td align="left">mysql8</td>
+<td align="left">zeus-rocketmq-namesrv</td>
+<td align="left">rocketmq-namesrv</td>
+</tr>
+<tr>
+<td align="left">zeus-mysql-slave</td>
+<td align="left">mysql-slave</td>
+<td align="left">zeus-rocketmq-broker</td>
+<td align="left">rocketmq-broker</td>
+</tr>
+<tr>
+<td align="left">zeus-redis</td>
+<td align="left">redis7</td>
+<td align="left">zeus-minio</td>
+<td align="left">minio</td>
+</tr>
+<tr>
+<td align="left">zeus-nacos</td>
+<td align="left">nacos2</td>
+<td align="left">zeus-seata</td>
+<td align="left">seata-server</td>
+</tr>
+<tr>
+<td align="left">zeus-es</td>
+<td align="left">elasticsearch8</td>
+<td align="left">zeus-sentinel</td>
+<td align="left">sentinel-dashboard</td>
+</tr>
+<tr>
+<td align="left">zeus-zookeeper</td>
+<td align="left">zookeeper</td>
+<td align="left">zeus-skywalking-oap</td>
+<td align="left">skywalking-oap</td>
+</tr>
+<tr>
+<td align="left">zeus-grafana</td>
+<td align="left">grafana</td>
+<td align="left">zeus-skywalking-ui</td>
+<td align="left">skywalking-ui</td>
+</tr>
+<tr>
+<td align="left">zeus-prometheus</td>
+<td align="left">prometheus</td>
+<td align="left">zeus-influxdb</td>
+<td align="left">influxdb</td>
+</tr>
+<tr>
+<td align="left">zeus-node-exporter</td>
+<td align="left">node-exporter</td>
+<td align="left"></td>
+<td align="left"></td>
+</tr>
+</tbody></table>
+<p>**怎么判断”unhealthy 但其实没坏”**：对 rocketmq-broker &#x2F; sentinel &#x2F; skywalking-oap，用功能验证代替健康检查——</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># RocketMQ：能列出 topic 就是好的</span></span><br><span class="line">docker <span class="built_in">exec</span> zeus-rocketmq-namesrv sh mqadmin topicList -n localhost:9876 | <span class="built_in">head</span> -5</span><br><span class="line"><span class="comment"># Sentinel：能返回 200 就是好的</span></span><br><span class="line">curl -s -o /dev/null -w <span class="string">&#x27;%&#123;http_code&#125;\n&#x27;</span> http://localhost:8858/</span><br><span class="line"><span class="comment"># SkyWalking OAP：GraphQL 端口有响应（405 属正常，说明服务在监听）就是好的</span></span><br><span class="line">curl -s -o /dev/null -w <span class="string">&#x27;%&#123;http_code&#125;\n&#x27;</span> http://localhost:12800/graphql</span><br></pre></td></tr></table></figure>
+
+<h3 id="3-3-微服务状态"><a href="#3-3-微服务状态" class="headerlink" title="3.3 微服务状态"></a>3.3 微服务状态</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 方式一：脚本（推荐）</span></span><br><span class="line">bash deploy/scripts/start-full.sh status</span><br><span class="line"></span><br><span class="line"><span class="comment"># 方式二：手工逐个探活（UP 为正常）</span></span><br><span class="line"><span class="keyword">for</span> p <span class="keyword">in</span> 9000 9001 9002 9004 9005 9006 9013; <span class="keyword">do</span></span><br><span class="line">  <span class="built_in">echo</span> -n <span class="string">&quot;<span class="variable">$p</span>: &quot;</span>; curl -s --max-time 2 http://127.0.0.1:<span class="variable">$p</span>/actuator/health | <span class="built_in">head</span> -c 60; <span class="built_in">echo</span></span><br><span class="line"><span class="keyword">done</span></span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p>📌 collab 服务占用两个端口：<strong>9003 是 Netty WebSocket 端口</strong>（不提供 HTTP 页面），<strong>9013 是 Tomcat&#x2F;actuator 端口</strong>。所以探活用 9013，协作连接用 9003。</p>
+</blockquote>
+<p>每个服务都暴露以下 actuator 端点（把 <code>&lt;port&gt;</code> 换成对应服务端口，collab 用 9013）：</p>
+<table>
+<thead>
+<tr>
+<th align="left">端点</th>
+<th align="left">用途</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left"><code>/actuator/health</code></td>
+<td align="left">健康检查（探针&#x2F;日常巡检用）</td>
+</tr>
+<tr>
+<td align="left"><code>/actuator/prometheus</code></td>
+<td align="left">Prometheus 指标</td>
+</tr>
+<tr>
+<td align="left"><code>/actuator/threaddump</code></td>
+<td align="left">线程栈（排查线程阻塞）</td>
+</tr>
+<tr>
+<td align="left"><code>/actuator/heapdump</code></td>
+<td align="left">下载堆快照（排查 OOM）</td>
+</tr>
+</tbody></table>
+<h3 id="3-4-在-Nacos-里看服务注册（⚠️-高频坑）"><a href="#3-4-在-Nacos-里看服务注册（⚠️-高频坑）" class="headerlink" title="3.4 在 Nacos 里看服务注册（⚠️ 高频坑）"></a>3.4 在 Nacos 里看服务注册（⚠️ 高频坑）</h3><p>打开 <span class="exturl" data-url="aHR0cDovL2xvY2FsaG9zdDo4ODQ4L25hY29z">http://localhost:8848/nacos<i class="fa fa-external-link-alt"></i></span> （账号 <code>nacos</code> &#x2F; <code>nacos</code>），**左上角命名空间从 <code>public</code> 切换到 <code>zeus-doc</code>**，再进「服务管理 → 服务列表」，应看到 7 个服务。</p>
+<blockquote>
+<p>⚠️ 所有服务注册在 <strong><code>zeus-doc</code> 命名空间</strong>而不是默认的 <code>public</code>——控制台默认显示 <code>public</code>，不切换会以为”服务没注册”。</p>
+</blockquote>
+<p>命令行等价查询：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">TOKEN=$(curl -s -X POST http://127.0.0.1:8848/nacos/v1/auth/login -d <span class="string">&#x27;username=nacos&amp;password=nacos&#x27;</span> \</span><br><span class="line">  | grep -oE <span class="string">&#x27;&quot;accessToken&quot;:&quot;[^&quot;]*&quot;&#x27;</span> | <span class="built_in">cut</span> -d<span class="string">&#x27;&quot;&#x27;</span> -f4)</span><br><span class="line">curl -s <span class="string">&quot;http://127.0.0.1:8848/nacos/v1/ns/service/list?pageNo=1&amp;pageSize=20&amp;namespaceId=zeus-doc&amp;accessToken=<span class="variable">$TOKEN</span>&quot;</span></span><br><span class="line"><span class="comment"># 期望：count=7，dom 列表包含 zeus-doc-gateway / service-user / service-doc / service-collab / service-search / service-file / service-audit</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="3-5-日志怎么看"><a href="#3-5-日志怎么看" class="headerlink" title="3.5 日志怎么看"></a>3.5 日志怎么看</h3><p><strong>微服务日志</strong>（在 <code>/tmp/zeus-doc-full/</code>，按服务名分文件）：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">ls</span> /tmp/zeus-doc-full/                 <span class="comment"># gateway.log / user.log / doc.log / collab.log / search.log / file.log / audit.log</span></span><br><span class="line"><span class="built_in">tail</span> -f /tmp/zeus-doc-full/doc.log     <span class="comment"># 实时跟踪</span></span><br><span class="line">grep -n <span class="string">&quot;ERROR&quot;</span> /tmp/zeus-doc-full/*.<span class="built_in">log</span>          <span class="comment"># 批量找错误</span></span><br><span class="line">grep -n <span class="string">&quot;&lt;traceId&gt;&quot;</span> /tmp/zeus-doc-full/*.<span class="built_in">log</span>      <span class="comment"># 用 traceId 串联一次请求的全链路日志</span></span><br></pre></td></tr></table></figure>
+
+<p>每条日志都带 <code>[traceId=...]</code>，可从接口响应头 <code>X-Trace-Id</code> 或响应体 <code>traceId</code> 字段拿到，再用它把所有服务的日志串起来。</p>
+<p><strong>容器日志</strong>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> deploy/docker</span><br><span class="line">docker compose logs -f nacos2            <span class="comment"># -f 实时跟踪；Ctrl+C 退出</span></span><br><span class="line">docker logs --<span class="built_in">tail</span> 100 zeus-mysql        <span class="comment"># 直接按容器名看</span></span><br><span class="line">docker logs zeus-mysql-slave 2&gt;&amp;1 | grep -i error   <span class="comment"># 找从库报错</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="3-6-管理控制台一览（账号密码速查）"><a href="#3-6-管理控制台一览（账号密码速查）" class="headerlink" title="3.6 管理控制台一览（账号密码速查）"></a>3.6 管理控制台一览（账号密码速查）</h3><table>
+<thead>
+<tr>
+<th align="left">组件</th>
+<th align="left">地址</th>
+<th align="left">账号 &#x2F; 密码</th>
+<th align="left">看什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">Nacos</td>
+<td align="left"><span class="exturl" data-url="aHR0cDovL2xvY2FsaG9zdDo4ODQ4L25hY29z">http://localhost:8848/nacos<i class="fa fa-external-link-alt"></i></span></td>
+<td align="left">nacos &#x2F; nacos</td>
+<td align="left">服务注册（切 <code>zeus-doc</code> 命名空间）、配置</td>
+</tr>
+<tr>
+<td align="left">MinIO Console</td>
+<td align="left"><span class="exturl" data-url="aHR0cDovL2xvY2FsaG9zdDo5OTAxLw==">http://localhost:9901<i class="fa fa-external-link-alt"></i></span></td>
+<td align="left">zeus &#x2F; zeus@minio2024</td>
+<td align="left">文件桶与对象（<code>zeus-doc</code>、<code>zeus-doc-chunks</code>）</td>
+</tr>
+<tr>
+<td align="left">Sentinel</td>
+<td align="left"><span class="exturl" data-url="aHR0cDovL2xvY2FsaG9zdDo4ODU4Lw==">http://localhost:8858<i class="fa fa-external-link-alt"></i></span></td>
+<td align="left">sentinel &#x2F; sentinel</td>
+<td align="left">流控&#x2F;熔断规则</td>
+</tr>
+<tr>
+<td align="left">SkyWalking UI</td>
+<td align="left"><span class="exturl" data-url="aHR0cDovL2xvY2FsaG9zdDo4MDgwLw==">http://localhost:8080<i class="fa fa-external-link-alt"></i></span></td>
+<td align="left">无</td>
+<td align="left">链路追踪（需 agent 上报后有数据）</td>
+</tr>
+<tr>
+<td align="left">Grafana</td>
+<td align="left"><span class="exturl" data-url="aHR0cDovL2xvY2FsaG9zdDozMDAwLw==">http://localhost:3000<i class="fa fa-external-link-alt"></i></span></td>
+<td align="left">admin &#x2F; zeus@2024</td>
+<td align="left">压测监控面板</td>
+</tr>
+<tr>
+<td align="left">Prometheus</td>
+<td align="left"><span class="exturl" data-url="aHR0cDovL2xvY2FsaG9zdDo5MDkwL3RhcmdldHM=">http://localhost:9090/targets<i class="fa fa-external-link-alt"></i></span></td>
+<td align="left">无</td>
+<td align="left">采集目标是否 UP</td>
+</tr>
+<tr>
+<td align="left">Seata 控制台</td>
+<td align="left"><span class="exturl" data-url="aHR0cDovL2xvY2FsaG9zdDo3MDkxLw==">http://localhost:7091<i class="fa fa-external-link-alt"></i></span></td>
+<td align="left">seata &#x2F; seata</td>
+<td align="left">分布式事务会话</td>
+</tr>
+<tr>
+<td align="left">Elasticsearch API</td>
+<td align="left"><span class="exturl" data-url="aHR0cDovL2xvY2FsaG9zdDo5MjAwLw==">http://localhost:9200<i class="fa fa-external-link-alt"></i></span></td>
+<td align="left">无</td>
+<td align="left">索引与检索（无 Web UI）</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="四、启动后：怎么看中间件里的数据"><a href="#四、启动后：怎么看中间件里的数据" class="headerlink" title="四、启动后：怎么看中间件里的数据"></a>四、启动后：怎么看中间件里的数据</h2><h3 id="4-1-MySQL（主库-3306-从库-3307）"><a href="#4-1-MySQL（主库-3306-从库-3307）" class="headerlink" title="4.1 MySQL（主库 3306 &#x2F; 从库 3307）"></a>4.1 MySQL（主库 3306 &#x2F; 从库 3307）</h3><p>进命令行（退出用 <code>exit</code>）：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> -it zeus-mysql mysql -uroot -pzeus@2024</span><br></pre></td></tr></table></figure>
+
+<p>常用查询：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">SHOW</span> DATABASES;                                 <span class="comment">-- 应看到 11 个业务库（见下表）</span></span><br><span class="line">USE zeus_doc;  <span class="keyword">SHOW</span> TABLES;                     <span class="comment">-- doc / folder / share_link / undo_log</span></span><br><span class="line"><span class="keyword">SELECT</span> id, title, user_id <span class="keyword">FROM</span> doc LIMIT <span class="number">5</span>;     <span class="comment">-- 最近创建的文档</span></span><br><span class="line"><span class="keyword">SELECT</span> <span class="built_in">COUNT</span>(<span class="operator">*</span>) <span class="keyword">FROM</span> zeus_doc_history_0.doc_history_202610;   <span class="comment">-- 某月版本历史（分月表）</span></span><br><span class="line"><span class="keyword">SELECT</span> id, username <span class="keyword">FROM</span> zeus_user.sys_user <span class="keyword">ORDER</span> <span class="keyword">BY</span> id <span class="keyword">DESC</span> LIMIT <span class="number">5</span>;  <span class="comment">-- 最新注册用户</span></span><br><span class="line"><span class="keyword">SELECT</span> <span class="built_in">COUNT</span>(<span class="operator">*</span>) <span class="keyword">FROM</span> zeus_file.file;            <span class="comment">-- 上传的文件数</span></span><br><span class="line"><span class="keyword">SELECT</span> <span class="built_in">COUNT</span>(<span class="operator">*</span>) <span class="keyword">FROM</span> zeus_audit_0.doc_audit_202610;           <span class="comment">-- 审计日志</span></span><br><span class="line"><span class="keyword">SELECT</span> <span class="built_in">COUNT</span>(<span class="operator">*</span>) <span class="keyword">FROM</span> zeus_doc.undo_log;         <span class="comment">-- Seata TCC 事务日志</span></span><br></pre></td></tr></table></figure>
+
+<p>11 个业务库的用途：</p>
+<table>
+<thead>
+<tr>
+<th align="left">库</th>
+<th align="left">用途</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left"><code>zeus_user</code></td>
+<td align="left">用户 &#x2F; 角色 &#x2F; 权限（RBAC 五张表）</td>
+</tr>
+<tr>
+<td align="left"><code>zeus_doc</code></td>
+<td align="left">文档主表、文件夹、分享链接、Seata undo_log</td>
+</tr>
+<tr>
+<td align="left"><code>zeus_doc_history_0~3</code></td>
+<td align="left">文档版本历史（按「库 + 月」分片，表名如 <code>doc_history_202610</code>）</td>
+</tr>
+<tr>
+<td align="left"><code>zeus_file</code></td>
+<td align="left">文件元数据（<code>file</code>）与分片记录（<code>file_chunk</code>）</td>
+</tr>
+<tr>
+<td align="left"><code>zeus_audit_0~3</code></td>
+<td align="left">审计日志（按月分表）与回收站（<code>recycle_bin</code>）</td>
+</tr>
+</tbody></table>
+<p><strong>看主从复制是否正常</strong>（从库）：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> zeus-mysql-slave mysql -uroot -pzeus@2024 -e <span class="string">&quot;SHOW REPLICA STATUS\G&quot;</span> \</span><br><span class="line">  | grep -E <span class="string">&#x27;Replica_IO_Running|Replica_SQL_Running|Seconds_Behind_Source&#x27;</span></span><br><span class="line"><span class="comment"># 三个值分别为 Yes / Yes / 0 即健康</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>实测一把读写分离</strong>（可选）：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> zeus-mysql mysql -uroot -pzeus@2024 -e <span class="string">&quot;CREATE TABLE IF NOT EXISTS zeus_file.replica_demo(id INT PRIMARY KEY);&quot;</span></span><br><span class="line"><span class="built_in">sleep</span> 1</span><br><span class="line">docker <span class="built_in">exec</span> zeus-mysql-slave mysql -uroot -pzeus@2024 -e <span class="string">&quot;SELECT COUNT(*) FROM zeus_file.replica_demo;&quot;</span>  <span class="comment"># 从库能查到</span></span><br><span class="line">docker <span class="built_in">exec</span> zeus-mysql mysql -uroot -pzeus@2024 -e <span class="string">&quot;DROP TABLE zeus_file.replica_demo;&quot;</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="4-2-Redis（6379，密码-zeus-redis）"><a href="#4-2-Redis（6379，密码-zeus-redis）" class="headerlink" title="4.2 Redis（6379，密码 zeus@redis）"></a>4.2 Redis（6379，密码 zeus@redis）</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> -it zeus-redis redis-cli -a <span class="string">&#x27;zeus@redis&#x27;</span> --no-auth-warning</span><br></pre></td></tr></table></figure>
+
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">DBSIZE                    -- key 总数</span><br><span class="line">KEYS &#x27;zeus:*&#x27;             -- 本地调试用；生产环境用 SCAN 游标遍历</span><br><span class="line">TYPE zeus:doc:draft:364303865497128960:364297514574286848   -- 看某个草稿的类型</span><br><span class="line">TTL  zeus:user:blacklist:eyJhbG...                          -- 登出黑名单的剩余有效期</span><br></pre></td></tr></table></figure>
+
+<p>业务 key 的含义：</p>
+<table>
+<thead>
+<tr>
+<th align="left">key 模式</th>
+<th align="left">含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left"><code>zeus:doc:draft:&#123;userId&#125;:&#123;docId&#125;</code></td>
+<td align="left">编辑器草稿（自动保存）</td>
+</tr>
+<tr>
+<td align="left"><code>zeus:doc:mq:msgid:&#123;...&#125;</code></td>
+<td align="left">MQ 消息幂等标记（消费去重）</td>
+</tr>
+<tr>
+<td align="left"><code>zeus:user:blacklist:&#123;token&#125;</code></td>
+<td align="left">登出后的 JWT 黑名单（TTL 到 token 过期）</td>
+</tr>
+</tbody></table>
+<h3 id="4-3-RocketMQ（NameServer-9876）"><a href="#4-3-RocketMQ（NameServer-9876）" class="headerlink" title="4.3 RocketMQ（NameServer 9876）"></a>4.3 RocketMQ（NameServer 9876）</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># ① Topic 列表（在 namesrv 容器执行）</span></span><br><span class="line">docker <span class="built_in">exec</span> zeus-rocketmq-namesrv sh mqadmin topicList -n localhost:9876</span><br><span class="line"><span class="comment"># 业务 topic 应包含：zeus-doc-sync（文档索引同步）、zeus-audit-topic（审计）</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># ② 消费积压（最重要：Diff Total 为 0 表示消费者跟得上）</span></span><br><span class="line">docker <span class="built_in">exec</span> zeus-rocketmq-broker sh mqadmin consumerProgress -n zeus-rocketmq-namesrv:9876</span><br><span class="line"><span class="comment"># 应看到 zeus-doc-sync-consumer / zeus-audit-consumer-group，Diff Total 均为 0</span></span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p>⚠️ <code>clusterList</code> 命令会报 <code>connect to 127.0.0.1:10911 failed</code>：broker 把自己注册为 127.0.0.1，容器之间互相连不上，属已知配置现象，<strong>不代表 broker 有问题</strong>——宿主上的微服务（走端口映射）收发消息完全正常，用上面的 <code>consumerProgress</code> 验证即可。</p>
+</blockquote>
+<h3 id="4-4-Elasticsearch（9200，IK-中文分词）"><a href="#4-4-Elasticsearch（9200，IK-中文分词）" class="headerlink" title="4.4 Elasticsearch（9200，IK 中文分词）"></a>4.4 Elasticsearch（9200，IK 中文分词）</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># ① 索引列表：业务索引是 doc_index（sw_* 开头的是 SkyWalking 的追踪索引，不用管）</span></span><br><span class="line">curl -s <span class="string">&#x27;http://localhost:9200/_cat/indices?v&#x27;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># ② 看索引里的文档（保存文档后 3-5 秒再查，等 MQ 异步同步）</span></span><br><span class="line">curl -s <span class="string">&#x27;http://localhost:9200/doc_index/_search?pretty&amp;size=3&#x27;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># ③ 验证 IK 分词器（中文检索能用的前提）</span></span><br><span class="line">curl -s -X POST http://localhost:9200/_analyze -H <span class="string">&#x27;Content-Type: application/json&#x27;</span> \</span><br><span class="line">  -d <span class="string">&#x27;&#123;&quot;analyzer&quot;:&quot;ik_smart&quot;,&quot;text&quot;:&quot;企业级知识库文档中台&quot;&#125;&#x27;</span></span><br><span class="line"><span class="comment"># 期望返回分词结果（企业级 / 知识库 / 文档 / 中 / 台）</span></span><br></pre></td></tr></table></figure>
+
+<p>ES 里的数据是<strong>异步</strong>写入的：文档保存 → 发 MQ → doc 服务消费 → Feign 调 search 服务 → 写 ES。所以刚保存的文档要等 3-5 秒才能搜到；如果一直搜不到，先看 4.3 的消费积压。</p>
+<h3 id="4-5-MinIO（文件存储）"><a href="#4-5-MinIO（文件存储）" class="headerlink" title="4.5 MinIO（文件存储）"></a>4.5 MinIO（文件存储）</h3><ul>
+<li><strong>浏览器方式（推荐）</strong>：打开 <span class="exturl" data-url="aHR0cDovL2xvY2FsaG9zdDo5OTAxLw==">http://localhost:9901<i class="fa fa-external-link-alt"></i></span> ，账号 <code>zeus</code> &#x2F; <code>zeus@minio2024</code>，在 Buckets 里能看到：<ul>
+<li><code>zeus-doc</code>：合并后的正式文件；</li>
+<li><code>zeus-doc-chunks</code>：分片上传的临时分片。</li>
+</ul>
+</li>
+<li><strong>命令行方式</strong>：</li>
+</ul>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> zeus-minio sh -c <span class="string">&quot;du -sh /data/zeus-doc /data/zeus-doc-chunks&quot;</span>   <span class="comment"># 桶占用大小</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="4-6-其它中间件数据速查"><a href="#4-6-其它中间件数据速查" class="headerlink" title="4.6 其它中间件数据速查"></a>4.6 其它中间件数据速查</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># ZooKeeper：collab 的 Leader 选举节点（2182 是宿主端口）</span></span><br><span class="line">docker <span class="built_in">exec</span> zeus-zookeeper sh -c <span class="string">&quot;zkCli.sh -server localhost:2181 ls /zeus-doc&quot;</span></span><br><span class="line"><span class="comment"># 期望输出 [collab]</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># Nacos：实例级查询（把 zeus-doc-gateway 换成任意服务名）</span></span><br><span class="line">TOKEN=$(curl -s -X POST http://127.0.0.1:8848/nacos/v1/auth/login -d <span class="string">&#x27;username=nacos&amp;password=nacos&#x27;</span> \</span><br><span class="line">  | grep -oE <span class="string">&#x27;&quot;accessToken&quot;:&quot;[^&quot;]*&quot;&#x27;</span> | <span class="built_in">cut</span> -d<span class="string">&#x27;&quot;&#x27;</span> -f4)</span><br><span class="line">curl -s <span class="string">&quot;http://127.0.0.1:8848/nacos/v1/ns/instance/list?serviceName=zeus-doc-gateway&amp;namespaceId=zeus-doc&amp;accessToken=<span class="variable">$TOKEN</span>&quot;</span></span><br><span class="line"><span class="comment"># 期望 hosts 里有 127.0.0.1:9000 且 healthy=true</span></span><br></pre></td></tr></table></figure>
+
+<p>其余中间件没有”表数据”的概念，直接在控制台看运行态即可：Sentinel 8858（规则）、SkyWalking 8080（调用链）、Prometheus 9090（指标）、Grafana 3000（面板）、Seata 7091（事务会话）。</p>
+<hr>
+<h2 id="五、常见问题（小白高频）"><a href="#五、常见问题（小白高频）" class="headerlink" title="五、常见问题（小白高频）"></a>五、常见问题（小白高频）</h2><h3 id="5-1-启动类问题"><a href="#5-1-启动类问题" class="headerlink" title="5.1 启动类问题"></a>5.1 启动类问题</h3><table>
+<thead>
+<tr>
+<th align="left">现象</th>
+<th align="left">原因 &#x2F; 解决</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left"><code>Cannot connect to the Docker daemon</code></td>
+<td align="left">Docker Desktop 没启动，打开它再执行</td>
+</tr>
+<tr>
+<td align="left"><code>docker compose up -d</code> 报 <code>network ... not found</code></td>
+<td align="left">Docker 网络重建竞态，<strong>再执行一次</strong>；仍失败 <code>docker compose up -d --force-recreate &lt;报错容器&gt;</code></td>
+</tr>
+<tr>
+<td align="left">端口被占用（<code>Address already in use</code> &#x2F; <code>lsof -i :9000</code>）</td>
+<td align="left">有旧进程在跑：先 <code>bash deploy/scripts/start-full.sh stop</code>，确认 <code>docker compose ps</code> 为空再启动</td>
+</tr>
+<tr>
+<td align="left">首次启动卡在 MySQL 很久</td>
+<td align="left">正常，initdb 需要 3-5 分钟，<code>docker compose logs -f mysql8</code> 可看进度</td>
+</tr>
+<tr>
+<td align="left">微服务启动报连不上 Nacos</td>
+<td align="left">中间件未就绪，等 <code>nacos</code> 容器 healthy 再执行第 3 步</td>
+</tr>
+<tr>
+<td align="left"><code>无效的目标发行版: 17</code></td>
+<td align="left">系统 java 不是 17：检查 <code>JAVA_HOME</code>（启动脚本会自动找 Homebrew 的 JDK 17）</td>
+</tr>
+<tr>
+<td align="left">内存不足 &#x2F; 容器反复重启</td>
+<td align="left">Docker Desktop → Settings → Resources 把内存调到 8GB+；关闭其它大内存程序</td>
+</tr>
+</tbody></table>
+<h3 id="5-2-已知限制（当前版本，暂未修复）"><a href="#5-2-已知限制（当前版本，暂未修复）" class="headerlink" title="5.2 已知限制（当前版本，暂未修复）"></a>5.2 已知限制（当前版本，暂未修复）</h3><table>
+<thead>
+<tr>
+<th align="left">限制</th>
+<th align="left">现象</th>
+<th align="left">原因</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left"><strong>协同编辑经网关不可用</strong></td>
+<td align="left">编辑器页面的实时协同连接失败（401）</td>
+<td align="left">网关 <code>AuthGlobalFilter</code> 只从 <code>Authorization</code> 头取 token，而浏览器 WebSocket 只能把 token 放在 <code>?token=</code> 查询参数；且 collab 的 Netty 只处理精确路径 <code>/ws</code>，前端用的是 <code>/ws/&#123;docId&#125;</code>（直连 <code>ws://localhost:9003/ws</code> 可握手成功，说明 Netty 本身正常）。文档编辑、保存、版本历史等非协同功能不受影响</td>
+</tr>
+<tr>
+<td align="left"><strong>文件签名 URL 返回 403</strong></td>
+<td align="left">调 <code>/api/file/url/&#123;fileId&#125;</code> 提示”无权限访问该文件”</td>
+<td align="left">RBAC 权限种子里没有 <code>file:download</code> 权限，且新注册用户不分配默认角色。分片上传、秒传、合并（<code>verify-infra.sh</code> ② 的前几项）均正常</td>
+</tr>
+<tr>
+<td align="left">从库复制在重建容器后中断</td>
+<td align="left"><code>SHOW REPLICA STATUS</code> 两个 Running 为 No</td>
+<td align="left">relay log 以容器 hostname 命名，容器重建后无法恢复。修复见 5.3</td>
+</tr>
+<tr>
+<td align="left">三个容器长期 unhealthy</td>
+<td align="left">rocketmq-broker &#x2F; sentinel &#x2F; skywalking-oap</td>
+<td align="left">healthcheck 命令在镜像里不存在；功能正常，验证方法见 3.2</td>
+</tr>
+</tbody></table>
+<h3 id="5-3-从库复制断了怎么修"><a href="#5-3-从库复制断了怎么修" class="headerlink" title="5.3 从库复制断了怎么修"></a>5.3 从库复制断了怎么修</h3><p>适用场景：<code>docker compose up -d --force-recreate mysql-slave</code> 重建过从库、或从库日志出现 <code>Failed to create or recover replication info repositories</code>。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> -i zeus-mysql-slave mysql -uroot -pzeus@2024 &lt;&lt;<span class="string">&#x27;SQL&#x27;</span></span><br><span class="line">RESET REPLICA ALL;</span><br><span class="line">CHANGE REPLICATION SOURCE TO</span><br><span class="line">  SOURCE_HOST = <span class="string">&#x27;zeus-mysql&#x27;</span>,</span><br><span class="line">  SOURCE_PORT = 3306,</span><br><span class="line">  SOURCE_USER = <span class="string">&#x27;repl&#x27;</span>,</span><br><span class="line">  SOURCE_PASSWORD = <span class="string">&#x27;repl@2024&#x27;</span>,</span><br><span class="line">  SOURCE_AUTO_POSITION = 1;</span><br><span class="line">START REPLICA;</span><br><span class="line">SQL</span><br><span class="line"></span><br><span class="line"><span class="comment"># 等待 3 秒后验证：两个 Running 均为 Yes、延迟 0</span></span><br><span class="line">docker <span class="built_in">exec</span> zeus-mysql-slave mysql -uroot -pzeus@2024 -e <span class="string">&quot;SHOW REPLICA STATUS\G&quot;</span> \</span><br><span class="line">  | grep -E <span class="string">&#x27;Replica_IO_Running|Replica_SQL_Running|Seconds_Behind_Source&#x27;</span></span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p>根治办法（需改 compose 后重建从库）：给 <code>mysql-slave</code> 的 command 增加 <code>--relay-log=zeus-slave-relay-bin</code>，relay log 名不再随 hostname 变化。</p>
+</blockquote>
+<h3 id="5-4-停止与重启"><a href="#5-4-停止与重启" class="headerlink" title="5.4 停止与重启"></a>5.4 停止与重启</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">bash deploy/scripts/start-full.sh stop     <span class="comment"># 停微服务 + 停容器（数据卷保留）</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 只想停中间件容器（保留数据卷）：</span></span><br><span class="line"><span class="built_in">cd</span> deploy/docker &amp;&amp; docker compose down</span><br><span class="line"></span><br><span class="line"><span class="comment"># 慎用：连带删除数据卷（数据全丢，下次启动重新初始化）</span></span><br><span class="line">docker compose down -v</span><br></pre></td></tr></table></figure>
+
+<p>数据卷保留时，重新启动后用户、文档、文件数据都还在。</p>
+<hr>
+<h2 id="六、进阶：K8s-部署与生产实践"><a href="#六、进阶：K8s-部署与生产实践" class="headerlink" title="六、进阶：K8s 部署与生产实践"></a>六、进阶：K8s 部署与生产实践</h2><blockquote>
+<p>以下为生产向内容，本地跑通后再看。</p>
+</blockquote>
+<h3 id="6-1-K8s-部署文件清单（deploy-k8s-）"><a href="#6-1-K8s-部署文件清单（deploy-k8s-）" class="headerlink" title="6.1 K8s 部署文件清单（deploy&#x2F;k8s&#x2F;）"></a>6.1 K8s 部署文件清单（deploy&#x2F;k8s&#x2F;）</h3><table>
+<thead>
+<tr>
+<th align="left">文件</th>
+<th align="left">资源</th>
+<th align="left">作用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">namespace.yaml</td>
+<td align="left">Namespace</td>
+<td align="left">资源隔离 zeus-doc</td>
+</tr>
+<tr>
+<td align="left">configmap.yaml</td>
+<td align="left">ConfigMap + Secret</td>
+<td align="left">公共环境变量与密钥</td>
+</tr>
+<tr>
+<td align="left">statefulset.yaml</td>
+<td align="left">StatefulSet</td>
+<td align="left">collab 有状态服务（3 副本）</td>
+</tr>
+<tr>
+<td align="left">deployment.yaml</td>
+<td align="left">Deployment ×6</td>
+<td align="left">无状态服务（doc 3 副本，其余 2）</td>
+</tr>
+<tr>
+<td align="left">service.yaml</td>
+<td align="left">Service ×8</td>
+<td align="left">服务发现与流量入口</td>
+</tr>
+<tr>
+<td align="left">hpa.yaml</td>
+<td align="left">HPA</td>
+<td align="left">CPU&gt;70% 自动伸缩</td>
+</tr>
+<tr>
+<td align="left">ingress.yaml</td>
+<td align="left">Ingress</td>
+<td align="left">外部流量路由</td>
+</tr>
+</tbody></table>
+<h3 id="6-2-kubectl-apply-顺序"><a href="#6-2-kubectl-apply-顺序" class="headerlink" title="6.2 kubectl apply 顺序"></a>6.2 kubectl apply 顺序</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> deploy/k8s</span><br><span class="line"></span><br><span class="line"><span class="comment"># 1. 命名空间（最先，所有资源依赖它）</span></span><br><span class="line">kubectl apply -f namespace.yaml</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 配置与密钥（Deployment 引用 ConfigMap/Secret）</span></span><br><span class="line">kubectl apply -f configmap.yaml</span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 有状态服务 collab（StatefulSet 依赖 Headless Service，service.yaml 含）</span></span><br><span class="line">kubectl apply -f service.yaml</span><br><span class="line">kubectl apply -f statefulset.yaml</span><br><span class="line"></span><br><span class="line"><span class="comment"># 4. 无状态服务 Deployment（6 个，依赖 ConfigMap）</span></span><br><span class="line">kubectl apply -f deployment.yaml</span><br><span class="line"></span><br><span class="line"><span class="comment"># 5. 自动伸缩（依赖 Deployment）</span></span><br><span class="line">kubectl apply -f hpa.yaml</span><br><span class="line"></span><br><span class="line"><span class="comment"># 6. 外部入口（最后，依赖 Service）</span></span><br><span class="line">kubectl apply -f ingress.yaml</span><br></pre></td></tr></table></figure>
+
+<p><strong>顺序原则</strong>：Namespace → ConfigMap&#x2F;Secret → Service → StatefulSet&#x2F;Deployment → HPA → Ingress。Service 先于工作负载，确保 Headless Service 就绪供 StatefulSet 解析 Pod DNS。</p>
+<h3 id="6-3-副本数规划（deployment-yaml）"><a href="#6-3-副本数规划（deployment-yaml）" class="headerlink" title="6.3 副本数规划（deployment.yaml）"></a>6.3 副本数规划（deployment.yaml）</h3><table>
+<thead>
+<tr>
+<th align="left">服务</th>
+<th align="left">副本</th>
+<th align="left">端口</th>
+<th align="left">说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">gateway</td>
+<td align="left">2</td>
+<td align="left">9000</td>
+<td align="left">网关，NodePort 30000 对外</td>
+</tr>
+<tr>
+<td align="left">user</td>
+<td align="left">2</td>
+<td align="left">8001</td>
+<td align="left">鉴权</td>
+</tr>
+<tr>
+<td align="left">doc</td>
+<td align="left">3</td>
+<td align="left">8002</td>
+<td align="left">核心服务副本最多</td>
+</tr>
+<tr>
+<td align="left">collab</td>
+<td align="left">3 (StatefulSet)</td>
+<td align="left">8003</td>
+<td align="left">有状态，稳定网络标识</td>
+</tr>
+<tr>
+<td align="left">search</td>
+<td align="left">2</td>
+<td align="left">8004</td>
+<td align="left">ES 检索</td>
+</tr>
+<tr>
+<td align="left">file</td>
+<td align="left">2</td>
+<td align="left">8005</td>
+<td align="left">MinIO</td>
+</tr>
+<tr>
+<td align="left">audit</td>
+<td align="left">2</td>
+<td align="left">8006</td>
+<td align="left">审计</td>
+</tr>
+</tbody></table>
+<blockquote>
+<p>⚠️ K8s 集群内端口与本地 JVM 端口不同，勿混用：本地一律 900x（collab 另有 9013），集群内除 gateway（9000）外均为 80xx。</p>
+</blockquote>
+<h3 id="6-4-资源限制与探针（deployment-yaml）"><a href="#6-4-资源限制与探针（deployment-yaml）" class="headerlink" title="6.4 资源限制与探针（deployment.yaml）"></a>6.4 资源限制与探针（deployment.yaml）</h3><figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">resources:</span></span><br><span class="line">  <span class="attr">requests:</span> &#123; <span class="attr">cpu:</span> <span class="string">250m</span>, <span class="attr">memory:</span> <span class="string">512Mi</span> &#125;</span><br><span class="line">  <span class="attr">limits:</span>   &#123; <span class="attr">cpu:</span> <span class="string">1000m</span>, <span class="attr">memory:</span> <span class="string">2Gi</span> &#125;</span><br><span class="line"><span class="attr">readinessProbe:</span>               <span class="comment"># 就绪探针，通过后接流量</span></span><br><span class="line">  <span class="attr">httpGet:</span> &#123; <span class="attr">path:</span> <span class="string">/actuator/health</span>, <span class="attr">port:</span> <span class="number">8002</span> &#125;</span><br><span class="line">  <span class="attr">initialDelaySeconds:</span> <span class="number">60</span>      <span class="comment"># 等 Spring Boot 启动</span></span><br><span class="line">  <span class="attr">periodSeconds:</span> <span class="number">10</span></span><br><span class="line"><span class="attr">livenessProbe:</span>                <span class="comment"># 存活探针，失败重启</span></span><br><span class="line">  <span class="attr">httpGet:</span> &#123; <span class="attr">path:</span> <span class="string">/actuator/health</span>, <span class="attr">port:</span> <span class="number">8002</span> &#125;</span><br><span class="line">  <span class="attr">initialDelaySeconds:</span> <span class="number">90</span>      <span class="comment"># 启动稳定后再检测</span></span><br><span class="line">  <span class="attr">periodSeconds:</span> <span class="number">20</span></span><br></pre></td></tr></table></figure>
+
+<p>就绪探针 initialDelay 60s &lt; 存活探针 90s，避免启动慢被误杀。</p>
+<h3 id="6-5-SkyWalking-Agent-注入（deployment-yaml）"><a href="#6-5-SkyWalking-Agent-注入（deployment-yaml）" class="headerlink" title="6.5 SkyWalking Agent 注入（deployment.yaml）"></a>6.5 SkyWalking Agent 注入（deployment.yaml）</h3><p>通过 initContainer 拷贝 agent 到共享卷，主容器挂载：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">initContainers:</span></span><br><span class="line">  <span class="bullet">-</span> <span class="attr">name:</span> <span class="string">skywalking-agent</span></span><br><span class="line">    <span class="attr">image:</span> <span class="string">apache/skywalking-java-agent:9.5.0-java17</span></span><br><span class="line">    <span class="attr">command:</span> [<span class="string">&quot;sh&quot;</span>, <span class="string">&quot;-c&quot;</span>, <span class="string">&quot;cp -r /skywalking/agent /opt/skywalking-agent&quot;</span>]</span><br></pre></td></tr></table></figure>
+
+<p>JAVA_OPTS 含 <code>-javaagent:/opt/skywalking-agent/skywalking-agent.jar</code>，实现无侵入链路追踪。</p>
+<h3 id="6-6-collab-为何用-StatefulSet（statefulset-yaml-注释）"><a href="#6-6-collab-为何用-StatefulSet（statefulset-yaml-注释）" class="headerlink" title="6.6 collab 为何用 StatefulSet（statefulset.yaml 注释）"></a>6.6 collab 为何用 StatefulSet（statefulset.yaml 注释）</h3><p>协同服务 Netty WebSocket 维持有状态长连接，会话（光标、在线用户、OT 操作序列）存 Pod 本地内存。StatefulSet 提供：</p>
+<ol>
+<li><strong>稳定网络标识</strong>：Pod 名 collab-0&#x2F;1&#x2F;2，DNS 可解析，客户端重连路由到同一 Pod 恢复会话；</li>
+<li><strong>稳定持久存储</strong>：每 Pod 独立 PVC，会话快照不丢；</li>
+<li><strong>有序启停</strong>：启动 0→1→2，停止 2→1→0，避免同时重启致全部会话中断。</li>
+</ol>
+<p>Gateway 通过一致性哈希按 docId 路由到固定 collab Pod。</p>
+<h3 id="6-7-HPA-自动伸缩（hpa-yaml）"><a href="#6-7-HPA-自动伸缩（hpa-yaml）" class="headerlink" title="6.7 HPA 自动伸缩（hpa.yaml）"></a>6.7 HPA 自动伸缩（hpa.yaml）</h3><figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 文档服务：CPU&gt;70% 自动扩容 min=3 max=10</span></span><br><span class="line"><span class="attr">spec:</span></span><br><span class="line">  <span class="attr">scaleTargetRef:</span> &#123; <span class="attr">apiVersion:</span> <span class="string">apps/v1</span>, <span class="attr">kind:</span> <span class="string">Deployment</span>, <span class="attr">name:</span> <span class="string">zeus-doc-service-doc</span> &#125;</span><br><span class="line">  <span class="attr">minReplicas:</span> <span class="number">3</span></span><br><span class="line">  <span class="attr">maxReplicas:</span> <span class="number">10</span></span><br><span class="line">  <span class="attr">metrics:</span></span><br><span class="line">    <span class="bullet">-</span> <span class="attr">type:</span> <span class="string">Resource</span></span><br><span class="line">      <span class="attr">resource:</span> &#123; <span class="attr">name:</span> <span class="string">cpu</span>, <span class="attr">target:</span> &#123; <span class="attr">type:</span> <span class="string">Utilization</span>, <span class="attr">averageUtilization:</span> <span class="number">70</span> &#125; &#125;</span><br></pre></td></tr></table></figure>
+
+<p>伸缩公式：<code>目标副本 = ceil(当前副本 × 当前CPU% / 目标CPU%)</code>。前置条件：安装 Metrics Server。</p>
+<h3 id="6-8-Nginx-配置说明（WebSocket-反代）"><a href="#6-8-Nginx-配置说明（WebSocket-反代）" class="headerlink" title="6.8 Nginx 配置说明（WebSocket 反代）"></a>6.8 Nginx 配置说明（WebSocket 反代）</h3><p>配置文件 <code>deploy/nginx/nginx.conf</code>，重点在 WebSocket 反向代理。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">docker run -d -p 80:80 \</span><br><span class="line">  -v &lt;项目根目录&gt;/deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro \</span><br><span class="line">  -v &lt;项目根目录&gt;/zeus-doc-frontend-next/dist:/usr/share/nginx/html:ro \</span><br><span class="line">  --name zeus-nginx --network zeus-doc-net nginx:1.25</span><br></pre></td></tr></table></figure>
+
+<p>WebSocket 反代核心：</p>
+<figure class="highlight nginx"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="section">location</span> /ws/ &#123;</span><br><span class="line">    <span class="attribute">proxy_pass</span> http://collab_backend;</span><br><span class="line">    <span class="attribute">proxy_http_version</span> <span class="number">1</span>.<span class="number">1</span>;                 <span class="comment"># 必须 HTTP/1.1 支持 Upgrade</span></span><br><span class="line">    <span class="attribute">proxy_set_header</span> Upgrade <span class="variable">$http_upgrade</span>; <span class="comment"># 透传升级头</span></span><br><span class="line">    <span class="attribute">proxy_set_header</span> Connection <span class="variable">$connection_upgrade</span>;  <span class="comment"># 动态设置</span></span><br><span class="line">    <span class="attribute">proxy_read_timeout</span> <span class="number">3600s</span>;               <span class="comment"># 长连接超时 1 小时</span></span><br><span class="line">    <span class="attribute">proxy_buffering</span> <span class="literal">off</span>;                    <span class="comment"># 关闭缓冲，实时推送</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>关键点</strong>：</p>
+<ol>
+<li><code>proxy_http_version 1.1</code>：WebSocket 依赖 HTTP&#x2F;1.1 Upgrade 机制；</li>
+<li><code>$connection_upgrade</code> 映射表：<code>$http_upgrade</code> 为 websocket 时 Connection&#x3D;upgrade，否则 close；</li>
+<li><code>proxy_read_timeout 3600s</code>：默认 60s 会断空闲长连接，必须调大；</li>
+<li><code>proxy_buffering off</code>：关闭缓冲确保消息实时推送；</li>
+<li><code>ip_hash</code>：保证同一客户端连同一后端，利于会话保持。</li>
+</ol>
+<p>三层限流：API 100r&#x2F;s、WS 建连 10r&#x2F;s、单 IP 并发连接 100（API）&#x2F;50（WS）。</p>
+<h3 id="6-9-调优参数清单"><a href="#6-9-调优参数清单" class="headerlink" title="6.9 调优参数清单"></a>6.9 调优参数清单</h3><p><strong>Tomcat（application.yml）</strong>：</p>
+<table>
+<thead>
+<tr>
+<th align="left">参数</th>
+<th align="left">默认值</th>
+<th align="left">压测推荐</th>
+<th align="left">说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">server.tomcat.max-threads</td>
+<td align="left">200</td>
+<td align="left">200（峰值拐点）</td>
+<td align="left">最大工作线程</td>
+</tr>
+<tr>
+<td align="left">server.tomcat.min-spare-threads</td>
+<td align="left">20</td>
+<td align="left">20</td>
+<td align="left">最小空闲线程</td>
+</tr>
+<tr>
+<td align="left">server.tomcat.max-connections</td>
+<td align="left">10000</td>
+<td align="left">10000</td>
+<td align="left">NIO 接收队列上限</td>
+</tr>
+<tr>
+<td align="left">server.tomcat.accept-count</td>
+<td align="left">100</td>
+<td align="left">100</td>
+<td align="left">连接满后排队上限</td>
+</tr>
+<tr>
+<td align="left">server.tomcat.connection-timeout</td>
+<td align="left">20000</td>
+<td align="left">20000</td>
+<td align="left">连接超时 ms</td>
+</tr>
+</tbody></table>
+<p><strong>调优结论</strong>（详见《Zeus-Doc 性能压测实战》）：</p>
+<ul>
+<li>max-threads&#x3D;200 为最优，TPS 4650 达峰，错误率最低 0.02%；</li>
+<li>max-threads&#x3D;500 反而下降：上下文切换加剧，GC 频次翻倍；</li>
+<li>HikariCP maximum-pool-size&#x3D;50 &#x3D; max-threads 的 1&#x2F;4（IO 等待期间释放连接）。</li>
+</ul>
+<p>另提供 <code>deploy/tomcat-tuning.yml</code> 含完整压测对比配置。</p>
+<p><strong>JVM 参数（生产推荐，doc-service 8C 16G）</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">-Xms4g -Xmx4g</span><br><span class="line">-XX:+UseG1GC</span><br><span class="line">-XX:MaxGCPauseMillis=200</span><br><span class="line">-XX:InitiatingHeapOccupancyPercent=45</span><br><span class="line">-XX:G1HeapRegionSize=4m</span><br><span class="line">-XX:+HeapDumpOnOutOfMemoryError</span><br><span class="line">-XX:HeapDumpPath=/data/dump</span><br><span class="line">-Xlog:gc*:file=/data/logs/zeus-doc-gc.log:time,uptime:filecount=10,filesize=50M</span><br><span class="line">-XX:+UseCompressedOops</span><br></pre></td></tr></table></figure>
+
+<p><strong>容器内（deployment.yaml，512m 限制）</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">-Xms512m -Xmx512m -XX:+UseG1GC -XX:MaxGCPauseMillis=200</span><br><span class="line">-XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/opt/dump</span><br></pre></td></tr></table></figure>
+
+<p>容器内存限制 2Gi，JVM 堆 512m，剩余给非堆（Metaspace&#x2F;直接内存&#x2F;线程栈）。详见《Zeus-Doc JVM 调优与 OOM 排查》。</p>
+<h3 id="6-10-监控、发布与回滚"><a href="#6-10-监控、发布与回滚" class="headerlink" title="6.10 监控、发布与回滚"></a>6.10 监控、发布与回滚</h3><p><strong>监控端点</strong>（application.yml）：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">management:</span></span><br><span class="line">  <span class="attr">endpoints:</span></span><br><span class="line">    <span class="attr">web:</span></span><br><span class="line">      <span class="attr">exposure:</span></span><br><span class="line">        <span class="attr">include:</span> <span class="string">health,info,prometheus,metrics,threaddump,heapdump</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>监控栈</strong>：</p>
+<table>
+<thead>
+<tr>
+<th align="left">维度</th>
+<th align="left">工具</th>
+<th align="left">说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">链路追踪</td>
+<td align="left">SkyWalking</td>
+<td align="left">OAP + UI，agent 无侵入</td>
+</tr>
+<tr>
+<td align="left">指标监控</td>
+<td align="left">Prometheus + Grafana</td>
+<td align="left">JVM&#x2F;业务指标</td>
+</tr>
+<tr>
+<td align="left">日志聚合</td>
+<td align="left">ELK &#x2F; Loki</td>
+<td align="left">traceId 串联</td>
+</tr>
+<tr>
+<td align="left">流控降级</td>
+<td align="left">Sentinel Dashboard</td>
+<td align="left">实时限流规则</td>
+</tr>
+</tbody></table>
+<p><strong>日志格式</strong>：<code>logging.pattern.level: &#39;%5p [traceId=%X&#123;traceId&#125;]&#39;</code>——所有日志带 traceId，可串联一次请求的全链路。</p>
+<p><strong>滚动发布</strong>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">kubectl <span class="built_in">set</span> image deployment/zeus-doc-service-doc \</span><br><span class="line">  zeus-doc-service-doc=zeus-doc-service-doc:1.1.0 -n zeus-doc</span><br><span class="line"></span><br><span class="line">kubectl rollout status deployment/zeus-doc-service-doc -n zeus-doc</span><br></pre></td></tr></table></figure>
+
+<p>默认策略 maxSurge&#x3D;25%、maxUnavailable&#x3D;25%，逐步替换 Pod。就绪探针保证新 Pod 健康才接流量。</p>
+<p><strong>回滚</strong>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">kubectl rollout <span class="built_in">history</span> deployment/zeus-doc-service-doc -n zeus-doc</span><br><span class="line">kubectl rollout undo deployment/zeus-doc-service-doc -n zeus-doc</span><br><span class="line">kubectl rollout undo deployment/zeus-doc-service-doc --to-revision=2 -n zeus-doc</span><br></pre></td></tr></table></figure>
+
+<p><strong>配置热更新</strong>：Nacos 配置变更后，<code>@RefreshScope</code> Bean 自动刷新（如 <code>ThreadPoolConfig</code> 线程池参数 <code>zeus.threadpool.*</code>），无需重启 Pod。</p>
+<h3 id="6-11-优雅停机"><a href="#6-11-优雅停机" class="headerlink" title="6.11 优雅停机"></a>6.11 优雅停机</h3><p>应用关闭流程：</p>
+<ol>
+<li>K8s 发送 SIGTERM（<code>terminationGracePeriodSeconds: 30</code>，gateway 60s）；</li>
+<li>Spring Boot 优雅停机，拒绝新请求；</li>
+<li>线程池 <code>waitForTasksToCompleteOnShutdown=true</code>，等待队列任务完成（最多 30s）；</li>
+<li>Feign&#x2F;Netty 连接关闭，Pod 退出。</li>
+</ol>
+<p>若 30s 内未退出，K8s 发 SIGKILL 强制终止。gateway 设 60s 因需等长连接断开。</p>
+<hr>
+<h2 id="附录-A：全端口速查表"><a href="#附录-A：全端口速查表" class="headerlink" title="附录 A：全端口速查表"></a>附录 A：全端口速查表</h2><h3 id="中间件端口（全功能模式）"><a href="#中间件端口（全功能模式）" class="headerlink" title="中间件端口（全功能模式）"></a>中间件端口（全功能模式）</h3><table>
+<thead>
+<tr>
+<th align="left">服务</th>
+<th align="left">端口</th>
+<th align="left">凭据</th>
+<th align="left">说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">MySQL 主库</td>
+<td align="left">3306</td>
+<td align="left">root &#x2F; zeus@2024</td>
+<td align="left">自动执行 deploy&#x2F;sql&#x2F; 初始化</td>
+</tr>
+<tr>
+<td align="left">MySQL 从库</td>
+<td align="left">3307</td>
+<td align="left">root &#x2F; zeus@2024</td>
+<td align="left">只读，GTID 复制</td>
+</tr>
+<tr>
+<td align="left">Redis</td>
+<td align="left">6379</td>
+<td align="left">密码 zeus@redis</td>
+<td align="left">AOF 持久化</td>
+</tr>
+<tr>
+<td align="left">Nacos</td>
+<td align="left">8848 &#x2F; 9848 &#x2F; 9849</td>
+<td align="left">nacos &#x2F; nacos</td>
+<td align="left">控制台需切 <code>zeus-doc</code> 命名空间</td>
+</tr>
+<tr>
+<td align="left">Elasticsearch</td>
+<td align="left">9200 &#x2F; 9300</td>
+<td align="left">无</td>
+<td align="left">业务索引 doc_index</td>
+</tr>
+<tr>
+<td align="left">RocketMQ NameServer</td>
+<td align="left">9876</td>
+<td align="left">-</td>
+<td align="left">消息路由</td>
+</tr>
+<tr>
+<td align="left">RocketMQ Broker</td>
+<td align="left">10909 &#x2F; 10911 &#x2F; 10912</td>
+<td align="left">-</td>
+<td align="left">消息存储</td>
+</tr>
+<tr>
+<td align="left">MinIO</td>
+<td align="left"><strong>9900 &#x2F; 9901</strong></td>
+<td align="left">zeus &#x2F; zeus@minio2024</td>
+<td align="left">9901 为 Console；宿主端口已避让 gateway 9000&#x2F;user 9001</td>
+</tr>
+<tr>
+<td align="left">Seata</td>
+<td align="left">8091 &#x2F; 7091</td>
+<td align="left">-</td>
+<td align="left">7091 为控制台</td>
+</tr>
+<tr>
+<td align="left">Sentinel</td>
+<td align="left">8858</td>
+<td align="left">sentinel &#x2F; sentinel</td>
+<td align="left">流控控制台</td>
+</tr>
+<tr>
+<td align="left">SkyWalking OAP</td>
+<td align="left">11800 &#x2F; 12800</td>
+<td align="left">-</td>
+<td align="left">11800 gRPC agent 上报</td>
+</tr>
+<tr>
+<td align="left">SkyWalking UI</td>
+<td align="left">8080</td>
+<td align="left">无</td>
+<td align="left">链路追踪界面</td>
+</tr>
+<tr>
+<td align="left">ZooKeeper</td>
+<td align="left">宿主机 2182（容器内 2181）</td>
+<td align="left">-</td>
+<td align="left">collab Leader 选举</td>
+</tr>
+<tr>
+<td align="left">监控栈</td>
+<td align="left">3000 &#x2F; 9090 &#x2F; 9100 &#x2F; 8086</td>
+<td align="left">Grafana: admin &#x2F; zeus@2024</td>
+<td align="left">Grafana &#x2F; Prometheus &#x2F; Node-Exporter &#x2F; InfluxDB</td>
+</tr>
+</tbody></table>
+<h3 id="微服务端口"><a href="#微服务端口" class="headerlink" title="微服务端口"></a>微服务端口</h3><table>
+<thead>
+<tr>
+<th align="left">服务</th>
+<th align="left">本地 JVM 端口</th>
+<th align="left">K8s 内端口</th>
+<th align="left">Application 类</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">Gateway</td>
+<td align="left">9000</td>
+<td align="left">9000</td>
+<td align="left"><code>GatewayApplication</code></td>
+</tr>
+<tr>
+<td align="left">User Service</td>
+<td align="left">9001</td>
+<td align="left">8001</td>
+<td align="left"><code>UserApplication</code></td>
+</tr>
+<tr>
+<td align="left">Doc Service</td>
+<td align="left">9002</td>
+<td align="left">8002</td>
+<td align="left"><code>DocApplication</code></td>
+</tr>
+<tr>
+<td align="left">Collab Service</td>
+<td align="left"><strong>9003（Netty WS）+ 9013（HTTP&#x2F;actuator）</strong></td>
+<td align="left">8003</td>
+<td align="left"><code>CollabApplication</code></td>
+</tr>
+<tr>
+<td align="left">Search Service</td>
+<td align="left">9004</td>
+<td align="left">8004</td>
+<td align="left"><code>SearchApplication</code></td>
+</tr>
+<tr>
+<td align="left">File Service</td>
+<td align="left">9005</td>
+<td align="left">8005</td>
+<td align="left"><code>FileApplication</code></td>
+</tr>
+<tr>
+<td align="left">Audit Service</td>
+<td align="left">9006</td>
+<td align="left">8006</td>
+<td align="left"><code>AuditApplication</code></td>
+</tr>
+</tbody></table>
+<h3 id="前端端口"><a href="#前端端口" class="headerlink" title="前端端口"></a>前端端口</h3><table>
+<thead>
+<tr>
+<th align="left">服务</th>
+<th align="left">端口</th>
+<th align="left">入口</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="left">Vite 开发服务器（zeus-doc-frontend-next）</td>
+<td align="left">8088</td>
+<td align="left"><code>http://localhost:8088</code></td>
+</tr>
+<tr>
+<td align="left">Nginx（可选，生产）</td>
+<td align="left">80</td>
+<td align="left"><code>http://localhost</code></td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="附录-B：启动-Checklist"><a href="#附录-B：启动-Checklist" class="headerlink" title="附录 B：启动 Checklist"></a>附录 B：启动 Checklist</h2><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">□ 0. Docker Desktop 已打开（docker info 有输出）；内存分配 ≥ 8GB</span><br><span class="line">□ 1. cd deploy/docker &amp;&amp; docker compose up -d        → 17 个容器，核心中间件 healthy</span><br><span class="line">□ 2. mvn package -DskipTests                          → BUILD SUCCESS</span><br><span class="line">□ 3. bash deploy/scripts/start-full.sh                → 7 个微服务就绪 + Nacos 注册 7 个</span><br><span class="line">□ 4. cd zeus-doc-frontend-next &amp;&amp; npm ci &amp;&amp; npm run dev → http://localhost:8088</span><br><span class="line">□ 5. GATEWAY_URL=http://localhost:9000 ./deploy/verify/verify-chain.sh   → 9/9 PASS</span><br><span class="line">□ 6. bash deploy/verify/verify-master-slave.sh        → 9/9 PASS</span><br><span class="line">□ 7. GATEWAY_URL=http://localhost:9000 bash deploy/verify/verify-infra.sh</span><br><span class="line">                                                      → 10 PASS + 1 FAIL（签名 URL，已知限制）</span><br><span class="line">□ 8. 浏览器注册 → 登录 → 新建文档 → 保存（4.4 节方法确认 ES 里能查到）</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="系列导航"><a href="#系列导航" class="headerlink" title="系列导航"></a>系列导航</h2><p>本文属于《项目实战》系列，系列入口见 <a href="/docs/nav/5964f4da.html">项目实战导航</a>，配套体系见 <a href="/post/720ca998.html">Java 后端面试导航</a> 与 <a href="/docs/">博客导航</a>。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
+
   <nav class="pagination">
-    <a class="extend prev" rel="prev" title="Previous page" aria-label="Previous page" href="/home/page/9/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/home/">1</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/9/">9</a><span class="page-number current">10</span><a class="page-number" href="/home/page/11/">11</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/22/">22</a><a class="extend next" rel="next" title="Next page" aria-label="Next page" href="/home/page/11/"><i class="fa fa-angle-right"></i></a>
+    <a class="extend prev" rel="prev" title="Previous page" aria-label="Previous page" href="/home/page/9/"><i class="fa fa-angle-left"></i></a><a class="page-number" href="/home/">1</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/9/">9</a><span class="page-number current">10</span><a class="page-number" href="/home/page/11/">11</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/21/">21</a><a class="extend next" rel="next" title="Next page" aria-label="Next page" href="/home/page/11/"><i class="fa fa-angle-right"></i></a>
   </nav>
 
 </div>
@@ -5506,14 +5655,14 @@
       <i class="fa fa-chart-line"></i>
     </span>
       <span>Word count total: </span>
-    <span title="Word count total">604k</span>
+    <span title="Word count total">620k</span>
   </span>
   <span class="post-meta-item">
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
       <span>Reading time total &asymp;</span>
-    <span title="Reading time total">36:37</span>
+    <span title="Reading time total">37:34</span>
   </span>
 </div>
   <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
