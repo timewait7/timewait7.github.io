@@ -1,0 +1,1365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="一、为什么需要限流限流的本质，是在系统容量与请求流量之间划一条明确的边界。 1.1 不做限流的三种死法mindmap   root((不做限流))     被刷爆       恶意爬虫       刷单脚本       正常用户被挤出     被秒杀打崩       流量是日常 1000 倍       连接池耗尽       系统雪崩     被下游拖死       下游只有 100 QPS">
+<meta property="og:type" content="article">
+<meta property="og:title" content="限流算法详解">
+<meta property="og:url" content="http://timewait7.github.io/post/266cb242.html">
+<meta property="og:site_name" content="知行栈">
+<meta property="og:description" content="一、为什么需要限流限流的本质，是在系统容量与请求流量之间划一条明确的边界。 1.1 不做限流的三种死法mindmap   root((不做限流))     被刷爆       恶意爬虫       刷单脚本       正常用户被挤出     被秒杀打崩       流量是日常 1000 倍       连接池耗尽       系统雪崩     被下游拖死       下游只有 100 QPS">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-10-03T04:20:27.000Z">
+<meta property="article:modified_time" content="2026-10-03T04:22:32.382Z">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/266cb242.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/266cb242.html","path":"post/266cb242.html","title":"限流算法详解"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>限流算法详解 | 知行栈</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<!-- hexo injector head_end start --><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
+</style><style>
+/* 菜单链高亮：sub-menu 祖先（同主题 .menu-item-active 的 Pisces 规则） */
+.sub-menu .menu-item a.menu-chain-active {
+  border-bottom-color: #fc6423;
+  color: #fc6423;
+}
+.sub-menu .menu-item a.menu-chain-active:hover {
+  border-bottom-color: #fc6423;
+}
+/* 菜单链高亮：main-menu 祖先（同主题 hover/active 的背景规则） */
+.main-menu .menu-item a.menu-chain-active {
+  background: var(--menu-item-bg-color);
+}
+</style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">知行栈</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>Categories</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B8%80%E3%80%81%E4%B8%BA%E4%BB%80%E4%B9%88%E9%9C%80%E8%A6%81%E9%99%90%E6%B5%81"><span class="nav-text">一、为什么需要限流</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-%E4%B8%8D%E5%81%9A%E9%99%90%E6%B5%81%E7%9A%84%E4%B8%89%E7%A7%8D%E6%AD%BB%E6%B3%95"><span class="nav-text">1.1 不做限流的三种死法</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-2-%E9%99%90%E6%B5%81-vs-%E5%85%B6%E4%BB%96%E7%A8%B3%E5%AE%9A%E6%80%A7%E6%89%8B%E6%AE%B5"><span class="nav-text">1.2 限流 vs 其他稳定性手段</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%BA%8C%E3%80%81%E5%9B%9B%E7%A7%8D%E5%9F%BA%E7%A1%80%E9%99%90%E6%B5%81%E7%AE%97%E6%B3%95%E5%AF%B9%E6%AF%94"><span class="nav-text">二、四种基础限流算法对比</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E7%AE%97%E6%B3%95%E6%80%BB%E8%A7%88%E5%9B%BE"><span class="nav-text">2.1 算法总览图</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E5%AF%B9%E6%AF%94%E8%A1%A8%E6%A0%BC"><span class="nav-text">2.2 对比表格</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-%E5%9B%9B%E7%AE%97%E6%B3%95%E6%B5%81%E9%87%8F%E6%9B%B2%E7%BA%BF%E5%AF%B9%E6%AF%94"><span class="nav-text">2.3 四算法流量曲线对比</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B8%89%E3%80%81%E7%AE%97%E6%B3%95%E6%B7%B1%E5%BA%A6%E5%89%96%E6%9E%90"><span class="nav-text">三、算法深度剖析</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E5%9B%BA%E5%AE%9A%E7%AA%97%E5%8F%A3%E8%AE%A1%E6%95%B0%E5%99%A8"><span class="nav-text">3.1 固定窗口计数器</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%8E%9F%E7%90%86%E5%9B%BE"><span class="nav-text">原理图</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E4%BC%AA%E4%BB%A3%E7%A0%81"><span class="nav-text">伪代码</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E8%87%B4%E5%91%BD%E7%BC%BA%E9%99%B7%EF%BC%9A%E7%AA%97%E5%8F%A3%E8%BE%B9%E7%95%8C%E9%97%AE%E9%A2%98"><span class="nav-text">致命缺陷：窗口边界问题</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E6%BB%91%E5%8A%A8%E7%AA%97%E5%8F%A3"><span class="nav-text">3.2 滑动窗口</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%8E%9F%E7%90%86%E5%9B%BE-1"><span class="nav-text">原理图</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E6%96%B9%E5%BC%8F%E4%B8%80%EF%BC%9A%E7%B2%BE%E7%A1%AE%E6%97%B6%E9%97%B4%E6%88%B3%EF%BC%88%E5%86%85%E5%AD%98%E9%AB%98%EF%BC%89"><span class="nav-text">方式一：精确时间戳（内存高）</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E6%96%B9%E5%BC%8F%E4%BA%8C%EF%BC%9A%E5%88%86%E6%A1%B6%E7%BB%9F%E8%AE%A1%EF%BC%88%E6%8A%98%E4%B8%AD%E6%96%B9%E6%A1%88%EF%BC%89"><span class="nav-text">方式二：分桶统计（折中方案）</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-%E6%BC%8F%E6%A1%B6"><span class="nav-text">3.3 漏桶</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%8E%9F%E7%90%86%E5%9B%BE-2"><span class="nav-text">原理图</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E6%A0%B8%E5%BF%83%E7%89%B9%E5%BE%81"><span class="nav-text">核心特征</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E4%BC%AA%E4%BB%A3%E7%A0%81-1"><span class="nav-text">伪代码</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E6%97%B6%E5%BA%8F%E5%9B%BE"><span class="nav-text">时序图</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E9%80%82%E7%94%A8%E5%9C%BA%E6%99%AF"><span class="nav-text">适用场景</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E7%BC%BA%E7%82%B9"><span class="nav-text">缺点</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-4-%E4%BB%A4%E7%89%8C%E6%A1%B6"><span class="nav-text">3.4 令牌桶</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%8E%9F%E7%90%86%E5%9B%BE-3"><span class="nav-text">原理图</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E4%B8%8E%E6%BC%8F%E6%A1%B6%E7%9A%84%E6%9C%AC%E8%B4%A8%E5%8C%BA%E5%88%AB"><span class="nav-text">与漏桶的本质区别</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E4%BC%AA%E4%BB%A3%E7%A0%81-2"><span class="nav-text">伪代码</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E4%BB%A4%E7%89%8C%E8%A1%A5%E5%85%85%E8%BF%87%E7%A8%8B%EF%BC%88%E6%83%B0%E6%80%A7%E8%A1%A5%E5%85%85%EF%BC%89"><span class="nav-text">令牌补充过程（惰性补充）</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%85%B3%E9%94%AE%E8%AE%BE%E8%AE%A1%E7%82%B9"><span class="nav-text">关键设计点</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#%E5%8F%82%E6%95%B0%E7%A4%BA%E4%BE%8B"><span class="nav-text">参数示例</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%9B%9B%E3%80%81%E4%B8%BA%E4%BB%80%E4%B9%88%E7%A7%92%E6%9D%80%E9%80%89%E4%BB%A4%E7%89%8C%E6%A1%B6"><span class="nav-text">四、为什么秒杀选令牌桶</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-%E5%90%84%E7%AE%97%E6%B3%95%E5%9C%A8%E7%A7%92%E6%9D%80%E5%9C%BA%E6%99%AF%E7%9A%84%E8%A1%A8%E7%8E%B0"><span class="nav-text">4.1 各算法在秒杀场景的表现</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-%E4%BB%A4%E7%89%8C%E6%A1%B6%E7%9A%84%E7%A7%92%E6%9D%80%E7%AD%96%E7%95%A5"><span class="nav-text">4.2 令牌桶的秒杀策略</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-%E7%A7%92%E6%9D%80%E5%AE%8C%E6%95%B4%E9%93%BE%E8%B7%AF%E4%B8%AD%E7%9A%84%E9%99%90%E6%B5%81%E4%BD%8D%E7%BD%AE"><span class="nav-text">4.3 秒杀完整链路中的限流位置</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%BA%94%E3%80%81%E5%88%86%E5%B8%83%E5%BC%8F%E9%99%90%E6%B5%81%EF%BC%9A%E5%8D%95%E6%9C%BA%E9%99%90%E6%B5%81-%C3%97-N-%E5%AE%9E%E4%BE%8B-%E7%81%BE%E9%9A%BE"><span class="nav-text">五、分布式限流：单机限流 × N 实例 &#x3D; 灾难</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E9%97%AE%E9%A2%98%E6%9C%AC%E8%B4%A8"><span class="nav-text">5.1 问题本质</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E5%88%86%E5%B8%83%E5%BC%8F%E9%99%90%E6%B5%81%E6%96%B9%E6%A1%88%E5%AF%B9%E6%AF%94"><span class="nav-text">5.2 分布式限流方案对比</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-Redis-Lua-%E7%9A%84%E5%8E%9F%E5%AD%90%E6%80%A7"><span class="nav-text">5.3 Redis + Lua 的原子性</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%85%AD%E3%80%81%E7%BD%91%E5%85%B3%E5%B1%82-%E5%BA%94%E7%94%A8%E5%B1%82%E5%8F%8C%E5%B1%82%E9%99%90%E6%B5%81"><span class="nav-text">六、网关层 + 应用层双层限流</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#6-1-%E5%88%86%E5%B1%82%E6%9E%B6%E6%9E%84%E5%9B%BE"><span class="nav-text">6.1 分层架构图</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-2-%E4%B8%BA%E4%BB%80%E4%B9%88%E9%9C%80%E8%A6%81%E5%8F%8C%E5%B1%82"><span class="nav-text">6.2 为什么需要双层</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-3-%E7%BD%91%E5%85%B3%E5%B1%82%E5%AE%9E%E7%8E%B0%E7%A4%BA%E4%BE%8B%EF%BC%88Nginx%EF%BC%89"><span class="nav-text">6.3 网关层实现示例（Nginx）</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B8%83%E3%80%81%E5%8A%A8%E6%89%8B%E5%AE%9E%E7%8E%B0"><span class="nav-text">七、动手实现</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#7-1-%E6%89%8B%E5%86%99%E4%BB%A4%E7%89%8C%E6%A1%B6%EF%BC%88%E5%8D%95%E6%9C%BA%E7%89%88%EF%BC%89"><span class="nav-text">7.1 手写令牌桶（单机版）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-2-Redis-Lua-%E5%88%86%E5%B8%83%E5%BC%8F%E4%BB%A4%E7%89%8C%E6%A1%B6"><span class="nav-text">7.2 Redis + Lua 分布式令牌桶</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-3-Spring-%E6%8B%A6%E6%88%AA%E5%99%A8%E8%90%BD%E5%9C%B0"><span class="nav-text">7.3 Spring 拦截器落地</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#7-3-1-%E6%B3%A8%E8%A7%A3%E5%AE%9A%E4%B9%89"><span class="nav-text">7.3.1 注解定义</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#7-3-2-%E6%8B%A6%E6%88%AA%E5%99%A8"><span class="nav-text">7.3.2 拦截器</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#7-3-3-%E8%AF%B7%E6%B1%82%E5%A4%84%E7%90%86%E6%97%B6%E5%BA%8F%E5%9B%BE"><span class="nav-text">7.3.3 请求处理时序图</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%85%AB%E3%80%81%E9%99%90%E6%B5%81%E4%B8%8E%E9%99%8D%E7%BA%A7%E7%9A%84%E8%81%94%E5%8A%A8"><span class="nav-text">八、限流与降级的联动</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#8-1-%E6%A0%B8%E5%BF%83%E7%90%86%E5%BF%B5"><span class="nav-text">8.1 核心理念</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#8-2-%E5%9B%A0%E6%9E%9C%E9%93%BE%E6%B5%81%E7%A8%8B%E5%9B%BE"><span class="nav-text">8.2 因果链流程图</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#8-3-%E5%AE%9E%E7%8E%B0%E6%80%9D%E8%B7%AF"><span class="nav-text">8.3 实现思路</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#8-4-%E5%85%B3%E9%94%AE%E5%8E%9F%E5%88%99"><span class="nav-text">8.4 关键原则</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B9%9D%E3%80%81%E7%94%9F%E4%BA%A7%E5%AE%9E%E8%B7%B5-Checklist"><span class="nav-text">九、生产实践 Checklist</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#9-1-%E9%99%90%E6%B5%81%E7%BB%B4%E5%BA%A6%E8%AE%BE%E8%AE%A1"><span class="nav-text">9.1 限流维度设计</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#9-2-%E5%8F%82%E6%95%B0%E8%B0%83%E4%BC%98"><span class="nav-text">9.2 参数调优</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#9-3-%E5%B8%B8%E8%A7%81%E5%9D%91"><span class="nav-text">9.3 常见坑</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#9-4-%E7%9B%91%E6%8E%A7%E6%8C%87%E6%A0%87"><span class="nav-text">9.4 监控指标</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#9-5-%E9%99%8D%E7%BA%A7%E9%A2%84%E6%A1%88"><span class="nav-text">9.5 降级预案</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%8D%81%E3%80%81%E5%B8%B8%E8%A7%81%E9%9D%A2%E8%AF%95%E9%97%AE%E9%A2%98"><span class="nav-text">十、常见面试问题</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#Q1%EF%BC%9A%E5%9B%BA%E5%AE%9A%E7%AA%97%E5%8F%A3%E7%9A%84%E8%BE%B9%E7%95%8C%E9%97%AE%E9%A2%98%E6%80%8E%E4%B9%88%E8%A7%A3%E5%86%B3%EF%BC%9F"><span class="nav-text">Q1：固定窗口的边界问题怎么解决？</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Q2%EF%BC%9A%E6%BC%8F%E6%A1%B6%E5%92%8C%E4%BB%A4%E7%89%8C%E6%A1%B6%E7%9A%84%E6%9C%AC%E8%B4%A8%E5%8C%BA%E5%88%AB%EF%BC%9F"><span class="nav-text">Q2：漏桶和令牌桶的本质区别？</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Q3%EF%BC%9A%E5%88%86%E5%B8%83%E5%BC%8F%E9%99%90%E6%B5%81%E6%80%8E%E4%B9%88%E4%BF%9D%E8%AF%81%E6%80%BB%E9%87%8F%EF%BC%9F"><span class="nav-text">Q3：分布式限流怎么保证总量？</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Q4%EF%BC%9A%E4%BB%A4%E7%89%8C%E6%A1%B6%E7%9A%84%E4%BB%A4%E7%89%8C%E4%B8%BA%E4%BB%80%E4%B9%88%E8%A6%81%E6%83%B0%E6%80%A7%E8%A1%A5%E5%85%85%EF%BC%9F"><span class="nav-text">Q4：令牌桶的令牌为什么要惰性补充？</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Q5%EF%BC%9A%E9%99%90%E6%B5%81%E5%92%8C%E7%86%94%E6%96%AD%E7%9A%84%E5%8C%BA%E5%88%AB%EF%BC%9F"><span class="nav-text">Q5：限流和熔断的区别？</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Q6%EF%BC%9A%E9%99%90%E6%B5%81%E9%98%88%E5%80%BC%E6%80%8E%E4%B9%88%E5%AE%9A%EF%BC%9F"><span class="nav-text">Q6：限流阈值怎么定？</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Q7%EF%BC%9A%E9%99%90%E6%B5%81%E6%8B%A6%E6%88%AA%E5%99%A8%E4%B8%BA%E4%BB%80%E4%B9%88%E7%94%A8-ThreadLocal-%E8%AE%B0%E5%BD%95%E5%BC%80%E5%A7%8B%E6%97%B6%E9%97%B4%EF%BC%9F"><span class="nav-text">Q7：限流拦截器为什么用 ThreadLocal 记录开始时间？</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#Q8%EF%BC%9A%E4%B8%BA%E4%BB%80%E4%B9%88-429-%E5%93%8D%E5%BA%94%E8%A6%81%E5%B8%A6-Retry-After%EF%BC%9F"><span class="nav-text">Q8：为什么 429 响应要带 Retry-After？</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E9%99%84%E5%BD%95%EF%BC%9A%E7%AE%97%E6%B3%95%E9%80%89%E6%8B%A9%E5%86%B3%E7%AD%96%E6%A0%91"><span class="nav-text">附录：算法选择决策树</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%A0%B8%E5%BF%83%E8%AE%B0%E5%BF%86%E7%82%B9"><span class="nav-text">核心记忆点</span></a></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">85</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">17</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">126</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+    <div class="sidebar-inner sidebar-blogroll">
+      <div class="links-of-blogroll animated">
+        <div class="links-of-blogroll-title"><i class="fa fa-globe fa-fw"></i>
+          Links
+        </div>
+        <ul class="links-of-blogroll-list">
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9wYXVsZ3JhaGFtLmNvbS9hcnRpY2xlcy5odG1s" title="https:&#x2F;&#x2F;paulgraham.com&#x2F;articles.html">paulgraham</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly93d3cuam9lbG9uc29mdHdhcmUuY29tLw==" title="https:&#x2F;&#x2F;www.joelonsoftware.com&#x2F;">Joel on Software</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9tYXJ0aW5mb3dsZXIuY29tLw==" title="https:&#x2F;&#x2F;martinfowler.com&#x2F;">Martin Flower</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly96aGFuZ3RpZWxlaS5jb20v" title="https:&#x2F;&#x2F;zhangtielei.com&#x2F;">zhangtielei</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhLWRlc2lnbi1wYXR0ZXJucy5jb20vemgv" title="https:&#x2F;&#x2F;java-design-patterns.com&#x2F;zh&#x2F;">Java Design Patterns</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9taWNyb3NlcnZpY2VzLmlvLw==" title="https:&#x2F;&#x2F;microservices.io&#x2F;">Microservice Architecture</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhZ3VpZGUuY24v" title="https:&#x2F;&#x2F;javaguide.cn&#x2F;">JavaGuide</span>
+            </li>
+        </ul>
+      </div>
+    </div>
+        <div class="pjax">
+        
+        <div class="sidebar-inner sidebar-post-related">
+          <div class="animated">
+              <div class="links-of-blogroll-title"><i class="fa fa-signs-post fa-fw"></i>
+    Related Posts
+  </div>
+  <ul class="popular-posts">
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/da07f776.html" rel="bookmark">
+        <time class="popular-posts-time">2026-09-11</time>
+        <br>
+      5年后端进阶方向
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/mq-select-2025.html" rel="bookmark">
+        <time class="popular-posts-time">2026-08-13</time>
+        <br>
+      消息队列选型与核心机制对比
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/" rel="bookmark">
+      
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/1d2e8cb4.html" rel="bookmark">
+        <time class="popular-posts-time">2026-05-31</time>
+        <br>
+      AI大模型核心概念综述
+      </a>
+    </li>
+  </ul>
+
+          </div>
+        </div>
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/266cb242.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="限流算法详解 | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          限流算法详解
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-10-03 12:20:27" itemprop="dateCreated datePublished" datetime="2026-10-03T12:20:27+08:00">2026-10-03</time>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>6.5k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>24 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><h2 id="一、为什么需要限流"><a href="#一、为什么需要限流" class="headerlink" title="一、为什么需要限流"></a>一、为什么需要限流</h2><p>限流的本质，是<strong>在系统容量与请求流量之间划一条明确的边界</strong>。</p>
+<h3 id="1-1-不做限流的三种死法"><a href="#1-1-不做限流的三种死法" class="headerlink" title="1.1 不做限流的三种死法"></a>1.1 不做限流的三种死法</h3><pre class="mermaid">mindmap
+  root((不做限流))
+    被刷爆
+      恶意爬虫
+      刷单脚本
+      正常用户被挤出
+    被秒杀打崩
+      流量是日常 1000 倍
+      连接池耗尽
+      系统雪崩
+    被下游拖死
+      下游只有 100 QPS
+      上游重试风暴
+      级联故障</pre>
+
+<h3 id="1-2-限流-vs-其他稳定性手段"><a href="#1-2-限流-vs-其他稳定性手段" class="headerlink" title="1.2 限流 vs 其他稳定性手段"></a>1.2 限流 vs 其他稳定性手段</h3><pre class="mermaid">flowchart LR
+    A[请求到达] --> B{限流}
+    B -- 通过 --> C[业务逻辑]
+    B -- 拒绝 --> D[快速失败 429]
+    C --> E{调用下游}
+    E -- 成功 --> F[返回]
+    E -- 失败率高 --> G[熔断]
+    G --> H[降级兜底]
+    H --> F</pre>
+
+<table>
+<thead>
+<tr>
+<th>手段</th>
+<th>触发时机</th>
+<th>作用方向</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>限流</strong></td>
+<td>请求到达前</td>
+<td>主动拒绝，<strong>保护系统</strong></td>
+</tr>
+<tr>
+<td><strong>熔断</strong></td>
+<td>调用下游失败率高时</td>
+<td>快速失败，<strong>保护调用方</strong></td>
+</tr>
+<tr>
+<td><strong>降级</strong></td>
+<td>系统压力大 &#x2F; 依赖不可用</td>
+<td>关闭非核心，<strong>保核心</strong></td>
+</tr>
+<tr>
+<td><strong>隔离</strong></td>
+<td>一直存在</td>
+<td>资源不共享，<strong>限制爆炸半径</strong></td>
+</tr>
+</tbody></table>
+<blockquote>
+<p>一句话：<strong>限流是”预先划定的容量”，降级是”故障时的保底”，熔断是”故障后的止损”，隔离是”故障前的预案”。</strong></p>
+</blockquote>
+<hr>
+<h2 id="二、四种基础限流算法对比"><a href="#二、四种基础限流算法对比" class="headerlink" title="二、四种基础限流算法对比"></a>二、四种基础限流算法对比</h2><h3 id="2-1-算法总览图"><a href="#2-1-算法总览图" class="headerlink" title="2.1 算法总览图"></a>2.1 算法总览图</h3><pre class="mermaid">flowchart TB
+    subgraph FW[固定窗口]
+        FW1[时间切成固定窗口] --> FW2[窗口内计数]
+        FW2 --> FW3[超限拒绝]
+    end
+    subgraph SW[滑动窗口]
+        SW1[记录时间戳/分桶] --> SW2[统计窗口内请求数]
+        SW2 --> SW3[超限拒绝]
+    end
+    subgraph LB[漏桶]
+        LB1[请求入桶] --> LB2[固定速率流出]
+        LB2 --> LB3[桶满溢出拒绝]
+    end
+    subgraph TB[令牌桶]
+        TB1[按速率生成令牌] --> TB2[请求取令牌]
+        TB2 --> TB3[取到通过/取不到拒绝]
+    end</pre>
+
+<h3 id="2-2-对比表格"><a href="#2-2-对比表格" class="headerlink" title="2.2 对比表格"></a>2.2 对比表格</h3><table>
+<thead>
+<tr>
+<th>算法</th>
+<th>原理</th>
+<th>优点</th>
+<th>缺点</th>
+<th>适用场景</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>固定窗口</strong></td>
+<td>每秒计数，超限拒绝</td>
+<td>实现简单，内存 O(1)</td>
+<td>窗口边界突发（59s 和 01s 各 100 次可绕过）</td>
+<td>粗略限流、日志采样</td>
+</tr>
+<tr>
+<td><strong>滑动窗口</strong></td>
+<td>记录请求时间戳，统计窗口内请求数</td>
+<td>消除边界问题，精度高</td>
+<td>内存开销随 QPS 增，需清理过期数据</td>
+<td>网关、API 限流</td>
+</tr>
+<tr>
+<td><strong>漏桶</strong></td>
+<td>请求进桶，固定速率流出</td>
+<td>流量绝对平滑</td>
+<td>突发流量被削平，延迟增大</td>
+<td>保护下游、流量整形</td>
+</tr>
+<tr>
+<td><strong>令牌桶</strong></td>
+<td>令牌按速率生成，请求取令牌</td>
+<td>允许一定突发（桶容量）</td>
+<td>桶容量需调参</td>
+<td>秒杀、API 限流（允许突发）</td>
+</tr>
+</tbody></table>
+<h3 id="2-3-四算法流量曲线对比"><a href="#2-3-四算法流量曲线对比" class="headerlink" title="2.3 四算法流量曲线对比"></a>2.3 四算法流量曲线对比</h3><pre class="mermaid">xychart-beta
+    title "四种算法对突发流量的处理曲线"
+    x-axis ["0s", "0.2s", "0.4s", "0.6s", "0.8s", "1s", "1.2s", "1.4s"]
+    y-axis "通过请求数" 0 --> 120
+    line "原始流量" [100, 0, 0, 0, 0, 0, 0, 0]
+    line "固定窗口" [100, 0, 0, 0, 0, 0, 0, 0]
+    line "滑动窗口" [100, 0, 0, 0, 0, 0, 0, 0]
+    line "漏桶" [20, 20, 20, 20, 20, 20, 20, 20]
+    line "令牌桶(容量100)" [100, 0, 0, 0, 0, 0, 0, 0]</pre>
+
+<p><strong>关键认知</strong>：</p>
+<ul>
+<li><strong>漏桶 vs 令牌桶</strong>：漏桶限制的是”流出速率”，令牌桶限制的是”平均速率 + 突发上限”。</li>
+<li><strong>固定窗口 vs 滑动窗口</strong>：前者是后者的粗糙近似，后者精度更高但内存开销大。</li>
+</ul>
+<hr>
+<h2 id="三、算法深度剖析"><a href="#三、算法深度剖析" class="headerlink" title="三、算法深度剖析"></a>三、算法深度剖析</h2><h3 id="3-1-固定窗口计数器"><a href="#3-1-固定窗口计数器" class="headerlink" title="3.1 固定窗口计数器"></a>3.1 固定窗口计数器</h3><h4 id="原理图"><a href="#原理图" class="headerlink" title="原理图"></a>原理图</h4><pre class="mermaid">flowchart LR
+    subgraph T["时间轴（阈值 100/秒）"]
+        direction LR
+        W1["0~1s&lt;br/>counter=100"] --> W2["1~2s&lt;br/>counter=100"] --> W3["2~3s&lt;br/>counter=100"]
+    end</pre>
+
+<h4 id="伪代码"><a href="#伪代码" class="headerlink" title="伪代码"></a>伪代码</h4><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">FixedWindowCounter</span> &#123;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> <span class="type">int</span> limit;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> <span class="type">long</span> windowMs;</span><br><span class="line">    <span class="keyword">private</span> <span class="type">long</span> <span class="variable">windowStart</span> <span class="operator">=</span> System.currentTimeMillis();</span><br><span class="line">    <span class="keyword">private</span> <span class="type">int</span> <span class="variable">count</span> <span class="operator">=</span> <span class="number">0</span>;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">synchronized</span> <span class="type">boolean</span> <span class="title function_">tryAcquire</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="type">long</span> <span class="variable">now</span> <span class="operator">=</span> System.currentTimeMillis();</span><br><span class="line">        <span class="keyword">if</span> (now - windowStart &gt;= windowMs) &#123;</span><br><span class="line">            windowStart = now;</span><br><span class="line">            count = <span class="number">0</span>;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">if</span> (count &lt; limit) &#123;</span><br><span class="line">            count++;</span><br><span class="line">            <span class="keyword">return</span> <span class="literal">true</span>;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> <span class="literal">false</span>;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h4 id="致命缺陷：窗口边界问题"><a href="#致命缺陷：窗口边界问题" class="headerlink" title="致命缺陷：窗口边界问题"></a>致命缺陷：窗口边界问题</h4><pre class="mermaid">sequenceDiagram
+    participant U as 用户请求
+    participant W1 as 窗口1 (0~1s)
+    participant W2 as 窗口2 (1~2s)
+
+    Note over W1: 阈值 100
+    U->>W1: 0.9s 来了 100 个请求
+    W1-->>U: 全部通过 ✅
+    Note over W2: 阈值 100
+    U->>W2: 1.1s 又来 100 个请求
+    W2-->>U: 全部通过 ✅
+    Note over U,W2: 结果：0.9~1.1s 这 200ms 内&lt;br/>通过了 200 个请求&lt;br/>瞬时 QPS 达 1000，限流形同虚设</pre>
+
+<p><strong>改进方向</strong>：</p>
+<ul>
+<li>把窗口切小（如 100ms），代价是精度提升有限</li>
+<li>直接升级到滑动窗口</li>
+</ul>
+<hr>
+<h3 id="3-2-滑动窗口"><a href="#3-2-滑动窗口" class="headerlink" title="3.2 滑动窗口"></a>3.2 滑动窗口</h3><h4 id="原理图-1"><a href="#原理图-1" class="headerlink" title="原理图"></a>原理图</h4><pre class="mermaid">flowchart LR
+    subgraph SW["滑动窗口（动态右移）"]
+        direction LR
+        B1["桶1&lt;br/>100ms"] --> B2["桶2&lt;br/>100ms"] --> B3["桶3&lt;br/>100ms"] --> B4["桶4&lt;br/>100ms"] --> B5["桶N&lt;br/>100ms"]
+    end
+    NOW(("当前时刻")) -.右边界.-> B5
+    subgraph WIN["窗口内统计 = 所有桶 count 之和"]
+    end</pre>
+
+<h4 id="方式一：精确时间戳（内存高）"><a href="#方式一：精确时间戳（内存高）" class="headerlink" title="方式一：精确时间戳（内存高）"></a>方式一：精确时间戳（内存高）</h4><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">SlidingWindowLog</span> &#123;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> <span class="type">int</span> limit;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> <span class="type">long</span> windowMs;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> Deque&lt;Long&gt; timestamps = <span class="keyword">new</span> <span class="title class_">ArrayDeque</span>&lt;&gt;();</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">synchronized</span> <span class="type">boolean</span> <span class="title function_">tryAcquire</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="type">long</span> <span class="variable">now</span> <span class="operator">=</span> System.currentTimeMillis();</span><br><span class="line">        <span class="comment">// 移除窗口外的记录</span></span><br><span class="line">        <span class="keyword">while</span> (!timestamps.isEmpty() &amp;&amp; now - timestamps.peekFirst() &gt;= windowMs) &#123;</span><br><span class="line">            timestamps.pollFirst();</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">if</span> (timestamps.size() &lt; limit) &#123;</span><br><span class="line">            timestamps.addLast(now);</span><br><span class="line">            <span class="keyword">return</span> <span class="literal">true</span>;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> <span class="literal">false</span>;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>内存开销</strong>：每个请求一个 <code>Long</code>（8 字节）+ 队列开销。1000 QPS × 1 秒窗口 &#x3D; 1000 个记录。如果窗口是 60 秒，QPS 是 1 万 → 60 万个记录 → <strong>内存爆炸</strong>。</p>
+<h4 id="方式二：分桶统计（折中方案）"><a href="#方式二：分桶统计（折中方案）" class="headerlink" title="方式二：分桶统计（折中方案）"></a>方式二：分桶统计（折中方案）</h4><p>把窗口切成 N 个小格子（如 10 个 100ms 的格子），每个格子一个计数器。窗口内请求数 &#x3D; 所有桶的 count 之和。当时间前进时，新桶加入，旧桶淘汰（环形数组实现）。</p>
+<pre class="mermaid">flowchart TB
+    subgraph Ring["环形数组（固定大小 N）"]
+        direction LR
+        R1["桶0"] --> R2["桶1"] --> R3["桶2"] --> R4["..."] --> R5["桶N-1"] --> R1
+    end
+    T["时间前进"] --> Advance["淘汰旧桶&lt;br/>新桶清零"]
+    Advance --> Ring
+    Ring --> Sum["求和 → 判断是否超限"]</pre>
+
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">SlidingWindowBucket</span> &#123;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> <span class="type">int</span> limit;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> <span class="type">int</span> bucketCount;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> <span class="type">long</span> bucketSizeMs;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> <span class="type">int</span>[] buckets;</span><br><span class="line">    <span class="keyword">private</span> <span class="type">long</span> lastBucketStart;</span><br><span class="line">    <span class="keyword">private</span> <span class="type">int</span> lastBucketIndex;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">synchronized</span> <span class="type">boolean</span> <span class="title function_">tryAcquire</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="type">long</span> <span class="variable">now</span> <span class="operator">=</span> System.currentTimeMillis();</span><br><span class="line">        <span class="type">long</span> <span class="variable">curBucketStart</span> <span class="operator">=</span> now - now % bucketSizeMs;</span><br><span class="line">        <span class="comment">// 推进桶</span></span><br><span class="line">        <span class="keyword">while</span> (lastBucketStart &lt; curBucketStart) &#123;</span><br><span class="line">            lastBucketIndex = (lastBucketIndex + <span class="number">1</span>) % bucketCount;</span><br><span class="line">            buckets[lastBucketIndex] = <span class="number">0</span>;</span><br><span class="line">            lastBucketStart += bucketSizeMs;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="type">int</span> <span class="variable">total</span> <span class="operator">=</span> <span class="number">0</span>;</span><br><span class="line">        <span class="keyword">for</span> (<span class="type">int</span> b : buckets) total += b;</span><br><span class="line">        <span class="keyword">if</span> (total &lt; limit) &#123;</span><br><span class="line">            buckets[lastBucketIndex]++;</span><br><span class="line">            <span class="keyword">return</span> <span class="literal">true</span>;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> <span class="literal">false</span>;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>精度 vs 内存的权衡</strong>：</p>
+<ul>
+<li>桶越多，精度越高，内存越大</li>
+<li>一般 10 个桶足够（误差 &lt; 10%）</li>
+</ul>
+<p><strong>Sentinel 的实现</strong>：Sentinel 用的是 <code>LeapArray</code> + 滑动窗口，精度 1 秒分 2 个格子（500ms 一格），兼顾精度和性能。</p>
+<hr>
+<h3 id="3-3-漏桶"><a href="#3-3-漏桶" class="headerlink" title="3.3 漏桶"></a>3.3 漏桶</h3><h4 id="原理图-2"><a href="#原理图-2" class="headerlink" title="原理图"></a>原理图</h4><pre class="mermaid">flowchart TB
+    Req["请求&lt;br/>↓↓↓"] --> Bucket
+    subgraph Bucket["漏桶（容量 = 缓冲区大小）"]
+        direction TB
+        W["水位"]
+        Hole["底部小孔"]
+    end
+    Bucket -- "固定速率流出" --> Down["下游服务"]
+    Bucket -. "桶满则溢出（拒绝）" .-> Overflow["拒绝"]</pre>
+
+<h4 id="核心特征"><a href="#核心特征" class="headerlink" title="核心特征"></a>核心特征</h4><p><strong>流出速率恒定</strong>，无论进来多少，下游看到的永远是稳定速率。</p>
+<h4 id="伪代码-1"><a href="#伪代码-1" class="headerlink" title="伪代码"></a>伪代码</h4><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">class</span> <span class="title class_">LeakyBucket</span> &#123;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> <span class="type">int</span> capacity;         <span class="comment">// 桶容量</span></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> <span class="type">double</span> leakRate;      <span class="comment">// 每秒漏出速率</span></span><br><span class="line">    <span class="keyword">private</span> <span class="type">double</span> <span class="variable">water</span> <span class="operator">=</span> <span class="number">0</span>;           <span class="comment">// 当前水量</span></span><br><span class="line">    <span class="keyword">private</span> <span class="type">long</span> <span class="variable">lastLeak</span> <span class="operator">=</span> System.currentTimeMillis();</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">synchronized</span> <span class="type">boolean</span> <span class="title function_">tryAcquire</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="type">long</span> <span class="variable">now</span> <span class="operator">=</span> System.currentTimeMillis();</span><br><span class="line">        <span class="comment">// 按时间漏水</span></span><br><span class="line">        water = Math.max(<span class="number">0</span>, water - (now - lastLeak) / <span class="number">1000.0</span> * leakRate);</span><br><span class="line">        lastLeak = now;</span><br><span class="line">        <span class="keyword">if</span> (water &lt; capacity) &#123;</span><br><span class="line">            water++;</span><br><span class="line">            <span class="keyword">return</span> <span class="literal">true</span>;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> <span class="literal">false</span>;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h4 id="时序图"><a href="#时序图" class="headerlink" title="时序图"></a>时序图</h4><pre class="mermaid">sequenceDiagram
+    participant U as 突发流量（100 个请求）
+    participant B as 漏桶
+    participant D as 下游（10 QPS）
+
+    U->>B: T=0s 涌入 100 个
+    B->>B: 水位上升到容量上限
+    loop 每秒
+        B->>D: 匀速漏出 10 个
+    end
+    Note over U,D: 通过曲线：恒定 10 QPS&lt;br/>突发被强制平滑</pre>
+
+<h4 id="适用场景"><a href="#适用场景" class="headerlink" title="适用场景"></a>适用场景</h4><ul>
+<li>调用第三方 API（对方有严格速率限制）</li>
+<li>保护数据库（不希望瞬间大批量写入）</li>
+<li>流量整形（把突发流量整形为平滑流量）</li>
+</ul>
+<h4 id="缺点"><a href="#缺点" class="headerlink" title="缺点"></a>缺点</h4><ul>
+<li>突发流量会被”卡”在桶里，用户感知延迟增加</li>
+<li>秒杀场景下，用户等了半天还是被拒绝 → 体验差</li>
+</ul>
+<hr>
+<h3 id="3-4-令牌桶"><a href="#3-4-令牌桶" class="headerlink" title="3.4 令牌桶"></a>3.4 令牌桶</h3><h4 id="原理图-3"><a href="#原理图-3" class="headerlink" title="原理图"></a>原理图</h4><pre class="mermaid">flowchart TB
+    Gen["令牌生成器&lt;br/>固定速率 r/s"] -- "放入令牌" --> Bucket
+    subgraph Bucket["令牌桶（容量 C）"]
+        T["🪙 🪙 🪙 🪙 🪙&lt;br/>最多 C 个"]
+    end
+    Req["请求到达"] -- "取 1 个令牌" --> Bucket
+    Bucket -- "取到" --> Pass["✅ 通过"]
+    Bucket -- "取不到" --> Reject["❌ 拒绝"]</pre>
+
+<h4 id="与漏桶的本质区别"><a href="#与漏桶的本质区别" class="headerlink" title="与漏桶的本质区别"></a>与漏桶的本质区别</h4><pre class="mermaid">flowchart LR
+    subgraph LB[漏桶]
+        direction TB
+        L1["进入"] --> L2["等待/排队"] --> L3["恒定速率流出"]
+    end
+    subgraph TB[令牌桶]
+        direction TB
+        T1["进入"] --> T2{"桶内有令牌?"}
+        T2 -- 有 --> T3["立即通过（突发）"]
+        T2 -- 无 --> T4["立即拒绝"]
+    end</pre>
+
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>漏桶</th>
+<th>令牌桶</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>限制对象</td>
+<td>流出速率</td>
+<td>平均速率</td>
+</tr>
+<tr>
+<td>突发支持</td>
+<td>❌ 强制平滑</td>
+<td>✅ 桶容量内允许突发</td>
+</tr>
+<tr>
+<td>请求处理</td>
+<td>入桶等待（或拒绝）</td>
+<td>立即决策（取到&#x2F;取不到）</td>
+</tr>
+<tr>
+<td>用户体验</td>
+<td>延迟增大</td>
+<td>突发时响应快</td>
+</tr>
+</tbody></table>
+<h4 id="伪代码-2"><a href="#伪代码-2" class="headerlink" title="伪代码"></a>伪代码</h4><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">TokenBucket</span> &#123;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> <span class="type">int</span> capacity;         <span class="comment">// 桶容量：允许的瞬时突发</span></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> <span class="type">double</span> rate;          <span class="comment">// 令牌速率：每秒补充</span></span><br><span class="line">    <span class="keyword">private</span> <span class="type">double</span> tokens;</span><br><span class="line">    <span class="keyword">private</span> <span class="type">long</span> <span class="variable">lastRefill</span> <span class="operator">=</span> System.currentTimeMillis();</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="title function_">TokenBucket</span><span class="params">(<span class="type">int</span> capacity, <span class="type">double</span> rate)</span> &#123;</span><br><span class="line">        <span class="built_in">this</span>.capacity = capacity;</span><br><span class="line">        <span class="built_in">this</span>.rate = rate;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">synchronized</span> <span class="type">boolean</span> <span class="title function_">tryAcquire</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="type">long</span> <span class="variable">now</span> <span class="operator">=</span> System.currentTimeMillis();</span><br><span class="line">        <span class="comment">// 按时间补充令牌（关键：惰性计算，不需要定时器）</span></span><br><span class="line">        tokens = Math.min(capacity, tokens + (now - lastRefill) / <span class="number">1000.0</span> * rate);</span><br><span class="line">        lastRefill = now;</span><br><span class="line">        <span class="keyword">if</span> (tokens &gt;= <span class="number">1</span>) &#123;</span><br><span class="line">            tokens -= <span class="number">1</span>;</span><br><span class="line">            <span class="keyword">return</span> <span class="literal">true</span>;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> <span class="literal">false</span>;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h4 id="令牌补充过程（惰性补充）"><a href="#令牌补充过程（惰性补充）" class="headerlink" title="令牌补充过程（惰性补充）"></a>令牌补充过程（惰性补充）</h4><pre class="mermaid">sequenceDiagram
+    participant R as 请求
+    participant TB as 令牌桶
+
+    Note over TB: 初始 tokens=C
+    R->>TB: T=0s 请求 1
+    TB->>TB: 补令牌: min(C, C+0*rate) = C
+    TB->>TB: tokens = C-1 → 通过
+
+    R->>TB: T=0.1s 请求 2
+    TB->>TB: 补令牌: min(C, (C-1)+0.1*rate)
+    TB->>TB: tokens -= 1 → 通过
+
+    Note over R,TB: 空闲一段时间
+
+    R->>TB: T=10s 请求 N
+    TB->>TB: 补令牌: min(C, 0+10*rate) = C
+    Note over TB: 上限封顶，不会无限累积</pre>
+
+<h4 id="关键设计点"><a href="#关键设计点" class="headerlink" title="关键设计点"></a>关键设计点</h4><ol>
+<li><strong>惰性补充</strong>：不需要后台定时器，每次请求时按流逝时间计算应补充多少令牌。</li>
+<li><strong>上限封顶</strong>：<code>Math.min(capacity, ...)</code> 保证令牌不会无限累积。</li>
+<li>**<code>synchronized</code>**：单机版保证线程安全；分布式场景必须用 Redis + Lua。</li>
+</ol>
+<h4 id="参数示例"><a href="#参数示例" class="headerlink" title="参数示例"></a>参数示例</h4><ul>
+<li>容量 10，速率 5&#x2F;s</li>
+<li>瞬间来 20 个请求：前 10 个立即通过（消耗桶内令牌），之后按每秒 5 个放行</li>
+<li>通过曲线：<strong>突发 10 + 匀速 5&#x2F;s</strong></li>
+</ul>
+<pre class="mermaid">xychart-beta
+    title "令牌桶容量 10，速率 5/s 的通过曲线"
+    x-axis "时间(s)" [0, 0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4]
+    y-axis "累计通过数" 0 --> 40
+    line "实际通过" [10, 10, 15, 15, 20, 20, 25, 25, 30]
+    line "匀速参考" [0, 2.5, 5, 7.5, 10, 12.5, 15, 17.5, 20]</pre>
+
+<hr>
+<h2 id="四、为什么秒杀选令牌桶"><a href="#四、为什么秒杀选令牌桶" class="headerlink" title="四、为什么秒杀选令牌桶"></a>四、为什么秒杀选令牌桶</h2><p>秒杀的特点是「<strong>开闸瞬间所有用户同时涌来</strong>」——流量曲线不是平滑的，而是<strong>脉冲式</strong>的。</p>
+<h3 id="4-1-各算法在秒杀场景的表现"><a href="#4-1-各算法在秒杀场景的表现" class="headerlink" title="4.1 各算法在秒杀场景的表现"></a>4.1 各算法在秒杀场景的表现</h3><pre class="mermaid">flowchart TB
+    Sp["秒杀开场瞬间&lt;br/>10 万请求"] --> FW
+    Sp --> SW
+    Sp --> LB
+    Sp --> TB
+
+    FW["固定窗口&lt;br/>边界问题导致不公平"]
+    SW["滑动窗口&lt;br/>精度高但无突发能力"]
+    LB["漏桶&lt;br/>强制平滑，用户等待久"]
+    TB["令牌桶&lt;br/>✅ 允许桶内突发，快速放量"]
+
+    style TB fill:#9f9,stroke:#333
+    style FW fill:#f99,stroke:#333
+    style SW fill:#fc9,stroke:#333
+    style LB fill:#fc9,stroke:#333</pre>
+
+<table>
+<thead>
+<tr>
+<th>算法</th>
+<th>开场瞬间表现</th>
+<th>问题</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>固定窗口</td>
+<td>第 1 秒内只放 100 个，其余拒绝</td>
+<td>边界问题导致不公平</td>
+</tr>
+<tr>
+<td>滑动窗口</td>
+<td>精度高，但依然严格限制</td>
+<td>无突发能力，用户感知差</td>
+</tr>
+<tr>
+<td>漏桶</td>
+<td>强制平滑，大量请求排队</td>
+<td>用户等半天还是失败，体验差</td>
+</tr>
+<tr>
+<td><strong>令牌桶</strong></td>
+<td><strong>桶内令牌瞬间放量</strong></td>
+<td><strong>需要预估桶容量</strong></td>
+</tr>
+</tbody></table>
+<h3 id="4-2-令牌桶的秒杀策略"><a href="#4-2-令牌桶的秒杀策略" class="headerlink" title="4.2 令牌桶的秒杀策略"></a>4.2 令牌桶的秒杀策略</h3><pre class="mermaid">sequenceDiagram
+    participant U as 10 万用户
+    participant TB as 令牌桶(容量=1万,速率=5000/s)
+    participant S as 库存系统
+
+    U->>TB: T=0s 同时涌入 10 万
+    TB-->>U: 前 1 万个（桶内令牌）立即通过
+    TB-->>U: 其余 9 万个立即拒绝（快速失败）
+    TB->>S: 平滑放量 5000/s
+
+    Note over U,S: 设计哲学：&lt;br/>1. 前 1 万快速通过，让"有能力的用户"进得来&lt;br/>2. 后续平滑放量，保护下游库存&lt;br/>3. 快速失败，不占连接</pre>
+
+<h3 id="4-3-秒杀完整链路中的限流位置"><a href="#4-3-秒杀完整链路中的限流位置" class="headerlink" title="4.3 秒杀完整链路中的限流位置"></a>4.3 秒杀完整链路中的限流位置</h3><pre class="mermaid">flowchart TB
+    A["100 万请求"] --> B["CDN / 静态资源&lt;br/>挡掉 90%"]
+    B -- "~10 万" --> C["网关层（Nginx）&lt;br/>令牌桶 10 万 QPS"]
+    C -- "拒绝 90 万&lt;br/>返回'排队失败'" --> X1["429"]
+    C -- "~1 万" --> D["应用层&lt;br/>Redis 分布式限流 5000 QPS"]
+    D -- "拒绝超额&lt;br/>返回'手慢了'" --> X2["429"]
+    D -- "~5000" --> E["扣库存链路&lt;br/>DB 乐观锁"]
+    E --> F["下单成功"]
+
+    style A fill:#fdd
+    style B fill:#ddf
+    style C fill:#dfd
+    style D fill:#ffd
+    style E fill:#9f9</pre>
+
+<hr>
+<h2 id="五、分布式限流：单机限流-×-N-实例-灾难"><a href="#五、分布式限流：单机限流-×-N-实例-灾难" class="headerlink" title="五、分布式限流：单机限流 × N 实例 &#x3D; 灾难"></a>五、分布式限流：单机限流 × N 实例 &#x3D; 灾难</h2><h3 id="5-1-问题本质"><a href="#5-1-问题本质" class="headerlink" title="5.1 问题本质"></a>5.1 问题本质</h3><p>单机限流（如 Guava RateLimiter、本地令牌桶）在分布式下<strong>各算各的</strong>。</p>
+<pre class="mermaid">flowchart TB
+    LB["负载均衡"] --> A["实例A&lt;br/>限流100&lt;br/>收到300 → 拒200"]
+    LB --> B["实例B&lt;br/>限流100&lt;br/>收到50 → 浪费50"]
+    LB --> C["实例C&lt;br/>限流100&lt;br/>收到100 → 满载"]
+    LB --> D["实例D&lt;br/>限流100&lt;br/>收到550 → 拒450"]
+
+    Note["目标：全集群 1000 QPS&lt;br/>实际：10 台 × 100 = 1000 QPS&lt;br/>问题：流量不均 → 明明有余量却拒绝"]
+
+    style A fill:#fdd
+    style B fill:#dfd
+    style D fill:#fdd</pre>
+
+<p><strong>根本原因</strong>：单机限流是<strong>实例级</strong>的，不是<strong>服务级</strong>的。</p>
+<h3 id="5-2-分布式限流方案对比"><a href="#5-2-分布式限流方案对比" class="headerlink" title="5.2 分布式限流方案对比"></a>5.2 分布式限流方案对比</h3><table>
+<thead>
+<tr>
+<th>方案</th>
+<th>原理</th>
+<th>优点</th>
+<th>缺点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Redis + Lua</strong></td>
+<td>集中式计数&#x2F;令牌桶</td>
+<td>精确，易实现</td>
+<td>Redis 是瓶颈，网络 RTT</td>
+</tr>
+<tr>
+<td><strong>Redis + 分段</strong></td>
+<td>每实例分配一段配额</td>
+<td>减少 Redis 压力</td>
+<td>流量不均时浪费</td>
+</tr>
+<tr>
+<td><strong>Nginx + Lua</strong></td>
+<td>网关层限流</td>
+<td>挡在最前面</td>
+<td>单点，需集群化</td>
+</tr>
+<tr>
+<td><strong>Sentinel 集群模式</strong></td>
+<td>Token Server 集中发令牌</td>
+<td>成熟方案</td>
+<td>需要额外部署</td>
+</tr>
+<tr>
+<td><strong>一致性哈希</strong></td>
+<td>按 key 路由到固定实例</td>
+<td>无中心</td>
+<td>扩缩容麻烦</td>
+</tr>
+</tbody></table>
+<h3 id="5-3-Redis-Lua-的原子性"><a href="#5-3-Redis-Lua-的原子性" class="headerlink" title="5.3 Redis + Lua 的原子性"></a>5.3 Redis + Lua 的原子性</h3><pre class="mermaid">sequenceDiagram
+    participant C as 客户端
+    participant R as Redis
+    participant L as Lua 脚本
+
+    Note over C,R: ❌ 错误：两条命令之间可能被其他请求插入
+    C->>R: INCR key
+    R-->>C: 1
+    Note over C,R: ← 此处被其他请求插入！
+    C->>R: EXPIRE key 1
+
+    Note over C,R: ✅ 正确：Lua 脚本原子执行
+    C->>R: EVALSHA script 1 key 100 1
+    R->>L: 单线程执行 INCR + EXPIRE + 判断
+    L-->>R: return 1
+    R-->>C: 1</pre>
+
+<p><strong>Lua 脚本</strong>（固定窗口版）：</p>
+<figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- KEYS[1]: 限流 key</span></span><br><span class="line"><span class="comment">-- ARGV[1]: 最大请求数</span></span><br><span class="line"><span class="comment">-- ARGV[2]: 窗口大小（秒）</span></span><br><span class="line"><span class="comment">-- 返回：1 放行，0 限流</span></span><br><span class="line"><span class="keyword">local</span> key    = KEYS[<span class="number">1</span>]</span><br><span class="line"><span class="keyword">local</span> <span class="built_in">max</span>    = <span class="built_in">tonumber</span>(ARGV[<span class="number">1</span>])</span><br><span class="line"><span class="keyword">local</span> window = <span class="built_in">tonumber</span>(ARGV[<span class="number">2</span>])</span><br><span class="line"></span><br><span class="line"><span class="keyword">local</span> current = redis.call(<span class="string">&#x27;INCR&#x27;</span>, key)</span><br><span class="line"><span class="keyword">if</span> current == <span class="number">1</span> <span class="keyword">then</span></span><br><span class="line">    redis.call(<span class="string">&#x27;EXPIRE&#x27;</span>, key, window)</span><br><span class="line"><span class="keyword">end</span></span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> current &gt; <span class="built_in">max</span> <span class="keyword">then</span></span><br><span class="line">    <span class="keyword">return</span> <span class="number">0</span></span><br><span class="line"><span class="keyword">end</span></span><br><span class="line"><span class="keyword">return</span> <span class="number">1</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>Lua 脚本的优势</strong>：</p>
+<ul>
+<li>Redis 单线程执行 Lua，天然原子</li>
+<li>一次网络往返，减少 RTT</li>
+<li>脚本可缓存，后续调用只传 SHA1</li>
+</ul>
+<hr>
+<h2 id="六、网关层-应用层双层限流"><a href="#六、网关层-应用层双层限流" class="headerlink" title="六、网关层 + 应用层双层限流"></a>六、网关层 + 应用层双层限流</h2><h3 id="6-1-分层架构图"><a href="#6-1-分层架构图" class="headerlink" title="6.1 分层架构图"></a>6.1 分层架构图</h3><pre class="mermaid">flowchart TB
+    subgraph L0["第 0 层：CDN / WAF"]
+        CDN["静态资源&lt;br/>CC 攻击防护"]
+    end
+
+    subgraph L1["第 1 层：网关（Nginx / SCG）"]
+        GW["无状态内存令牌桶&lt;br/>单机可扛百万连接&lt;br/>挡掉 90% 流量"]
+    end
+
+    subgraph L2["第 2 层：应用"]
+        APP["Redis 分布式限流（Lua 原子）&lt;br/>按用户/接口细粒度&lt;br/>与业务逻辑联动"]
+    end
+
+    subgraph L3["第 3 层：业务"]
+        BIZ["DB / 缓存 / MQ"]
+    end
+
+    CDN --> GW --> APP --> BIZ
+
+    style L0 fill:#eef
+    style L1 fill:#efe
+    style L2 fill:#ffe
+    style L3 fill:#fee</pre>
+
+<h3 id="6-2-为什么需要双层"><a href="#6-2-为什么需要双层" class="headerlink" title="6.2 为什么需要双层"></a>6.2 为什么需要双层</h3><table>
+<thead>
+<tr>
+<th>层</th>
+<th>优势</th>
+<th>局限</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>网关层</strong></td>
+<td>无状态、性能高、挡在最前面</td>
+<td>只能做粗粒度（IP、路径）</td>
+</tr>
+<tr>
+<td><strong>应用层</strong></td>
+<td>可访问业务上下文（用户ID、商品ID）</td>
+<td>有状态、Redis 是瓶颈</td>
+</tr>
+</tbody></table>
+<p><strong>核心原则</strong>：</p>
+<blockquote>
+<p><strong>能在网关挡住的，绝不放到应用层；能在应用层挡住的，绝不放到数据库。</strong></p>
+</blockquote>
+<h3 id="6-3-网关层实现示例（Nginx）"><a href="#6-3-网关层实现示例（Nginx）" class="headerlink" title="6.3 网关层实现示例（Nginx）"></a>6.3 网关层实现示例（Nginx）</h3><figure class="highlight nginx"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 定义限流区：10MB 内存，按 IP 限流 100 QPS</span></span><br><span class="line"><span class="attribute">limit_req_zone</span> <span class="variable">$binary_remote_addr</span> zone=api_limit:<span class="number">10m</span> rate=100r/s;</span><br><span class="line"></span><br><span class="line"><span class="section">server</span> &#123;</span><br><span class="line">    <span class="section">location</span> /api/seckill &#123;</span><br><span class="line">        <span class="attribute">limit_req</span> zone=api_limit burst=<span class="number">200</span> nodelay;</span><br><span class="line">        <span class="attribute">limit_req_status</span> <span class="number">429</span>;</span><br><span class="line">        <span class="attribute">proxy_pass</span> http://backend;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>参数含义</strong>：</p>
+<ul>
+<li><code>rate=100r/s</code>：漏桶速率（Nginx 用的是漏桶）</li>
+<li><code>burst=200</code>：允许的突发队列长度</li>
+<li><code>nodelay</code>：突发请求立即处理，不排队</li>
+</ul>
+<hr>
+<h2 id="七、动手实现"><a href="#七、动手实现" class="headerlink" title="七、动手实现"></a>七、动手实现</h2><h3 id="7-1-手写令牌桶（单机版）"><a href="#7-1-手写令牌桶（单机版）" class="headerlink" title="7.1 手写令牌桶（单机版）"></a>7.1 手写令牌桶（单机版）</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">/**</span></span><br><span class="line"><span class="comment"> * 单机令牌桶实现。</span></span><br><span class="line"><span class="comment"> * &lt;p&gt;</span></span><br><span class="line"><span class="comment"> * 观察点：容量 10、速率 5 的桶——瞬间来 20 个请求，</span></span><br><span class="line"><span class="comment"> * 前 10 个通过，之后按每秒 5 个放行。</span></span><br><span class="line"><span class="comment"> */</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">TokenBucket</span> &#123;</span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> <span class="type">int</span> capacity;                    <span class="comment">// 桶容量：允许的瞬时突发</span></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> <span class="type">double</span> rate;                     <span class="comment">// 令牌速率：每秒补充</span></span><br><span class="line">    <span class="keyword">private</span> <span class="type">double</span> tokens;</span><br><span class="line">    <span class="keyword">private</span> <span class="type">long</span> <span class="variable">lastRefill</span> <span class="operator">=</span> System.currentTimeMillis();</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="title function_">TokenBucket</span><span class="params">(<span class="type">int</span> capacity, <span class="type">double</span> rate)</span> &#123;</span><br><span class="line">        <span class="built_in">this</span>.capacity = capacity;</span><br><span class="line">        <span class="built_in">this</span>.rate = rate;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">synchronized</span> <span class="type">boolean</span> <span class="title function_">tryAcquire</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="type">long</span> <span class="variable">now</span> <span class="operator">=</span> System.currentTimeMillis();</span><br><span class="line">        tokens = Math.min(capacity, tokens + (now - lastRefill) / <span class="number">1000.0</span> * rate);</span><br><span class="line">        lastRefill = now;</span><br><span class="line">        <span class="keyword">if</span> (tokens &gt;= <span class="number">1</span>) &#123;</span><br><span class="line">            tokens -= <span class="number">1</span>;</span><br><span class="line">            <span class="keyword">return</span> <span class="literal">true</span>;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> <span class="literal">false</span>;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>验证测试</strong>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Test</span></span><br><span class="line"><span class="keyword">void</span> 令牌桶_突发10_之后匀速<span class="number">5</span>每秒() <span class="keyword">throws</span> InterruptedException &#123;</span><br><span class="line">    <span class="type">TokenBucket</span> <span class="variable">bucket</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">TokenBucket</span>(<span class="number">10</span>, <span class="number">5</span>);</span><br><span class="line"></span><br><span class="line">    <span class="comment">// 瞬间 20 个请求</span></span><br><span class="line">    <span class="type">int</span> <span class="variable">pass1</span> <span class="operator">=</span> <span class="number">0</span>;</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; <span class="number">20</span>; i++) &#123;</span><br><span class="line">        <span class="keyword">if</span> (bucket.tryAcquire()) pass1++;</span><br><span class="line">    &#125;</span><br><span class="line">    assertEquals(<span class="number">10</span>, pass1); <span class="comment">// 前 10 个通过（桶内令牌）</span></span><br><span class="line"></span><br><span class="line">    <span class="comment">// 等 1 秒，应补充 5 个令牌</span></span><br><span class="line">    Thread.sleep(<span class="number">1000</span>);</span><br><span class="line">    <span class="type">int</span> <span class="variable">pass2</span> <span class="operator">=</span> <span class="number">0</span>;</span><br><span class="line">    <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; <span class="number">10</span>; i++) &#123;</span><br><span class="line">        <span class="keyword">if</span> (bucket.tryAcquire()) pass2++;</span><br><span class="line">    &#125;</span><br><span class="line">    assertEquals(<span class="number">5</span>, pass2);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>判定标准</strong>：跑出「突发 10 + 匀速 5&#x2F;s」的通过曲线。</p>
+<h3 id="7-2-Redis-Lua-分布式令牌桶"><a href="#7-2-Redis-Lua-分布式令牌桶" class="headerlink" title="7.2 Redis + Lua 分布式令牌桶"></a>7.2 Redis + Lua 分布式令牌桶</h3><p><strong>Lua 脚本</strong>：</p>
+<figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- KEYS[1]: 令牌桶 key</span></span><br><span class="line"><span class="comment">-- ARGV[1]: 桶容量</span></span><br><span class="line"><span class="comment">-- ARGV[2]: 令牌速率（每秒）</span></span><br><span class="line"><span class="comment">-- ARGV[3]: 当前时间戳（毫秒）</span></span><br><span class="line"><span class="comment">-- 返回：1 放行，0 限流</span></span><br><span class="line"><span class="keyword">local</span> key      = KEYS[<span class="number">1</span>]</span><br><span class="line"><span class="keyword">local</span> capacity = <span class="built_in">tonumber</span>(ARGV[<span class="number">1</span>])</span><br><span class="line"><span class="keyword">local</span> rate     = <span class="built_in">tonumber</span>(ARGV[<span class="number">2</span>])</span><br><span class="line"><span class="keyword">local</span> now      = <span class="built_in">tonumber</span>(ARGV[<span class="number">3</span>])</span><br><span class="line"></span><br><span class="line"><span class="keyword">local</span> bucket = redis.call(<span class="string">&#x27;HMGET&#x27;</span>, key, <span class="string">&#x27;tokens&#x27;</span>, <span class="string">&#x27;lastRefill&#x27;</span>)</span><br><span class="line"><span class="keyword">local</span> tokens = <span class="built_in">tonumber</span>(bucket[<span class="number">1</span>]) <span class="keyword">or</span> capacity</span><br><span class="line"><span class="keyword">local</span> lastRefill = <span class="built_in">tonumber</span>(bucket[<span class="number">2</span>]) <span class="keyword">or</span> now</span><br><span class="line"></span><br><span class="line"><span class="keyword">local</span> delta = <span class="built_in">math</span>.<span class="built_in">max</span>(<span class="number">0</span>, now - lastRefill)</span><br><span class="line">tokens = <span class="built_in">math</span>.<span class="built_in">min</span>(capacity, tokens + delta / <span class="number">1000.0</span> * rate)</span><br><span class="line"></span><br><span class="line"><span class="keyword">local</span> allowed = <span class="number">0</span></span><br><span class="line"><span class="keyword">if</span> tokens &gt;= <span class="number">1</span> <span class="keyword">then</span></span><br><span class="line">    tokens = tokens - <span class="number">1</span></span><br><span class="line">    allowed = <span class="number">1</span></span><br><span class="line"><span class="keyword">end</span></span><br><span class="line"></span><br><span class="line">redis.call(<span class="string">&#x27;HMSET&#x27;</span>, key, <span class="string">&#x27;tokens&#x27;</span>, tokens, <span class="string">&#x27;lastRefill&#x27;</span>, now)</span><br><span class="line">redis.call(<span class="string">&#x27;EXPIRE&#x27;</span>, key, <span class="built_in">math</span>.<span class="built_in">ceil</span>(capacity / rate) + <span class="number">1</span>)</span><br><span class="line"></span><br><span class="line"><span class="keyword">return</span> allowed</span><br></pre></td></tr></table></figure>
+
+<p><strong>Java 调用</strong>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Bean</span></span><br><span class="line"><span class="keyword">public</span> DefaultRedisScript&lt;Long&gt; <span class="title function_">tokenBucketScript</span><span class="params">()</span> &#123;</span><br><span class="line">    DefaultRedisScript&lt;Long&gt; script = <span class="keyword">new</span> <span class="title class_">DefaultRedisScript</span>&lt;&gt;();</span><br><span class="line">    script.setScriptSource(<span class="keyword">new</span> <span class="title class_">ResourceScriptSource</span>(</span><br><span class="line">            <span class="keyword">new</span> <span class="title class_">ClassPathResource</span>(<span class="string">&quot;lua/token_bucket.lua&quot;</span>)));</span><br><span class="line">    script.setResultType(Long.class);</span><br><span class="line">    <span class="keyword">return</span> script;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="type">boolean</span> <span class="title function_">tryAcquire</span><span class="params">(String key, <span class="type">int</span> capacity, <span class="type">double</span> rate)</span> &#123;</span><br><span class="line">    <span class="type">Long</span> <span class="variable">result</span> <span class="operator">=</span> redis.execute(</span><br><span class="line">            tokenBucketScript,</span><br><span class="line">            Collections.singletonList(key),</span><br><span class="line">            String.valueOf(capacity),</span><br><span class="line">            String.valueOf(rate),</span><br><span class="line">            String.valueOf(System.currentTimeMillis())</span><br><span class="line">    );</span><br><span class="line">    <span class="keyword">return</span> result != <span class="literal">null</span> &amp;&amp; result == <span class="number">1L</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h3 id="7-3-Spring-拦截器落地"><a href="#7-3-Spring-拦截器落地" class="headerlink" title="7.3 Spring 拦截器落地"></a>7.3 Spring 拦截器落地</h3><h4 id="7-3-1-注解定义"><a href="#7-3-1-注解定义" class="headerlink" title="7.3.1 注解定义"></a>7.3.1 注解定义</h4><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Target(&#123;ElementType.METHOD, ElementType.TYPE&#125;)</span></span><br><span class="line"><span class="meta">@Retention(RetentionPolicy.RUNTIME)</span></span><br><span class="line"><span class="keyword">public</span> <span class="meta">@interface</span> RateLimit &#123;</span><br><span class="line">    String <span class="title function_">key</span><span class="params">()</span> <span class="keyword">default</span> <span class="string">&quot;&quot;</span>;              <span class="comment">// 限流维度</span></span><br><span class="line">    <span class="type">int</span> <span class="title function_">max</span><span class="params">()</span> <span class="keyword">default</span> <span class="number">100</span>;                <span class="comment">// 最大请求数</span></span><br><span class="line">    <span class="type">int</span> <span class="title function_">window</span><span class="params">()</span> <span class="keyword">default</span> <span class="number">1</span>;               <span class="comment">// 窗口秒数</span></span><br><span class="line">    String <span class="title function_">message</span><span class="params">()</span> <span class="keyword">default</span> <span class="string">&quot;请求过于频繁，请稍后再试&quot;</span>;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h4 id="7-3-2-拦截器"><a href="#7-3-2-拦截器" class="headerlink" title="7.3.2 拦截器"></a>7.3.2 拦截器</h4><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br><span class="line">46</span><br><span class="line">47</span><br><span class="line">48</span><br><span class="line">49</span><br><span class="line">50</span><br><span class="line">51</span><br><span class="line">52</span><br><span class="line">53</span><br><span class="line">54</span><br><span class="line">55</span><br><span class="line">56</span><br><span class="line">57</span><br><span class="line">58</span><br><span class="line">59</span><br><span class="line">60</span><br><span class="line">61</span><br><span class="line">62</span><br><span class="line">63</span><br><span class="line">64</span><br><span class="line">65</span><br><span class="line">66</span><br><span class="line">67</span><br><span class="line">68</span><br><span class="line">69</span><br><span class="line">70</span><br><span class="line">71</span><br><span class="line">72</span><br><span class="line">73</span><br><span class="line">74</span><br><span class="line">75</span><br><span class="line">76</span><br><span class="line">77</span><br><span class="line">78</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Slf4j</span></span><br><span class="line"><span class="meta">@Component</span></span><br><span class="line"><span class="meta">@RequiredArgsConstructor</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">RateLimitInterceptor</span> <span class="keyword">implements</span> <span class="title class_">HandlerInterceptor</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> StringRedisTemplate redis;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> DefaultRedisScript&lt;Long&gt; RATE_LIMIT_SCRIPT =</span><br><span class="line">            <span class="keyword">new</span> <span class="title class_">DefaultRedisScript</span>&lt;&gt;(</span><br><span class="line">                <span class="string">&quot;&quot;&quot;</span></span><br><span class="line"><span class="string">                local current = redis.call(&#x27;INCR&#x27;, KEYS[1])</span></span><br><span class="line"><span class="string">                if current == 1 then redis.call(&#x27;EXPIRE&#x27;, KEYS[1], ARGV[2]) end</span></span><br><span class="line"><span class="string">                if current &gt; tonumber(ARGV[1]) then return 0 end</span></span><br><span class="line"><span class="string">                return 1</span></span><br><span class="line"><span class="string">                &quot;&quot;&quot;</span>,</span><br><span class="line">                Long.class</span><br><span class="line">            );</span><br><span class="line"></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">static</span> <span class="keyword">final</span> ThreadLocal&lt;Long&gt; START_TS = <span class="keyword">new</span> <span class="title class_">ThreadLocal</span>&lt;&gt;();</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> <span class="type">boolean</span> <span class="title function_">preHandle</span><span class="params">(HttpServletRequest req, HttpServletResponse resp, Object handler)</span> &#123;</span><br><span class="line">        <span class="keyword">if</span> (!(handler <span class="keyword">instanceof</span> HandlerMethod hm)) <span class="keyword">return</span> <span class="literal">true</span>;</span><br><span class="line"></span><br><span class="line">        <span class="type">RateLimit</span> <span class="variable">rl</span> <span class="operator">=</span> hm.getMethodAnnotation(RateLimit.class);</span><br><span class="line">        <span class="keyword">if</span> (rl == <span class="literal">null</span>) rl = hm.getBeanType().getAnnotation(RateLimit.class);</span><br><span class="line">        <span class="keyword">if</span> (rl == <span class="literal">null</span>) <span class="keyword">return</span> <span class="literal">true</span>;</span><br><span class="line"></span><br><span class="line">        START_TS.set(System.currentTimeMillis());</span><br><span class="line"></span><br><span class="line">        <span class="type">Long</span> <span class="variable">userId</span> <span class="operator">=</span> UserContext.currentUserId();</span><br><span class="line">        <span class="type">String</span> <span class="variable">caller</span> <span class="operator">=</span> userId == <span class="literal">null</span> ? req.getRemoteAddr() : String.valueOf(userId);</span><br><span class="line">        <span class="type">String</span> <span class="variable">key</span> <span class="operator">=</span> <span class="string">&quot;zeus:doc:rl:&quot;</span> + rl.key() + <span class="string">&quot;:&quot;</span> + hm.getMethod().getName() + <span class="string">&quot;:&quot;</span> + caller;</span><br><span class="line"></span><br><span class="line">        <span class="type">Long</span> <span class="variable">allowed</span> <span class="operator">=</span> redis.execute(</span><br><span class="line">                RATE_LIMIT_SCRIPT,</span><br><span class="line">                Collections.singletonList(key),</span><br><span class="line">                String.valueOf(rl.max()),</span><br><span class="line">                String.valueOf(rl.window())</span><br><span class="line">        );</span><br><span class="line"></span><br><span class="line">        <span class="keyword">if</span> (allowed != <span class="literal">null</span> &amp;&amp; allowed == <span class="number">0L</span>) &#123;</span><br><span class="line">            log.warn(<span class="string">&quot;[RateLimit] 限流触发 key=&#123;&#125;, max=&#123;&#125;/&#123;&#125;, user=&#123;&#125;&quot;</span>,</span><br><span class="line">                    key, rl.max(), rl.window(), caller);</span><br><span class="line">            write429(resp, rl.message());</span><br><span class="line">            <span class="keyword">return</span> <span class="literal">false</span>;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">return</span> <span class="literal">true</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">postHandle</span><span class="params">(HttpServletRequest req, HttpServletResponse resp,</span></span><br><span class="line"><span class="params">                           Object handler, ModelAndView mav)</span> &#123;</span><br><span class="line">        <span class="type">Long</span> <span class="variable">start</span> <span class="operator">=</span> START_TS.get();</span><br><span class="line">        <span class="keyword">if</span> (start != <span class="literal">null</span> &amp;&amp; handler <span class="keyword">instanceof</span> HandlerMethod hm) &#123;</span><br><span class="line">            <span class="type">long</span> <span class="variable">cost</span> <span class="operator">=</span> System.currentTimeMillis() - start;</span><br><span class="line">            <span class="keyword">if</span> (cost &gt; <span class="number">500</span>) &#123;</span><br><span class="line">                log.warn(<span class="string">&quot;[RT] 慢接口 &#123;&#125; cost=&#123;&#125;ms&quot;</span>, hm.getMethod().getName(), cost);</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">afterCompletion</span><span class="params">(HttpServletRequest req, HttpServletResponse resp,</span></span><br><span class="line"><span class="params">                                Object handler, Exception ex)</span> &#123;</span><br><span class="line">        START_TS.remove(); <span class="comment">// 必须 remove，防止线程池线程复用导致内存泄漏</span></span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">void</span> <span class="title function_">write429</span><span class="params">(HttpServletResponse resp, String msg)</span> &#123;</span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            resp.setStatus(<span class="number">429</span>);</span><br><span class="line">            resp.setContentType(<span class="string">&quot;application/json;charset=UTF-8&quot;</span>);</span><br><span class="line">            resp.getWriter().write(<span class="string">&quot;&#123;\&quot;code\&quot;:429,\&quot;msg\&quot;:\&quot;&quot;</span> + msg + <span class="string">&quot;\&quot;&#125;&quot;</span>);</span><br><span class="line">        &#125; <span class="keyword">catch</span> (Exception e) &#123;</span><br><span class="line">            log.error(<span class="string">&quot;[RateLimit] 写 429 响应失败&quot;</span>, e);</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h4 id="7-3-3-请求处理时序图"><a href="#7-3-3-请求处理时序图" class="headerlink" title="7.3.3 请求处理时序图"></a>7.3.3 请求处理时序图</h4><pre class="mermaid">sequenceDiagram
+    participant C as 客户端
+    participant I as RateLimitInterceptor
+    participant R as Redis
+    participant B as 业务方法
+
+    C->>I: 请求 /api/seckill
+    I->>I: 解析注解 RateLimit
+    I->>I: START_TS.set(now)
+    I->>R: EVAL script (INCR + EXPIRE)
+    R-->>I: 1（放行）/ 0（限流）
+    alt 放行
+        I->>B: 执行 preHandle → true
+        B-->>I: 业务返回
+        I->>I: postHandle 计算耗时
+    else 限流
+        I-->>C: 429 + JSON
+    end
+    I->>I: afterCompletion: START_TS.remove()</pre>
+
+<p><strong>注册拦截器</strong>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Configuration</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">WebMvcConfig</span> <span class="keyword">implements</span> <span class="title class_">WebMvcConfigurer</span> &#123;</span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">addInterceptors</span><span class="params">(InterceptorRegistry registry)</span> &#123;</span><br><span class="line">        registry.addInterceptor(rateLimitInterceptor)</span><br><span class="line">                .addPathPatterns(<span class="string">&quot;/api/**&quot;</span>)</span><br><span class="line">                .excludePathPatterns(<span class="string">&quot;/api/health&quot;</span>, <span class="string">&quot;/api/login&quot;</span>);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>使用</strong>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@RestController</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">SeckillController</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@RateLimit(key = &quot;seckill&quot;, max = 5, window = 1, message = &quot;手慢了，请稍后再试&quot;)</span></span><br><span class="line">    <span class="meta">@PostMapping(&quot;/api/seckill/&#123;skuId&#125;&quot;)</span></span><br><span class="line">    <span class="keyword">public</span> R&lt;Void&gt; <span class="title function_">seckill</span><span class="params">(<span class="meta">@PathVariable</span> Long skuId)</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> R.ok();</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="八、限流与降级的联动"><a href="#八、限流与降级的联动" class="headerlink" title="八、限流与降级的联动"></a>八、限流与降级的联动</h2><h3 id="8-1-核心理念"><a href="#8-1-核心理念" class="headerlink" title="8.1 核心理念"></a>8.1 核心理念</h3><blockquote>
+<p><strong>限流是「预先划定的容量」，降级是「故障时的保底」——两者必须联动。</strong></p>
+</blockquote>
+<p>当限流指标（<strong>拒绝率</strong>）超过阈值，说明系统真被打到了，触发降级——<strong>关闭非核心功能</strong>（购物车、推荐位、评论），把资源全部让给<strong>下单链路</strong>。</p>
+<h3 id="8-2-因果链流程图"><a href="#8-2-因果链流程图" class="headerlink" title="8.2 因果链流程图"></a>8.2 因果链流程图</h3><pre class="mermaid">flowchart TB
+    A["秒杀开场"] --> B["流量洪峰"]
+    B --> C["限流触发，拒绝率飙升"]
+    C --> D{"拒绝率 > 30%?"}
+    D -- 是 --> E["触发降级开关"]
+    D -- 否 --> F["保持正常"]
+    E --> G["关闭非核心功能"]
+    G --> G1["商品详情推荐位 → 返回缓存"]
+    G --> G2["用户评论 → 静态兜底"]
+    G --> G3["购物车 → 只读"]
+    G1 --> H["核心链路独占资源"]
+    G2 --> H
+    G3 --> H
+    H --> I["下单 / 扣库存"]
+
+    style E fill:#f99
+    style H fill:#9f9
+    style I fill:#9f9</pre>
+
+<h3 id="8-3-实现思路"><a href="#8-3-实现思路" class="headerlink" title="8.3 实现思路"></a>8.3 实现思路</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Component</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">DegradeSwitch</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="keyword">private</span> <span class="keyword">final</span> <span class="type">AtomicBoolean</span> <span class="variable">seckillMode</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">AtomicBoolean</span>(<span class="literal">false</span>);</span><br><span class="line"></span><br><span class="line">    <span class="comment">/** 限流拒绝率超过 30% 时，进入秒杀降级模式 */</span></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">onRateLimitRejected</span><span class="params">(<span class="type">double</span> rejectRate)</span> &#123;</span><br><span class="line">        <span class="keyword">if</span> (rejectRate &gt; <span class="number">0.3</span> &amp;&amp; seckillMode.compareAndSet(<span class="literal">false</span>, <span class="literal">true</span>)) &#123;</span><br><span class="line">            log.warn(<span class="string">&quot;[Degrade] 拒绝率 &#123;&#125;，进入秒杀降级模式&quot;</span>, rejectRate);</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment">/** 非核心功能入口判断 */</span></span><br><span class="line">    <span class="keyword">public</span> <span class="type">boolean</span> <span class="title function_">isNonCoreEnabled</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> !seckillMode.get();</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>业务代码里的降级</strong>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@GetMapping(&quot;/api/product/&#123;id&#125;&quot;)</span></span><br><span class="line"><span class="keyword">public</span> R&lt;ProductVO&gt; <span class="title function_">detail</span><span class="params">(<span class="meta">@PathVariable</span> Long id)</span> &#123;</span><br><span class="line">    <span class="type">ProductVO</span> <span class="variable">vo</span> <span class="operator">=</span> productService.getById(id);</span><br><span class="line">    <span class="comment">// 非核心功能：推荐位</span></span><br><span class="line">    <span class="keyword">if</span> (degradeSwitch.isNonCoreEnabled()) &#123;</span><br><span class="line">        vo.setRecommendations(recommendService.getRelated(id));</span><br><span class="line">    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">        vo.setRecommendations(Collections.emptyList()); <span class="comment">// 降级</span></span><br><span class="line">    &#125;</span><br><span class="line">    <span class="keyword">return</span> R.ok(vo);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h3 id="8-4-关键原则"><a href="#8-4-关键原则" class="headerlink" title="8.4 关键原则"></a>8.4 关键原则</h3><blockquote>
+<p><strong>秒杀开场瞬间，任何非核心请求都是对核心链路的伤害。</strong></p>
+<p><strong>降级是「主动选择服务哪些流量」——不是被动故障处理，而是主动的容量管理。</strong></p>
+</blockquote>
+<hr>
+<h2 id="九、生产实践-Checklist"><a href="#九、生产实践-Checklist" class="headerlink" title="九、生产实践 Checklist"></a>九、生产实践 Checklist</h2><h3 id="9-1-限流维度设计"><a href="#9-1-限流维度设计" class="headerlink" title="9.1 限流维度设计"></a>9.1 限流维度设计</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>示例</th>
+<th>适用场景</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>IP</strong></td>
+<td><code>ip:192.168.1.1</code></td>
+<td>匿名接口、防爬</td>
+</tr>
+<tr>
+<td><strong>用户ID</strong></td>
+<td><code>user:10086</code></td>
+<td>登录接口、秒杀</td>
+</tr>
+<tr>
+<td><strong>接口</strong></td>
+<td><code>api:/order/create</code></td>
+<td>全局接口保护</td>
+</tr>
+<tr>
+<td><strong>组合</strong></td>
+<td><code>user:10086:api:/order</code></td>
+<td>细粒度控制</td>
+</tr>
+<tr>
+<td><strong>商品</strong></td>
+<td><code>sku:888</code></td>
+<td>单商品限流</td>
+</tr>
+<tr>
+<td><strong>租户</strong></td>
+<td><code>tenant:abc</code></td>
+<td>SaaS 多租户隔离</td>
+</tr>
+</tbody></table>
+<h3 id="9-2-参数调优"><a href="#9-2-参数调优" class="headerlink" title="9.2 参数调优"></a>9.2 参数调优</h3><table>
+<thead>
+<tr>
+<th>参数</th>
+<th>建议</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>桶容量</td>
+<td>平均 QPS × 2~5 秒</td>
+<td>允许 2~5 秒的突发</td>
+</tr>
+<tr>
+<td>令牌速率</td>
+<td>下游承载能力 × 0.8</td>
+<td>留 20% buffer</td>
+</tr>
+<tr>
+<td>窗口大小</td>
+<td>1 秒为主</td>
+<td>再小精度收益低</td>
+</tr>
+<tr>
+<td>key TTL</td>
+<td>窗口 × 2</td>
+<td>防止内存泄漏</td>
+</tr>
+</tbody></table>
+<h3 id="9-3-常见坑"><a href="#9-3-常见坑" class="headerlink" title="9.3 常见坑"></a>9.3 常见坑</h3><table>
+<thead>
+<tr>
+<th>坑</th>
+<th>现象</th>
+<th>解决</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Redis key 无 TTL</td>
+<td>内存爆炸</td>
+<td>Lua 里必须 <code>EXPIRE</code></td>
+</tr>
+<tr>
+<td>限流 key 太粗</td>
+<td>一个用户拖垮全站</td>
+<td>按 user + api 组合</td>
+</tr>
+<tr>
+<td>限流 key 太细</td>
+<td>Redis key 数量爆炸</td>
+<td>加前缀 + 定期清理</td>
+</tr>
+<tr>
+<td>单机限流误用于分布式</td>
+<td>总量是配置的 N 倍</td>
+<td>改用 Redis 集中式</td>
+</tr>
+<tr>
+<td>429 响应无 Retry-After</td>
+<td>客户端疯狂重试</td>
+<td>响应头加 <code>Retry-After</code></td>
+</tr>
+<tr>
+<td>限流写在业务代码里</td>
+<td>侵入性强</td>
+<td>AOP &#x2F; 拦截器统一处理</td>
+</tr>
+<tr>
+<td>不监控拒绝率</td>
+<td>出问题不知道</td>
+<td>Prometheus + Grafana</td>
+</tr>
+<tr>
+<td>限流阈值写死</td>
+<td>大促改不了</td>
+<td>Nacos 动态配置</td>
+</tr>
+</tbody></table>
+<h3 id="9-4-监控指标"><a href="#9-4-监控指标" class="headerlink" title="9.4 监控指标"></a>9.4 监控指标</h3><pre class="mermaid">flowchart LR
+    App["应用限流点"] -- "Micrometer" --> Prom["Prometheus"]
+    Prom --> Graf["Grafana 大盘"]
+    Graf --> Alert["告警规则"]
+    Alert --> WX["企业微信 / 钉钉"]
+
+    style Alert fill:#f99</pre>
+
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"># 核心指标</span><br><span class="line">rate_limit_rejected_total&#123;key, api&#125;        # 拒绝总数</span><br><span class="line">rate_limit_allowed_total&#123;key, api&#125;         # 通过总数</span><br><span class="line">rate_limit_reject_rate&#123;api&#125;                # 拒绝率</span><br><span class="line">rate_limit_redis_rt_seconds&#123;api&#125;           # Redis 调用耗时</span><br><span class="line">rate_limit_script_error_total              # Lua 脚本错误数</span><br></pre></td></tr></table></figure>
+
+<h3 id="9-5-降级预案"><a href="#9-5-降级预案" class="headerlink" title="9.5 降级预案"></a>9.5 降级预案</h3><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>降级动作</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Redis 不可用</td>
+<td>切本地限流（Guava）+ 告警</td>
+</tr>
+<tr>
+<td>限流脚本报错</td>
+<td>放行（fail-open），记录日志</td>
+</tr>
+<tr>
+<td>拒绝率 &gt; 30%</td>
+<td>触发降级，关闭非核心</td>
+</tr>
+<tr>
+<td>拒绝率 &gt; 50%</td>
+<td>启动排队机制，返回”预计等待时间”</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="十、常见面试问题"><a href="#十、常见面试问题" class="headerlink" title="十、常见面试问题"></a>十、常见面试问题</h2><h3 id="Q1：固定窗口的边界问题怎么解决？"><a href="#Q1：固定窗口的边界问题怎么解决？" class="headerlink" title="Q1：固定窗口的边界问题怎么解决？"></a>Q1：固定窗口的边界问题怎么解决？</h3><p><strong>答</strong>：升级到滑动窗口。滑动窗口有两种实现：</p>
+<ul>
+<li>精确时间戳（内存高，O(QPS × 窗口)）</li>
+<li>分桶统计（内存低，精度略低，Sentinel 用这种）</li>
+</ul>
+<p>固定窗口切小粒度只能缓解，无法根治。</p>
+<hr>
+<h3 id="Q2：漏桶和令牌桶的本质区别？"><a href="#Q2：漏桶和令牌桶的本质区别？" class="headerlink" title="Q2：漏桶和令牌桶的本质区别？"></a>Q2：漏桶和令牌桶的本质区别？</h3><p><strong>答</strong>：</p>
+<ul>
+<li><strong>漏桶限制流出速率</strong>，请求必须排队等待，强制平滑，<strong>不允许突发</strong>。</li>
+<li><strong>令牌桶限制平均速率</strong>，桶容量内的突发可以立即通过，<strong>允许突发</strong>。</li>
+</ul>
+<p>一句话：<strong>漏桶是”你按我的节奏走”，令牌桶是”你可以在额度内自由发挥”。</strong></p>
+<pre class="mermaid">flowchart LR
+    subgraph LB[漏桶]
+        L1["请求"] --> L2["排队"] --> L3["匀速流出"]
+    end
+    subgraph TB[令牌桶]
+        T1["请求"] --> T2["查令牌"] --> T3{"有?"} --> |有| T4["立即通过"]
+        T3 --> |无| T5["立即拒绝"]
+    end</pre>
+
+<hr>
+<h3 id="Q3：分布式限流怎么保证总量？"><a href="#Q3：分布式限流怎么保证总量？" class="headerlink" title="Q3：分布式限流怎么保证总量？"></a>Q3：分布式限流怎么保证总量？</h3><p><strong>答</strong>：核心是<strong>集中式计数器</strong>。方案：</p>
+<ol>
+<li><strong>Redis + Lua</strong>（推荐）：原子性强，一次 RTT。</li>
+<li><strong>分段配额</strong>：每实例预分配一段，减少 Redis 压力，但流量不均时浪费。</li>
+<li><strong>Sentinel 集群模式</strong>：Token Server 集中发令牌。</li>
+</ol>
+<p><strong>面试重点</strong>：单机限流 × N 实例 ≠ 总量限流。</p>
+<hr>
+<h3 id="Q4：令牌桶的令牌为什么要惰性补充？"><a href="#Q4：令牌桶的令牌为什么要惰性补充？" class="headerlink" title="Q4：令牌桶的令牌为什么要惰性补充？"></a>Q4：令牌桶的令牌为什么要惰性补充？</h3><p><strong>答</strong>：如果每 100ms 定时补一次令牌，需要后台定时器，N 个限流 key 就需要 N 个定时任务，资源浪费。惰性补充是<strong>每次请求时按流逝时间计算应补多少</strong>，把 O(N) 的定时成本变成 O(1) 的请求成本。</p>
+<hr>
+<h3 id="Q5：限流和熔断的区别？"><a href="#Q5：限流和熔断的区别？" class="headerlink" title="Q5：限流和熔断的区别？"></a>Q5：限流和熔断的区别？</h3><p><strong>答</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>限流</th>
+<th>熔断</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>触发时机</td>
+<td>请求到达前</td>
+<td>调用下游失败率高时</td>
+</tr>
+<tr>
+<td>保护对象</td>
+<td><strong>自己</strong></td>
+<td><strong>调用方</strong></td>
+</tr>
+<tr>
+<td>状态</td>
+<td>无状态&#x2F;简单状态</td>
+<td>三态（关闭&#x2F;半开&#x2F;打开）</td>
+</tr>
+<tr>
+<td>恢复方式</td>
+<td>自动（时间窗口）</td>
+<td>需探测（半开状态试调用）</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">stateDiagram-v2
+    [*] --> Closed: 初始
+    Closed --> Open: 失败率超阈值
+    Open --> HalfOpen: 等待时间到
+    HalfOpen --> Closed: 探测成功
+    HalfOpen --> Open: 探测失败</pre>
+
+<hr>
+<h3 id="Q6：限流阈值怎么定？"><a href="#Q6：限流阈值怎么定？" class="headerlink" title="Q6：限流阈值怎么定？"></a>Q6：限流阈值怎么定？</h3><p><strong>答</strong>：三步法：</p>
+<ol>
+<li><strong>压测确定单机容量</strong>：P99 RT &lt; 200ms 时的最大 QPS。</li>
+<li><strong>留 20% buffer</strong>：阈值 &#x3D; 压测值 × 0.8。</li>
+<li><strong>动态调整</strong>：通过 Nacos 配置，大促前手动调整。</li>
+</ol>
+<p><strong>不要拍脑袋</strong>：<code>max=1000</code> 这种数字必须有压测数据支撑。</p>
+<hr>
+<h3 id="Q7：限流拦截器为什么用-ThreadLocal-记录开始时间？"><a href="#Q7：限流拦截器为什么用-ThreadLocal-记录开始时间？" class="headerlink" title="Q7：限流拦截器为什么用 ThreadLocal 记录开始时间？"></a>Q7：限流拦截器为什么用 ThreadLocal 记录开始时间？</h3><p><strong>答</strong>：<code>preHandle</code> 和 <code>postHandle</code> &#x2F; <code>afterCompletion</code> 是同一个线程执行的（同步请求），用 ThreadLocal 传递状态最简单。**必须 <code>remove()</code>**，因为 Tomcat 线程池会复用线程，不 remove 会导致内存泄漏 + 脏数据。</p>
+<p><strong>注意</strong>：异步请求（<code>Callable</code>、<code>DeferredResult</code>）会切换线程，ThreadLocal 会失效，需要改用 <code>RequestContextHolder</code> 或 <code>AsyncListener</code>。</p>
+<hr>
+<h3 id="Q8：为什么-429-响应要带-Retry-After？"><a href="#Q8：为什么-429-响应要带-Retry-After？" class="headerlink" title="Q8：为什么 429 响应要带 Retry-After？"></a>Q8：为什么 429 响应要带 Retry-After？</h3><p><strong>答</strong>：HTTP 标准里，429 表示 “Too Many Requests”，配合 <code>Retry-After</code> 头告诉客户端<strong>多久后重试</strong>：</p>
+<figure class="highlight http"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">HTTP/1.1</span> <span class="number">429</span> Too Many Requests</span><br><span class="line"><span class="attribute">Retry-After</span><span class="punctuation">: </span>1</span><br><span class="line"><span class="attribute">Content-Type</span><span class="punctuation">: </span>application/json</span><br><span class="line"></span><br><span class="line"><span class="language-css">&#123;&quot;<span class="selector-tag">code</span>&quot;: <span class="number">429</span>, <span class="string">&quot;msg&quot;</span>: <span class="string">&quot;请求过于频繁，请 1 秒后重试&quot;</span>&#125;</span></span><br></pre></td></tr></table></figure>
+
+<p>好处：</p>
+<ul>
+<li>规范客户端行为，避免盲目重试</li>
+<li>配合指数退避，保护服务端</li>
+</ul>
+<hr>
+<h2 id="附录：算法选择决策树"><a href="#附录：算法选择决策树" class="headerlink" title="附录：算法选择决策树"></a>附录：算法选择决策树</h2><pre class="mermaid">flowchart TB
+    Start["需要限流"] --> Q1{"单机 or 分布式?"}
+    Q1 -- 单机 --> S1["Guava RateLimiter&lt;br/>或手写令牌桶"]
+    Q1 -- 分布式 --> S2["Redis + Lua"]
+    S2 --> Q2{"允许突发?"}
+    Q2 -- 是 --> S3["令牌桶（推荐）"]
+    Q2 -- 否 --> S4["漏桶 / 滑动窗口"]
+    S3 --> Q3{"精度要求?"}
+    S4 --> Q3
+    Q3 -- 高 --> S5["滑动窗口"]
+    Q3 -- 低 --> S6["固定窗口"]
+    S5 --> Q4{"部署位置?"}
+    S6 --> Q4
+    Q4 -- 网关层 --> S7["Nginx limit_req（漏桶）"]
+    Q4 -- 应用层 --> S8["Redis + Lua（令牌桶）"]
+
+    style S3 fill:#9f9
+    style S8 fill:#9f9</pre>
+
+<hr>
+<h2 id="核心记忆点"><a href="#核心记忆点" class="headerlink" title="核心记忆点"></a>核心记忆点</h2><table>
+<thead>
+<tr>
+<th>#</th>
+<th>记忆点</th>
+<th>图示</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td><strong>固定窗口</strong>：简单但有边界问题</td>
+<td><code>├─1s─┼─1s─┤</code> 边界穿越</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>滑动窗口</strong>：精度高但内存大</td>
+<td>动态右移窗口</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>漏桶</strong>：强制平滑，保护下游</td>
+<td>底孔匀速漏水</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>令牌桶</strong>：允许突发，秒杀首选</td>
+<td>桶内令牌可瞬间放量</td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong>分布式必用 Redis + Lua</strong></td>
+<td>单机 × N ≠ 总量</td>
+</tr>
+<tr>
+<td>6</td>
+<td><strong>双层限流</strong>：网关挡 90%，应用做细粒度</td>
+<td>漏斗图</td>
+</tr>
+<tr>
+<td>7</td>
+<td><strong>限流必联降级</strong>：拒绝率飙升时关闭非核心</td>
+<td>因果链图</td>
+</tr>
+</tbody></table>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/3d5d485f.html" rel="prev" title="Spring MVC请求流程深度解析">
+                  <i class="fa fa-angle-left"></i> Spring MVC请求流程深度解析
+                </a>
+            </div>
+            <div class="post-nav-item">
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">626k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">37:55</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
+</html>

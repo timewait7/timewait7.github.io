@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="本节要解决什么问题：一个 HTTP 请求从 Tomcat 进来，到 Controller 方法执行、再到响应返回，中间经过哪些组件、每个组件干什么。   一次请求的完整旅程核心调度代码在 DispatcherServlet.doDispatch()： 12345678910111213141516protected void doDispatch(HttpServletRequest reque">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Spring MVC请求流程深度解析">
+<meta property="og:url" content="http://timewait7.github.io/post/3d5d485f.html">
+<meta property="og:site_name" content="知行栈">
+<meta property="og:description" content="本节要解决什么问题：一个 HTTP 请求从 Tomcat 进来，到 Controller 方法执行、再到响应返回，中间经过哪些组件、每个组件干什么。   一次请求的完整旅程核心调度代码在 DispatcherServlet.doDispatch()： 12345678910111213141516protected void doDispatch(HttpServletRequest reque">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-10-03T03:40:57.000Z">
+<meta property="article:modified_time" content="2026-10-03T03:56:22.476Z">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/3d5d485f.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/3d5d485f.html","path":"post/3d5d485f.html","title":"Spring MVC请求流程深度解析"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>Spring MVC请求流程深度解析 | 知行栈</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<!-- hexo injector head_end start --><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
+</style><style>
+/* 菜单链高亮：sub-menu 祖先（同主题 .menu-item-active 的 Pisces 规则） */
+.sub-menu .menu-item a.menu-chain-active {
+  border-bottom-color: #fc6423;
+  color: #fc6423;
+}
+.sub-menu .menu-item a.menu-chain-active:hover {
+  border-bottom-color: #fc6423;
+}
+/* 菜单链高亮：main-menu 祖先（同主题 hover/active 的背景规则） */
+.main-menu .menu-item a.menu-chain-active {
+  background: var(--menu-item-bg-color);
+}
+</style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">知行栈</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>Categories</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B8%80%E6%AC%A1%E8%AF%B7%E6%B1%82%E7%9A%84%E5%AE%8C%E6%95%B4%E6%97%85%E7%A8%8B"><span class="nav-text">一次请求的完整旅程</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#MVC-%E4%B9%9D%E5%A4%A7%E7%BB%84%E4%BB%B6%E5%AE%8C%E6%95%B4%E6%B8%85%E5%8D%95"><span class="nav-text">MVC 九大组件完整清单</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%AB%AF%E5%88%B0%E7%AB%AF%E6%97%B6%E5%BA%8F%E5%9B%BE"><span class="nav-text">端到端时序图</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E7%9C%9F%E5%AE%9E%E8%AF%B7%E6%B1%82%E7%A4%BA%E4%BE%8B"><span class="nav-text">真实请求示例</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%90%AF%E5%8A%A8%E9%98%B6%E6%AE%B5%EF%BC%9A%E4%B9%9D%E5%A4%A7%E7%BB%84%E4%BB%B6%E5%88%9D%E5%A7%8B%E5%8C%96%EF%BC%8C%E8%B7%AF%E7%94%B1%E8%A1%A8%E5%BB%BA%E7%AB%8B"><span class="nav-text">启动阶段：九大组件初始化，路由表建立</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#RequestMappingHandlerMapping"><span class="nav-text">RequestMappingHandlerMapping</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#RequestMappingHandlerAdapter"><span class="nav-text">RequestMappingHandlerAdapter</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E8%AF%B7%E6%B1%82%E8%BF%9B%E5%85%A5-Tomcat-%E5%92%8C-Filter-%E9%93%BE"><span class="nav-text">请求进入 Tomcat 和 Filter 链</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#doDispatch-%E5%86%85%E9%83%A8%E7%9C%9F%E5%AE%9E%E9%A1%BA%E5%BA%8F"><span class="nav-text">doDispatch 内部真实顺序</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#getHandler%EF%BC%9A%E6%89%BE%E5%88%B0-HandlerExecutionChain"><span class="nav-text">getHandler：找到 HandlerExecutionChain</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#getHandlerAdapter%EF%BC%9A%E6%89%BE%E5%88%B0-RequestMappingHandlerAdapter"><span class="nav-text">getHandlerAdapter：找到 RequestMappingHandlerAdapter</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#ha-handle%EF%BC%9A%E5%8F%82%E6%95%B0%E8%A7%A3%E6%9E%90%E3%80%81%E8%B0%83%E7%94%A8-Controller%E3%80%81%E8%BF%94%E5%9B%9E%E5%80%BC%E5%A4%84%E7%90%86"><span class="nav-text">ha.handle：参数解析、调用 Controller、返回值处理</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%8F%82%E6%95%B0%E8%A7%A3%E6%9E%90"><span class="nav-text">参数解析</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#RequestBody-CreateOrderCmd-cmd"><span class="nav-text">@RequestBody CreateOrderCmd cmd</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#RequestHeader-%E2%80%9CX-Trace-Id%E2%80%9D-String-traceId"><span class="nav-text">@RequestHeader(“X-Trace-Id”) String traceId</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#PathVariable-%E8%A1%A5%E5%85%85"><span class="nav-text">@PathVariable 补充</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E5%8F%8D%E5%B0%84%E8%B0%83%E7%94%A8-Controller"><span class="nav-text">反射调用 Controller</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#%E8%BF%94%E5%9B%9E%E5%80%BC%E5%A4%84%E7%90%86"><span class="nav-text">返回值处理</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#applyPostHandle-%E5%92%8C-processDispatchResult"><span class="nav-text">applyPostHandle 和 processDispatchResult</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%AE%8C%E6%95%B4%E6%BA%90%E7%A0%81%E8%B0%83%E7%94%A8%E6%A0%88"><span class="nav-text">完整源码调用栈</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B9%9D%E5%A4%A7%E7%BB%84%E4%BB%B6%E5%9C%A8%E8%BF%99%E6%AC%A1%E8%AF%B7%E6%B1%82%E4%B8%AD%E7%9A%84%E8%90%BD%E7%82%B9"><span class="nav-text">九大组件在这次请求中的落点</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E5%BC%82%E5%B8%B8%E5%88%86%E6%94%AF%E6%80%8E%E4%B9%88%E8%B5%B0"><span class="nav-text">异常分支怎么走</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E6%9C%80%E5%AE%B9%E6%98%93%E6%90%9E%E9%94%99%E7%9A%84%E5%87%A0%E4%B8%AA%E7%82%B9"><span class="nav-text">最容易搞错的几个点</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#%E4%B8%80%E5%8F%A5%E8%AF%9D%E4%B8%B2%E8%B5%B7%E6%9D%A5"><span class="nav-text">一句话串起来</span></a></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">85</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">17</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">126</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+    <div class="sidebar-inner sidebar-blogroll">
+      <div class="links-of-blogroll animated">
+        <div class="links-of-blogroll-title"><i class="fa fa-globe fa-fw"></i>
+          Links
+        </div>
+        <ul class="links-of-blogroll-list">
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9wYXVsZ3JhaGFtLmNvbS9hcnRpY2xlcy5odG1s" title="https:&#x2F;&#x2F;paulgraham.com&#x2F;articles.html">paulgraham</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly93d3cuam9lbG9uc29mdHdhcmUuY29tLw==" title="https:&#x2F;&#x2F;www.joelonsoftware.com&#x2F;">Joel on Software</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9tYXJ0aW5mb3dsZXIuY29tLw==" title="https:&#x2F;&#x2F;martinfowler.com&#x2F;">Martin Flower</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly96aGFuZ3RpZWxlaS5jb20v" title="https:&#x2F;&#x2F;zhangtielei.com&#x2F;">zhangtielei</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhLWRlc2lnbi1wYXR0ZXJucy5jb20vemgv" title="https:&#x2F;&#x2F;java-design-patterns.com&#x2F;zh&#x2F;">Java Design Patterns</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9taWNyb3NlcnZpY2VzLmlvLw==" title="https:&#x2F;&#x2F;microservices.io&#x2F;">Microservice Architecture</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhZ3VpZGUuY24v" title="https:&#x2F;&#x2F;javaguide.cn&#x2F;">JavaGuide</span>
+            </li>
+        </ul>
+      </div>
+    </div>
+        <div class="pjax">
+        
+        <div class="sidebar-inner sidebar-post-related">
+          <div class="animated">
+              <div class="links-of-blogroll-title"><i class="fa fa-signs-post fa-fw"></i>
+    Related Posts
+  </div>
+  <ul class="popular-posts">
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/18f2748c.html" rel="bookmark">
+        <time class="popular-posts-time">2025-07-26</time>
+        <br>
+      Spring 深度解析
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/tomcat-deep-2025.html" rel="bookmark">
+        <time class="popular-posts-time">2026-08-13</time>
+        <br>
+      Tomcat 深度解析：连接器、类加载与调优排障
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/llm-api-tool-calling-2026.html" rel="bookmark">
+        <time class="popular-posts-time">2026-08-03</time>
+        <br>
+      LLM API与工具调用实战
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/be1f55d9.html" rel="bookmark">
+        <time class="popular-posts-time">2025-08-01</time>
+        <br>
+      Java 开发实战速查
+      </a>
+    </li>
+  </ul>
+
+          </div>
+        </div>
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/3d5d485f.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="Spring MVC请求流程深度解析 | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          Spring MVC请求流程深度解析
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-10-03 11:40:57" itemprop="dateCreated datePublished" datetime="2026-10-03T11:40:57+08:00">2026-10-03</time>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>2.7k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>10 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><blockquote>
+<p>本节要解决什么问题：一个 HTTP 请求从 Tomcat 进来，到 Controller 方法执行、再到响应返回，中间经过哪些组件、每个组件干什么。</p>
+</blockquote>
+<hr>
+<h2 id="一次请求的完整旅程"><a href="#一次请求的完整旅程" class="headerlink" title="一次请求的完整旅程"></a>一次请求的完整旅程</h2><p>核心调度代码在 <code>DispatcherServlet.doDispatch()</code>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">protected</span> <span class="keyword">void</span> <span class="title function_">doDispatch</span><span class="params">(HttpServletRequest request, HttpServletResponse response)</span> <span class="keyword">throws</span> Exception &#123;</span><br><span class="line">    <span class="comment">// 1. 通过 HandlerMapping 找到处理器执行链（Handler + 拦截器）</span></span><br><span class="line">    mappedHandler = getHandler(processedRequest);</span><br><span class="line">    <span class="comment">// 2. 找到合适的 HandlerAdapter（默认是 RequestMappingHandlerAdapter）</span></span><br><span class="line">    <span class="type">HandlerAdapter</span> <span class="variable">ha</span> <span class="operator">=</span> getHandlerAdapter(mappedHandler.getHandler());</span><br><span class="line">    <span class="comment">// 3. 拦截器 preHandle（返回 false 则中断请求）</span></span><br><span class="line">    <span class="keyword">if</span> (!mappedHandler.applyPreHandle(processedRequest, response)) &#123;</span><br><span class="line">        <span class="keyword">return</span>;</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="comment">// 4. 执行处理器方法，返回 ModelAndView</span></span><br><span class="line">    mv = ha.handle(processedRequest, response, mappedHandler.getHandler());</span><br><span class="line">    <span class="comment">// 5. 拦截器 postHandle</span></span><br><span class="line">    mappedHandler.applyPostHandle(processedRequest, response, mv);</span><br><span class="line">    <span class="comment">// 6. 异常处理（HandlerExceptionResolver）与视图渲染</span></span><br><span class="line">    processDispatchResult(processedRequest, response, mappedHandler, mv, dispatchException);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>完整九步：</p>
+<ol>
+<li>请求进入 Servlet 容器（Tomcat）→ 经过 <strong>Filter 链</strong>（见第 9 节）→ 到达 <code>DispatcherServlet</code>。</li>
+<li><code>getHandler</code>：按 <code>HandlerMapping</code> 链逐个尝试匹配，<code>RequestMappingHandlerMapping</code> 根据 <code>@RequestMapping</code> 注册的路由表返回 <code>HandlerExecutionChain</code>。</li>
+<li><code>getHandlerAdapter</code>：为 Handler 找到适配器（<code>RequestMappingHandlerAdapter</code>）。</li>
+<li><code>applyPreHandle</code>：执行拦截器链的 <code>preHandle</code>，任一返回 <code>false</code> 则请求在此中断。</li>
+<li><code>ha.handle</code>：适配器调用 Controller 方法——<code>HandlerMethodArgumentResolver</code> 链解析参数（<code>@RequestBody</code> 由 <code>HttpMessageConverter</code> 把 JSON 反序列化为对象，<code>@PathVariable</code>&#x2F;<code>@RequestParam</code> 做数据绑定与类型转换），方法执行后由 <code>HandlerMethodReturnValueHandler</code> 处理返回值。</li>
+<li>返回 <code>ModelAndView</code>：有 <code>@ResponseBody</code>（或 <code>@RestController</code>）时返回 <code>null</code> 的 ModelAndView，返回值直接由 <code>HttpMessageConverter</code>（Jackson 的 <code>MappingJackson2HttpMessageConverter</code>）序列化写入响应体。</li>
+<li><code>applyPostHandle</code>：拦截器 <code>postHandle</code>（视图渲染前回调）。</li>
+<li><code>processDispatchResult</code>：若 Handler 抛异常，交给 <code>HandlerExceptionResolver</code>（<code>@ExceptionHandler</code> 在此生效）；否则进入视图解析——<code>ViewResolver</code> 把逻辑视图名解析为 <code>View</code>，渲染后输出。</li>
+<li><code>afterCompletion</code>（拦截器）：请求处理完成后的清理回调，随后响应返回客户端。</li>
+</ol>
+<hr>
+<h2 id="MVC-九大组件完整清单"><a href="#MVC-九大组件完整清单" class="headerlink" title="MVC 九大组件完整清单"></a>MVC 九大组件完整清单</h2><p><code>DispatcherServlet</code> 的工作不是”硬编码”的，而是把请求处理拆成<strong>九个可插拔的组件（策略）</strong>，每个组件都有默认实现、都能被用户替换——这就是 Spring MVC 扩展性的来源。九大组件与默认实现：</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>组件</th>
+<th>职责（一句话）</th>
+<th>默认实现</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td><code>HandlerMapping</code></td>
+<td>请求 URL → Handler 执行链（Handler + 拦截器）</td>
+<td><code>RequestMappingHandlerMapping</code>（解析 <code>@RequestMapping</code>）、<code>BeanNameUrlHandlerMapping</code> 等</td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>HandlerAdapter</code></td>
+<td>适配不同风格的 Handler，负责参数解析与返回值处理</td>
+<td><code>RequestMappingHandlerAdapter</code>（最常用）、<code>HttpRequestHandlerAdapter</code>、<code>SimpleControllerHandlerAdapter</code></td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>HandlerExceptionResolver</code></td>
+<td>处理 Handler 抛出的异常 → 错误响应</td>
+<td><code>ExceptionHandlerExceptionResolver</code>（驱动 <code>@ExceptionHandler</code>）、<code>ResponseStatusExceptionResolver</code>、<code>DefaultHandlerExceptionResolver</code></td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>ViewResolver</code></td>
+<td>逻辑视图名 → 物理 View</td>
+<td><code>InternalResourceViewResolver</code>（JSP）、<code>ThymeleafViewResolver</code>、<code>ContentNegotiatingViewResolver</code></td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>RequestToViewNameTranslator</code></td>
+<td>没有显式视图名时，从请求 URL 推导视图名</td>
+<td><code>DefaultRequestToViewNameTranslator</code>（如 <code>/orders/detail</code> → 视图名 <code>orders/detail</code>）</td>
+</tr>
+<tr>
+<td>6</td>
+<td><code>LocaleResolver</code></td>
+<td>解析请求所属地区（国际化）</td>
+<td><code>AcceptHeaderLocaleResolver</code>（按 <code>Accept-Language</code>）、<code>SessionLocaleResolver</code>、<code>CookieLocaleResolver</code></td>
+</tr>
+<tr>
+<td>7</td>
+<td><code>ThemeResolver</code></td>
+<td>解析主题（UI 皮肤切换）</td>
+<td><code>FixedThemeResolver</code>（固定默认主题）、<code>SessionThemeResolver</code>、<code>CookieThemeResolver</code></td>
+</tr>
+<tr>
+<td>8</td>
+<td><code>MultipartResolver</code></td>
+<td>解析文件上传请求</td>
+<td><code>StandardServletMultipartResolver</code>（Servlet 3.0+ 标准）、<code>CommonsMultipartResolver</code>（Apache Commons FileUpload）</td>
+</tr>
+<tr>
+<td>9</td>
+<td><code>FlashMapManager</code></td>
+<td>重定向场景的参数传递（Flash Attribute：一个请求存、下一个请求取，用完即删）</td>
+<td><code>SessionFlashMapManager</code></td>
+</tr>
+</tbody></table>
+<p><strong>为什么是”九大”<strong>：<code>DispatcherServlet</code> 的 <code>initStrategies()</code> 方法在启动时</strong>依次初始化这九个策略</strong>，一个不多一个不少：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// DispatcherServlet.initStrategies()</span></span><br><span class="line"><span class="keyword">protected</span> <span class="keyword">void</span> <span class="title function_">initStrategies</span><span class="params">(ApplicationContext context)</span> &#123;</span><br><span class="line">    initMultipartResolver(context);          <span class="comment">// 1. 文件上传</span></span><br><span class="line">    initLocaleResolver(context);             <span class="comment">// 2. 国际化</span></span><br><span class="line">    initThemeResolver(context);              <span class="comment">// 3. 主题</span></span><br><span class="line">    initHandlerMappings(context);            <span class="comment">// 4. 映射器</span></span><br><span class="line">    initHandlerAdapters(context);            <span class="comment">// 5. 适配器</span></span><br><span class="line">    initHandlerExceptionResolvers(context);  <span class="comment">// 6. 异常解析</span></span><br><span class="line">    initRequestToViewNameTranslator(context);<span class="comment">// 7. 视图名翻译</span></span><br><span class="line">    initViewResolvers(context);              <span class="comment">// 8. 视图解析</span></span><br><span class="line">    initFlashMapManager(context);            <span class="comment">// 9. FlashMap</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>默认实现的来源</strong>：每个组件的默认类写在与 <code>DispatcherServlet</code> 同包的 <strong><code>DispatcherServlet.properties</code></strong> 中（如 <code>org.springframework.web.servlet.i18n.AcceptHeaderLocaleResolver</code>）。初始化逻辑是”<strong>先容器后默认</strong>“：先从 <code>WebApplicationContext</code> 中找同类型的 Bean，找到就用用户配置的；找不到才 <code>new</code> 一个默认实现——所以<strong>覆盖九大组件 &#x3D; 往容器里注册一个对应类型的 Bean</strong>，例如自定义 <code>MultipartResolver</code> 或替换 <code>LocaleResolver</code>。</p>
+<p><strong>面试一句话</strong>：九大组件是 <code>DispatcherServlet</code> 的可插拔策略点，核心流程只依赖接口（<code>doDispatch</code> 里只调 <code>HandlerMapping</code>&#x2F;<code>HandlerAdapter</code>&#x2F;<code>HandlerExceptionResolver</code>），换实现不需要改框架代码。</p>
+<hr>
+<h2 id="端到端时序图"><a href="#端到端时序图" class="headerlink" title="端到端时序图"></a>端到端时序图</h2><p>下面不按“九步”硬背，而是把一次真实的 <code>POST /api/orders</code> 请求从 Tomcat 到响应完整跑一遍。先记住一句话：</p>
+<blockquote>
+<p><strong>DispatcherServlet 不直接调用 Controller。它先通过 HandlerMapping 找到 HandlerExecutionChain，再通过 HandlerAdapter 去解析参数、调用 Controller、处理返回值。<code>@ResponseBody</code> 时 ModelAndView 是 null，根本不走 ViewResolver。</strong></p>
+</blockquote>
+<pre class="mermaid">sequenceDiagram
+    autonumber
+    participant Client as 浏览器/curl
+    participant Tomcat as Tomcat(FilterChain)
+    participant DS as DispatcherServlet
+    participant HM as RequestMappingHandlerMapping
+    participant HA as RequestMappingHandlerAdapter
+    participant AR as ArgumentResolver
+    participant CTRL as OrderController
+    participant RV as ReturnValueHandler
+    participant MC as Jackson Converter
+    participant VR as ViewResolver
+
+    Client->>Tomcat: POST /api/orders，JSON
+    Tomcat->>DS: service() -> doService() -> doDispatch()
+    DS->>DS: checkMultipart / Locale / FlashMap
+    DS->>HM: getHandler(request)
+    HM-->>DS: HandlerExecutionChain(HandlerMethod + Interceptors)
+    DS->>DS: getHandlerAdapter(handler)
+    DS->>DS: applyPreHandle()
+    DS->>HA: handle(request, response, handler)
+    HA->>AR: 解析 @RequestBody / @RequestHeader
+    AR->>MC: Content-Type=json -> readValue
+    MC-->>AR: CreateOrderCmd
+    AR-->>HA: Object[] args
+    HA->>CTRL: create(cmd, traceId)
+    CTRL-->>HA: OrderVO
+    HA->>RV: handleReturnValue(OrderVO)
+    RV->>MC: Accept=json -> writeValue
+    MC-->>Client: 200 application/json
+    HA-->>DS: ModelAndView=null
+    DS->>DS: applyPostHandle(null)
+    DS->>DS: processDispatchResult()
+    Note over DS: 无异常且 mv=null，跳过 ViewResolver
+    DS->>DS: afterCompletion()</pre>
+
+<hr>
+<h2 id="真实请求示例"><a href="#真实请求示例" class="headerlink" title="真实请求示例"></a>真实请求示例</h2><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@RestController</span></span><br><span class="line"><span class="meta">@RequestMapping(&quot;/api/orders&quot;)</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">OrderController</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@PostMapping</span></span><br><span class="line">    <span class="keyword">public</span> OrderVO <span class="title function_">create</span><span class="params">(<span class="meta">@RequestBody</span> CreateOrderCmd cmd,</span></span><br><span class="line"><span class="params">                          <span class="meta">@RequestHeader(&quot;X-Trace-Id&quot;)</span> String traceId)</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> <span class="keyword">new</span> <span class="title class_">OrderVO</span>(<span class="number">9527L</span>, cmd.productId(), cmd.quantity(), traceId);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">record</span> <span class="title class_">CreateOrderCmd</span><span class="params">(Long productId, Integer quantity)</span> &#123;&#125;</span><br><span class="line"><span class="keyword">record</span> <span class="title class_">OrderVO</span><span class="params">(Long orderId, Long productId, Integer quantity, String traceId)</span> &#123;&#125;</span><br></pre></td></tr></table></figure>
+
+<p>curl：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">curl -i -X POST <span class="string">&#x27;http://localhost:8080/api/orders&#x27;</span> \</span><br><span class="line">  -H <span class="string">&#x27;Content-Type: application/json&#x27;</span> \</span><br><span class="line">  -H <span class="string">&#x27;Accept: application/json&#x27;</span> \</span><br><span class="line">  -H <span class="string">&#x27;X-Trace-Id: trace-123&#x27;</span> \</span><br><span class="line">  -d <span class="string">&#x27;&#123;&quot;productId&quot;:1001,&quot;quantity&quot;:2&#125;&#x27;</span></span><br></pre></td></tr></table></figure>
+
+<p>响应：</p>
+<figure class="highlight http"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">HTTP/1.1</span> <span class="number">200</span></span><br><span class="line"><span class="attribute">Content-Type</span><span class="punctuation">: </span>application/json</span><br><span class="line"></span><br><span class="line"><span class="language-json"><span class="punctuation">&#123;</span><span class="attr">&quot;orderId&quot;</span><span class="punctuation">:</span><span class="number">9527</span><span class="punctuation">,</span><span class="attr">&quot;productId&quot;</span><span class="punctuation">:</span><span class="number">1001</span><span class="punctuation">,</span><span class="attr">&quot;quantity&quot;</span><span class="punctuation">:</span><span class="number">2</span><span class="punctuation">,</span><span class="attr">&quot;traceId&quot;</span><span class="punctuation">:</span><span class="string">&quot;trace-123&quot;</span><span class="punctuation">&#125;</span></span></span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="启动阶段：九大组件初始化，路由表建立"><a href="#启动阶段：九大组件初始化，路由表建立" class="headerlink" title="启动阶段：九大组件初始化，路由表建立"></a>启动阶段：九大组件初始化，路由表建立</h2><p><code>DispatcherServlet</code> 启动时调用 <code>initStrategies()</code>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">initMultipartResolver(context);</span><br><span class="line">initLocaleResolver(context);</span><br><span class="line">initThemeResolver(context);</span><br><span class="line">initHandlerMappings(context);</span><br><span class="line">initHandlerAdapters(context);</span><br><span class="line">initHandlerExceptionResolvers(context);</span><br><span class="line">initRequestToViewNameTranslator(context);</span><br><span class="line">initViewResolvers(context);</span><br><span class="line">initFlashMapManager(context);</span><br></pre></td></tr></table></figure>
+
+<p>其中和你这次请求最相关的是：</p>
+<h3 id="RequestMappingHandlerMapping"><a href="#RequestMappingHandlerMapping" class="headerlink" title="RequestMappingHandlerMapping"></a>RequestMappingHandlerMapping</h3><p>它扫描容器里所有 <code>@Controller</code> &#x2F; <code>@RestController</code>，把 <code>@RequestMapping</code> 解析成 <code>RequestMappingInfo</code>，注册到 <code>MappingRegistry</code>。</p>
+<p>最终会有一条映射：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">POST /api/orders</span><br><span class="line">  -&gt; HandlerMethod(OrderController#create)</span><br></pre></td></tr></table></figure>
+
+<h3 id="RequestMappingHandlerAdapter"><a href="#RequestMappingHandlerAdapter" class="headerlink" title="RequestMappingHandlerAdapter"></a>RequestMappingHandlerAdapter</h3><p>它初始化参数解析器链和返回值处理器链，例如：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">RequestResponseBodyMethodProcessor</span><br><span class="line">RequestHeaderMethodArgumentResolver</span><br><span class="line">PathVariableMethodArgumentResolver</span><br><span class="line">RequestParamMethodArgumentResolver</span><br><span class="line">...</span><br></pre></td></tr></table></figure>
+
+<p>所以后面 <code>@RequestBody</code>、<code>@RequestHeader</code> 不是 DispatcherServlet 自己解析的，而是 Adapter 内部这些策略类解析的。</p>
+<hr>
+<h2 id="请求进入-Tomcat-和-Filter-链"><a href="#请求进入-Tomcat-和-Filter-链" class="headerlink" title="请求进入 Tomcat 和 Filter 链"></a>请求进入 Tomcat 和 Filter 链</h2><p>真实调用栈大致是：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">Tomcat CoyoteAdapter</span><br><span class="line">  -&gt; StandardWrapperValve</span><br><span class="line">    -&gt; ApplicationFilterChain</span><br><span class="line">      -&gt; DispatcherServlet.service()</span><br><span class="line">        -&gt; HttpServlet.service()</span><br><span class="line">          -&gt; DispatcherServlet.doService()</span><br><span class="line">            -&gt; DispatcherServlet.doDispatch()</span><br></pre></td></tr></table></figure>
+
+<p>Filter 在 DispatcherServlet 之前执行，比如：</p>
+<ul>
+<li>CharacterEncodingFilter</li>
+<li>Spring Security FilterChainProxy</li>
+<li>自定义 OncePerRequestFilter</li>
+</ul>
+<p>Filter 属于 Servlet 容器体系，Interceptor 属于 Spring MVC 体系。<br>Filter 拿不到 <code>HandlerMethod</code>，Interceptor 可以。</p>
+<hr>
+<h2 id="doDispatch-内部真实顺序"><a href="#doDispatch-内部真实顺序" class="headerlink" title="doDispatch 内部真实顺序"></a>doDispatch 内部真实顺序</h2><p>简化后的 <code>doDispatch</code> 顺序是：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line">processedRequest = checkMultipart(request);</span><br><span class="line"></span><br><span class="line">mappedHandler = getHandler(processedRequest);</span><br><span class="line"></span><br><span class="line"><span class="type">HandlerAdapter</span> <span class="variable">ha</span> <span class="operator">=</span> getHandlerAdapter(mappedHandler.getHandler());</span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> (!mappedHandler.applyPreHandle(processedRequest, response)) &#123;</span><br><span class="line">    <span class="keyword">return</span>;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line">mv = ha.handle(processedRequest, response, mappedHandler.getHandler());</span><br><span class="line"></span><br><span class="line">applyDefaultViewName(processedRequest, mv);</span><br><span class="line"></span><br><span class="line">mappedHandler.applyPostHandle(processedRequest, response, mv);</span><br><span class="line"></span><br><span class="line">processDispatchResult(processedRequest, response, mappedHandler, mv, dispatchException);</span><br></pre></td></tr></table></figure>
+
+<p>你文中的九步基本对，但要补几个细节：</p>
+<ol>
+<li><code>checkMultipart</code> 在 <code>getHandler</code> 之前。</li>
+<li><code>applyDefaultViewName</code> 在 <code>applyPostHandle</code> 之前。</li>
+<li><code>afterCompletion</code> 不是九步之外单独一步，它在 <code>processDispatchResult</code> 最后触发。</li>
+<li>异常也会进入 <code>processDispatchResult</code>，由 <code>HandlerExceptionResolver</code> 处理。</li>
+</ol>
+<hr>
+<h2 id="getHandler：找到-HandlerExecutionChain"><a href="#getHandler：找到-HandlerExecutionChain" class="headerlink" title="getHandler：找到 HandlerExecutionChain"></a>getHandler：找到 HandlerExecutionChain</h2><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">mappedHandler = getHandler(processedRequest);</span><br></pre></td></tr></table></figure>
+
+<p>内部会遍历所有 <code>HandlerMapping</code>，第一个能匹配的返回。</p>
+<p>对于这个请求：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">POST /api/orders</span><br><span class="line">Content-Type: application/json</span><br></pre></td></tr></table></figure>
+
+<p><code>RequestMappingHandlerMapping</code> 会匹配：</p>
+<ul>
+<li>path：<code>/api/orders</code></li>
+<li>method：<code>POST</code></li>
+<li>consumes：<code>application/json</code></li>
+<li>produces：<code>application/json</code></li>
+<li>headers、params 等条件</li>
+</ul>
+<p>匹配成功后返回：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">HandlerExecutionChain</span><br><span class="line">  ├─ Handler: HandlerMethod(OrderController#create)</span><br><span class="line">  └─ Interceptors: [自定义拦截器, ConversionServiceExposingInterceptor, ...]</span><br></pre></td></tr></table></figure>
+
+<p>注意：Handler 不一定是 Controller 方法，也可能是：</p>
+<ul>
+<li><code>HttpRequestHandler</code></li>
+<li><code>Controller</code> 接口实现</li>
+<li><code>Servlet</code></li>
+<li><code>@RequestMapping</code> 方法对应的 <code>HandlerMethod</code></li>
+</ul>
+<p>所以 Spring MVC 才需要 HandlerAdapter 来适配不同风格的 Handler。</p>
+<hr>
+<h2 id="getHandlerAdapter：找到-RequestMappingHandlerAdapter"><a href="#getHandlerAdapter：找到-RequestMappingHandlerAdapter" class="headerlink" title="getHandlerAdapter：找到 RequestMappingHandlerAdapter"></a>getHandlerAdapter：找到 RequestMappingHandlerAdapter</h2><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">HandlerAdapter</span> <span class="variable">ha</span> <span class="operator">=</span> getHandlerAdapter(mappedHandler.getHandler());</span><br></pre></td></tr></table></figure>
+
+<p>因为 Handler 是 <code>HandlerMethod</code>，所以 <code>RequestMappingHandlerAdapter.supports()</code> 返回 true。</p>
+<p>然后真正执行：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">mv = ha.handle(processedRequest, response, mappedHandler.getHandler());</span><br></pre></td></tr></table></figure>
+
+<p>核心链路：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">RequestMappingHandlerAdapter.handle()</span><br><span class="line">  -&gt; handleInternal()</span><br><span class="line">    -&gt; invokeHandlerMethod()</span><br><span class="line">      -&gt; ServletInvocableHandlerMethod.invokeAndHandle()</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="ha-handle：参数解析、调用-Controller、返回值处理"><a href="#ha-handle：参数解析、调用-Controller、返回值处理" class="headerlink" title="ha.handle：参数解析、调用 Controller、返回值处理"></a>ha.handle：参数解析、调用 Controller、返回值处理</h2><p>这是最关键的一步。</p>
+<h3 id="参数解析"><a href="#参数解析" class="headerlink" title="参数解析"></a>参数解析</h3><p><code>ServletInvocableHandlerMethod</code> 会调用 <code>HandlerMethodArgumentResolverComposite</code> 解析参数。</p>
+<p>对于：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> OrderVO <span class="title function_">create</span><span class="params">(<span class="meta">@RequestBody</span> CreateOrderCmd cmd,</span></span><br><span class="line"><span class="params">                      <span class="meta">@RequestHeader(&quot;X-Trace-Id&quot;)</span> String traceId)</span></span><br></pre></td></tr></table></figure>
+
+<p>参数解析如下：</p>
+<h4 id="RequestBody-CreateOrderCmd-cmd"><a href="#RequestBody-CreateOrderCmd-cmd" class="headerlink" title="@RequestBody CreateOrderCmd cmd"></a>@RequestBody CreateOrderCmd cmd</h4><p>由：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">RequestResponseBodyMethodProcessor</span><br></pre></td></tr></table></figure>
+
+<p>处理。</p>
+<p>它会：</p>
+<ol>
+<li>看请求 <code>Content-Type: application/json</code>。</li>
+<li>根据目标类型 <code>CreateOrderCmd</code> 选择 <code>HttpMessageConverter</code>。</li>
+<li>这里选择 <code>MappingJackson2HttpMessageConverter</code>。</li>
+<li>调用 Jackson：</li>
+</ol>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">ObjectMapper.readValue(request.getInputStream(), CreateOrderCmd.class);</span><br></pre></td></tr></table></figure>
+
+<p>得到：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">CreateOrderCmd(productId=<span class="number">1001</span>, quantity=<span class="number">2</span>)</span><br></pre></td></tr></table></figure>
+
+<p>如果 body 为空且 <code>required=true</code>，会抛 <code>HttpMessageNotReadableException</code>。</p>
+<h4 id="RequestHeader-“X-Trace-Id”-String-traceId"><a href="#RequestHeader-“X-Trace-Id”-String-traceId" class="headerlink" title="@RequestHeader(“X-Trace-Id”) String traceId"></a>@RequestHeader(“X-Trace-Id”) String traceId</h4><p>由：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">RequestHeaderMethodArgumentResolver</span><br></pre></td></tr></table></figure>
+
+<p>处理。</p>
+<p>它从：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">request.getHeader(<span class="string">&quot;X-Trace-Id&quot;</span>)</span><br></pre></td></tr></table></figure>
+
+<p>拿到：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">trace-123</span><br></pre></td></tr></table></figure>
+
+<p>如果类型不是 String，还会走类型转换。</p>
+<h4 id="PathVariable-补充"><a href="#PathVariable-补充" class="headerlink" title="@PathVariable 补充"></a>@PathVariable 补充</h4><p>如果是：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@GetMapping(&quot;/&#123;id&#125;&quot;)</span></span><br><span class="line"><span class="keyword">public</span> User <span class="title function_">get</span><span class="params">(<span class="meta">@PathVariable</span> Long id)</span> &#123;&#125;</span><br></pre></td></tr></table></figure>
+
+<p>那么 <code>id</code> 的值来自 <code>RequestMappingInfoHandlerMapping.handleMatch</code> 放入 request attribute 的 URI 模板变量，然后 <code>PathVariableMethodArgumentResolver</code> 从 request attribute 中取。</p>
+<hr>
+<h3 id="反射调用-Controller"><a href="#反射调用-Controller" class="headerlink" title="反射调用 Controller"></a>反射调用 Controller</h3><p>参数解析完成后，调用：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">OrderController.create(cmd, traceId)</span><br></pre></td></tr></table></figure>
+
+<p>返回：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">OrderVO(<span class="number">9527L</span>, <span class="number">1001L</span>, <span class="number">2</span>, <span class="string">&quot;trace-123&quot;</span>)</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h3 id="返回值处理"><a href="#返回值处理" class="headerlink" title="返回值处理"></a>返回值处理</h3><p>因为 <code>@RestController</code> &#x3D; <code>@Controller + @ResponseBody</code>，所以返回值由：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">RequestResponseBodyMethodProcessor</span><br></pre></td></tr></table></figure>
+
+<p>处理。</p>
+<p>流程：</p>
+<ol>
+<li>内容协商：根据 <code>Accept: application/json</code>、<code>produces</code>、已注册 Converter，选择 Jackson。</li>
+<li>调用：</li>
+</ol>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">MappingJackson2HttpMessageConverter.write(</span><br><span class="line">    orderVO,</span><br><span class="line">    contentType,</span><br><span class="line">    outputMessage</span><br><span class="line">);</span><br></pre></td></tr></table></figure>
+
+<p>底层：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">ObjectMapper.writeValue(response.getOutputStream(), orderVO);</span><br></pre></td></tr></table></figure>
+
+<ol start="3">
+<li>设置响应头：</li>
+</ol>
+<figure class="highlight http"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="attribute">Content-Type</span><span class="punctuation">: </span>application/json</span><br></pre></td></tr></table></figure>
+
+<ol start="4">
+<li>标记请求已处理：</li>
+</ol>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">mavContainer.setRequestHandled(<span class="literal">true</span>);</span><br></pre></td></tr></table></figure>
+
+<ol start="5">
+<li>最终 <code>RequestMappingHandlerAdapter</code> 返回：</li>
+</ol>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="literal">null</span></span><br></pre></td></tr></table></figure>
+
+<p>所以 <code>mv = null</code>。</p>
+<p>关键点：</p>
+<blockquote>
+<p><strong>响应体是在 <code>ha.handle()</code> 里面写出去的，不是在 <code>processDispatchResult()</code> 里写的。</strong></p>
+</blockquote>
+<p><code>processDispatchResult()</code> 对 REST 请求主要只做异常处理和 <code>afterCompletion</code>。</p>
+<hr>
+<h2 id="applyPostHandle-和-processDispatchResult"><a href="#applyPostHandle-和-processDispatchResult" class="headerlink" title="applyPostHandle 和 processDispatchResult"></a>applyPostHandle 和 processDispatchResult</h2><p><code>ha.handle()</code> 返回后：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">applyDefaultViewName(processedRequest, mv);</span><br><span class="line">mappedHandler.applyPostHandle(processedRequest, response, mv);</span><br></pre></td></tr></table></figure>
+
+<p>对于我们的请求，<code>mv = null</code>，所以：</p>
+<ul>
+<li><code>RequestToViewNameTranslator</code> 不生效。</li>
+<li><code>postHandle</code> 仍会被调用，但传入的 <code>ModelAndView</code> 是 null。</li>
+</ul>
+<p>然后：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">processDispatchResult(processedRequest, response, mappedHandler, mv, dispatchException);</span><br></pre></td></tr></table></figure>
+
+<p>内部逻辑：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">if</span> (exception != <span class="literal">null</span>) &#123;</span><br><span class="line">    mv = processHandlerException(request, response, handler, exception);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> (mv != <span class="literal">null</span> &amp;&amp; !mv.wasCleared()) &#123;</span><br><span class="line">    render(mv, request, response);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="keyword">if</span> (mappedHandler != <span class="literal">null</span>) &#123;</span><br><span class="line">    mappedHandler.triggerAfterCompletion(request, response, <span class="literal">null</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>我们的请求：</p>
+<ul>
+<li>没有异常。</li>
+<li><code>mv = null</code>。</li>
+<li>所以跳过 <code>ViewResolver</code>。</li>
+<li>直接触发 <code>afterCompletion</code>。</li>
+<li>响应已经由 Jackson 写入 output stream，Tomcat 刷新后客户端收到 JSON。</li>
+</ul>
+<hr>
+<h2 id="完整源码调用栈"><a href="#完整源码调用栈" class="headerlink" title="完整源码调用栈"></a>完整源码调用栈</h2><figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br></pre></td><td class="code"><pre><span class="line">Tomcat CoyoteAdapter.service</span><br><span class="line"> └─ StandardWrapperValve.invoke</span><br><span class="line">    └─ ApplicationFilterChain.doFilter</span><br><span class="line">       └─ DispatcherServlet.service</span><br><span class="line">          └─ DispatcherServlet.doService</span><br><span class="line">             └─ DispatcherServlet.doDispatch</span><br><span class="line">                ├─ checkMultipart</span><br><span class="line">                │   └─ MultipartResolver.resolveMultipart</span><br><span class="line">                ├─ getHandler</span><br><span class="line">                │   └─ RequestMappingHandlerMapping.getHandler</span><br><span class="line">                │       └─ AbstractHandlerMapping.getHandlerExecutionChain</span><br><span class="line">                │           └─ RequestMappingHandlerMapping.getHandlerInternal</span><br><span class="line">                │               └─ RequestMappingInfoHandlerMapping.lookupHandlerMethod</span><br><span class="line">                │                   └─ HandlerMethod(OrderController#create)</span><br><span class="line">                ├─ getHandlerAdapter</span><br><span class="line">                │   └─ RequestMappingHandlerAdapter.supports</span><br><span class="line">                ├─ mappedHandler.applyPreHandle</span><br><span class="line">                ├─ RequestMappingHandlerAdapter.handle</span><br><span class="line">                │   └─ invokeHandlerMethod</span><br><span class="line">                │       └─ ServletInvocableHandlerMethod.invokeAndHandle</span><br><span class="line">                │           ├─ resolveArguments</span><br><span class="line">                │           │   ├─ RequestResponseBodyMethodProcessor.resolveArgument</span><br><span class="line">                │           │   │   └─ MappingJackson2HttpMessageConverter.read</span><br><span class="line">                │           │   └─ RequestHeaderMethodArgumentResolver.resolveArgument</span><br><span class="line">                │           ├─ doInvoke</span><br><span class="line">                │           │   └─ OrderController.create</span><br><span class="line">                │           └─ handleReturnValue</span><br><span class="line">                │               └─ RequestResponseBodyMethodProcessor.handleReturnValue</span><br><span class="line">                │                   └─ MappingJackson2HttpMessageConverter.write</span><br><span class="line">                ├─ mappedHandler.applyPostHandle</span><br><span class="line">                └─ processDispatchResult</span><br><span class="line">                    ├─ processHandlerException</span><br><span class="line">                    │   └─ HandlerExceptionResolverComposite</span><br><span class="line">                    │       └─ ExceptionHandlerExceptionResolver</span><br><span class="line">                    └─ render</span><br><span class="line">                        └─ ViewResolver.resolveViewName -&gt; View.render</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="九大组件在这次请求中的落点"><a href="#九大组件在这次请求中的落点" class="headerlink" title="九大组件在这次请求中的落点"></a>九大组件在这次请求中的落点</h2><table>
+<thead>
+<tr>
+<th>组件</th>
+<th>请求时落点</th>
+<th>本次请求是否触发</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>HandlerMapping</code></td>
+<td><code>getHandler</code></td>
+<td>触发，<code>RequestMappingHandlerMapping</code> 匹配 <code>POST /api/orders</code></td>
+</tr>
+<tr>
+<td><code>HandlerAdapter</code></td>
+<td><code>getHandlerAdapter</code> + <code>ha.handle</code></td>
+<td>触发，<code>RequestMappingHandlerAdapter</code></td>
+</tr>
+<tr>
+<td><code>HandlerExceptionResolver</code></td>
+<td><code>processDispatchResult</code> 异常分支</td>
+<td>无异常，未触发</td>
+</tr>
+<tr>
+<td><code>ViewResolver</code></td>
+<td><code>render</code></td>
+<td><code>mv=null</code>，未触发</td>
+</tr>
+<tr>
+<td><code>RequestToViewNameTranslator</code></td>
+<td><code>applyDefaultViewName</code></td>
+<td><code>mv=null</code>，未触发</td>
+</tr>
+<tr>
+<td><code>LocaleResolver</code></td>
+<td><code>doService</code> 设置 Locale</td>
+<td>触发，按 <code>Accept-Language</code></td>
+</tr>
+<tr>
+<td><code>ThemeResolver</code></td>
+<td><code>doService</code> 设置 Theme</td>
+<td>触发，默认主题</td>
+</tr>
+<tr>
+<td><code>MultipartResolver</code></td>
+<td><code>checkMultipart</code></td>
+<td>非 multipart，未触发</td>
+</tr>
+<tr>
+<td><code>FlashMapManager</code></td>
+<td><code>doService</code> &#x2F; redirect</td>
+<td>非 redirect，未触发</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="异常分支怎么走"><a href="#异常分支怎么走" class="headerlink" title="异常分支怎么走"></a>异常分支怎么走</h2><p>如果 <code>OrderController.create()</code> 抛出：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">throw</span> <span class="keyword">new</span> <span class="title class_">BizException</span>(<span class="string">&quot;库存不足&quot;</span>);</span><br></pre></td></tr></table></figure>
+
+<p>那么 <code>ha.handle()</code> 会抛异常，<code>doDispatch</code> 捕获：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">catch</span> (Exception ex) &#123;</span><br><span class="line">    dispatchException = ex;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>然后仍然进入：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">processDispatchResult(..., dispatchException);</span><br></pre></td></tr></table></figure>
+
+<p>内部：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">mv = processHandlerException(request, response, handler, exception);</span><br></pre></td></tr></table></figure>
+
+<p>会遍历 <code>HandlerExceptionResolver</code>：</p>
+<ol>
+<li><code>ExceptionHandlerExceptionResolver</code>：找 <code>@ExceptionHandler</code>、<code>@ControllerAdvice</code>、<code>@RestControllerAdvice</code>。</li>
+<li><code>ResponseStatusExceptionResolver</code>：处理 <code>@ResponseStatus</code>。</li>
+<li><code>DefaultHandlerExceptionResolver</code>：处理标准 Spring MVC 异常。</li>
+</ol>
+<p>如果找到：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@RestControllerAdvice</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">GlobalExceptionHandler</span> &#123;</span><br><span class="line">    <span class="meta">@ExceptionHandler(BizException.class)</span></span><br><span class="line">    <span class="keyword">public</span> ResponseEntity&lt;ErrorVO&gt; <span class="title function_">handle</span><span class="params">(BizException e)</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> ResponseEntity.badRequest().body(<span class="keyword">new</span> <span class="title class_">ErrorVO</span>(e.getMessage()));</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>那么返回值同样由 <code>RequestResponseBodyMethodProcessor</code> + Jackson 写成 JSON。</p>
+<p>如果找不到，异常会抛给 Servlet 容器，最终变成 500。</p>
+<hr>
+<h2 id="最容易搞错的几个点"><a href="#最容易搞错的几个点" class="headerlink" title="最容易搞错的几个点"></a>最容易搞错的几个点</h2><ol>
+<li><strong>HandlerMapping 只负责找 Handler，不负责调用 Controller。</strong></li>
+<li><strong>HandlerAdapter 才负责参数解析、反射调用、返回值处理。</strong></li>
+<li><strong><code>@ResponseBody</code> &#x2F; <code>@RestController</code> 时，ModelAndView 是 null，不走 ViewResolver。</strong></li>
+<li><strong>响应体是在 <code>ha.handle()</code> 里由 HttpMessageConverter 写出去的。</strong></li>
+<li><strong>Filter 在 DispatcherServlet 外，Interceptor 在 DispatcherServlet 内。</strong></li>
+<li><strong>preHandle 正序，postHandle 逆序，afterCompletion 逆序。</strong></li>
+<li><strong>异常也会走 processDispatchResult，由 HandlerExceptionResolver 处理。</strong></li>
+<li><strong><code>@RequestBody</code> 用 HttpMessageConverter，<code>@RequestParam</code>&#x2F;<code>@PathVariable</code>&#x2F;<code>@RequestHeader</code> 用 ArgumentResolver + 类型转换。</strong></li>
+</ol>
+<hr>
+<h2 id="一句话串起来"><a href="#一句话串起来" class="headerlink" title="一句话串起来"></a>一句话串起来</h2><figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">Tomcat -&gt; FilterChain -&gt; DispatcherServlet.doDispatch</span><br><span class="line">  -&gt; checkMultipart</span><br><span class="line">  -&gt; HandlerMapping 找 HandlerExecutionChain</span><br><span class="line">  -&gt; HandlerAdapter</span><br><span class="line">  -&gt; preHandle</span><br><span class="line">  -&gt; 参数解析 -&gt; Controller -&gt; 返回值处理</span><br><span class="line">  -&gt; @ResponseBody 直接写响应，mv=null</span><br><span class="line">  -&gt; postHandle</span><br><span class="line">  -&gt; processDispatchResult：异常解析 / 视图渲染</span><br><span class="line">  -&gt; afterCompletion</span><br><span class="line">  -&gt; 响应返回</span><br></pre></td></tr></table></figure>
+
+<p>如果你按这个顺序打断点：</p>
+<ul>
+<li><code>DispatcherServlet#doDispatch</code></li>
+<li><code>AbstractHandlerMapping#getHandler</code></li>
+<li><code>RequestMappingHandlerAdapter#invokeHandlerMethod</code></li>
+<li><code>RequestResponseBodyMethodProcessor#resolveArgument</code></li>
+<li><code>RequestResponseBodyMethodProcessor#handleReturnValue</code></li>
+<li><code>ExceptionHandlerExceptionResolver#doResolveHandlerMethodException</code></li>
+</ul>
+<p>再配合上面那个 curl，就能把 Spring MVC 的请求流程从“背八股”变成“看得见的一条调用链”。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/9e1f9f5f.html" rel="prev" title="2025面经与高频问题整理">
+                  <i class="fa fa-angle-left"></i> 2025面经与高频问题整理
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/post/266cb242.html" rel="next" title="限流算法详解">
+                  限流算法详解 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">626k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">37:55</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
+</html>
