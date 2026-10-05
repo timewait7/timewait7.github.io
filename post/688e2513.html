@@ -19,15 +19,15 @@
 
 <script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
 
-    <meta name="description" content="Kafka 面试考点范围：Kafka 的定位与选型、核心概念（Topic&#x2F;Partition&#x2F;Replica&#x2F;ISR）、高吞吐设计原理、消息可靠性（acks&#x2F;ISR&#x2F;高水位）、幂等与事务、顺序性、消费者组与再平衡、KRaft 架构，以及消息积压、重复消费、Leader 抖动等常见问题的排查思路。RocketMQ&#x2F;RabbitMQ 仅在选型">
+    <meta name="description" content="1. Kafka 定位：消息队列还是事件流平台1.1 定位演变：从消息队列到事件流平台Kafka 诞生于 LinkedIn（2011 年开源），最初是日志聚合场景的消息队列。现在官方定位是分布式事件流平台（Event Streaming Platform），核心差异在于存储模型：    维度 传统消息队列（RabbitMQ） Kafka    消息消费后 从队列删除 保留在磁盘上，按保留策略过期删">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Kafka 原理与实践">
 <meta property="og:url" content="http://timewait7.github.io/post/688e2513.html">
 <meta property="og:site_name" content="知行栈">
-<meta property="og:description" content="Kafka 面试考点范围：Kafka 的定位与选型、核心概念（Topic&#x2F;Partition&#x2F;Replica&#x2F;ISR）、高吞吐设计原理、消息可靠性（acks&#x2F;ISR&#x2F;高水位）、幂等与事务、顺序性、消费者组与再平衡、KRaft 架构，以及消息积压、重复消费、Leader 抖动等常见问题的排查思路。RocketMQ&#x2F;RabbitMQ 仅在选型">
+<meta property="og:description" content="1. Kafka 定位：消息队列还是事件流平台1.1 定位演变：从消息队列到事件流平台Kafka 诞生于 LinkedIn（2011 年开源），最初是日志聚合场景的消息队列。现在官方定位是分布式事件流平台（Event Streaming Platform），核心差异在于存储模型：    维度 传统消息队列（RabbitMQ） Kafka    消息消费后 从队列删除 保留在磁盘上，按保留策略过期删">
 <meta property="og:locale" content="en_US">
 <meta property="article:published_time" content="2025-07-26T11:19:57.000Z">
-<meta property="article:modified_time" content="2026-10-05T08:09:43.102Z">
+<meta property="article:modified_time" content="2026-10-05T14:30:11.387Z">
 <meta name="twitter:card" content="summary">
 
 
@@ -181,7 +181,7 @@
       <div class="sidebar-panel-container">
         <!--noindex-->
         <div class="post-toc-wrap sidebar-panel">
-            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-1"><a class="nav-link" href="#Kafka"><span class="nav-text">Kafka</span></a><ol class="nav-child"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-Kafka-%E5%AE%9A%E4%BD%8D%EF%BC%9A%E6%B6%88%E6%81%AF%E9%98%9F%E5%88%97%E8%BF%98%E6%98%AF%E4%BA%8B%E4%BB%B6%E6%B5%81%E5%B9%B3%E5%8F%B0"><span class="nav-text">1. Kafka 定位：消息队列还是事件流平台</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-%E5%AE%9A%E4%BD%8D%E6%BC%94%E5%8F%98"><span class="nav-text">1.1 定位演变</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-2-%E6%B6%88%E6%81%AF%E9%98%9F%E5%88%97%E7%9A%84%E4%B8%89%E5%A4%A7%E6%A0%B8%E5%BF%83%E4%BB%B7%E5%80%BC"><span class="nav-text">1.2 消息队列的三大核心价值</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-3-%E4%B8%8E-RocketMQ%E3%80%81RabbitMQ-%E7%9A%84%E4%B8%80%E5%8F%A5%E8%AF%9D%E8%AF%B4%E6%B8%85%E9%80%89%E5%9E%8B"><span class="nav-text">1.3 与 RocketMQ、RabbitMQ 的一句话说清选型</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E6%A0%B8%E5%BF%83%E6%A6%82%E5%BF%B5%EF%BC%9ATopic-Partition-Replica-ISR-Controller-Coordinator"><span class="nav-text">2. 核心概念：Topic &#x2F; Partition &#x2F; Replica &#x2F; ISR &#x2F; Controller &#x2F; Coordinator</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E9%AB%98%E5%90%9E%E5%90%90%E8%AE%BE%E8%AE%A1%EF%BC%9A%E6%AF%8F%E4%B8%AA%E6%9C%BA%E5%88%B6%E4%B8%BA%E4%BB%80%E4%B9%88%E5%BF%AB"><span class="nav-text">3. 高吞吐设计：每个机制为什么快</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E9%A1%BA%E5%BA%8F%E5%86%99"><span class="nav-text">3.1 顺序写</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-Page-Cache"><span class="nav-text">3.2 Page Cache</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-%E9%9B%B6%E6%8B%B7%E8%B4%9D-sendfile"><span class="nav-text">3.3 零拷贝 sendfile</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-4-%E6%89%B9%E9%87%8F-%E5%8E%8B%E7%BC%A9"><span class="nav-text">3.4 批量 + 压缩</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-5-%E5%88%86%E5%8C%BA%E5%B9%B6%E8%A1%8C"><span class="nav-text">3.5 分区并行</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E7%89%A9%E7%90%86%E5%AD%98%E5%82%A8"><span class="nav-text">4. 物理存储</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-Segment-%E6%96%87%E4%BB%B6%E7%BB%93%E6%9E%84"><span class="nav-text">4.1 Segment 文件结构</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-%E7%A8%80%E7%96%8F%E7%B4%A2%E5%BC%95%E5%8E%9F%E7%90%86%EF%BC%9Aoffset-index-%E6%80%8E%E4%B9%88%E7%94%A8"><span class="nav-text">4.2 稀疏索引原理：offset index 怎么用</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-%E6%97%A5%E5%BF%97%E6%B8%85%E7%90%86%E7%AD%96%E7%95%A5%EF%BC%9Adelete-vs-compact"><span class="nav-text">4.3 日志清理策略：delete vs compact</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-4-%E7%A3%81%E7%9B%98%E5%B8%83%E5%B1%80%EF%BC%9Alog-dirs-%E4%B8%8E-Leader-%E5%88%86%E5%B8%83"><span class="nav-text">4.4 磁盘布局：log.dirs 与 Leader 分布</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E6%B6%88%E6%81%AF%E5%8F%AF%E9%9D%A0%E6%80%A7%EF%BC%9A%E4%B8%89%E4%B8%AA%E7%8E%AF%E8%8A%82%E6%80%8E%E4%B9%88%E4%BF%9D%E8%AF%81%E4%B8%8D%E4%B8%A2"><span class="nav-text">5. 消息可靠性：三个环节怎么保证不丢</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-acks-%E4%B8%89%E7%A7%8D%E6%A8%A1%E5%BC%8F"><span class="nav-text">5.1 acks 三种模式</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-ISR-%E6%9C%80%E5%B0%8F%E5%89%AF%E6%9C%AC%E6%95%B0%EF%BC%9Aacks-all-%E7%9A%84%E6%AD%A3%E7%A1%AE%E6%89%93%E5%BC%80%E6%96%B9%E5%BC%8F"><span class="nav-text">5.2 ISR 最小副本数：acks&#x3D;all 的正确打开方式</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-%E5%89%AF%E6%9C%AC%E5%90%8C%E6%AD%A5%E4%B8%8E%E9%AB%98%E6%B0%B4%E4%BD%8D%EF%BC%88LEO-HW%EF%BC%89"><span class="nav-text">5.3 副本同步与高水位（LEO &#x2F; HW）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-%E4%B8%89%E7%8E%AF%E8%8A%82%E4%B8%8D%E4%B8%A2%E5%A4%B1%E6%96%B9%E6%A1%88"><span class="nav-text">5.4 三环节不丢失方案</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#6-%E6%B6%88%E6%81%AF%E4%B8%8D%E9%87%8D%E5%A4%8D%EF%BC%9A%E5%B9%82%E7%AD%89%E7%94%9F%E4%BA%A7%E8%80%85%E3%80%81%E6%B6%88%E8%B4%B9%E8%80%85%E5%8E%BB%E9%87%8D%E3%80%81%E4%BA%8B%E5%8A%A1"><span class="nav-text">6. 消息不重复：幂等生产者、消费者去重、事务</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#6-1-%E4%B8%BA%E4%BB%80%E4%B9%88%E4%BC%9A%E4%BA%A7%E7%94%9F%E9%87%8D%E5%A4%8D"><span class="nav-text">6.1 为什么会产生重复</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-2-%E5%B9%82%E7%AD%89%E7%94%9F%E4%BA%A7%E8%80%85%EF%BC%9Aenable-idempotence-true"><span class="nav-text">6.2 幂等生产者：enable.idempotence&#x3D;true</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-3-%E6%B6%88%E8%B4%B9%E8%80%85%E7%AB%AF%E5%8E%BB%E9%87%8D%EF%BC%9A%E6%9C%80%E7%BB%88%E7%9A%84%E5%85%9C%E5%BA%95%E6%96%B9%E6%A1%88"><span class="nav-text">6.3 消费者端去重：最终的兜底方案</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-4-%E4%BA%8B%E5%8A%A1%E6%B6%88%E6%81%AF-vs-%E5%B9%82%E7%AD%89"><span class="nav-text">6.4 事务消息 vs 幂等</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#7-%E6%B6%88%E6%81%AF%E9%A1%BA%E5%BA%8F%E6%80%A7%EF%BC%9A%E5%88%86%E5%8C%BA%E5%86%85%E6%9C%89%E5%BA%8F"><span class="nav-text">7. 消息顺序性：分区内有序</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#7-1-%E5%88%86%E5%8C%BA%E5%86%85%E6%9C%89%E5%BA%8F%E7%9A%84%E5%8E%9F%E7%90%86"><span class="nav-text">7.1 分区内有序的原理</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-2-%E7%94%A8-key-%E4%BF%9D%E8%AF%81%E5%90%8C%E4%B8%80%E5%AE%9E%E4%BD%93%E7%9A%84%E6%B6%88%E6%81%AF%E6%9C%89%E5%BA%8F"><span class="nav-text">7.2 用 key 保证同一实体的消息有序</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-3-%E4%B9%B1%E5%BA%8F%E5%9C%BA%E6%99%AF%E4%B8%8E%E5%A4%84%E7%90%86"><span class="nav-text">7.3 乱序场景与处理</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#8-%E6%B6%88%E8%B4%B9%E8%80%85%E7%BB%84%EF%BC%9ARebalance%E3%80%81%E5%88%86%E9%85%8D%E7%AD%96%E7%95%A5%E4%B8%8E-Lag-%E7%9B%91%E6%8E%A7"><span class="nav-text">8. 消费者组：Rebalance、分配策略与 Lag 监控</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#8-1-%E4%B8%BA%E4%BB%80%E4%B9%88%E9%9C%80%E8%A6%81%E6%B6%88%E8%B4%B9%E8%80%85%E7%BB%84"><span class="nav-text">8.1 为什么需要消费者组</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#8-2-Rebalance-%E7%9A%84%E8%A7%A6%E5%8F%91%E6%9D%A1%E4%BB%B6"><span class="nav-text">8.2 Rebalance 的触发条件</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#8-3-%E4%B8%89%E7%A7%8D%E5%88%86%E5%8C%BA%E5%88%86%E9%85%8D%E7%AD%96%E7%95%A5%EF%BC%88partition-assignment-strategy%EF%BC%89"><span class="nav-text">8.3 三种分区分配策略（partition.assignment.strategy）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#8-4-%E9%9D%99%E6%80%81%E6%88%90%E5%91%98%EF%BC%88KIP-345%EF%BC%89"><span class="nav-text">8.4 静态成员（KIP-345）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#8-5-Consumer-Lag-%E7%9B%91%E6%8E%A7"><span class="nav-text">8.5 Consumer Lag 监控</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#9-KRaft-%E6%9E%B6%E6%9E%84%EF%BC%9A%E4%B8%BA%E4%BB%80%E4%B9%88%E5%8E%BB%E6%8E%89-ZooKeeper"><span class="nav-text">9. KRaft 架构：为什么去掉 ZooKeeper</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#9-1-ZooKeeper-%E6%A8%A1%E5%BC%8F%E7%9A%84%E9%97%AE%E9%A2%98"><span class="nav-text">9.1 ZooKeeper 模式的问题</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#9-2-KRaft-%E7%9A%84%E5%AE%9E%E7%8E%B0"><span class="nav-text">9.2 KRaft 的实现</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#9-3-%E7%89%88%E6%9C%AC%E6%BC%94%E8%BF%9B%E4%B8%8E%E7%8E%B0%E7%8A%B6"><span class="nav-text">9.3 版本演进与现状</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#10-%E5%B8%B8%E8%A7%81%E9%97%AE%E9%A2%98%E6%8E%92%E6%9F%A5"><span class="nav-text">10. 常见问题排查</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#10-1-%E6%B6%88%E6%81%AF%E7%A7%AF%E5%8E%8B"><span class="nav-text">10.1 消息积压</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#10-2-%E9%87%8D%E5%A4%8D%E6%B6%88%E8%B4%B9"><span class="nav-text">10.2 重复消费</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#10-3-Leader-%E6%8A%96%E5%8A%A8"><span class="nav-text">10.3 Leader 抖动</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#10-4-%E6%B6%88%E8%B4%B9%E5%A4%B1%E8%B4%A5%E9%87%8D%E8%AF%95%E4%B8%8E%E6%AD%BB%E4%BF%A1%E9%98%9F%E5%88%97"><span class="nav-text">10.4 消费失败重试与死信队列</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#11-%E5%AE%A2%E6%88%B7%E7%AB%AF%E8%B0%83%E4%BC%98%E6%B8%85%E5%8D%95"><span class="nav-text">11. 客户端调优清单</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#11-1-Producer-%E5%8F%82%E6%95%B0%E4%BC%98%E5%8C%96%E8%A1%A8"><span class="nav-text">11.1 Producer 参数优化表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#11-2-Consumer-%E5%8F%82%E6%95%B0%E4%BC%98%E5%8C%96%E8%A1%A8"><span class="nav-text">11.2 Consumer 参数优化表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#11-3-%E5%B8%B8%E8%A7%81%E6%80%A7%E8%83%BD%E9%97%AE%E9%A2%98"><span class="nav-text">11.3 常见性能问题</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#11-4-%E5%BB%B6%E6%97%B6%E9%98%9F%E5%88%97%E5%9C%A8-Kafka-%E4%B8%AD%E7%9A%84%E5%AE%9E%E7%8E%B0%E6%96%B9%E6%A1%88"><span class="nav-text">11.4 延时队列在 Kafka 中的实现方案</span></a></li></ol></li></ol></li></ol></div>
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-Kafka-%E5%AE%9A%E4%BD%8D%EF%BC%9A%E6%B6%88%E6%81%AF%E9%98%9F%E5%88%97%E8%BF%98%E6%98%AF%E4%BA%8B%E4%BB%B6%E6%B5%81%E5%B9%B3%E5%8F%B0"><span class="nav-text">1. Kafka 定位：消息队列还是事件流平台</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-%E5%AE%9A%E4%BD%8D%E6%BC%94%E5%8F%98%EF%BC%9A%E4%BB%8E%E6%B6%88%E6%81%AF%E9%98%9F%E5%88%97%E5%88%B0%E4%BA%8B%E4%BB%B6%E6%B5%81%E5%B9%B3%E5%8F%B0"><span class="nav-text">1.1 定位演变：从消息队列到事件流平台</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-2-%E6%B6%88%E6%81%AF%E9%98%9F%E5%88%97%E7%9A%84%E4%B8%89%E5%A4%A7%E6%A0%B8%E5%BF%83%E4%BB%B7%E5%80%BC"><span class="nav-text">1.2 消息队列的三大核心价值</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-3-%E4%B8%8E-RocketMQ%E3%80%81RabbitMQ-%E7%9A%84%E9%80%89%E5%9E%8B%E5%AF%B9%E6%AF%94"><span class="nav-text">1.3 与 RocketMQ、RabbitMQ 的选型对比</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E6%A0%B8%E5%BF%83%E6%A6%82%E5%BF%B5%EF%BC%9ATopic-Partition-Replica-ISR-Controller-Coordinator"><span class="nav-text">2. 核心概念：Topic &#x2F; Partition &#x2F; Replica &#x2F; ISR &#x2F; Controller &#x2F; Coordinator</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E4%B8%80%E5%BC%A0%E5%9B%BE%E8%AE%B2%E6%B8%85%E5%AE%83%E4%BB%AC%E7%9A%84%E5%85%B3%E7%B3%BB"><span class="nav-text">2.1 一张图讲清它们的关系</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E9%80%90%E4%B8%AA%E6%8B%86%E8%A7%A3"><span class="nav-text">2.2 逐个拆解</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E6%9F%A5%E7%9C%8B-Topic-%E5%92%8C-Partition-%E5%88%86%E5%B8%83"><span class="nav-text">2.3 动手验证：查看 Topic 和 Partition 分布</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E9%AB%98%E5%90%9E%E5%90%90%E5%8E%9F%E7%90%86%EF%BC%9A%E4%B8%BA%E4%BB%80%E4%B9%88-Kafka-%E8%83%BD%E6%89%9B%E7%99%BE%E4%B8%87%E7%BA%A7-QPS"><span class="nav-text">3. 高吞吐原理：为什么 Kafka 能扛百万级 QPS</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E5%9B%9B%E5%A4%A7%E6%A0%B8%E5%BF%83%E6%94%AF%E6%9F%B1%E6%80%BB%E8%A7%88"><span class="nav-text">3.1 四大核心支柱总览</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E9%A1%BA%E5%BA%8F%E5%86%99"><span class="nav-text">3.2 顺序写</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-PageCache"><span class="nav-text">3.3 PageCache</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-4-%E9%9B%B6%E6%8B%B7%E8%B4%9D-sendfile"><span class="nav-text">3.4 零拷贝 sendfile</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-5-%E6%89%B9%E9%87%8F-%E5%8E%8B%E7%BC%A9"><span class="nav-text">3.5 批量 + 压缩</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-6-%E5%88%86%E5%8C%BA%E5%B9%B6%E8%A1%8C"><span class="nav-text">3.6 分区并行</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E7%89%A9%E7%90%86%E5%AD%98%E5%82%A8%EF%BC%9A%E4%B8%80%E6%9D%A1%E6%B6%88%E6%81%AF%E8%90%BD%E7%9B%98%E5%90%8E%E9%95%BF%E4%BB%80%E4%B9%88%E6%A0%B7"><span class="nav-text">4. 物理存储：一条消息落盘后长什么样</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-Segment-%E6%96%87%E4%BB%B6%E7%BB%93%E6%9E%84"><span class="nav-text">4.1 Segment 文件结构</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-%E7%A8%80%E7%96%8F%E7%B4%A2%E5%BC%95%E5%8E%9F%E7%90%86"><span class="nav-text">4.2 稀疏索引原理</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-%E6%97%A5%E5%BF%97%E6%B8%85%E7%90%86%E7%AD%96%E7%95%A5%EF%BC%9Adelete-vs-compact"><span class="nav-text">4.3 日志清理策略：delete vs compact</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-4-%E7%A3%81%E7%9B%98%E5%B8%83%E5%B1%80%E4%B8%8E-Leader-%E5%88%86%E5%B8%83"><span class="nav-text">4.4 磁盘布局与 Leader 分布</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E6%B6%88%E6%81%AF%E5%8F%AF%E9%9D%A0%E6%80%A7%EF%BC%9A%E4%B8%89%E4%B8%AA%E7%8E%AF%E8%8A%82%E6%80%8E%E4%B9%88%E4%BF%9D%E8%AF%81%E4%B8%8D%E4%B8%A2"><span class="nav-text">5. 消息可靠性：三个环节怎么保证不丢</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E4%B8%89%E7%A7%8D%E6%8A%95%E9%80%92%E8%AF%AD%E4%B9%89"><span class="nav-text">5.1 三种投递语义</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-acks-%E4%B8%89%E7%A7%8D%E6%A8%A1%E5%BC%8F"><span class="nav-text">5.2 acks 三种模式</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-ISR-%E6%9C%80%E5%B0%8F%E5%89%AF%E6%9C%AC%E6%95%B0"><span class="nav-text">5.3 ISR 最小副本数</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-%E5%89%AF%E6%9C%AC%E5%90%8C%E6%AD%A5%E4%B8%8E%E9%AB%98%E6%B0%B4%E4%BD%8D%EF%BC%88LEO-HW%EF%BC%89"><span class="nav-text">5.4 副本同步与高水位（LEO &#x2F; HW）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-5-%E4%B8%89%E7%8E%AF%E8%8A%82%E4%B8%8D%E4%B8%A2%E5%A4%B1%E6%96%B9%E6%A1%88"><span class="nav-text">5.5 三环节不丢失方案</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#6-%E6%B6%88%E6%81%AF%E4%B8%8D%E9%87%8D%E5%A4%8D%EF%BC%9A%E5%B9%82%E7%AD%89%E7%94%9F%E4%BA%A7%E8%80%85%E3%80%81%E6%B6%88%E8%B4%B9%E8%80%85%E5%8E%BB%E9%87%8D%E3%80%81%E4%BA%8B%E5%8A%A1"><span class="nav-text">6. 消息不重复：幂等生产者、消费者去重、事务</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#6-1-%E4%B8%BA%E4%BB%80%E4%B9%88%E4%BC%9A%E4%BA%A7%E7%94%9F%E9%87%8D%E5%A4%8D"><span class="nav-text">6.1 为什么会产生重复</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-2-%E5%B9%82%E7%AD%89%E7%94%9F%E4%BA%A7%E8%80%85"><span class="nav-text">6.2 幂等生产者</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-3-%E6%B6%88%E8%B4%B9%E8%80%85%E7%AB%AF%E5%8E%BB%E9%87%8D"><span class="nav-text">6.3 消费者端去重</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-4-%E4%BA%8B%E5%8A%A1%E6%B6%88%E6%81%AF"><span class="nav-text">6.4 事务消息</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#7-%E6%B6%88%E6%81%AF%E9%A1%BA%E5%BA%8F%E6%80%A7%EF%BC%9A%E5%88%86%E5%8C%BA%E5%86%85%E6%9C%89%E5%BA%8F"><span class="nav-text">7. 消息顺序性：分区内有序</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#7-1-%E5%88%86%E5%8C%BA%E5%86%85%E6%9C%89%E5%BA%8F%E7%9A%84%E5%8E%9F%E7%90%86"><span class="nav-text">7.1 分区内有序的原理</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-2-%E7%94%A8-key-%E4%BF%9D%E8%AF%81%E5%90%8C%E4%B8%80%E5%AE%9E%E4%BD%93%E7%9A%84%E6%B6%88%E6%81%AF%E6%9C%89%E5%BA%8F"><span class="nav-text">7.2 用 key 保证同一实体的消息有序</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-3-%E4%B9%B1%E5%BA%8F%E5%9C%BA%E6%99%AF%E4%B8%8E%E5%A4%84%E7%90%86"><span class="nav-text">7.3 乱序场景与处理</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#8-%E6%B6%88%E8%B4%B9%E8%80%85%E7%BB%84%EF%BC%9ARebalance%E3%80%81%E5%88%86%E9%85%8D%E7%AD%96%E7%95%A5%E4%B8%8E-Lag-%E7%9B%91%E6%8E%A7"><span class="nav-text">8. 消费者组：Rebalance、分配策略与 Lag 监控</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#8-1-%E4%B8%BA%E4%BB%80%E4%B9%88%E9%9C%80%E8%A6%81%E6%B6%88%E8%B4%B9%E8%80%85%E7%BB%84"><span class="nav-text">8.1 为什么需要消费者组</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#8-2-Rebalance-%E7%9A%84%E8%A7%A6%E5%8F%91%E6%9D%A1%E4%BB%B6"><span class="nav-text">8.2 Rebalance 的触发条件</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#8-3-%E4%B8%89%E7%A7%8D%E5%88%86%E5%8C%BA%E5%88%86%E9%85%8D%E7%AD%96%E7%95%A5"><span class="nav-text">8.3 三种分区分配策略</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#8-4-%E9%9D%99%E6%80%81%E6%88%90%E5%91%98"><span class="nav-text">8.4 静态成员</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#8-5-Consumer-Lag-%E7%9B%91%E6%8E%A7"><span class="nav-text">8.5 Consumer Lag 监控</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#9-KRaft-%E6%9E%B6%E6%9E%84%EF%BC%9A%E4%B8%BA%E4%BB%80%E4%B9%88%E5%8E%BB%E6%8E%89-ZooKeeper"><span class="nav-text">9. KRaft 架构：为什么去掉 ZooKeeper</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#9-1-ZooKeeper-%E6%A8%A1%E5%BC%8F%E7%9A%84%E9%97%AE%E9%A2%98"><span class="nav-text">9.1 ZooKeeper 模式的问题</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#9-2-KRaft-%E7%9A%84%E5%AE%9E%E7%8E%B0"><span class="nav-text">9.2 KRaft 的实现</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#9-3-%E7%89%88%E6%9C%AC%E6%BC%94%E8%BF%9B%E4%B8%8E%E7%8E%B0%E7%8A%B6"><span class="nav-text">9.3 版本演进与现状</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#10-%E5%AE%9E%E6%88%98%E6%8E%92%E9%9A%9C%EF%BC%9A%E6%B6%88%E6%81%AF%E7%A7%AF%E5%8E%8B%E3%80%81%E9%87%8D%E5%A4%8D%E6%B6%88%E8%B4%B9%E3%80%81Leader-%E6%8A%96%E5%8A%A8"><span class="nav-text">10. 实战排障：消息积压、重复消费、Leader 抖动</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#10-1-%E6%B6%88%E6%81%AF%E7%A7%AF%E5%8E%8B"><span class="nav-text">10.1 消息积压</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#10-2-%E9%87%8D%E5%A4%8D%E6%B6%88%E8%B4%B9"><span class="nav-text">10.2 重复消费</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#10-3-Leader-%E6%8A%96%E5%8A%A8"><span class="nav-text">10.3 Leader 抖动</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#10-4-%E6%B6%88%E8%B4%B9%E5%A4%B1%E8%B4%A5%E9%87%8D%E8%AF%95%E4%B8%8E%E6%AD%BB%E4%BF%A1%E9%98%9F%E5%88%97"><span class="nav-text">10.4 消费失败重试与死信队列</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#11-%E5%AE%A2%E6%88%B7%E7%AB%AF%E8%B0%83%E4%BC%98%E6%B8%85%E5%8D%95"><span class="nav-text">11. 客户端调优清单</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#11-1-Producer-%E5%8F%82%E6%95%B0%E4%BC%98%E5%8C%96%E8%A1%A8"><span class="nav-text">11.1 Producer 参数优化表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#11-2-Consumer-%E5%8F%82%E6%95%B0%E4%BC%98%E5%8C%96%E8%A1%A8"><span class="nav-text">11.2 Consumer 参数优化表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#11-3-%E5%B8%B8%E8%A7%81%E6%80%A7%E8%83%BD%E9%97%AE%E9%A2%98"><span class="nav-text">11.3 常见性能问题</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#11-4-%E5%BB%B6%E6%97%B6%E9%98%9F%E5%88%97%E5%9C%A8-Kafka-%E4%B8%AD%E7%9A%84%E5%AE%9E%E7%8E%B0%E6%96%B9%E6%A1%88"><span class="nav-text">11.4 延时队列在 Kafka 中的实现方案</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#12-%E9%9D%A2%E8%AF%95%E9%80%9F%E7%AD%94%E8%A1%A8"><span class="nav-text">12. 面试速答表</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#13-%E5%AE%9E%E8%B7%B5%EF%BC%9A%E4%BB%8E%E9%9B%B6%E6%90%AD%E5%BB%BA-Kafka-%E4%BA%8B%E4%BB%B6%E6%B5%81%E7%B3%BB%E7%BB%9F"><span class="nav-text">13. 实践：从零搭建 Kafka 事件流系统</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#13-0-%E5%AE%9E%E9%AA%8C%E7%8E%AF%E5%A2%83%E5%87%86%E5%A4%87"><span class="nav-text">13.0 实验环境准备</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#13-0-1-%E5%89%8D%E7%BD%AE%E6%9D%A1%E4%BB%B6"><span class="nav-text">13.0.1 前置条件</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#13-0-2-%E5%90%AF%E5%8A%A8-Kafka%EF%BC%88KRaft-%E6%A8%A1%E5%BC%8F%EF%BC%8C%E6%97%A0%E9%9C%80-ZooKeeper%EF%BC%89"><span class="nav-text">13.0.2 启动 Kafka（KRaft 模式，无需 ZooKeeper）</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#13-0-3-%E8%AE%A4%E8%AF%86%E4%BD%A0%E7%9A%84%E6%93%8D%E4%BD%9C%E5%B7%A5%E5%85%B7"><span class="nav-text">13.0.3 认识你的操作工具</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#13-0-4-%E5%AE%9E%E9%AA%8C%E7%8E%AF%E5%A2%83%E6%8E%92%E9%9A%9C"><span class="nav-text">13.0.4 实验环境排障</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#13-1-Topic-%E4%B8%8E%E5%88%86%E5%8C%BA%E7%AE%A1%E7%90%86"><span class="nav-text">13.1 Topic 与分区管理</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#13-1-1-%E5%88%9B%E5%BB%BA-Topic"><span class="nav-text">13.1.1 创建 Topic</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#13-1-2-%E4%BF%AE%E6%94%B9%E4%B8%8E%E5%88%A0%E9%99%A4-Topic"><span class="nav-text">13.1.2 修改与删除 Topic</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#13-2-%E7%94%9F%E4%BA%A7%E8%80%85%E4%B8%8E%E6%B6%88%E8%B4%B9%E8%80%85%E5%9F%BA%E7%A1%80%E6%93%8D%E4%BD%9C"><span class="nav-text">13.2 生产者与消费者基础操作</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#13-2-1-%E5%91%BD%E4%BB%A4%E8%A1%8C%E7%94%9F%E4%BA%A7%E8%80%85"><span class="nav-text">13.2.1 命令行生产者</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#13-2-2-%E5%91%BD%E4%BB%A4%E8%A1%8C%E6%B6%88%E8%B4%B9%E8%80%85"><span class="nav-text">13.2.2 命令行消费者</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#13-2-3-%E9%AA%8C%E8%AF%81%E5%88%86%E5%8C%BA%E8%B7%AF%E7%94%B1"><span class="nav-text">13.2.3 验证分区路由</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#13-3-Java-%E5%AE%A2%E6%88%B7%E7%AB%AF%E5%AE%9E%E6%88%98"><span class="nav-text">13.3 Java 客户端实战</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#13-3-1-Maven-%E4%BE%9D%E8%B5%96"><span class="nav-text">13.3.1 Maven 依赖</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#13-3-2-%E7%94%9F%E4%BA%A7%E7%AB%AF%EF%BC%9A%E5%8F%AF%E9%9D%A0%E5%8F%91%E9%80%81"><span class="nav-text">13.3.2 生产端：可靠发送</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#13-3-3-%E6%B6%88%E8%B4%B9%E7%AB%AF%EF%BC%9A%E6%89%8B%E5%8A%A8%E6%8F%90%E4%BA%A4"><span class="nav-text">13.3.3 消费端：手动提交</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#13-4-%E6%B6%88%E8%B4%B9%E8%80%85%E7%BB%84%E4%B8%8E-Lag-%E7%9B%91%E6%8E%A7"><span class="nav-text">13.4 消费者组与 Lag 监控</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#13-4-1-%E6%9F%A5%E7%9C%8B%E6%B6%88%E8%B4%B9%E7%BB%84%E7%8A%B6%E6%80%81"><span class="nav-text">13.4.1 查看消费组状态</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#13-4-2-%E5%88%B6%E9%80%A0%E5%B9%B6%E8%A7%82%E5%AF%9F-Lag"><span class="nav-text">13.4.2 制造并观察 Lag</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#13-4-3-%E5%A2%9E%E5%8A%A0%E6%B6%88%E8%B4%B9%E8%80%85%E5%AE%9E%E4%BE%8B%E6%89%A9%E5%AE%B9"><span class="nav-text">13.4.3 增加消费者实例扩容</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#13-5-%E9%A1%BA%E5%BA%8F%E6%B6%88%E6%81%AF%E5%AE%9E%E6%88%98"><span class="nav-text">13.5 顺序消息实战</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#13-5-1-%E9%AA%8C%E8%AF%81%E9%A1%BA%E5%BA%8F%E6%80%A7"><span class="nav-text">13.5.1 验证顺序性</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#13-5-2-%E9%A1%BA%E5%BA%8F%E7%A0%B4%E5%9D%8F%E5%9C%BA%E6%99%AF%E5%A4%8D%E7%8E%B0"><span class="nav-text">13.5.2 顺序破坏场景复现</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#13-6-%E4%BA%8B%E5%8A%A1%E6%B6%88%E6%81%AF%E5%AE%9E%E6%88%98"><span class="nav-text">13.6 事务消息实战</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#13-6-1-%E5%AE%8C%E6%95%B4%E4%BA%8B%E5%8A%A1%E4%BB%A3%E7%A0%81"><span class="nav-text">13.6.1 完整事务代码</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#13-6-2-%E9%AA%8C%E8%AF%81%E4%BA%8B%E5%8A%A1%E9%9A%94%E7%A6%BB"><span class="nav-text">13.6.2 验证事务隔离</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#13-7-%E5%AE%9E%E6%88%98%E6%8E%92%E9%9A%9C%EF%BC%9A%E6%B6%88%E6%81%AF%E7%A7%AF%E5%8E%8B%E3%80%81%E9%87%8D%E5%A4%8D%E6%B6%88%E8%B4%B9%E3%80%81ISR-%E6%8A%96%E5%8A%A8"><span class="nav-text">13.7 实战排障：消息积压、重复消费、ISR 抖动</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#13-7-1-%E6%B6%88%E6%81%AF%E7%A7%AF%E5%8E%8B"><span class="nav-text">13.7.1 消息积压</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#13-7-2-%E9%87%8D%E5%A4%8D%E6%B6%88%E8%B4%B9"><span class="nav-text">13.7.2 重复消费</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#13-7-3-ISR-%E6%8A%96%E5%8A%A8"><span class="nav-text">13.7.3 ISR 抖动</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#13-7-4-%E6%AD%BB%E4%BF%A1%E9%98%9F%E5%88%97%EF%BC%88%E6%B6%88%E8%B4%B9%E8%80%85%E4%BE%A7%E5%AE%9E%E7%8E%B0%EF%BC%89"><span class="nav-text">13.7.4 死信队列（消费者侧实现）</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#13-7-5-%E5%AE%9E%E9%AA%8C%E7%8E%AF%E5%A2%83%E6%B8%85%E7%90%86"><span class="nav-text">13.7.5 实验环境清理</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#13-8-%E6%9C%AC%E8%8A%82%E6%A0%B8%E5%BF%83%E8%A6%81%E7%82%B9%E9%80%9F%E6%9F%A5"><span class="nav-text">13.8 本节核心要点速查</span></a></li></ol></li></ol></div>
         </div>
         <!--/noindex-->
 
@@ -259,13 +259,6 @@
   </div>
   <ul class="popular-posts">
     <li class="popular-posts-item">
-      <a class="popular-posts-link" href="/post/rocketmq-2025.html" rel="bookmark">
-        <time class="popular-posts-time">2025-08-05</time>
-        <br>
-      RocketMQ 原理与实践
-      </a>
-    </li>
-    <li class="popular-posts-item">
       <a class="popular-posts-link" href="/" rel="bookmark">
       
       </a>
@@ -275,6 +268,11 @@
         <time class="popular-posts-time">2026-08-13</time>
         <br>
       消息队列选型与核心机制对比
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/" rel="bookmark">
+      
       </a>
     </li>
     <li class="popular-posts-item">
@@ -456,25 +454,99 @@
     
     
     
-    <div class="post-body" itemprop="articleBody"><h1 id="Kafka"><a href="#Kafka" class="headerlink" title="Kafka"></a>Kafka</h1><blockquote>
-<p>面试考点范围：Kafka 的定位与选型、核心概念（Topic&#x2F;Partition&#x2F;Replica&#x2F;ISR）、高吞吐设计原理、消息可靠性（acks&#x2F;ISR&#x2F;高水位）、幂等与事务、顺序性、消费者组与再平衡、KRaft 架构，以及消息积压、重复消费、Leader 抖动等常见问题的排查思路。RocketMQ&#x2F;RabbitMQ 仅在选型对比中出现，不混入 Kafka 正文。</p>
-</blockquote>
-<h2 id="1-Kafka-定位：消息队列还是事件流平台"><a href="#1-Kafka-定位：消息队列还是事件流平台" class="headerlink" title="1. Kafka 定位：消息队列还是事件流平台"></a>1. Kafka 定位：消息队列还是事件流平台</h2><h3 id="1-1-定位演变"><a href="#1-1-定位演变" class="headerlink" title="1.1 定位演变"></a>1.1 定位演变</h3><p>Kafka 诞生于 LinkedIn（2011 年开源），最初是日志聚合场景的消息队列。现在官方定位是<strong>分布式事件流平台（Event Streaming Platform）</strong>，核心差异在于存储模型：</p>
-<ul>
-<li>经典消息队列（RabbitMQ 为代表）：消息被消费者拉走后即从队列删除，是”传输通道”。</li>
-<li>Kafka：消息写入 append-only 日志（Partition），<strong>消费不删除消息</strong>，按保留策略（<code>log.retention.hours</code>，默认 168 小时）过期删除。因此：<ul>
-<li>一个 Topic 可以被<strong>多个消费者组</strong>独立消费（发布订阅 + 组内负载均衡）；</li>
-<li>消费者可以<strong>回退 offset 重放</strong>历史数据（事件回溯、故障恢复、离线计算）；</li>
-<li>天然适合事件驱动、数据管道、日志采集、实时数仓等场景。</li>
-</ul>
-</li>
-</ul>
-<h3 id="1-2-消息队列的三大核心价值"><a href="#1-2-消息队列的三大核心价值" class="headerlink" title="1.2 消息队列的三大核心价值"></a>1.2 消息队列的三大核心价值</h3><ul>
-<li><strong>异步</strong>：把耗时操作（发邮件、初始化画像）从主流程剥离，用户请求链路从”串行等所有步骤”变成”只等核心步骤”，响应时间从几百毫秒降到个位数毫秒。</li>
-<li><strong>削峰</strong>：秒杀等瞬时洪峰先灌入 MQ，下游按自身处理能力匀速消费，避免数据库被打崩。MQ 本质是一个缓冲区。</li>
-<li><strong>解耦</strong>：生产者只发消息，不感知下游；新增消费者（如加一个短信系统）无需改动生产者代码，下游故障也不阻塞主流程（消息堆积在 MQ 中）。</li>
-</ul>
-<h3 id="1-3-与-RocketMQ、RabbitMQ-的一句话说清选型"><a href="#1-3-与-RocketMQ、RabbitMQ-的一句话说清选型" class="headerlink" title="1.3 与 RocketMQ、RabbitMQ 的一句话说清选型"></a>1.3 与 RocketMQ、RabbitMQ 的一句话说清选型</h3><table>
+    <div class="post-body" itemprop="articleBody"><h2 id="1-Kafka-定位：消息队列还是事件流平台"><a href="#1-Kafka-定位：消息队列还是事件流平台" class="headerlink" title="1. Kafka 定位：消息队列还是事件流平台"></a>1. Kafka 定位：消息队列还是事件流平台</h2><h3 id="1-1-定位演变：从消息队列到事件流平台"><a href="#1-1-定位演变：从消息队列到事件流平台" class="headerlink" title="1.1 定位演变：从消息队列到事件流平台"></a>1.1 定位演变：从消息队列到事件流平台</h3><p>Kafka 诞生于 LinkedIn（2011 年开源），最初是日志聚合场景的消息队列。现在官方定位是<strong>分布式事件流平台</strong>（Event Streaming Platform），核心差异在于存储模型：</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>传统消息队列（RabbitMQ）</th>
+<th>Kafka</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>消息消费后</strong></td>
+<td>从队列删除</td>
+<td>保留在磁盘上，按保留策略过期删除</td>
+</tr>
+<tr>
+<td><strong>存储模型</strong></td>
+<td>传输通道</td>
+<td>追加写日志（append-only log）</td>
+</tr>
+<tr>
+<td><strong>重复消费</strong></td>
+<td>不支持</td>
+<td>支持（回退 offset 重放）</td>
+</tr>
+<tr>
+<td><strong>多消费者组</strong></td>
+<td>需要 fanout 配置</td>
+<td>天然支持，每个组独立消费</td>
+</tr>
+<tr>
+<td><strong>吞吐量</strong></td>
+<td>万级&#x2F;秒</td>
+<td>单机百万级&#x2F;秒</td>
+</tr>
+</tbody></table>
+<p><strong>这意味着什么？</strong> Kafka 不仅是”传输通道”，更是一个”可回放的事件日志”。同一份数据可以被实时计算、离线数仓、监控告警等多个消费者组独立消费，互不影响。</p>
+<pre class="mermaid">flowchart LR
+    subgraph TraditionalMQ["传统 MQ"]
+        P1[Producer] --> Q1[Queue]
+        Q1 --> C1[Consumer]
+        Q1 -.->|消费后删除| X1[消息消失]
+    end
+
+    subgraph Kafka["Kafka"]
+        P2[Producer] --> Log[Append-only Log]
+        Log --> CG1[Consumer Group A]
+        Log --> CG2[Consumer Group B]
+        Log --> CG3[Consumer Group C]
+        Log -.->|按保留策略过期删除| X2[7 天后删除]
+    end</pre>
+
+<h3 id="1-2-消息队列的三大核心价值"><a href="#1-2-消息队列的三大核心价值" class="headerlink" title="1.2 消息队列的三大核心价值"></a>1.2 消息队列的三大核心价值</h3><table>
+<thead>
+<tr>
+<th>价值</th>
+<th>解决什么问题</th>
+<th>典型场景</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>异步</strong></td>
+<td>把耗时操作从主流程剥离</td>
+<td>注册后发邮件、生成画像</td>
+</tr>
+<tr>
+<td><strong>削峰</strong></td>
+<td>瞬时洪峰先灌入 MQ，下游匀速消费</td>
+<td>秒杀、大促</td>
+</tr>
+<tr>
+<td><strong>解耦</strong></td>
+<td>生产者不感知下游，新增消费者无需改代码</td>
+<td>订单 → 支付&#x2F;库存&#x2F;物流</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart LR
+    subgraph WithoutMQ["没有 MQ"]
+        U1[用户请求] --> S1[扣库存]
+        S1 --> S2[发短信]
+        S2 --> S3[生成积分]
+        S3 --> R1[响应]
+    end
+
+    subgraph WithMQ["有 MQ"]
+        U2[用户请求] --> S4[扣库存]
+        S4 --> MQ[Kafka]
+        MQ --> C1[短信服务]
+        MQ --> C2[积分服务]
+        MQ --> C3[物流服务]
+        S4 --> R2[立即响应]
+    end</pre>
+
+<h3 id="1-3-与-RocketMQ、RabbitMQ-的选型对比"><a href="#1-3-与-RocketMQ、RabbitMQ-的选型对比" class="headerlink" title="1.3 与 RocketMQ、RabbitMQ 的选型对比"></a>1.3 与 RocketMQ、RabbitMQ 的选型对比</h3><table>
 <thead>
 <tr>
 <th>维度</th>
@@ -484,184 +556,295 @@
 </tr>
 </thead>
 <tbody><tr>
-<td>定位</td>
+<td><strong>定位</strong></td>
 <td>分布式事件流平台</td>
 <td>分布式消息队列（Java 生态）</td>
 <td>轻量消息中间件（AMQP）</td>
 </tr>
 <tr>
-<td>吞吐</td>
+<td><strong>吞吐</strong></td>
 <td>单机百万级&#x2F;秒</td>
 <td>十万~百万级&#x2F;秒</td>
 <td>万级&#x2F;秒</td>
 </tr>
 <tr>
-<td>顺序消息</td>
+<td><strong>顺序消息</strong></td>
 <td>分区内有序</td>
 <td>队列内有序</td>
 <td>单队列有序</td>
 </tr>
 <tr>
-<td>事务消息</td>
+<td><strong>事务消息</strong></td>
 <td>面向流处理的精确一次（EOS）</td>
 <td>原生半消息 + 回查机制</td>
 <td>无</td>
 </tr>
 <tr>
-<td>延迟&#x2F;定时消息</td>
+<td><strong>延迟&#x2F;定时消息</strong></td>
 <td>无原生支持</td>
 <td>原生延迟级别&#x2F;定时消息</td>
 <td>借助 TTL + 死信交换机实现</td>
 </tr>
 <tr>
-<td>适用场景</td>
-<td>日志、指标、事件流、大数据管道、高吞吐</td>
-<td>交易类、对可靠性和事务有强要求的业务</td>
-<td>中小规模、路由灵活、快速落地</td>
+<td><strong>适用场景</strong></td>
+<td>日志、指标、事件流、大数据管道</td>
+<td>交易类、强事务要求</td>
+<td>中小规模、路由灵活</td>
 </tr>
 </tbody></table>
-<p>选型一句话：<strong>吞吐和事件流优先 Kafka；交易场景需要原生事务&#x2F;延迟消息优先 RocketMQ；轻量灵活、生态简单优先 RabbitMQ。</strong></p>
-<p>两个常见的对比追问：</p>
-<ul>
-<li><strong>RocketMQ 事务消息流程</strong>：Producer 先发”半消息”（对消费者不可见）→ 执行本地事务 → 提交 Commit&#x2F;Rollback 指令 → Broker 收到回查（Check）请求时反向询问 Producer 本地事务最终状态，据此决定消息对消费者可见与否。Kafka 的事务机制不覆盖外部系统，定位不同（见第 6 节）。</li>
-<li><strong>Broker 选举机制对比</strong>：Kafka 由 Controller 从 ISR 中选举新 Leader（一致性优先，宁可分区不可用也不选落后副本）；RocketMQ 主从切换在 DLedger 模式下走 Raft 多数派选举，兼容模式下为异步复制、手动&#x2F;自动切换。</li>
-</ul>
-<h2 id="2-核心概念：Topic-Partition-Replica-ISR-Controller-Coordinator"><a href="#2-核心概念：Topic-Partition-Replica-ISR-Controller-Coordinator" class="headerlink" title="2. 核心概念：Topic &#x2F; Partition &#x2F; Replica &#x2F; ISR &#x2F; Controller &#x2F; Coordinator"></a>2. 核心概念：Topic &#x2F; Partition &#x2F; Replica &#x2F; ISR &#x2F; Controller &#x2F; Coordinator</h2><p>一张图讲清它们的关系：</p>
-<pre class="mermaid">flowchart LR
-    %% 生产者
+<p><strong>选型一句话</strong>：吞吐和事件流优先 Kafka；交易场景需要原生事务&#x2F;延迟消息优先 RocketMQ；轻量灵活、生态简单优先 RabbitMQ。</p>
+<p><strong>面试追问：RocketMQ 事务消息流程与 Kafka 的区别？</strong></p>
+<blockquote>
+<p>RocketMQ 先发”半消息”（对消费者不可见），执行本地事务后提交 Commit&#x2F;Rollback 指令。Broker 收到回查请求时反向询问 Producer 本地事务最终状态。Kafka 的事务机制不覆盖外部系统，定位不同。</p>
+</blockquote>
+<p><strong>面试追问：Broker 选举机制对比？</strong></p>
+<blockquote>
+<p>Kafka 由 Controller 从 ISR 中选举新 Leader（一致性优先，宁可分区不可用也不选落后副本）。RocketMQ 主从切换在 DLedger 模式下走 Raft 多数派选举，兼容模式下为异步复制、手动&#x2F;自动切换。</p>
+</blockquote>
+<p><strong>面试话术</strong>：</p>
+<blockquote>
+<p>“我们选 Kafka 主要是因为日志和事件流场景，吞吐量要求高，而且需要多消费者组独立消费。如果是交易类需要事务消息的场景，会优先考虑 RocketMQ。”</p>
+</blockquote>
+<h2 id="2-核心概念：Topic-Partition-Replica-ISR-Controller-Coordinator"><a href="#2-核心概念：Topic-Partition-Replica-ISR-Controller-Coordinator" class="headerlink" title="2. 核心概念：Topic &#x2F; Partition &#x2F; Replica &#x2F; ISR &#x2F; Controller &#x2F; Coordinator"></a>2. 核心概念：Topic &#x2F; Partition &#x2F; Replica &#x2F; ISR &#x2F; Controller &#x2F; Coordinator</h2><h3 id="2-1-一张图讲清它们的关系"><a href="#2-1-一张图讲清它们的关系" class="headerlink" title="2.1 一张图讲清它们的关系"></a>2.1 一张图讲清它们的关系</h3><pre class="mermaid">flowchart TB
     subgraph Producers[生产者]
         P[Producer]
     end
 
-    %% Kafka 集群
     subgraph KafkaCluster[Kafka 集群]
         direction TB
-        
+        Controller[Controller 集群中枢]
+        GC[Group Coordinator 管理消费者组]
+
         subgraph Broker1[Broker 1]
-            B1_P0_L["Topic A P0&lt;br/>(Leader)"]
-            B1_P1_F["Topic A P1&lt;br/>(Follower)"]
-            B1_P2_F["Topic A P2&lt;br/>(Follower)"]
+            B1_P0_L[Topic A P0 Leader]
+            B1_P1_F[Topic A P1 Follower]
+            B1_P2_F[Topic A P2 Follower]
         end
 
         subgraph Broker2[Broker 2]
-            B2_P0_F["Topic A P0&lt;br/>(Follower)"]
-            B2_P1_L["Topic A P1&lt;br/>(Leader)"]
-            B2_P2_F["Topic A P2&lt;br/>(Follower)"]
+            B2_P0_F[Topic A P0 Follower]
+            B2_P1_L[Topic A P1 Leader]
+            B2_P2_F[Topic A P2 Follower]
         end
 
         subgraph Broker3[Broker 3]
-            B3_P0_F["Topic A P0&lt;br/>(Follower)"]
-            B3_P1_F["Topic A P1&lt;br/>(Follower)"]
-            B3_P2_L["Topic A P2&lt;br/>(Leader)"]
+            B3_P0_F[Topic A P0 Follower]
+            B3_P1_F[Topic A P1 Follower]
+            B3_P2_L[Topic A P2 Leader]
         end
-
-        Controller[Controller&lt;br/>集群中枢]
-        GC[Group Coordinator&lt;br/>管理消费者组]
     end
 
-    %% 消费者组 (包含多个消费者)
     subgraph Consumers[消费者组]
-        direction TB
         C0[Consumer 0]
         C1[Consumer 1]
     end
 
-    %% Zookeeper / KRaft
-    ZK["Zookeeper / KRaft"]
+    ZK[Zookeeper / KRaft]
 
-    %% 1. Producer 写入路由 (写三个 Leader，牵引左侧布局)
     P -->|写入 P0| B1_P0_L
     P -->|写入 P1| B2_P1_L
     P -->|写入 P2| B3_P2_L
 
-    %% 2. 副本跨 Broker 同步 (虚线)
     B1_P0_L -.->|同步副本| B2_P0_F
     B1_P0_L -.->|同步副本| B3_P0_F
-    
     B2_P1_L -.->|同步副本| B1_P1_F
     B2_P1_L -.->|同步副本| B3_P1_F
-
     B3_P2_L -.->|同步副本| B1_P2_F
     B3_P2_L -.->|同步副本| B2_P2_F
 
-    %% 3. Consumer 消费 (组内消费者均分 Partition，牵引右侧布局)
     B1_P0_L -->|消费 P0| C0
     B2_P1_L -->|消费 P1| C1
     B3_P2_L -->|消费 P2| C0
 
-    %% 4. 控制平面与元数据管理 (虚线)
     Controller -.->|Leader 选举/元数据同步| Broker1
     Controller -.->|Leader 选举/元数据同步| Broker2
     Controller -.->|Leader 选举/元数据同步| Broker3
-    
     GC -.->|Rebalance| C0
     GC -.->|Rebalance| C1
-
-    %% 5. Zookeeper 注册 (虚线)
     Broker1 -.-> ZK
     Broker2 -.-> ZK
     Broker3 -.-> ZK
 
-    %% 样式定义
-    style Controller fill:#ffe6e6
-    style GC fill:#fff4e6</pre>
+    style B1_P0_L fill:#e6ffe6
+    style B2_P1_L fill:#e6ffe6
+    style B3_P2_L fill:#e6ffe6
+    style B1_P1_F fill:#e6f0ff
+    style B1_P2_F fill:#e6f0ff
+    style B2_P0_F fill:#e6f0ff
+    style B2_P2_F fill:#e6f0ff
+    style B3_P0_F fill:#e6f0ff
+    style B3_P1_F fill:#e6f0ff</pre>
 
-<ul>
-<li><strong>Topic</strong>：消息的逻辑分类（类比数据库表），一个 Topic 的数据会被切分到多个 Partition 存储。</li>
-<li><strong>Partition</strong>：Topic 的物理切分单元，磁盘上是一个日志目录。它是三个基本单位的集合：<ul>
-<li><strong>存储单位</strong>：消息按 offset 递增追加，写入顺序就是存储顺序；</li>
-<li><strong>并行单位</strong>：Partition 之间读写互相独立，可以分布在多台 Broker 上并行；</li>
-<li><strong>顺序保证单位</strong>：Kafka 只保证分区内有序，跨分区无全局顺序。</li>
-</ul>
-</li>
-<li><strong>Replica（副本）</strong>：每个 Partition 有 <code>replication.factor</code>（生产常用 3）个副本。其中一个为 <strong>Leader</strong>（负责所有读写），其余为 <strong>Follower</strong>（只从 Leader 拉取数据同步，不对外服务）。副本分布在不同 Broker 上，提供容错。</li>
-<li><strong>ISR（In-Sync Replicas）</strong>：与 Leader 保持同步的副本集合。Leader 维护 ISR 列表，Follower 在 <code>replica.lag.time.max.ms</code>（默认 30s）内没跟上 Leader，会被移出 ISR。<strong>ISR 是 Leader 选举的候选池</strong>：只有 ISR 中的副本才有资格当选新 Leader，保证新 Leader 拥有全部已提交数据（详见第 5 节）。</li>
-<li><strong>Controller</strong>：集群中枢。负责 Broker 上下线感知、Partition 的 Leader 选举、Topic 创建&#x2F;删除等元数据变更，并把变更结果同步给所有 Broker。KRaft 模式下由 Controller Quorum 通过 Raft 选举产生（详见第 9 节）。</li>
-<li><strong>Coordinator（协调者）</strong>：Kafka 有两类协调者，都是”每个组对应一个协调者实例”：<ul>
-<li><strong>Group Coordinator</strong>：管理消费者组的成员关系、触发 Rebalance、接收 offset 提交。位置由 <code>hash(groupId) % 50</code>（<code>__consumer_offsets</code> 默认 50 个分区）决定；</li>
-<li><strong>Transaction Coordinator</strong>：管理事务状态（存储在 <code>__transaction_state</code> topic），第 6 节会用到。</li>
-</ul>
-</li>
-</ul>
-<h2 id="3-高吞吐设计：每个机制为什么快"><a href="#3-高吞吐设计：每个机制为什么快" class="headerlink" title="3. 高吞吐设计：每个机制为什么快"></a>3. 高吞吐设计：每个机制为什么快</h2><p>Kafka 高吞吐的总体思路：<strong>把对磁盘的随机访问变成顺序访问（磁盘友好），把热数据留在内存（Page Cache），把网络传输的拷贝次数降到最低（零拷贝），把多次小请求合并成大批量（批量 + 压缩），再把单点瓶颈拆成多路并行（分区）</strong>。</p>
-<h3 id="3-1-顺序写"><a href="#3-1-顺序写" class="headerlink" title="3.1 顺序写"></a>3.1 顺序写</h3><ul>
-<li><strong>为什么快</strong>：磁盘顺序写可达 150~200 MB&#x2F;s（机械盘）甚至更高，而随机写（尤其是小 IO）只有几 MB&#x2F;s，差距来自机械臂寻道和磁头旋转。SSD 上差距缩小，但顺序 IO 依然显著更快。Kafka 只做追加写（append-only），把”读改写”变成”写尾指针”，磁盘永远是顺序的。</li>
-<li><strong>怎么实现</strong>：每条消息追加到当前活跃的日志段（Segment）末尾；Segment 按 <code>log.segment.bytes</code>（默认 1GB）滚动切分（段文件结构见第 4 节）。写入路径是 <code>FileChannel.write</code> → OS Page Cache，不逐条 fsync，靠副本冗余保证可靠性（顺序写快并不等于已落盘）。</li>
-<li><strong>生产配置</strong>：无需特殊配置；注意一个常见误区——不能因为”顺序写快”就认为数据已持久化，可靠性仍要依靠 <code>acks</code> 和副本数（第 5 节）。</li>
-</ul>
-<h3 id="3-2-Page-Cache"><a href="#3-2-Page-Cache" class="headerlink" title="3.2 Page Cache"></a>3.2 Page Cache</h3><ul>
-<li><strong>为什么快</strong>：磁盘 IO 无论怎么优化都远慢于内存。Kafka 把读写都交给操作系统 Page Cache：写先落到 Page Cache 由内核异步刷盘，读命中 Cache 时就是纯内存操作。</li>
-<li><strong>怎么实现</strong>：数据不经过 JVM 堆，全部走内核 Page Cache。这让 Kafka 的 JVM 堆可以保持很小（生产建议 4~8GB，其余内存留给 OS），避免大堆 GC 停顿；同时 OS 的 LRU 淘汰、预读、批量回写比 JVM 手动管理更高效，且整个机器的进程共享同一份 Cache。</li>
-<li><strong>生产配置</strong>：JVM 堆不要盲目调大，防止堆挤占 Page Cache 空间；日志目录建议独立挂盘（多盘可配置 <code>log.dirs</code> 以逗号分隔，数据分散到多块磁盘）。</li>
-</ul>
-<h3 id="3-3-零拷贝-sendfile"><a href="#3-3-零拷贝-sendfile" class="headerlink" title="3.3 零拷贝 sendfile"></a>3.3 零拷贝 sendfile</h3><ul>
-<li><strong>为什么快</strong>：传统”读文件 → 发给 socket”路径要经过 4 次拷贝（DMA 磁盘→内核、内核→用户、用户→内核、内核→网卡）和多次上下文切换，CPU 和内存带宽都被浪费。</li>
-<li><strong>怎么实现</strong>：<code>sendfile</code> 让内核直接把 Page Cache 中的数据 DMA 到网卡，用户态只传 <code>(offset, length)</code> 两个参数，全程 2 次拷贝（1 次 DMA 进内核 + 1 次 DMA 出网卡），无用户态参与。Kafka 消费时 Broker 用 Java NIO 的 <code>FileChannel.transferTo()</code> 实现，消息体越大收益越明显。另一个细节：Kafka <strong>写</strong>日志不用 <code>mmap</code>（写入无法控制刷盘时机），只用 <code>mmap</code> 映射索引文件（offset index &#x2F; time index，见第 4 节）。</li>
-<li><strong>生产配置</strong>：无参数；零拷贝依赖 Page Cache 命中，本质是”读的热数据来自内存”。</li>
-</ul>
-<h3 id="3-4-批量-压缩"><a href="#3-4-批量-压缩" class="headerlink" title="3.4 批量 + 压缩"></a>3.4 批量 + 压缩</h3><ul>
-<li><strong>为什么快</strong>：网络传输的瓶颈在 RTT 和系统调用次数，而不是带宽。把 1 万条 1KB 的消息合并成 10MB 一个批次发送，网络往返和系统调用摊薄了 1 万倍。</li>
-<li><strong>怎么实现</strong>：<ul>
-<li>Producer 端：<code>batch.size</code>（默认 16KB）和 <code>linger.ms</code>（默认 0）控制攒批。注意 <code>linger.ms=0</code> 表示有数据立刻发，攒批主要靠”批次没满时下一条继续追加”；生产环境给 <code>linger.ms</code> 设 5~20ms 可以显著提升吞吐，代价是引入毫秒级延迟。key 为 null 时 2.4+ 使用 sticky 分区策略，把消息粘在同一个分区攒满再换，避免均匀散开后每个分区都攒不满。</li>
-<li>Broker 端：按批次（RecordBatch）写入磁盘，落盘单位不是单条消息。</li>
-<li>Consumer 端：<code>fetch.min.bytes</code>（默认 1）和 <code>fetch.max.wait.ms</code>（默认 500ms）控制攒批拉取，减少拉取次数。</li>
-<li>压缩：<code>compression.type</code>（gzip&#x2F;snappy&#x2F;lz4&#x2F;zstd）在 Producer 端压缩，Broker <strong>不解压直接存</strong>，Consumer 端解压，压缩成本摊给两端，换来网络和磁盘的大幅节省。zstd 压缩比最高但 CPU 消耗大，lz4 是均衡之选。</li>
-</ul>
-</li>
-<li><strong>生产配置</strong>：CPU 不紧张时建议开启压缩（lz4 起步）；对延迟敏感的业务把 <code>linger.ms</code> 调小，对吞吐敏感的业务调大。</li>
-</ul>
-<h3 id="3-5-分区并行"><a href="#3-5-分区并行" class="headerlink" title="3.5 分区并行"></a>3.5 分区并行</h3><ul>
-<li><strong>为什么快</strong>：单分区是单线程顺序写，吞吐上限受单块磁盘 IOPS 和单台机器的网络带宽限制。把 Topic 拆成 N 个 Partition 分布在 M 台 Broker 上，读写多路并行，吞吐理论上可以线性扩展。</li>
-<li><strong>怎么实现</strong>：Producer 用分区器决定消息进哪个分区（key 哈希 &#x2F; sticky）；Broker 上多个分区的写入分散到不同磁盘（<code>log.dirs</code>）；Consumer 组内不同实例消费不同分区。</li>
-<li><strong>生产配置</strong>：分区数是吞吐规划的核心参数——先估单分区吞吐（如 5~10 MB&#x2F;s），再按总吞吐需求定分区数。分区不是越多越好：分区数过多会放大元数据规模、文件句柄数、Rebalance 时间，以及 Leader 选举开销。经验值：分区数与预期吞吐匹配即可，单 Broker 数千分区以内是常见规模。</li>
-</ul>
-<h2 id="4-物理存储"><a href="#4-物理存储" class="headerlink" title="4. 物理存储"></a>4. 物理存储</h2><blockquote>
-<p>本节要解决什么问题：一条消息落盘后长什么样——Segment 文件怎么组织、索引怎么定位、日志怎么清理，以及多磁盘怎么分配。</p>
+<h3 id="2-2-逐个拆解"><a href="#2-2-逐个拆解" class="headerlink" title="2.2 逐个拆解"></a>2.2 逐个拆解</h3><table>
+<thead>
+<tr>
+<th>概念</th>
+<th>是什么</th>
+<th>关键点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Topic</strong></td>
+<td>消息的逻辑分类</td>
+<td>类比数据库表</td>
+</tr>
+<tr>
+<td><strong>Partition</strong></td>
+<td>Topic 的物理切分单元，磁盘上是一个日志目录</td>
+<td><strong>存储单位 + 并行单位 + 顺序保证单位</strong></td>
+</tr>
+<tr>
+<td><strong>Replica</strong></td>
+<td>每个 Partition 有 N 个副本，分布在不同的 Broker 上</td>
+<td>一个 Leader（读写）+ 多个 Follower（只同步）</td>
+</tr>
+<tr>
+<td><strong>ISR</strong></td>
+<td>与 Leader 保持同步的副本集合</td>
+<td>只有 ISR 中的副本才有资格当选新 Leader</td>
+</tr>
+<tr>
+<td><strong>Controller</strong></td>
+<td>集群中枢，负责 Broker 上下线感知、Leader 选举、元数据变更</td>
+<td>KRaft 模式下由 Controller Quorum 通过 Raft 选举产生</td>
+</tr>
+<tr>
+<td><strong>Coordinator</strong></td>
+<td>管理消费者组的成员关系、触发 Rebalance、接收 offset 提交</td>
+<td>每个消费者组对应一个 Coordinator</td>
+</tr>
+</tbody></table>
+<p><strong>Partition 的三个角色</strong>：</p>
+<pre class="mermaid">flowchart TB
+    Partition[Partition]
+    Partition --> Role1[存储单位&lt;br/>消息按 offset 递增追加&lt;br/>写入顺序 = 存储顺序]
+    Partition --> Role2[并行单位&lt;br/>Partition 之间读写独立&lt;br/>可分布在多台 Broker 上]
+    Partition --> Role3[顺序保证单位&lt;br/>Kafka 只保证分区内有序&lt;br/>跨分区无全局顺序]</pre>
+
+<p><strong>Coordinator 的两类角色</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>类型</th>
+<th>职责</th>
+<th>位置</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Group Coordinator</strong></td>
+<td>管理消费者组的成员关系、触发 Rebalance、接收 offset 提交</td>
+<td><code>hash(groupId) % 50</code>（<code>__consumer_offsets</code> 默认 50 个分区）</td>
+</tr>
+<tr>
+<td><strong>Transaction Coordinator</strong></td>
+<td>管理事务状态</td>
+<td>存储在 <code>__transaction_state</code> topic</td>
+</tr>
+</tbody></table>
+<p><strong>面试追问：如何保证消息全局有序？</strong></p>
+<blockquote>
+<p>如果要求全局有序，只能把 Topic 设置为 1 个 Partition。但这意味着牺牲并行度，吞吐量会大幅下降。实际生产中更常见的做法是：<strong>用 Key 哈希把同一业务实体的消息路由到同一 Partition</strong>，保证业务级别的有序，而不是全局有序。</p>
 </blockquote>
-<h3 id="4-1-Segment-文件结构"><a href="#4-1-Segment-文件结构" class="headerlink" title="4.1 Segment 文件结构"></a>4.1 Segment 文件结构</h3><p>Kafka 的 Topic 数据按分区存储，一个分区对应磁盘上的一个目录：</p>
-<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">/data/kafka/orders-0/                        # &lt;topic&gt;-&lt;partition&gt; 命名</span><br><span class="line">├── 00000000000000000000.log                 # 第 1 个日志段：起始 offset = 0</span><br><span class="line">├── 00000000000000000000.index               # 与 .log 配套的 offset 索引</span><br><span class="line">├── 00000000000000000000.timeindex           # 与 .log 配套的时间戳索引</span><br><span class="line">├── 00000000000000037281.log                 # 第 2 个日志段：起始 offset = 37281</span><br><span class="line">├── 00000000000000037281.index</span><br><span class="line">├── 00000000000000037281.timeindex</span><br><span class="line">└── ...</span><br></pre></td></tr></table></figure>
+<h3 id="2-3-动手验证：查看-Topic-和-Partition-分布"><a href="#2-3-动手验证：查看-Topic-和-Partition-分布" class="headerlink" title="2.3 动手验证：查看 Topic 和 Partition 分布"></a>2.3 动手验证：查看 Topic 和 Partition 分布</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 查看所有 Topic</span></span><br><span class="line">kafka-topics.sh --bootstrap-server localhost:9092 --list</span><br><span class="line"></span><br><span class="line"><span class="comment"># 查看某个 Topic 的详细信息（分区数、副本数、ISR）</span></span><br><span class="line">kafka-topics.sh --bootstrap-server localhost:9092 --describe --topic orders</span><br><span class="line"></span><br><span class="line"><span class="comment"># 预期输出：</span></span><br><span class="line"><span class="comment"># Topic: orders  PartitionCount: 3  ReplicationFactor: 3</span></span><br><span class="line"><span class="comment">#   Partition: 0  Leader: 1  Replicas: 1,2,3  Isr: 1,2,3</span></span><br><span class="line"><span class="comment">#   Partition: 1  Leader: 2  Replicas: 2,3,1  Isr: 2,3,1</span></span><br><span class="line"><span class="comment">#   Partition: 2  Leader: 3  Replicas: 3,1,2  Isr: 3,1,2</span></span><br></pre></td></tr></table></figure>
 
-<p><strong>日志段（Segment）</strong> 是分区的物理存储单位，每个 Segment 由三个文件组成（一组）：</p>
+<p><strong>观察点</strong>：<code>Leader</code> 列显示每个 Partition 的 Leader 在哪个 Broker；<code>Replicas</code> 列显示副本分布；<code>Isr</code> 列显示当前同步的副本集合。如果某个副本不在 ISR 中，说明它已经滞后。</p>
+<h2 id="3-高吞吐原理：为什么-Kafka-能扛百万级-QPS"><a href="#3-高吞吐原理：为什么-Kafka-能扛百万级-QPS" class="headerlink" title="3. 高吞吐原理：为什么 Kafka 能扛百万级 QPS"></a>3. 高吞吐原理：为什么 Kafka 能扛百万级 QPS</h2><h3 id="3-1-四大核心支柱总览"><a href="#3-1-四大核心支柱总览" class="headerlink" title="3.1 四大核心支柱总览"></a>3.1 四大核心支柱总览</h3><p>Kafka 的高吞吐不是靠”某个黑科技”，而是<strong>四个机制叠加</strong>的结果：</p>
+<pre class="mermaid">flowchart TB
+    HighThroughput[Kafka 高吞吐]
+    HighThroughput --> Pillar1[顺序写入&lt;br/>append-only log&lt;br/>避免磁盘随机寻址]
+    HighThroughput --> Pillar2[PageCache&lt;br/>操作系统页缓存&lt;br/>避开 JVM GC]
+    HighThroughput --> Pillar3[零拷贝&lt;br/>sendfile&lt;br/>减少 CPU 拷贝和上下文切换]
+    HighThroughput --> Pillar4[批量 + 压缩&lt;br/>batch.size + linger.ms&lt;br/>端到端压缩]
+    HighThroughput --> Pillar5[分区并行&lt;br/>多分区分布多 Broker&lt;br/>读写多路并行]</pre>
+
+<h3 id="3-2-顺序写"><a href="#3-2-顺序写" class="headerlink" title="3.2 顺序写"></a>3.2 顺序写</h3><p><strong>为什么快</strong>：磁盘顺序写可达 150~200 MB&#x2F;s（机械盘），随机写只有几 MB&#x2F;s。Kafka 只做追加写（append-only），把”读改写”变成”写尾指针”。</p>
+<p><strong>怎么实现</strong>：每条消息追加到当前活跃的日志段（Segment）末尾；Segment 按 <code>log.segment.bytes</code>（默认 1GB）滚动切分。</p>
+<p><strong>生产配置</strong>：无需特殊配置。<strong>注意一个常见误区</strong>——不能因为”顺序写快”就认为数据已持久化，可靠性仍要依靠 <code>acks</code> 和副本数（第 5 节）。</p>
+<h3 id="3-3-PageCache"><a href="#3-3-PageCache" class="headerlink" title="3.3 PageCache"></a>3.3 PageCache</h3><p><strong>为什么快</strong>：Kafka 把读写都交给操作系统 Page Cache。写先落到 Page Cache 由内核异步刷盘，读命中 Cache 时就是纯内存操作。</p>
+<p><strong>怎么实现</strong>：数据不经过 JVM 堆，全部走内核 Page Cache。这让 Kafka 的 JVM 堆可以保持很小（生产建议 4~8GB），避免大堆 GC 停顿。</p>
+<pre class="mermaid">flowchart LR
+    subgraph JVM["JVM 堆"]
+        Heap[JVM Heap&lt;br/>4-8GB]
+    end
+
+    subgraph OS["操作系统"]
+        PageCache[Page Cache&lt;br/>剩余内存]
+        Disk[磁盘]
+    end
+
+    Write[写入消息] --> PageCache
+    PageCache -->|异步刷盘| Disk
+    Read[读取消息] --> PageCache
+    PageCache -->|未命中| Disk
+    PageCache -.->|不经过| Heap</pre>
+
+<p><strong>生产配置</strong>：JVM 堆不要盲目调大，防止堆挤占 Page Cache 空间；日志目录建议独立挂盘。</p>
+<h3 id="3-4-零拷贝-sendfile"><a href="#3-4-零拷贝-sendfile" class="headerlink" title="3.4 零拷贝 sendfile"></a>3.4 零拷贝 sendfile</h3><p><strong>为什么快</strong>：传统”读文件 → 发给 socket”路径要经过 4 次拷贝和多次上下文切换。<code>sendfile</code> 让内核直接把 Page Cache 中的数据 DMA 到网卡，全程 2 次拷贝。</p>
+<pre class="mermaid">flowchart LR
+    subgraph Traditional["传统方式 4 次拷贝"]
+        D1[磁盘] --> K1[内核缓冲区]
+        K1 --> U1[用户缓冲区]
+        U1 --> S1[Socket 缓冲区]
+        S1 --> N1[网卡]
+    end
+
+    subgraph ZeroCopy["零拷贝 2 次拷贝"]
+        D2[磁盘] --> K2[PageCache]
+        K2 --> N2[网卡]
+    end</pre>
+
+<p><strong>面试追问：零拷贝是完全没有拷贝吗？</strong></p>
+<blockquote>
+<p>不是。零拷贝是指<strong>没有 CPU 参与的拷贝</strong>。DMA（直接内存访问）拷贝仍然存在，但 DMA 拷贝不需要 CPU 参与，不消耗 CPU 资源。</p>
+</blockquote>
+<h3 id="3-5-批量-压缩"><a href="#3-5-批量-压缩" class="headerlink" title="3.5 批量 + 压缩"></a>3.5 批量 + 压缩</h3><p><strong>批量发送</strong>：Producer 把多条消息攒成一个批次再发送，减少网络往返次数。</p>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>默认值</th>
+<th>作用</th>
+<th>调优建议</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>batch.size</code></td>
+<td>16KB</td>
+<td>一个批次的最大字节数</td>
+<td>调大到 64KB-1MB</td>
+</tr>
+<tr>
+<td><code>linger.ms</code></td>
+<td>0</td>
+<td>批次等待时间</td>
+<td>调到 5-100ms</td>
+</tr>
+<tr>
+<td><code>fetch.min.bytes</code></td>
+<td>1</td>
+<td>消费者拉取批次最小字节数</td>
+<td>调大到 1MB</td>
+</tr>
+<tr>
+<td><code>fetch.max.wait.ms</code></td>
+<td>500ms</td>
+<td>攒批最长等待</td>
+<td>延迟敏感调小</td>
+</tr>
+</tbody></table>
+<p><strong>压缩</strong>：Kafka 支持在批次级别压缩（<code>compression.type=lz4/snappy/zstd</code>），压缩后再发送，Broker 端不解压直接存储，Consumer 端解压。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 生产环境推荐配置</span></span><br><span class="line">compression.type=lz4          <span class="comment"># 压缩率与 CPU 开销的平衡点</span></span><br><span class="line">batch.size=131072             <span class="comment"># 128KB</span></span><br><span class="line">linger.ms=20                  <span class="comment"># 等待 20ms 攒批</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="3-6-分区并行"><a href="#3-6-分区并行" class="headerlink" title="3.6 分区并行"></a>3.6 分区并行</h3><p><strong>为什么快</strong>：单分区是单线程顺序写，吞吐上限受单块磁盘 IOPS 限制。把 Topic 拆成 N 个 Partition 分布在 M 台 Broker 上，读写多路并行，吞吐理论上可以线性扩展。</p>
+<p><strong>生产配置</strong>：分区数是吞吐规划的核心参数——先估单分区吞吐（如 5~10 MB&#x2F;s），再按总吞吐需求定分区数。</p>
+<p><strong>面试追问：分区数是不是越多越好？</strong></p>
+<blockquote>
+<p>不是。分区数过多会放大元数据规模、文件句柄数、Rebalance 时间，以及 Leader 选举开销。经验值：分区数与预期吞吐匹配即可，单 Broker 数千分区以内是常见规模。</p>
+</blockquote>
+<h2 id="4-物理存储：一条消息落盘后长什么样"><a href="#4-物理存储：一条消息落盘后长什么样" class="headerlink" title="4. 物理存储：一条消息落盘后长什么样"></a>4. 物理存储：一条消息落盘后长什么样</h2><h3 id="4-1-Segment-文件结构"><a href="#4-1-Segment-文件结构" class="headerlink" title="4.1 Segment 文件结构"></a>4.1 Segment 文件结构</h3><p>Kafka 的 Topic 数据按分区存储，一个分区对应磁盘上的一个目录：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">/data/kafka/orders-0/</span><br><span class="line">├── 00000000000000000000.log      # 第 1 个日志段：起始 offset = 0</span><br><span class="line">├── 00000000000000000000.index    # 与 .log 配套的 offset 索引</span><br><span class="line">├── 00000000000000000000.timeindex # 与 .log 配套的时间戳索引</span><br><span class="line">├── 00000000000000037281.log      # 第 2 个日志段：起始 offset = 37281</span><br><span class="line">├── 00000000000000037281.index</span><br><span class="line">├── 00000000000000037281.timeindex</span><br><span class="line">└── ...</span><br></pre></td></tr></table></figure>
+
+<p>每个 Segment 由三个文件组成：</p>
 <table>
 <thead>
 <tr>
@@ -675,301 +858,472 @@
 </tr>
 <tr>
 <td><code>.index</code></td>
-<td><strong>offset → 物理位置</strong> 的稀疏索引（4.2 详述）</td>
+<td>offset → 物理位置 的稀疏索引</td>
 </tr>
 <tr>
 <td><code>.timeindex</code></td>
-<td><strong>时间戳 → offset</strong> 的索引，用于按时间定位（<code>offsetsForTimes</code>）</td>
+<td>时间戳 → offset 的索引</td>
 </tr>
 </tbody></table>
-<p>文件名的 20 位数字 &#x3D; <strong>段内第一条消息的绝对 offset</strong>（例如 <code>00000000000000037281.log</code> 表示该段从 offset 37281 开始）。只有最后一个段是<strong>活跃段（active segment）</strong>，消息只追加到活跃段；写满 <code>log.segment.bytes</code>（默认 1GB）或超过 <code>log.roll.hours</code>（默认 7 天）后滚动生成新段。<strong>滚动后的段只读</strong>——日志清理（4.3）正是以”段”为单位删除的。</p>
-<h3 id="4-2-稀疏索引原理：offset-index-怎么用"><a href="#4-2-稀疏索引原理：offset-index-怎么用" class="headerlink" title="4.2 稀疏索引原理：offset index 怎么用"></a>4.2 稀疏索引原理：offset index 怎么用</h3><p>一个 1GB 的 <code>.log</code> 文件里要定位 offset 37281 之后的第 10 条消息，不可能从文件头逐条扫。<code>.index</code> 就是干这个的，但它不是”每条消息一条索引”（那样索引比数据还大），而是<strong>稀疏索引</strong>：</p>
+<p>文件名的 20 位数字 &#x3D; 段内第一条消息的绝对 offset。只有最后一个段是<strong>活跃段</strong>（active segment），消息只追加到活跃段。</p>
+<h3 id="4-2-稀疏索引原理"><a href="#4-2-稀疏索引原理" class="headerlink" title="4.2 稀疏索引原理"></a>4.2 稀疏索引原理</h3><p>一个 1GB 的 <code>.log</code> 文件里要定位 offset 37281 之后的第 10 条消息，不可能从文件头逐条扫。<code>.index</code> 就是干这个的，但它不是”每条消息一条索引”，而是<strong>稀疏索引</strong>：</p>
 <ul>
-<li>每写入 <strong>4KB</strong>（<code>log.index.interval.bytes</code> 默认 4096 字节）数据，才在 <code>.index</code> 追加一条记录；</li>
-<li>每条记录 8 字节：<strong>relative offset（4 字节，段内相对偏移）+ position（4 字节，段内物理位置）</strong>；</li>
-<li>按 offset 查找的路径：<strong>① 根据段文件名找到目标 offset 所在的 Segment → ② 在 <code>.index</code> 里二分查找 ≤ 目标 offset 的最大条目 → ③ 拿到物理 position 后从 <code>.log</code> 对应位置顺序扫描到目标 offset</strong>。稀疏索引让索引体积缩小上百倍，代价只是最多多扫 4KB 数据——二分 + 顺序扫都是内存&#x2F;顺序 IO 操作，代价可忽略。</li>
+<li>每写入 4KB（<code>log.index.interval.bytes</code>）数据，才在 <code>.index</code> 追加一条记录；</li>
+<li>每条记录 8 字节：relative offset（4 字节）+ position（4 字节）。</li>
 </ul>
-<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">.log:  [msg0][msg1][msg2]...[msg37281][msg37282]...</span><br><span class="line">        ↑ 4KB      ↑ 4KB</span><br><span class="line">.index: (0, 0) → (1000, 4096) → (2300, 8192) ...   # (relative offset, position)</span><br><span class="line">        查 offset 2500: 二分命中 (2300, 8192)，从 .log 偏移 8192 顺序扫到 2500</span><br></pre></td></tr></table></figure>
+<pre class="mermaid">flowchart LR
+    Query["查找 offset 2500"] --> FindSeg["根据段文件名&lt;br/>找到目标 Segment"]
+    FindSeg --> Binary["在 .index 二分查找&lt;br/>≤ 2500 的最大条目"]
+    Binary --> GetPos["拿到物理 position&lt;br/>(2300, 8192)"]
+    GetPos --> Scan["从 .log 偏移 8192&lt;br/>顺序扫到 2500"]</pre>
 
-<p><code>.timeindex</code> 同理：每 4KB 记一条 (timestamp, relative offset)，按时间戳二分定位到段和 offset，支撑”从某时刻开始消费”。</p>
-<h3 id="4-3-日志清理策略：delete-vs-compact"><a href="#4-3-日志清理策略：delete-vs-compact" class="headerlink" title="4.3 日志清理策略：delete vs compact"></a>4.3 日志清理策略：delete vs compact</h3><p>消息消费完不会消失，什么时候真正删除由清理策略决定（Broker 级 <code>log.cleanup.policy</code>，可按 Topic 覆盖）：</p>
-<p><strong>delete（默认）：按时间&#x2F;大小过期删除</strong></p>
-<ul>
-<li><code>log.retention.hours</code>（默认 168，即 7 天）或 <code>log.retention.bytes</code>（默认 -1 不限总量）；</li>
-<li>清理线程只删<strong>非活跃段</strong>中过期的段，删除单位是整段；</li>
-<li>适合日志、事件类”过了保留期就不需要”的数据。</li>
-</ul>
-<p><strong>compact：日志压缩，按 key 保留最新值</strong></p>
-<ul>
-<li><code>log.cleanup.policy=compact</code>：不为”过多久删”，而是<strong>永远保留每个 key 的最新一条消息</strong>，key 的旧值被压缩删除；</li>
-<li>后台 cleaner 线程（<code>log.cleaner.enable=true</code>）扫描段 → 用 <code>OffsetMap</code> 记住每个 key 出现的最大 offset → 把每段重新写成”只含各 key 最新值”的紧凑段 → 删除冗余；</li>
-<li><strong>tombstone</strong>：写入 <code>value = null</code> 的消息表示删除该 key，压缩后连 key 一起消失；</li>
-<li>适合”最终状态”类数据：用户配置表、股票快照、设备最新状态——历史旧值毫无意义，只有最新值有用。</li>
-</ul>
+<p>稀疏索引让索引体积缩小上百倍，代价只是最多多扫 4KB 数据。</p>
+<h3 id="4-3-日志清理策略：delete-vs-compact"><a href="#4-3-日志清理策略：delete-vs-compact" class="headerlink" title="4.3 日志清理策略：delete vs compact"></a>4.3 日志清理策略：delete vs compact</h3><p>消息消费完不会消失，什么时候真正删除由清理策略决定：</p>
 <table>
 <thead>
 <tr>
 <th>维度</th>
-<th>delete</th>
+<th>delete（默认）</th>
 <th>compact</th>
 </tr>
 </thead>
 <tbody><tr>
-<td>保留语义</td>
+<td><strong>保留语义</strong></td>
 <td>保留最近 N 小时&#x2F;字节</td>
 <td>保留每个 key 的最新值</td>
 </tr>
 <tr>
-<td>删除单位</td>
+<td><strong>删除单位</strong></td>
 <td>整个 Segment（按时间&#x2F;大小）</td>
 <td>段内逐条（按 key）</td>
 </tr>
 <tr>
-<td>代价</td>
+<td><strong>代价</strong></td>
 <td>低</td>
 <td>cleaner 线程 CPU 开销</td>
 </tr>
 <tr>
-<td>典型应用</td>
+<td><strong>典型应用</strong></td>
 <td>日志、指标、事件</td>
 <td>配置、快照、状态数据</td>
 </tr>
 </tbody></table>
-<h3 id="4-4-磁盘布局：log-dirs-与-Leader-分布"><a href="#4-4-磁盘布局：log-dirs-与-Leader-分布" class="headerlink" title="4.4 磁盘布局：log.dirs 与 Leader 分布"></a>4.4 磁盘布局：log.dirs 与 Leader 分布</h3><p><strong>多目录均衡</strong>：<code>log.dirs=/data/kafka1,/data/kafka2</code>（逗号分隔）把分区目录分散到多块磁盘。Broker 创建新分区时，选择<strong>当前文件数最少</strong>的目录——Kafka 不自作聪明搞手动分配，只保证大体均衡，让多盘 IO 并行。</p>
-<p><strong>Leader 分区的轮询放置</strong>：创建 Topic 时（<code>kafka-topics.sh --create --replication-factor 3 --partitions 6</code>），Controller 会把各分区的 Leader 尽量均匀分配到所有 Broker（优先选副本最少的 Broker），Follower 跟随放置并尽量满足机架感知（<code>rack</code> 配置），保证单个 Broker 宕机不会让某个 Topic 的所有 Leader 同时消失。</p>
-<p><strong>工程建议</strong>：数据目录按块磁盘规划（一块系统盘 + 两块数据盘分别给日志与数据），<code>log.dirs</code> 指向数据盘；监控磁盘空间——分区目录只增不减，清理策略跟不上时磁盘会写满。</p>
-<h2 id="5-消息可靠性：三个环节怎么保证不丢"><a href="#5-消息可靠性：三个环节怎么保证不丢" class="headerlink" title="5. 消息可靠性：三个环节怎么保证不丢"></a>5. 消息可靠性：三个环节怎么保证不丢</h2><p>先明确三种投递语义，面试常考：</p>
+<p><strong>delete 策略</strong>：按时间&#x2F;大小过期删除。<code>log.retention.hours</code>（默认 168，即 7 天）或 <code>log.retention.bytes</code>。适合”过了保留期就不需要”的数据。</p>
+<p><strong>compact 策略</strong>：按 key 保留最新值。永远保留每个 key 的最新一条消息，key 的旧值被压缩删除。写入 <code>value = null</code> 的消息表示删除该 key（tombstone）。适合”最终状态”类数据。</p>
+<h3 id="4-4-磁盘布局与-Leader-分布"><a href="#4-4-磁盘布局与-Leader-分布" class="headerlink" title="4.4 磁盘布局与 Leader 分布"></a>4.4 磁盘布局与 Leader 分布</h3><p><strong>多目录均衡</strong>：<code>log.dirs=/data/kafka1,/data/kafka2</code> 把分区目录分散到多块磁盘。Broker 创建新分区时，选择当前文件数最少的目录。</p>
+<p><strong>Leader 分区的轮询放置</strong>：创建 Topic 时，Controller 会把各分区的 Leader 尽量均匀分配到所有 Broker（优先选副本最少的 Broker），Follower 跟随放置并尽量满足机架感知。</p>
+<h2 id="5-消息可靠性：三个环节怎么保证不丢"><a href="#5-消息可靠性：三个环节怎么保证不丢" class="headerlink" title="5. 消息可靠性：三个环节怎么保证不丢"></a>5. 消息可靠性：三个环节怎么保证不丢</h2><h3 id="5-1-三种投递语义"><a href="#5-1-三种投递语义" class="headerlink" title="5.1 三种投递语义"></a>5.1 三种投递语义</h3><table>
+<thead>
+<tr>
+<th>语义</th>
+<th>含义</th>
+<th>实现方式</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>at-most-once</strong></td>
+<td>可能丢，但不会重复</td>
+<td><code>acks=0</code></td>
+</tr>
+<tr>
+<td><strong>at-least-once</strong></td>
+<td>不会丢，但可能重复</td>
+<td>Kafka 默认</td>
+</tr>
+<tr>
+<td><strong>exactly-once</strong></td>
+<td>不丢不重</td>
+<td>幂等 + 事务 + 消费端配合</td>
+</tr>
+</tbody></table>
+<h3 id="5-2-acks-三种模式"><a href="#5-2-acks-三种模式" class="headerlink" title="5.2 acks 三种模式"></a>5.2 acks 三种模式</h3><table>
+<thead>
+<tr>
+<th>acks 值</th>
+<th>含义</th>
+<th>可靠性</th>
+<th>吞吐</th>
+<th>适用场景</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>0</code></td>
+<td>发出即认为成功，不等待确认</td>
+<td>最低</td>
+<td>最高</td>
+<td>日志采集、监控指标</td>
+</tr>
+<tr>
+<td><code>1</code></td>
+<td>等待 Leader 落盘确认</td>
+<td>中</td>
+<td>中</td>
+<td>一般业务</td>
+</tr>
+<tr>
+<td><code>all</code> &#x2F; <code>-1</code></td>
+<td>等待所有 ISR 副本同步完成</td>
+<td>最高</td>
+<td>最低</td>
+<td>金融、支付、订单</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart LR
+    subgraph Acks0["acks=0"]
+        P0[Producer] -->|发出即返回| B0[Broker]
+    end
+
+    subgraph Acks1["acks=1"]
+        P1[Producer] -->|等待 Leader 确认| B1[Leader]
+    end
+
+    subgraph AcksAll["acks=all"]
+        P2[Producer] -->|等待所有 ISR 确认| B2[Leader]
+        B2 -->|同步| F2[Follower 1]
+        B2 -->|同步| F3[Follower 2]
+    end</pre>
+
+<h3 id="5-3-ISR-最小副本数"><a href="#5-3-ISR-最小副本数" class="headerlink" title="5.3 ISR 最小副本数"></a>5.3 ISR 最小副本数</h3><p><code>acks=all</code> 的语义是”ISR 全部写入”，但 ISR 是动态收缩的——如果副本都挂得只剩 Leader 自己，<code>acks=all</code> 实际退化成 <code>acks=1</code>。所以必须有 <code>min.insync.replicas</code> 卡住底线。</p>
+<pre class="mermaid">flowchart TB
+    Producer[Producer 发送消息] --> Check{ISR 中副本数&lt;br/>>= min.insync.replicas?}
+    Check -->|是| Write[Leader 写入成功&lt;br/>等待 ISR 同步]
+    Check -->|否| Reject[拒绝写入&lt;br/>返回 NOT_ENOUGH_REPLICAS]
+    Write --> Ack[返回成功给 Producer]</pre>
+
+<p><strong>生产配置</strong>：<code>replication.factor=3</code> 搭配 <code>min.insync.replicas=2</code>。含义是：写入成功的消息必然存在 2 份副本，任意一台 Broker 故障都不丢。</p>
+<p><strong>面试追问：RF&#x3D;3, min.insync.replicas&#x3D;2, 宕机几台会不可用？</strong></p>
+<blockquote>
+<p>最多宕机 1 台。因为 3 副本中如果有 2 台宕机，ISR 中只剩 1 个副本，小于 <code>min.insync.replicas=2</code>，Leader 会拒绝写入。所以 3 副本 + min.insync&#x3D;2 的方案，<strong>容忍 1 台 Broker 故障</strong>。</p>
+</blockquote>
+<h3 id="5-4-副本同步与高水位（LEO-HW）"><a href="#5-4-副本同步与高水位（LEO-HW）" class="headerlink" title="5.4 副本同步与高水位（LEO &#x2F; HW）"></a>5.4 副本同步与高水位（LEO &#x2F; HW）</h3><p>这是 Kafka 一致性的核心考点：</p>
+<table>
+<thead>
+<tr>
+<th>概念</th>
+<th>含义</th>
+<th>维度</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>LEO</strong></td>
+<td>副本本地日志下一条待写入的 offset</td>
+<td>单副本维度</td>
+</tr>
+<tr>
+<td><strong>HW</strong></td>
+<td>所有 ISR 副本 LEO 的最小值</td>
+<td>分区（ISR 集合）维度</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart LR
+    subgraph Leader[Leader 副本]
+        L_LEO[LEO = 10]
+    end
+    subgraph F1[Follower 1]
+        F1_LEO[LEO = 9]
+    end
+    subgraph F2[Follower 2]
+        F2_LEO[LEO = 8]
+    end
+
+    HW[HW = min 9, 8, 10 = 8]
+
+    Leader --> HW
+    F1 --> HW
+    F2 --> HW
+
+    Consumer[消费者只能读到 offset &lt; 8 的消息]
+    HW --> Consumer</pre>
+
+<p><strong>核心规则</strong>：</p>
 <ul>
-<li><strong>at-most-once（最多一次）</strong>：可能丢，但不会重复。<code>acks=0</code> 即此语义。</li>
-<li><strong>at-least-once（至少一次）</strong>：不会丢，但可能重复。Kafka 默认就是这种语义。</li>
-<li><strong>exactly-once（精确一次）</strong>：不丢不重。需要幂等 + 事务 + 消费端配合（第 6 节）。</li>
+<li>消费者<strong>只能读到 HW 之前的消息</strong>；</li>
+<li>Follower 同步追上 Leader 的 LEO 后，Leader 会推进 HW。</li>
 </ul>
-<h3 id="5-1-acks-三种模式"><a href="#5-1-acks-三种模式" class="headerlink" title="5.1 acks 三种模式"></a>5.1 <code>acks</code> 三种模式</h3><ul>
-<li>**<code>acks=0</code>**：Producer 发完即走，不等任何确认。吞吐最高、延迟最低，但可能丢消息（Broker 宕机、网络故障都感知不到）。只用于日志、指标等可丢数据。</li>
-<li>**<code>acks=1</code>**：等待 Leader 写入本地日志（Page Cache）后确认。折中方案；若 Leader 写入后、Follower 尚未同步前宕机，消息丢失（因为新 Leader 从 ISR 选出，可能没有这条数据）。</li>
-<li><strong><code>acks=all</code>（等价于 <code>acks=-1</code>）</strong>：等待 Leader 收到消息且<strong>当前 ISR 中所有副本</strong>都已写入后才确认。最强可靠性，需要配合 <code>min.insync.replicas</code> 使用才有意义（见下）。</li>
-</ul>
-<h3 id="5-2-ISR-最小副本数：acks-all-的正确打开方式"><a href="#5-2-ISR-最小副本数：acks-all-的正确打开方式" class="headerlink" title="5.2 ISR 最小副本数：acks=all 的正确打开方式"></a>5.2 ISR 最小副本数：<code>acks=all</code> 的正确打开方式</h3><ul>
-<li><strong>为什么需要</strong>：<code>acks=all</code> 的语义是”ISR 全部写入”，但 ISR 是动态收缩的——如果副本都挂得只剩 Leader 自己，ISR 就只剩一个，<code>acks=all</code> 实际退化成 <code>acks=1</code>。所以必须有 <code>min.insync.replicas</code> 卡住底线。</li>
-<li><strong>怎么实现</strong>：<code>min.insync.replicas</code> 规定”至少 N 个副本在线同步，才接受写入”。当 ISR 收缩到小于该值时，Leader 直接拒绝写入，Producer 收到 <code>NotEnoughReplicasException</code> 并重试——<strong>宁可写失败，也不能写成功却只有一份副本</strong>。</li>
-<li><strong>生产配置</strong>：<code>replication.factor=3</code>（Broker 级 <code>default.replication.factor</code>）搭配 <code>min.insync.replicas=2</code>。<code>acks=all</code> + <code>min.insync.replicas=2</code> 的含义是：写入成功的消息必然存在 2 份副本，任意一台 Broker 故障都不丢。</li>
-</ul>
-<h3 id="5-3-副本同步与高水位（LEO-HW）"><a href="#5-3-副本同步与高水位（LEO-HW）" class="headerlink" title="5.3 副本同步与高水位（LEO &#x2F; HW）"></a>5.3 副本同步与高水位（LEO &#x2F; HW）</h3><p>这是 Kafka 一致性的核心考点：</p>
+<p><strong>面试追问：为什么消费者不能读到 HW 之后的消息？</strong></p>
+<blockquote>
+<p>因为 HW 之后的消息虽然写入了 Leader，但还没被所有 ISR 副本确认。如果消费者能读到，Leader 一宕机这些已读数据就凭空消失了。HW 定义了”已提交”的线。</p>
+</blockquote>
+<h3 id="5-5-三环节不丢失方案"><a href="#5-5-三环节不丢失方案" class="headerlink" title="5.5 三环节不丢失方案"></a>5.5 三环节不丢失方案</h3><p><strong>Producer 环节</strong>：</p>
 <ul>
-<li><strong>为什么需要</strong>：Follower 复制是<strong>异步拉取</strong>（Follower 主动向 Leader 发 Fetch 请求，Leader 不推）。如果消费者能读到”只有 Leader 有、Follower 还没有”的消息，那么 Leader 一宕机，这些已读数据就凭空消失了。必须定义一条”已提交”的线，消费者只能读线以下的。</li>
-<li><strong>怎么实现（两个水位）</strong>：<ul>
-<li><strong>LEO（Log End Offset）</strong>：每个副本日志下一条要写入的位置；</li>
-<li><strong>HW（High Watermark）</strong>：ISR 中所有副本都同步到的最小 LEO，即”所有 ISR 副本都拥有的位置”。<strong>HW 以下的消息视为已提交，消费者只能消费 HW 以下</strong>。</li>
-<li>更新过程：Follower 拉取时带上自己的 LEO → Leader 取 ISR 中最小 LEO 更新自己的 HW → 响应带回 Leader 的 HW → Follower 把自己的 HW 更新为 min(自身 LEO, Leader HW)。</li>
-</ul>
-</li>
-<li><strong>高水位与 Leader 选举</strong>：Leader 从 ISR 中选出，而 ISR 中每个副本的 LEO 都 ≥ HW，所以<strong>所有已提交消息必然在新 Leader 上</strong>。如果 <code>unclean.leader.election.enable=true</code> 且 ISR 全挂，会从非 ISR（落后副本）选 Leader，新 Leader 会截断（truncate）到自己的 LEO，已确认的消息可能”回滚”丢失。**生产环境必须 <code>unclean.leader.election.enable=false</code>**：宁可分区短暂不可用，也不能丢已确认数据。</li>
-<li><strong>补充深度</strong>：0.11 引入的 leader epoch（KIP-101）解决了旧 HW 机制在”旧 Leader 复活”场景下可能误截断的问题——每个 Leader 任期记录起始 offset，截断时按 epoch 精确对齐，而不是盲目以新 Leader 的 offset 为准。</li>
-</ul>
-<h3 id="5-4-三环节不丢失方案"><a href="#5-4-三环节不丢失方案" class="headerlink" title="5.4 三环节不丢失方案"></a>5.4 三环节不丢失方案</h3><p><strong>Producer 环节：</strong></p>
-<ul>
-<li>原因：<code>acks=0/1</code> 的确认语义不足；异步发送未处理回调，发送失败无感知。</li>
-<li>方案：<ul>
 <li><code>acks=all</code> + <code>min.insync.replicas=2</code>（前提 RF&#x3D;3）；</li>
-<li>配置 <code>retries</code>（幂等开启后默认很大）和 <code>retry.backoff.ms</code>，让可重试异常（网络抖动、<code>NOT_ENOUGH_REPLICAS</code>）自动重试；</li>
-<li>**<code>enable.idempotence=true</code>**：开启后强制 <code>acks=all</code>，同时让重试不产生重复数据（详见第 6 节）；</li>
-<li><code>send()</code> 的回调必须检查异常并告警，不能只打日志假装没看见。</li>
+<li>配置 <code>retries</code> 和 <code>retry.backoff.ms</code>；</li>
+<li><code>enable.idempotence=true</code>；</li>
+<li><code>send()</code> 的回调必须检查异常并告警。</li>
 </ul>
-</li>
-</ul>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">Properties</span> <span class="variable">props</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">Properties</span>();</span><br><span class="line">props.put(<span class="string">&quot;bootstrap.servers&quot;</span>, <span class="string">&quot;broker1:9092,broker2:9092&quot;</span>);</span><br><span class="line">props.put(<span class="string">&quot;key.serializer&quot;</span>, <span class="string">&quot;org.apache.kafka.common.serialization.StringSerializer&quot;</span>);</span><br><span class="line">props.put(<span class="string">&quot;value.serializer&quot;</span>, <span class="string">&quot;org.apache.kafka.common.serialization.StringSerializer&quot;</span>);</span><br><span class="line">props.put(<span class="string">&quot;acks&quot;</span>, <span class="string">&quot;all&quot;</span>);</span><br><span class="line">props.put(<span class="string">&quot;retries&quot;</span>, Integer.MAX_VALUE);</span><br><span class="line">props.put(<span class="string">&quot;enable.idempotence&quot;</span>, <span class="string">&quot;true&quot;</span>);</span><br><span class="line">props.put(<span class="string">&quot;compression.type&quot;</span>, <span class="string">&quot;lz4&quot;</span>);</span><br><span class="line">KafkaProducer&lt;String, String&gt; producer = <span class="keyword">new</span> <span class="title class_">KafkaProducer</span>&lt;&gt;(props);</span><br><span class="line">producer.send(record, (metadata, exception) -&gt; &#123;</span><br><span class="line">    <span class="keyword">if</span> (exception != <span class="literal">null</span>) &#123;</span><br><span class="line">        <span class="comment">// 必须处理:记录 + 告警 + 补偿,不能只打日志</span></span><br><span class="line">        alertService.alert(<span class="string">&quot;send failed&quot;</span>, exception);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;);</span><br></pre></td></tr></table></figure>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">Properties</span> <span class="variable">props</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">Properties</span>();</span><br><span class="line">props.put(<span class="string">&quot;bootstrap.servers&quot;</span>, <span class="string">&quot;broker1:9092&quot;</span>);</span><br><span class="line">props.put(<span class="string">&quot;acks&quot;</span>, <span class="string">&quot;all&quot;</span>);</span><br><span class="line">props.put(<span class="string">&quot;retries&quot;</span>, Integer.MAX_VALUE);</span><br><span class="line">props.put(<span class="string">&quot;enable.idempotence&quot;</span>, <span class="string">&quot;true&quot;</span>);</span><br><span class="line">props.put(<span class="string">&quot;compression.type&quot;</span>, <span class="string">&quot;lz4&quot;</span>);</span><br><span class="line">KafkaProducer&lt;String, String&gt; producer = <span class="keyword">new</span> <span class="title class_">KafkaProducer</span>&lt;&gt;(props);</span><br><span class="line">producer.send(record, (metadata, exception) -&gt; &#123;</span><br><span class="line">    <span class="keyword">if</span> (exception != <span class="literal">null</span>) &#123;</span><br><span class="line">        alertService.alert(<span class="string">&quot;send failed&quot;</span>, exception);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;);</span><br></pre></td></tr></table></figure>
 
-<p><strong>Broker 环节：</strong></p>
+<p><strong>Broker 环节</strong>：</p>
 <ul>
-<li>原因：RF&#x3D;1 单副本，磁盘故障即丢；<code>min.insync.replicas=1</code> 时 <code>acks=all</code> 名存实亡；<code>unclean.leader.election.enable=true</code> 选落后副本当 Leader。</li>
-<li>方案：<code>replication.factor=3</code>、<code>min.insync.replicas=2</code>、<code>unclean.leader.election.enable=false</code>。Broker 侧不需要追求逐条 fsync——副本冗余已经保证了”至少两份”，OS 刷盘交给内核即可（追求极致可用性时关注 <code>log.flush.interval.messages</code>，但生产默认配置通常足够）。</li>
+<li><code>replication.factor=3</code>、<code>min.insync.replicas=2</code>、<code>unclean.leader.election.enable=false</code>；</li>
+<li>Broker 侧不需要追求逐条 fsync——副本冗余已经保证了”至少两份”。</li>
 </ul>
-<p><strong>Consumer 环节：</strong></p>
+<p><strong>Consumer 环节</strong>：</p>
 <ul>
-<li>原因：默认 <code>enable.auto.commit=true</code> 在 poll 前就提交 offset，消息处理失败（业务异常、进程崩溃）后 offset 已提交，这条消息就”消失”了（还在 Broker 上，但组内无人再消费）。</li>
-<li>方案：<ul>
-<li><code>enable.auto.commit=false</code>，业务处理<strong>成功之后</strong>手动 <code>commitSync()</code>（或 <code>commitAsync()</code> 并在回调里兜底）；</li>
-<li>处理完一批再提交该批最后一条 offset，失败则不提交，重启后自动重新消费；</li>
-<li>实现 <code>ConsumerRebalanceListener</code>，在 <code>onPartitionsRevoked</code> 中把已处理的 offset 提交掉，防止分区易主后丢进度（完整代码见第 8 节）。</li>
+<li><code>enable.auto.commit=false</code>，业务处理成功之后手动 <code>commitSync()</code>；</li>
+<li>处理完一批再提交该批最后一条 offset；</li>
+<li>实现 <code>ConsumerRebalanceListener</code>，在 <code>onPartitionsRevoked</code> 中把已处理的 offset 提交掉。</li>
 </ul>
-</li>
-</ul>
-<p><strong>一句话总结生产配置</strong>：<code>RF=3</code>、<code>min.insync.replicas=2</code>、<code>unclean.leader.election.enable=false</code>、<code>acks=all</code>、<code>enable.idempotence=true</code>、消费者手动提交——这套组合把消息丢失概率降到”整个机房故障”级别。</p>
-<h2 id="6-消息不重复：幂等生产者、消费者去重、事务"><a href="#6-消息不重复：幂等生产者、消费者去重、事务" class="headerlink" title="6. 消息不重复：幂等生产者、消费者去重、事务"></a>6. 消息不重复：幂等生产者、消费者去重、事务</h2><h3 id="6-1-为什么会产生重复"><a href="#6-1-为什么会产生重复" class="headerlink" title="6.1 为什么会产生重复"></a>6.1 为什么会产生重复</h3><p>在 at-least-once 语义下，重复是结构性的，无法靠”仔细点”消除：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line">consumer.subscribe(Collections.singletonList(<span class="string">&quot;orders&quot;</span>), <span class="keyword">new</span> <span class="title class_">ConsumerRebalanceListener</span>() &#123;</span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">onPartitionsRevoked</span><span class="params">(Collection&lt;TopicPartition&gt; partitions)</span> &#123;</span><br><span class="line">        consumer.commitSync();</span><br><span class="line">    &#125;</span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">onPartitionsAssigned</span><span class="params">(Collection&lt;TopicPartition&gt; partitions)</span> &#123;&#125;</span><br><span class="line">&#125;);</span><br><span class="line"><span class="keyword">while</span> (running) &#123;</span><br><span class="line">    ConsumerRecords&lt;String, String&gt; records = consumer.poll(Duration.ofMillis(<span class="number">1000</span>));</span><br><span class="line">    <span class="keyword">for</span> (ConsumerRecord&lt;String, String&gt; record : records) &#123;</span><br><span class="line">        process(record);</span><br><span class="line">    &#125;</span><br><span class="line">    consumer.commitSync();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>一句话总结生产配置</strong>：RF&#x3D;3、<code>min.insync.replicas=2</code>、<code>unclean.leader.election.enable=false</code>、<code>acks=all</code>、<code>enable.idempotence=true</code>、消费者手动提交。</p>
+<h2 id="6-消息不重复：幂等生产者、消费者去重、事务"><a href="#6-消息不重复：幂等生产者、消费者去重、事务" class="headerlink" title="6. 消息不重复：幂等生产者、消费者去重、事务"></a>6. 消息不重复：幂等生产者、消费者去重、事务</h2><h3 id="6-1-为什么会产生重复"><a href="#6-1-为什么会产生重复" class="headerlink" title="6.1 为什么会产生重复"></a>6.1 为什么会产生重复</h3><p>在 at-least-once 语义下，重复是结构性的：</p>
 <ul>
-<li><strong>生产者重试</strong>：消息已写入 Broker，但 ack 在网络中丢失，Producer 重试导致同一条消息写入两次（两个 offset）；</li>
-<li><strong>消费者提交失败</strong>：处理成功但 offset 提交失败（网络、崩溃、Rebalance），重平衡后从旧 offset 重新拉取，已处理的消息被再次消费。</li>
+<li><strong>生产者重试</strong>：消息已写入 Broker，但 ack 在网络中丢失，Producer 重试导致同一条消息写入两次；</li>
+<li><strong>消费者提交失败</strong>：处理成功但 offset 提交失败，重平衡后从旧 offset 重新拉取。</li>
 </ul>
-<h3 id="6-2-幂等生产者：enable-idempotence-true"><a href="#6-2-幂等生产者：enable-idempotence-true" class="headerlink" title="6.2 幂等生产者：enable.idempotence=true"></a>6.2 幂等生产者：<code>enable.idempotence=true</code></h3><ul>
-<li><strong>为什么需要</strong>：重试和去重是矛盾的——不重试会丢，重试会重。幂等机制让”重试”和”不重”同时成立。</li>
-<li><strong>怎么实现</strong>：Producer 启动时向 Broker 申请一个唯一的 <strong>Producer ID</strong>；发往每个分区的消息携带<strong>单调递增的序列号</strong>（从 0 开始）。Broker 记录每个 (PID, 分区) 最近写过的序列号：重复序列号直接忽略，乱序序列号（前一个批次还没到）返回 <code>OutOfOrderSequenceException</code> 并触发重新发送。同时幂等模式自动 <code>acks=all</code>、放大 <code>retries</code>。</li>
-<li><strong>局限（面试常问）</strong>：去重范围是<strong>单个 Producer 会话、单个分区</strong>。进程重启后 PID 变化，去重失效；跨分区（同一 PID 不同分区序列号独立）不去重。</li>
-<li><strong>生产配置</strong>：<code>enable.idempotence=true</code> 是生产必选项，无性能副作用（和顺序性还有协同作用，见第 7 节）。</li>
-</ul>
-<h3 id="6-3-消费者端去重：最终的兜底方案"><a href="#6-3-消费者端去重：最终的兜底方案" class="headerlink" title="6.3 消费者端去重：最终的兜底方案"></a>6.3 消费者端去重：最终的兜底方案</h3><ul>
-<li><strong>为什么需要</strong>：Kafka 的事务只能覆盖 Kafka 内部。消费逻辑一旦牵涉外部系统（数据库、ES、调用下游 API），”不重复”必须由业务侧自己保证。这是最通用、最灵活的方案。</li>
-<li><strong>怎么实现</strong>：<ul>
-<li>消息中携带<strong>全局唯一业务 ID</strong>（订单号、支付流水号）；</li>
+<h3 id="6-2-幂等生产者"><a href="#6-2-幂等生产者" class="headerlink" title="6.2 幂等生产者"></a>6.2 幂等生产者</h3><p><strong>为什么需要</strong>：重试和去重是矛盾的——不重试会丢，重试会重。幂等机制让”重试”和”不重”同时成立。</p>
+<p><strong>怎么实现</strong>：Producer 启动时向 Broker 申请一个唯一的 Producer ID；发往每个分区的消息携带单调递增的序列号。Broker 记录每个 (PID, 分区) 最近写过的序列号，重复序列号直接忽略。</p>
+<p><strong>局限</strong>：去重范围是<strong>单个 Producer 会话、单个分区</strong>。进程重启后 PID 变化，去重失效；跨分区不去重。</p>
+<p><strong>生产配置</strong>：<code>enable.idempotence=true</code> 是生产必选项。</p>
+<h3 id="6-3-消费者端去重"><a href="#6-3-消费者端去重" class="headerlink" title="6.3 消费者端去重"></a>6.3 消费者端去重</h3><p><strong>为什么需要</strong>：Kafka 的事务只能覆盖 Kafka 内部。消费逻辑一旦牵涉外部系统（数据库、ES、调用下游 API），”不重复”必须由业务侧自己保证。</p>
+<p><strong>怎么实现</strong>：</p>
+<ul>
+<li>消息中携带全局唯一业务 ID（订单号、支付流水号）；</li>
 <li>处理前查重：<code>SELECT ... WHERE order_id = ?</code> 已存在则跳过；</li>
-<li><strong>数据库唯一约束兜底</strong>：<code>INSERT</code> 违反唯一键即视为重复（并发场景下查重也挡不住，唯一约束是最后防线）；</li>
-<li>需要”只处理一次”的状态机用条件更新：<code>UPDATE t SET status=&#39;paid&#39; WHERE order_id=? AND status=&#39;unpaid&#39;</code>，影响行数为 0 即重复。</li>
+<li>数据库唯一约束兜底：<code>INSERT</code> 违反唯一键即视为重复；</li>
+<li>需要”只处理一次”的状态机用条件更新。</li>
 </ul>
-</li>
-</ul>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">consume</span><span class="params">(ConsumerRecord&lt;String, String&gt; record)</span> &#123;</span><br><span class="line">    <span class="type">String</span> <span class="variable">orderId</span> <span class="operator">=</span> extractOrderId(record.value());</span><br><span class="line">    <span class="keyword">try</span> &#123;</span><br><span class="line">        <span class="comment">// 唯一约束兜底:重复插入抛 DuplicateKeyException</span></span><br><span class="line">        orderDao.insertWithUniqueKey(buildOrder(record));</span><br><span class="line">        <span class="comment">// 处理成功才提交 offset</span></span><br><span class="line">        consumer.commitSync();</span><br><span class="line">    &#125; <span class="keyword">catch</span> (DuplicateKeyException e) &#123;</span><br><span class="line">        <span class="comment">// 重复消息(或并发下其他实例已处理),直接跳过</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">consume</span><span class="params">(ConsumerRecord&lt;String, String&gt; record)</span> &#123;</span><br><span class="line">    <span class="type">String</span> <span class="variable">orderId</span> <span class="operator">=</span> extractOrderId(record.value());</span><br><span class="line">    <span class="keyword">try</span> &#123;</span><br><span class="line">        orderDao.insertWithUniqueKey(buildOrder(record));</span><br><span class="line">        consumer.commitSync();</span><br><span class="line">    &#125; <span class="keyword">catch</span> (DuplicateKeyException e) &#123;</span><br><span class="line">        <span class="comment">// 重复消息，直接跳过</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 
-<h3 id="6-4-事务消息-vs-幂等"><a href="#6-4-事务消息-vs-幂等" class="headerlink" title="6.4 事务消息 vs 幂等"></a>6.4 事务消息 vs 幂等</h3><ul>
-<li><strong>为什么需要事务</strong>：幂等只解决”单分区去重”，解决不了”多个分区的写入要么全成功要么全失败”和”消费与生产原子化”（Kafka Streams 的精确一次、跨 Topic 的一致事件）问题。</li>
-<li><strong>怎么实现</strong>：事务由 <strong>Transaction Coordinator</strong>（状态存于 <code>__transaction_state</code>）协调：Producer 开启事务后，写入的分区都在事务内标记；<code>commitTransaction()</code> 时协调者推进事务状态，消费者设置 <code>isolation.level=read_committed</code> 时，只能读到<strong>已提交事务内</strong>的消息和 LSO（Last Stable Offset）之前的数据，<code>read_uncommitted</code> 则能读到未提交数据。事务要求 <code>enable.idempotence=true</code>。</li>
-</ul>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">producer.initTransactions();</span><br><span class="line"><span class="keyword">try</span> &#123;</span><br><span class="line">    producer.beginTransaction();</span><br><span class="line">    producer.send(<span class="keyword">new</span> <span class="title class_">ProducerRecord</span>&lt;&gt;(<span class="string">&quot;payment&quot;</span>, key, value)); <span class="comment">// 事务内写</span></span><br><span class="line">    producer.send(<span class="keyword">new</span> <span class="title class_">ProducerRecord</span>&lt;&gt;(<span class="string">&quot;points&quot;</span>, key, value));</span><br><span class="line">    producer.sendOffsetsToTransaction(offsets, groupMetadata); <span class="comment">// 消费 offset 一并提交</span></span><br><span class="line">    producer.commitTransaction();</span><br><span class="line">&#125; <span class="keyword">catch</span> (Exception e) &#123;</span><br><span class="line">    producer.abortTransaction();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<h3 id="6-4-事务消息"><a href="#6-4-事务消息" class="headerlink" title="6.4 事务消息"></a>6.4 事务消息</h3><p><strong>为什么需要</strong>：幂等只解决”单分区去重”，解决不了”多个分区的写入要么全成功要么全失败”的问题。</p>
+<p><strong>怎么实现</strong>：事务由 Transaction Coordinator 协调。Producer 开启事务后，写入的分区都在事务内标记；<code>commitTransaction()</code> 时协调者推进事务状态。消费者设置 <code>isolation.level=read_committed</code> 时，只能读到已提交事务内的消息。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">producer.initTransactions();</span><br><span class="line"><span class="keyword">try</span> &#123;</span><br><span class="line">    producer.beginTransaction();</span><br><span class="line">    producer.send(<span class="keyword">new</span> <span class="title class_">ProducerRecord</span>&lt;&gt;(<span class="string">&quot;payment&quot;</span>, key, value));</span><br><span class="line">    producer.send(<span class="keyword">new</span> <span class="title class_">ProducerRecord</span>&lt;&gt;(<span class="string">&quot;points&quot;</span>, key, value));</span><br><span class="line">    producer.sendOffsetsToTransaction(offsets, groupMetadata);</span><br><span class="line">    producer.commitTransaction();</span><br><span class="line">&#125; <span class="keyword">catch</span> (Exception e) &#123;</span><br><span class="line">    producer.abortTransaction();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 
 <table>
 <thead>
 <tr>
 <th>维度</th>
-<th>幂等（enable.idempotence）</th>
+<th>幂等</th>
 <th>事务</th>
 </tr>
 </thead>
 <tbody><tr>
-<td>解决的问题</td>
+<td><strong>解决的问题</strong></td>
 <td>重试导致的重复</td>
 <td>多分区&#x2F;多 Topic 原子写入 + 消费提交原子化</td>
 </tr>
 <tr>
-<td>覆盖范围</td>
+<td><strong>覆盖范围</strong></td>
 <td>单 Producer 会话、单分区</td>
 <td>事务内所有分区、所有 Topic</td>
 </tr>
 <tr>
-<td>消费者</td>
-<td>无需感知</td>
-<td>需 <code>isolation.level=read_committed</code></td>
-</tr>
-<tr>
-<td>对外的保证</td>
+<td><strong>对外保证</strong></td>
 <td>不丢不重（分区内）</td>
 <td>流处理 exactly-once（Kafka 内部）</td>
 </tr>
 <tr>
-<td>局限</td>
+<td><strong>局限</strong></td>
 <td>跨会话、跨分区不去重</td>
-<td>不覆盖外部系统（DB&#x2F;ES 需业务幂等兜底）</td>
+<td>不覆盖外部系统</td>
 </tr>
 </tbody></table>
-<p>面试回答模板：<strong>幂等是”去重”，事务是”原子性”；跨 Kafka 与外部系统的最终一致性，靠业务幂等兜底。</strong></p>
+<p><strong>面试回答模板</strong>：幂等是”去重”，事务是”原子性”；跨 Kafka 与外部系统的最终一致性，靠业务幂等兜底。</p>
 <h2 id="7-消息顺序性：分区内有序"><a href="#7-消息顺序性：分区内有序" class="headerlink" title="7. 消息顺序性：分区内有序"></a>7. 消息顺序性：分区内有序</h2><h3 id="7-1-分区内有序的原理"><a href="#7-1-分区内有序的原理" class="headerlink" title="7.1 分区内有序的原理"></a>7.1 分区内有序的原理</h3><p>Kafka 的顺序保证是”<strong>单分区内严格有序</strong>“：</p>
 <ul>
-<li>写入侧：消息按 offset 追加到分区日志尾部，写入顺序即物理存储顺序；</li>
-<li>消费侧：同一个分区的消息只被组内<strong>一个</strong>消费者实例消费，<code>poll()</code> 按 offset 顺序返回，处理顺序就是消费顺序。</li>
+<li><strong>写入侧</strong>：消息按 offset 追加到分区日志尾部，写入顺序即物理存储顺序；</li>
+<li><strong>消费侧</strong>：同一个分区的消息只被组内一个消费者实例消费，<code>poll()</code> 按 offset 顺序返回。</li>
 </ul>
 <p>跨分区没有全局顺序（全局有序只能单分区 + 单消费者，等于放弃并行，生产上极少需要）。</p>
-<h3 id="7-2-用-key-保证同一实体的消息有序"><a href="#7-2-用-key-保证同一实体的消息有序" class="headerlink" title="7.2 用 key 保证同一实体的消息有序"></a>7.2 用 key 保证同一实体的消息有序</h3><p>业务上有序的最小单位是”同一个实体”（同一个订单、同一个用户）。默认分区器（<code>DefaultPartitioner</code>）对 key 做 murmur2 哈希取模选分区，<strong>相同 key 必然进同一分区</strong>，进而在分区内有序。</p>
-<ul>
-<li><strong>key 的选择</strong>：业务实体 ID（订单号、用户 ID、设备 ID）。例如订单状态流转事件都以 <code>orderId</code> 为 key，则该订单的全部事件按产生顺序落在一个分区。</li>
-<li><strong>注意 key 的均匀性</strong>：热点 key（如秒杀单品 ID）会把流量压向单个分区，造成分区倾斜——key 的分布要尽量均匀。</li>
-<li>需要自定义路由时可实现 <code>Partitioner</code> 接口（如按业务标识 + 一致性哈希），重写 <code>partition()</code> 方法即可。</li>
-</ul>
-<h3 id="7-3-乱序场景与处理"><a href="#7-3-乱序场景与处理" class="headerlink" title="7.3 乱序场景与处理"></a>7.3 乱序场景与处理</h3><ol>
-<li><strong>生产者重试导致的乱序</strong>：未开幂等时，若 <code>max.in.flight.requests.per.connection &gt; 1</code>（默认 5），第一批发送失败、第二批先成功，乱序产生。处理：<strong>开启幂等</strong>（Broker 按序列号校验，in-flight 大于 1 也保证有序），或显式设 <code>max.in.flight.requests.per.connection=1</code>（牺牲吞吐）。</li>
-<li><strong>消费者多线程并发处理乱序</strong>：单分区被多个线程并发处理时，谁先完成谁先落库，顺序被打乱。处理：分区内单线程处理；或按 key 哈希把消息路由到固定线程（<code>threadIndex = hash(key) % threadCount</code>），保证同一 key 永远由同一线程处理。</li>
-<li><strong>失败重投乱序</strong>：消息 A 处理失败，放入重试队列，而它的后继消息 B 已处理完——A 重新入队后反而排在 B 后面。处理：重试消息保持原 key（进同一分区），且<strong>重试期间阻塞该 key 的后续消息</strong>（同 key 串行重试），或引入延迟重试（先消费到最新再重放）。</li>
-<li><strong>Rebalance 不破坏顺序</strong>：只要 offset 提交正确，分区易主后新消费者从已提交位置继续，不会跳过也不会回头，顺序不破坏。真正会破坏顺序的是”提交 offset 后继续处理”这种错误写法。</li>
-</ol>
-<h2 id="8-消费者组：Rebalance、分配策略与-Lag-监控"><a href="#8-消费者组：Rebalance、分配策略与-Lag-监控" class="headerlink" title="8. 消费者组：Rebalance、分配策略与 Lag 监控"></a>8. 消费者组：Rebalance、分配策略与 Lag 监控</h2><h3 id="8-1-为什么需要消费者组"><a href="#8-1-为什么需要消费者组" class="headerlink" title="8.1 为什么需要消费者组"></a>8.1 为什么需要消费者组</h3><p>单消费者处理能力有限，且单点故障即消费中断。消费者组让 N 个实例<strong>协作消费</strong>一个 Topic：每个 Partition 同一时刻只被组内一个实例消费，组内实现负载均衡；实例宕机时分区自动转移给其他实例，实现故障转移。</p>
-<p><strong>组的基本组成</strong>：<code>group.id</code> 标识组；<strong>Group Coordinator</strong>（位于某个 Broker 上，根据 <code>hash(groupId) % offsets.topic.num.partitions</code> 落在 <code>__consumer_offsets</code> 的某个分区）管理成员关系和 offset 存储；消费者通过 JoinGroup&#x2F;SyncGroup&#x2F;Heartbeat 协议与协调者交互。</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line"><span class="type">Properties</span> <span class="variable">props</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">Properties</span>();</span><br><span class="line">props.put(<span class="string">&quot;bootstrap.servers&quot;</span>, <span class="string">&quot;broker1:9092&quot;</span>);</span><br><span class="line">props.put(<span class="string">&quot;group.id&quot;</span>, <span class="string">&quot;order-group&quot;</span>);</span><br><span class="line">props.put(<span class="string">&quot;enable.auto.commit&quot;</span>, <span class="string">&quot;false&quot;</span>); <span class="comment">// 手动提交</span></span><br><span class="line">props.put(<span class="string">&quot;max.poll.records&quot;</span>, <span class="string">&quot;500&quot;</span>);</span><br><span class="line">KafkaConsumer&lt;String, String&gt; consumer = <span class="keyword">new</span> <span class="title class_">KafkaConsumer</span>&lt;&gt;(props);</span><br><span class="line">consumer.subscribe(Collections.singletonList(<span class="string">&quot;orders&quot;</span>), <span class="keyword">new</span> <span class="title class_">ConsumerRebalanceListener</span>() &#123;</span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">onPartitionsRevoked</span><span class="params">(Collection&lt;TopicPartition&gt; partitions)</span> &#123;</span><br><span class="line">        consumer.commitSync(); <span class="comment">// 失去分区前提交已处理 offset,避免重复/丢进度</span></span><br><span class="line">    &#125;</span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">onPartitionsAssigned</span><span class="params">(Collection&lt;TopicPartition&gt; partitions)</span> &#123;&#125;</span><br><span class="line">&#125;);</span><br><span class="line"><span class="keyword">while</span> (running) &#123;</span><br><span class="line">    ConsumerRecords&lt;String, String&gt; records = consumer.poll(Duration.ofMillis(<span class="number">1000</span>));</span><br><span class="line">    <span class="keyword">for</span> (ConsumerRecord&lt;String, String&gt; record : records) &#123;</span><br><span class="line">        process(record);</span><br><span class="line">    &#125;</span><br><span class="line">    consumer.commitSync(); <span class="comment">// 本批处理完成后再提交</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<h3 id="8-2-Rebalance-的触发条件"><a href="#8-2-Rebalance-的触发条件" class="headerlink" title="8.2 Rebalance 的触发条件"></a>8.2 Rebalance 的触发条件</h3><ol>
-<li><strong>组成员变化</strong>：新消费者加入、消费者主动离开（<code>unsubscribe</code>&#x2F;<code>close</code>）、消费者崩溃（心跳超时被判定下线）；</li>
-<li><strong>订阅的 Topic 分区数变化</strong>：<code>kafka-topics.sh --alter --partitions</code> 扩容分区；</li>
-<li><strong>订阅范围变化</strong>：正则订阅（如 <code>subscribe(&quot;orders.*&quot;)</code>）匹配到新 Topic；</li>
-<li><strong>消费速度过慢被踢出</strong>：<code>max.poll.interval.ms</code>（默认 5 分钟）内未调用 <code>poll()</code>，协调者认为消费者”卡死”，将其移出组并触发 Rebalance——这是消费端最常见的隐性触发源。</li>
-</ol>
-<p>Rebalance 期间组内消费整体暂停，且 Eager 协议下所有消费者先放弃全部分区再重新分配（stop-the-world），因此<strong>频繁 Rebalance 是消费抖动和积压的头号元凶</strong>。</p>
-<h3 id="8-3-三种分区分配策略（partition-assignment-strategy）"><a href="#8-3-三种分区分配策略（partition-assignment-strategy）" class="headerlink" title="8.3 三种分区分配策略（partition.assignment.strategy）"></a>8.3 三种分区分配策略（<code>partition.assignment.strategy</code>）</h3><ul>
-<li><strong>RangeAssignor（默认）</strong>：<strong>按 Topic 逐个</strong>排序分配。以消费者排序列、分区排序列，平均切块。缺点：每个 Topic 单独计算，分区数不能被消费者数整除时，排在前面的消费者多拿分区；订阅多个 Topic 时倾斜被放大。例：2 个消费者、3 个分区，C0 拿 [0,1]，C1 拿 [2]。</li>
-<li><strong>RoundRobinAssignor</strong>：所有订阅 Topic 的全部分区合并成一个环，轮流分配给消费者。整体最均衡，但每次 Rebalance 全量重新计算，分区迁移多。</li>
-<li><strong>StickyAssignor</strong>：分配结果在”均衡”和”最小化分区迁移”之间取平衡，Rebalance 时尽量保留原分配，减少不必要的分区转移。</li>
-<li><strong>CooperativeStickyAssignor（推荐生产使用）</strong>：Sticky 之上叠加<strong>增量式 Rebalance</strong>（KIP-429）：先分配好新归属再逐步 revoke 需要移交的分区，全组不需要 stop-the-world，大幅减少 Rebalance 停顿。3.x 默认同时注册了 Range 和 CooperativeSticky，若要享受增量式再平衡需显式配置 <code>partition.assignment.strategy=org.apache.kafka.clients.consumer.CooperativeStickyAssignor</code>。</li>
-</ul>
-<h3 id="8-4-静态成员（KIP-345）"><a href="#8-4-静态成员（KIP-345）" class="headerlink" title="8.4 静态成员（KIP-345）"></a>8.4 静态成员（KIP-345）</h3><p><code>group.instance.id</code> 给消费者一个固定身份。普通消费者每次重启都是”新成员”，必然触发 Rebalance；静态成员离线时，Coordinator 会保留其分区所有权直到 <code>session.timeout.ms</code> 超时，<strong>短暂的滚动发布、客户端重启不再触发 Rebalance</strong>。适合发布频繁或对 Rebalance 敏感的线上服务。</p>
-<h3 id="8-5-Consumer-Lag-监控"><a href="#8-5-Consumer-Lag-监控" class="headerlink" title="8.5 Consumer Lag 监控"></a>8.5 Consumer Lag 监控</h3><ul>
-<li><strong>定义</strong>：某分区上”消费者已提交的 offset”与”分区当前 LEO”之差，即未消费的消息数量。</li>
-<li><strong>查看命令</strong>：<code>kafka-consumer-groups.sh --describe --group order-group --members --verbose</code>，或接入 Burrow、Kafka Lag Exporter、Confluent Control Center 等监控工具并配告警。</li>
-<li><strong>Lag 持续增长的常见原因</strong>：<ul>
-<li>消费者实例数小于分区数（并发上限就是分区数）；</li>
-<li>单条消息处理慢：业务逻辑重、下游（数据库&#x2F;RPC）慢；</li>
-<li><code>max.poll.records</code> 太大导致单次 poll 处理超时，被 <code>max.poll.interval.ms</code> 踢出组，陷入”处理超时 → Rebalance → 重复消费 → 更慢”的恶性循环；</li>
-<li>分区分配不均（Range 策略倾斜或 key 倾斜导致热点分区）。</li>
-</ul>
-</li>
-<li><strong>处理手段</strong>：扩容消费者（数量不超过分区数，超过无用）；提升单消费者吞吐（批处理、异步化、优化下游）；调 <code>fetch.min.bytes</code> &#x2F; <code>fetch.max.wait.ms</code> 提高拉取效率；排查下游故障；检查 <code>max.poll.interval.ms</code> 是否触发踢组。</li>
-</ul>
-<h2 id="9-KRaft-架构：为什么去掉-ZooKeeper"><a href="#9-KRaft-架构：为什么去掉-ZooKeeper" class="headerlink" title="9. KRaft 架构：为什么去掉 ZooKeeper"></a>9. KRaft 架构：为什么去掉 ZooKeeper</h2><h3 id="9-1-ZooKeeper-模式的问题"><a href="#9-1-ZooKeeper-模式的问题" class="headerlink" title="9.1 ZooKeeper 模式的问题"></a>9.1 ZooKeeper 模式的问题</h3><p>Kafka 2.7 及之前，元数据（Broker 注册、Controller 选举、Topic 配置、ACL、旧版 offset）全部依赖外部 ZooKeeper：</p>
-<ul>
-<li><strong>两套系统、两套一致性协议</strong>：元数据变更先写 ZK，再同步给 Broker，链路长、延迟高，且 ZK 的 watch 机制在大规模下（数万分区）有通知风暴和写放大问题；</li>
-<li><strong>运维复杂</strong>：ZK 集群本身要 3&#x2F;5 节点部署、监控、升级，且 ZK 集群规模不能随意扩展；</li>
-<li><strong>扩展性天花板</strong>：集群规模（Broker 数、分区数）被 ZK 的元数据能力卡死。</li>
-</ul>
-<h3 id="9-2-KRaft-的实现"><a href="#9-2-KRaft-的实现" class="headerlink" title="9.2 KRaft 的实现"></a>9.2 KRaft 的实现</h3><p>KRaft 把 ZooKeeper 的职责收编为 Kafka 内部的 <strong>Controller Quorum</strong>（Raft 组）：</p>
-<ul>
-<li><strong>Controller 选举</strong>：<code>process.roles=controller</code> 的节点组成奇数个（生产建议 3 或 5）的 Raft Quorum，通过 <strong>Raft 协议</strong>选出唯一的 Active Controller。Active Controller 负责所有元数据写入（创建 Topic、分区 Leader 选举、Broker 上下线登记），其余 Controller 作为 Raft 投票节点参与选举和日志复制。</li>
-<li><strong>元数据日志</strong>：所有元数据变更作为消息追加到一个<strong>单分区的 <code>__cluster_metadata</code> 日志</strong>中（和普通数据 Topic 同样的 append-only 结构），由 Active Controller 领导写入、Raft 复制到其他 Controller；Broker 通过元数据 API 订阅增量更新（3.4+ 支持纯 Controller 角色后，Broker 不再参与 Raft，只拉取元数据）。元数据从 ZK 时代的”watch 通知”变成<strong>强一致的日志复制 + 增量同步</strong>。</li>
-<li><strong>部署形态</strong>：小集群可合设 <code>process.roles=broker,controller</code>；生产推荐独立 Controller Quorum，通过 <code>controller.quorum.voters=1@host1:9093,2@host2:9093,3@host3:9093</code> 指定。</li>
-</ul>
-<p><strong>优势总结</strong>：架构简化（自包含，无需单独运维 ZK）；元数据操作单跳、Raft 强一致；可扩展性大幅提升（目标支撑数十万分区）；元数据通信复用 Kafka 的 SSL&#x2F;SASL 安全机制，安全模型统一。</p>
-<h3 id="9-3-版本演进与现状"><a href="#9-3-版本演进与现状" class="headerlink" title="9.3 版本演进与现状"></a>9.3 版本演进与现状</h3><ul>
-<li>2.8 引入 KRaft 预览（KIP-500）；3.0 支持新集群使用；3.3 正式 GA；3.5 起 ZooKeeper 模式标记为废弃并支持 ZK 到 KRaft 的在线迁移；<strong>Kafka 4.0 已彻底移除 ZooKeeper</strong>。</li>
-<li>面试结论：新集群一律用 KRaft，ZooKeeper 模式已退出历史舞台；旧集群迁移走官方迁移工具（滚动迁移，KIP-866）。</li>
-</ul>
-<h2 id="10-常见问题排查"><a href="#10-常见问题排查" class="headerlink" title="10. 常见问题排查"></a>10. 常见问题排查</h2><h3 id="10-1-消息积压"><a href="#10-1-消息积压" class="headerlink" title="10.1 消息积压"></a>10.1 消息积压</h3><p><strong>排查步骤</strong>：</p>
-<ol>
-<li><code>kafka-consumer-groups.sh --describe --group &lt;group&gt;</code> 看各分区 Lag；</li>
-<li>观察 Lag 分布：均匀增长 → 整体消费能力不足；<strong>集中在少数分区</strong> → 分配不均或 key 热点导致单分区吞吐瓶颈；</li>
-<li>看消费者日志：是否频繁 Rebalance（<code>max.poll.interval.ms</code> 超时踢组）；看 GC 日志和下游（数据库&#x2F;RPC）耗时埋点。</li>
-</ol>
-<p><strong>处理手段</strong>（按优先级）：</p>
-<ol>
-<li><strong>扩容消费者</strong>：加到分区数为止（超过分区数的消费者拿不到分区，白加）；</li>
-<li><strong>提升单条处理速度</strong>：批量化、异步化、精简逻辑、优化下游（一次查询合并、加索引）；</li>
-<li>调参：适当加大 <code>fetch.min.bytes</code>&#x2F;<code>fetch.max.wait.ms</code> 攒批拉取，检查 <code>max.poll.records</code> 是否过大导致单次处理超时；</li>
-<li>极端情况<strong>临时跳堆</strong>：允许丢失的业务直接 <code>seekToEnd()</code> 跳过积压，或临时把消费逻辑换成”只计数不处理”——注意跳堆会破坏顺序，只适用于可丢场景；</li>
-<li>长期方案：拆 Topic（按业务分流）、增加分区（配合生产端 key 设计）、改造消费链路。</li>
-</ol>
-<h3 id="10-2-重复消费"><a href="#10-2-重复消费" class="headerlink" title="10.2 重复消费"></a>10.2 重复消费</h3><p><strong>定位原因</strong>：看 <code>ConsumerRebalanceListener</code> 的 revoke&#x2F;assign 日志（Rebalance 频率）；看是否 <code>max.poll.interval.ms</code> 超时踢组（处理慢导致分区易主）；看 offset 提交代码是否在异常路径漏提交或提交在业务处理之前。</p>
-<p><strong>处理</strong>：</p>
-<ol>
-<li>手动提交且<strong>处理成功后再提交</strong>（<code>commitSync()</code>），保证”提交过的一定处理过”；</li>
-<li>提交频率与处理频率匹配——小批量频繁提交，缩小重复窗口；</li>
-<li>静态成员（<code>group.instance.id</code>）减少非必要 Rebalance；</li>
-<li><strong>业务幂等兜底</strong>是最终防线：唯一键、数据库唯一约束、条件更新（第 6.3 节）。重复只能被”容忍并去重”，无法被”消灭”。</li>
-</ol>
-<h3 id="10-3-Leader-抖动"><a href="#10-3-Leader-抖动" class="headerlink" title="10.3 Leader 抖动"></a>10.3 Leader 抖动</h3><p><strong>现象</strong>：<code>kafka-topics.sh --describe</code> 看到 ISR 反复收缩扩大、Broker 日志频繁出现 Leader election；伴随 <code>UnderReplicatedPartitions</code> 指标抖动；ISR 低于 <code>min.insync.replicas</code> 时生产端报 <code>NotEnoughReplicasException</code>。</p>
-<p><strong>常见根因</strong>：</p>
-<ol>
-<li><strong>网络抖动</strong>：Follower 拉取超时（<code>replica.lag.time.max.ms</code> 默认 30s）被移出 ISR，网络恢复后又追平加入，ISR 反复抖动；</li>
-<li><strong>Broker 负载过高 &#x2F; Full GC</strong>：Follower 端处理请求变慢，拉取赶不上；</li>
-<li><strong>磁盘慢</strong>：慢盘导致写日志、读日志延迟飙升；</li>
-<li><strong>配置过紧</strong>：<code>replica.lag.time.max.ms</code> 或 <code>session.timeout.ms</code> 设得太小，把抖动放大成频繁切换。</li>
-</ol>
-<p><strong>排查与处理</strong>：查 Broker 日志中的 “ISR shrinks&#x2F;expands”、Leader 切换记录，对应时间点查 GC 日志（Full GC 频率）、网络重传、磁盘 IO 等待（<code>iostat</code>）；对慢盘下线隔离；把 <code>replica.lag.time.max.ms</code> 从默认 30s 适度调大，给抖动留缓冲；跨机房部署时重点排查专线质量。</p>
-<h3 id="10-4-消费失败重试与死信队列"><a href="#10-4-消费失败重试与死信队列" class="headerlink" title="10.4 消费失败重试与死信队列"></a>10.4 消费失败重试与死信队列</h3><p><strong>先澄清</strong>：Kafka <strong>Broker 没有原生死信机制</strong>（没有 NACK&#x2F;requeue&#x2F;TTL 这些 RabbitMQ 概念）。死信是消费者侧的一种通用模式：**重试 N 次仍失败的消息，写入一个专门的”死信 Topic”**，由人工或专用程序处理。这也是”死信队列”类问题在 Kafka 面试中的标准回答。</p>
-<p><strong>实现要点</strong>：</p>
-<ol>
-<li>把异常分两类：<strong>可重试</strong>（下游超时、限流，重试有望成功）进重试队列或本地延迟重试；<strong>不可重试</strong>（数据格式错误、业务规则不满足，重试必然失败）直接进死信；</li>
-<li>死信消息要<strong>保留完整上下文</strong>：原 Topic、原 Partition、原 offset、消息体、失败原因、失败时间，方便排查与回放；</li>
-<li>死信要<strong>有人消费</strong>：配告警、建查询页面，死信无限堆积等于没做；</li>
-<li>重试&#x2F;死信消息<strong>保持原 key</strong>，保证和原消息在同一分区，顺序可追溯。</li>
-</ol>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">consume</span><span class="params">(ConsumerRecord&lt;String, String&gt; record)</span> &#123;</span><br><span class="line">    <span class="keyword">try</span> &#123;</span><br><span class="line">        process(record);</span><br><span class="line">        consumer.commitSync();</span><br><span class="line">    &#125; <span class="keyword">catch</span> (RetryableException e) &#123;</span><br><span class="line">        <span class="comment">// 1) 可重试:写入重试 Topic(或本地延迟重试),先提交 offset 避免阻塞后续</span></span><br><span class="line">        retryProducer.send(<span class="keyword">new</span> <span class="title class_">ProducerRecord</span>&lt;&gt;(<span class="string">&quot;order.retry&quot;</span>, record.key(), record.value()));</span><br><span class="line">        consumer.commitSync();</span><br><span class="line">    &#125; <span class="keyword">catch</span> (NonRetryableException e) &#123;</span><br><span class="line">        <span class="comment">// 2) 不可重试:进死信 Topic,保留原消息元数据与失败原因</span></span><br><span class="line">        dlqProducer.send(<span class="keyword">new</span> <span class="title class_">ProducerRecord</span>&lt;&gt;(<span class="string">&quot;order.dlq&quot;</span>, record.key(),</span><br><span class="line">            DlqMessage.of(record, e.getMessage())));</span><br><span class="line">        consumer.commitSync();</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
-
-<p><strong>面试一句话</strong>：Kafka 的可靠性链路是”acks&#x3D;all + ISR + 手动提交”保证不丢，业务侧”幂等去重”保证不重，处理失败的消息用”重试 Topic + 死信 Topic”隔离兜底，死信必须有告警和人工介入。</p>
-<h2 id="11-客户端调优清单"><a href="#11-客户端调优清单" class="headerlink" title="11. 客户端调优清单"></a>11. 客户端调优清单</h2><blockquote>
-<p>本节要解决什么问题：生产环境 Producer&#x2F;Consumer 的参数怎么配——一张表讲清每个参数、三类典型性能问题怎么对症下药，以及 Kafka 上怎么实现延时队列。</p>
+<h3 id="7-2-用-key-保证同一实体的消息有序"><a href="#7-2-用-key-保证同一实体的消息有序" class="headerlink" title="7.2 用 key 保证同一实体的消息有序"></a>7.2 用 key 保证同一实体的消息有序</h3><p>业务上有序的最小单位是”同一个实体”（同一个订单、同一个用户）。默认分区器对 key 做 murmur2 哈希取模选分区，相同 key 必然进同一分区。</p>
+<p><strong>key 的选择</strong>：业务实体 ID（订单号、用户 ID）。注意 key 的均匀性——热点 key 会造成分区倾斜。</p>
+<h3 id="7-3-乱序场景与处理"><a href="#7-3-乱序场景与处理" class="headerlink" title="7.3 乱序场景与处理"></a>7.3 乱序场景与处理</h3><table>
+<thead>
+<tr>
+<th>乱序场景</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>生产者重试</strong></td>
+<td><code>max.in.flight.requests.per.connection &gt; 1</code></td>
+<td>开启幂等，或设为 1</td>
+</tr>
+<tr>
+<td><strong>消费者多线程</strong></td>
+<td>单分区被多个线程并发处理</td>
+<td>分区内单线程，或按 key 哈希路由到固定线程</td>
+</tr>
+<tr>
+<td><strong>失败重投</strong></td>
+<td>重试消息排在后继消息后面</td>
+<td>重试消息保持原 key，同 key 串行重试</td>
+</tr>
+</tbody></table>
+<p><strong>面试追问：Rebalance 会破坏顺序吗？</strong></p>
+<blockquote>
+<p>不会。只要 offset 提交正确，分区易主后新消费者从已提交位置继续，不会跳过也不会回头。真正会破坏顺序的是”提交 offset 后继续处理”这种错误写法。</p>
 </blockquote>
-<h3 id="11-1-Producer-参数优化表"><a href="#11-1-Producer-参数优化表" class="headerlink" title="11.1 Producer 参数优化表"></a>11.1 Producer 参数优化表</h3><table>
+<h2 id="8-消费者组：Rebalance、分配策略与-Lag-监控"><a href="#8-消费者组：Rebalance、分配策略与-Lag-监控" class="headerlink" title="8. 消费者组：Rebalance、分配策略与 Lag 监控"></a>8. 消费者组：Rebalance、分配策略与 Lag 监控</h2><h3 id="8-1-为什么需要消费者组"><a href="#8-1-为什么需要消费者组" class="headerlink" title="8.1 为什么需要消费者组"></a>8.1 为什么需要消费者组</h3><p>单消费者处理能力有限，且单点故障即消费中断。消费者组让 N 个实例协作消费一个 Topic：每个 Partition 同一时刻只被组内一个实例消费；实例宕机时分区自动转移。</p>
+<pre class="mermaid">flowchart TB
+    subgraph Topic[Topic: orders]
+        P0[Partition 0]
+        P1[Partition 1]
+        P2[Partition 2]
+    end
+
+    subgraph CG[Consumer Group]
+        C0[Consumer 0]
+        C1[Consumer 1]
+    end
+
+    GC[Group Coordinator] -->|Rebalance| CG
+    GC -->|offset 提交| Off[__consumer_offsets]
+
+    C0 --> P0
+    C0 --> P2
+    C1 --> P1
+
+    style GC fill:#fff4e6</pre>
+
+<h3 id="8-2-Rebalance-的触发条件"><a href="#8-2-Rebalance-的触发条件" class="headerlink" title="8.2 Rebalance 的触发条件"></a>8.2 Rebalance 的触发条件</h3><ul>
+<li><strong>组成员变化</strong>：新消费者加入、消费者主动离开、消费者崩溃；</li>
+<li><strong>订阅的 Topic 分区数变化</strong>：<code>kafka-topics.sh --alter --partitions</code> 扩容分区；</li>
+<li><strong>订阅范围变化</strong>：正则订阅匹配到新 Topic；</li>
+<li><strong>消费速度过慢被踢出</strong>：<code>max.poll.interval.ms</code>（默认 5 分钟）内未调用 <code>poll()</code>，协调者认为消费者”卡死”。</li>
+</ul>
+<p>Rebalance 期间组内消费整体暂停，因此频繁 Rebalance 是消费抖动和积压的头号元凶。</p>
+<h3 id="8-3-三种分区分配策略"><a href="#8-3-三种分区分配策略" class="headerlink" title="8.3 三种分区分配策略"></a>8.3 三种分区分配策略</h3><table>
+<thead>
+<tr>
+<th>策略</th>
+<th>原理</th>
+<th>优缺点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>RangeAssignor</strong>（默认）</td>
+<td>按 Topic 逐个排序分配</td>
+<td>分区数不能整除时倾斜</td>
+</tr>
+<tr>
+<td><strong>RoundRobinAssignor</strong></td>
+<td>所有分区合并成环，轮流分配</td>
+<td>整体均衡，但分区迁移多</td>
+</tr>
+<tr>
+<td><strong>StickyAssignor</strong></td>
+<td>均衡 + 最小化分区迁移</td>
+<td>Rebalance 时尽量保留原分配</td>
+</tr>
+<tr>
+<td><strong>CooperativeStickyAssignor</strong>（推荐）</td>
+<td>Sticky + 增量式 Rebalance</td>
+<td>全组不需要 stop-the-world</td>
+</tr>
+</tbody></table>
+<p><strong>生产推荐</strong>：显式配置 <code>partition.assignment.strategy=org.apache.kafka.clients.consumer.CooperativeStickyAssignor</code>。</p>
+<h3 id="8-4-静态成员"><a href="#8-4-静态成员" class="headerlink" title="8.4 静态成员"></a>8.4 静态成员</h3><p><code>group.instance.id</code> 给消费者一个固定身份。普通消费者每次重启都是”新成员”，必然触发 Rebalance；静态成员离线时，Coordinator 会保留其分区所有权直到 <code>session.timeout.ms</code> 超时。适合发布频繁或对 Rebalance 敏感的线上服务。</p>
+<h3 id="8-5-Consumer-Lag-监控"><a href="#8-5-Consumer-Lag-监控" class="headerlink" title="8.5 Consumer Lag 监控"></a>8.5 Consumer Lag 监控</h3><p><strong>定义</strong>：某分区上”消费者已提交的 offset”与”分区当前 LEO”之差，即未消费的消息数量。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">kafka-consumer-groups.sh --describe --group order-group --members --verbose</span><br></pre></td></tr></table></figure>
+
+<p><strong>Lag 持续增长的常见原因</strong>：</p>
+<ul>
+<li>消费者实例数小于分区数；</li>
+<li>单条消息处理慢；</li>
+<li><code>max.poll.records</code> 太大导致单次 poll 处理超时；</li>
+<li>分区分配不均。</li>
+</ul>
+<p><strong>处理手段</strong>：</p>
+<ul>
+<li>扩容消费者（加到分区数为止）；</li>
+<li>提升单消费者吞吐（批处理、异步化）；</li>
+<li>调 <code>fetch.min.bytes</code> &#x2F; <code>fetch.max.wait.ms</code>；</li>
+<li>排查下游故障。</li>
+</ul>
+<p><strong>面试话术</strong>：</p>
+<blockquote>
+<p>“Lag 排查先看分配是否均匀，再看单条处理耗时，最后调参。实例数不能超过分区数，超过的消费者拿不到分区，白加。”</p>
+</blockquote>
+<h2 id="9-KRaft-架构：为什么去掉-ZooKeeper"><a href="#9-KRaft-架构：为什么去掉-ZooKeeper" class="headerlink" title="9. KRaft 架构：为什么去掉 ZooKeeper"></a>9. KRaft 架构：为什么去掉 ZooKeeper</h2><h3 id="9-1-ZooKeeper-模式的问题"><a href="#9-1-ZooKeeper-模式的问题" class="headerlink" title="9.1 ZooKeeper 模式的问题"></a>9.1 ZooKeeper 模式的问题</h3><p>Kafka 2.7 及之前，元数据全部依赖外部 ZooKeeper：</p>
+<ul>
+<li><strong>两套系统、两套一致性协议</strong>：元数据变更先写 ZK，再同步给 Broker，链路长、延迟高；</li>
+<li><strong>运维复杂</strong>：ZK 集群本身要 3&#x2F;5 节点部署、监控、升级；</li>
+<li><strong>扩展性天花板</strong>：集群规模被 ZK 的元数据能力卡死。</li>
+</ul>
+<h3 id="9-2-KRaft-的实现"><a href="#9-2-KRaft-的实现" class="headerlink" title="9.2 KRaft 的实现"></a>9.2 KRaft 的实现</h3><p>KRaft 把 ZooKeeper 的职责收编为 Kafka 内部的 Controller Quorum（Raft 组）：</p>
+<pre class="mermaid">flowchart TB
+    subgraph KRaft["KRaft Controller Quorum"]
+        C1[Controller 1&lt;br/>Active]
+        C2[Controller 2&lt;br/>Hot Standby]
+        C3[Controller 3&lt;br/>Hot Standby]
+    end
+
+    subgraph Brokers[Broker 集群]
+        B1[Broker 1]
+        B2[Broker 2]
+        B3[Broker 3]
+    end
+
+    MetaLog[__cluster_metadata&lt;br/>append-only log]
+
+    C1 -->|Raft 复制| C2
+    C1 -->|Raft 复制| C3
+    C1 -->|写入| MetaLog
+    MetaLog -.->|元数据增量同步| B1
+    MetaLog -.->|元数据增量同步| B2
+    MetaLog -.->|元数据增量同步| B3
+
+    style C1 fill:#e6ffe6
+    style C2 fill:#e6f0ff
+    style C3 fill:#e6f0ff</pre>
+
+<ul>
+<li><strong>Controller 选举</strong>：奇数个 Controller 节点组成 Raft Quorum，通过 Raft 协议选出唯一的 Active Controller；</li>
+<li><strong>元数据日志</strong>：所有元数据变更作为消息追加到单分区的 <code>__cluster_metadata</code> 日志中；</li>
+<li><strong>部署形态</strong>：小集群可合设 <code>process.roles=broker,controller</code>；生产推荐独立 Controller Quorum。</li>
+</ul>
+<h3 id="9-3-版本演进与现状"><a href="#9-3-版本演进与现状" class="headerlink" title="9.3 版本演进与现状"></a>9.3 版本演进与现状</h3><ul>
+<li>2.8 引入 KRaft 预览（KIP-500）；</li>
+<li>3.0 支持新集群使用；3.3 正式 GA；</li>
+<li>3.5 起 ZooKeeper 模式标记为废弃；</li>
+<li><strong>Kafka 4.0 已彻底移除 ZooKeeper</strong>。</li>
+</ul>
+<p><strong>面试结论</strong>：新集群一律用 KRaft，ZooKeeper 模式已退出历史舞台。</p>
+<h2 id="10-实战排障：消息积压、重复消费、Leader-抖动"><a href="#10-实战排障：消息积压、重复消费、Leader-抖动" class="headerlink" title="10. 实战排障：消息积压、重复消费、Leader 抖动"></a>10. 实战排障：消息积压、重复消费、Leader 抖动</h2><h3 id="10-1-消息积压"><a href="#10-1-消息积压" class="headerlink" title="10.1 消息积压"></a>10.1 消息积压</h3><pre class="mermaid">flowchart TB
+    Start[消息积压] --> S1[kafka-consumer-groups.sh --describe&lt;br/>看各分区 Lag]
+    S1 --> S2{Lag 分布}
+    S2 -->|均匀增长| S2a[整体消费能力不足&lt;br/>扩容消费者]
+    S2 -->|集中在少数分区| S2b[分配不均或 key 热点&lt;br/>检查分区策略]
+    S2 -->|伴随频繁 Rebalance| S2c[max.poll.interval.ms 超时&lt;br/>调大或优化单条处理速度]</pre>
+
+<p><strong>处理手段（按优先级）</strong>：</p>
+<ol>
+<li>扩容消费者：加到分区数为止；</li>
+<li>提升单条处理速度：批量化、异步化、优化下游；</li>
+<li>调参：<code>fetch.min.bytes</code> &#x2F; <code>fetch.max.wait.ms</code> 攒批拉取；</li>
+<li>极端情况临时跳堆：<code>seekToEnd()</code> 跳过积压（只适用于可丢场景）；</li>
+<li>长期方案：拆 Topic、增加分区、改造消费链路。</li>
+</ol>
+<h3 id="10-2-重复消费"><a href="#10-2-重复消费" class="headerlink" title="10.2 重复消费"></a>10.2 重复消费</h3><p><strong>定位原因</strong>：</p>
+<ul>
+<li>看 <code>ConsumerRebalanceListener</code> 的 revoke&#x2F;assign 日志；</li>
+<li>看是否 <code>max.poll.interval.ms</code> 超时踢组；</li>
+<li>看 offset 提交代码是否在异常路径漏提交。</li>
+</ul>
+<p><strong>处理</strong>：</p>
+<ul>
+<li>手动提交且处理成功后再提交；</li>
+<li>小批量频繁提交，缩小重复窗口；</li>
+<li>静态成员（<code>group.instance.id</code>）减少非必要 Rebalance；</li>
+<li><strong>业务幂等兜底是最终防线</strong>。</li>
+</ul>
+<h3 id="10-3-Leader-抖动"><a href="#10-3-Leader-抖动" class="headerlink" title="10.3 Leader 抖动"></a>10.3 Leader 抖动</h3><p><strong>现象</strong>：<code>kafka-topics.sh --describe</code> 看到 ISR 反复收缩扩大，伴随 <code>UnderReplicatedPartitions</code> 指标抖动。</p>
+<p><strong>常见根因</strong>：</p>
+<ul>
+<li>网络抖动：Follower 拉取超时被移出 ISR；</li>
+<li>Broker 负载过高 &#x2F; Full GC；</li>
+<li>磁盘慢；</li>
+<li>配置过紧。</li>
+</ul>
+<p><strong>排查与处理</strong>：查 Broker 日志中的 “ISR shrinks&#x2F;expands”，对应时间点查 GC 日志、网络重传、磁盘 IO 等待；对慢盘下线隔离；把 <code>replica.lag.time.max.ms</code> 适度调大。</p>
+<h3 id="10-4-消费失败重试与死信队列"><a href="#10-4-消费失败重试与死信队列" class="headerlink" title="10.4 消费失败重试与死信队列"></a>10.4 消费失败重试与死信队列</h3><p><strong>先澄清</strong>：Kafka Broker 没有原生死信机制。死信是消费者侧的一种通用模式：**重试 N 次仍失败的消息，写入一个专门的”死信 Topic”**。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">consume</span><span class="params">(ConsumerRecord&lt;String, String&gt; record)</span> &#123;</span><br><span class="line">    <span class="keyword">try</span> &#123;</span><br><span class="line">        process(record);</span><br><span class="line">        consumer.commitSync();</span><br><span class="line">    &#125; <span class="keyword">catch</span> (RetryableException e) &#123;</span><br><span class="line">        retryProducer.send(<span class="keyword">new</span> <span class="title class_">ProducerRecord</span>&lt;&gt;(<span class="string">&quot;order.retry&quot;</span>, record.key(), record.value()));</span><br><span class="line">        consumer.commitSync();</span><br><span class="line">    &#125; <span class="keyword">catch</span> (NonRetryableException e) &#123;</span><br><span class="line">        dlqProducer.send(<span class="keyword">new</span> <span class="title class_">ProducerRecord</span>&lt;&gt;(<span class="string">&quot;order.dlq&quot;</span>, record.key(), DlqMessage.of(record, e.getMessage())));</span><br><span class="line">        consumer.commitSync();</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>面试一句话</strong>：Kafka 的可靠性链路是”<code>acks=all</code> + ISR + 手动提交”保证不丢，业务侧”幂等去重”保证不重，处理失败的消息用”重试 Topic + 死信 Topic”隔离兜底，死信必须有告警和人工介入。</p>
+<h2 id="11-客户端调优清单"><a href="#11-客户端调优清单" class="headerlink" title="11. 客户端调优清单"></a>11. 客户端调优清单</h2><h3 id="11-1-Producer-参数优化表"><a href="#11-1-Producer-参数优化表" class="headerlink" title="11.1 Producer 参数优化表"></a>11.1 Producer 参数优化表</h3><table>
 <thead>
 <tr>
 <th>参数</th>
@@ -981,55 +1335,40 @@
 <tbody><tr>
 <td><code>buffer.memory</code></td>
 <td>32MB</td>
-<td>待发送消息的内存缓冲，打满后 <code>send()</code> 最多阻塞 <code>max.block.ms</code>（默认 60s）</td>
-<td>吞吐大调大（如 64~128MB）；频繁报 <code>TimeoutException</code> 先看它</td>
+<td>待发送消息的内存缓冲</td>
+<td>吞吐大调大到 64~128MB</td>
 </tr>
 <tr>
 <td><code>batch.size</code></td>
 <td>16KB</td>
-<td>攒批发送的字节阈值，批次满即发</td>
-<td><strong>吞吐优先调大 64~256KB</strong>，批次内消息多，网络往返摊薄</td>
+<td>攒批发送的字节阈值</td>
+<td>吞吐优先调大 64~256KB</td>
 </tr>
 <tr>
 <td><code>linger.ms</code></td>
 <td>0</td>
-<td>批次不满时的最长等待时间（攒批）</td>
-<td>吞吐优先 5~20ms；延迟敏感保持 0</td>
+<td>批次不满时的最长等待时间</td>
+<td>吞吐优先 5~20ms</td>
 </tr>
 <tr>
 <td><code>compression.type</code></td>
 <td>none</td>
-<td>压缩算法（gzip&#x2F;snappy&#x2F;lz4&#x2F;zstd）</td>
-<td><strong>生产建议 lz4 起步</strong>；带宽紧张用 zstd</td>
+<td>压缩算法</td>
+<td>生产建议 lz4 起步</td>
 </tr>
 <tr>
 <td><code>acks</code></td>
-<td>1（幂等时强制 all）</td>
+<td>1</td>
 <td>确认语义</td>
-<td>可靠性场景 <code>all</code>（见第 5 节）</td>
-</tr>
-<tr>
-<td><code>max.in.flight.requests.per.connection</code></td>
-<td>5</td>
-<td>单个连接上未确认的最大请求数</td>
-<td>开启幂等后保持 5 仍有序（序列号校验）；<strong>未开幂等且必须保序时设 1</strong>（见第 7 节）</td>
-</tr>
-<tr>
-<td><code>retries</code></td>
-<td>2147483647（幂等开启后）</td>
-<td>可重试错误的重试次数</td>
-<td>幂等场景默认即可；<code>delivery.timeout.ms</code> 卡总时长</td>
+<td>可靠性场景 all</td>
 </tr>
 <tr>
 <td><code>enable.idempotence</code></td>
 <td>false</td>
 <td>幂等生产者</td>
-<td><strong>生产必开 true</strong>（去重 + 强制 acks&#x3D;all，见第 6 节）</td>
+<td>生产必开 true</td>
 </tr>
 </tbody></table>
-<p><strong>高吞吐配置样例</strong>：</p>
-<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">props.put(<span class="string">&quot;enable.idempotence&quot;</span>, <span class="string">&quot;true&quot;</span>);</span><br><span class="line">props.put(<span class="string">&quot;acks&quot;</span>, <span class="string">&quot;all&quot;</span>);</span><br><span class="line">props.put(<span class="string">&quot;compression.type&quot;</span>, <span class="string">&quot;lz4&quot;</span>);</span><br><span class="line">props.put(<span class="string">&quot;batch.size&quot;</span>, <span class="number">131072</span>);        <span class="comment">// 128KB</span></span><br><span class="line">props.put(<span class="string">&quot;linger.ms&quot;</span>, <span class="number">10</span>);             <span class="comment">// 攒 10ms</span></span><br><span class="line">props.put(<span class="string">&quot;buffer.memory&quot;</span>, <span class="number">67108864</span>);   <span class="comment">// 64MB</span></span><br></pre></td></tr></table></figure>
-
 <h3 id="11-2-Consumer-参数优化表"><a href="#11-2-Consumer-参数优化表" class="headerlink" title="11.2 Consumer 参数优化表"></a>11.2 Consumer 参数优化表</h3><table>
 <thead>
 <tr>
@@ -1042,123 +1381,559 @@
 <tbody><tr>
 <td><code>fetch.min.bytes</code></td>
 <td>1</td>
-<td>拉取批次的最小字节数，不满足就等</td>
-<td><strong>吞吐优先调大（如 1MB）</strong>，减少拉取次数</td>
+<td>拉取批次的最小字节数</td>
+<td>吞吐优先调大到 1MB</td>
 </tr>
 <tr>
 <td><code>fetch.max.wait.ms</code></td>
 <td>500</td>
-<td>攒批最长等待（与 fetch.min.bytes 配合）</td>
-<td>延迟敏感调小（如 100ms）</td>
-</tr>
-<tr>
-<td><code>fetch.max.bytes</code></td>
-<td>50MB</td>
-<td>单次拉取最大字节数</td>
-<td>一般默认；超大消息业务调大</td>
+<td>攒批最长等待</td>
+<td>延迟敏感调小到 100ms</td>
 </tr>
 <tr>
 <td><code>max.poll.records</code></td>
 <td>500</td>
-<td>单次 <code>poll()</code> 返回的最大条数</td>
-<td>与单条处理耗时平衡：<strong>越大单批吞吐越高，但必须在 <code>max.poll.interval.ms</code> 内处理完</strong></td>
+<td>单次 poll 返回的最大条数</td>
+<td>与单条处理耗时平衡</td>
 </tr>
 <tr>
 <td><code>max.poll.interval.ms</code></td>
 <td>300000（5min）</td>
-<td>两次 poll 的最大间隔，超时被踢出组触发 Rebalance</td>
-<td>处理慢的业务调大，但根治是提升单条处理速度（见 10.1 的恶性循环）</td>
-</tr>
-<tr>
-<td><code>session.timeout.ms</code></td>
-<td>45000</td>
-<td>心跳超时判死</td>
-<td>与 <code>heartbeat.interval.ms</code> 联动（约为其 3 倍）</td>
-</tr>
-<tr>
-<td><code>heartbeat.interval.ms</code></td>
-<td>3000</td>
-<td>心跳间隔</td>
-<td>一般默认</td>
+<td>两次 poll 的最大间隔</td>
+<td>处理慢的业务调大</td>
 </tr>
 <tr>
 <td><code>enable.auto.commit</code></td>
 <td>true</td>
 <td>自动提交 offset</td>
-<td><strong>生产 false + 手动提交</strong>（见第 5 节）</td>
-</tr>
-<tr>
-<td><code>auto.offset.reset</code></td>
-<td>latest</td>
-<td>无已提交 offset 时的起点</td>
-<td>新消费者要看全量数据用 earliest</td>
-</tr>
-<tr>
-<td><code>isolation.level</code></td>
-<td>read_uncommitted</td>
-<td>事务消息可见性</td>
-<td>使用事务生产端时改 read_committed</td>
+<td>生产 false + 手动提交</td>
 </tr>
 </tbody></table>
 <h3 id="11-3-常见性能问题"><a href="#11-3-常见性能问题" class="headerlink" title="11.3 常见性能问题"></a>11.3 常见性能问题</h3><p><strong>Producer 发送慢 &#x2F; 吞吐低</strong>：</p>
-<ol>
-<li>检查攒批参数：<code>batch.size</code> 和 <code>linger.ms</code> 是否太小（默认 16KB&#x2F;0ms 基本不攒批，批量收益没吃到）→ 调大并开启压缩；</li>
-<li>日志报 <code>TimeoutException</code>：看 <code>buffer.memory</code> 是否打满（<code>max.block.ms</code> 超时）→ 调大缓冲或加快消费侧；</li>
-<li>单分区写入是瓶颈：分区数不够时所有消息挤一个分区，单分区吞吐封顶 → 增加分区数（配合 3.5 的估算方法）；</li>
-<li>对照检查网络带宽与压缩率——<code>compression.type</code> 从 none 改 lz4 往往立竿见影。</li>
-</ol>
+<ul>
+<li>检查攒批参数：<code>batch.size</code> 和 <code>linger.ms</code> 是否太小；</li>
+<li>日志报 <code>TimeoutException</code>：看 <code>buffer.memory</code> 是否打满；</li>
+<li>单分区写入是瓶颈：增加分区数；</li>
+<li>对照检查压缩率。</li>
+</ul>
 <p><strong>Consumer 消费慢 &#x2F; 消息积压</strong>：</p>
-<ol>
-<li><strong>实例数 &lt; 分区数</strong>：消费并发上限就是分区数，先 <code>kafka-consumer-groups.sh --describe</code> 确认分配是否均匀；</li>
-<li>单条处理慢：批处理、异步化、优化下游（SQL 加索引、合并请求）；</li>
-<li>拉取效率低：<code>fetch.min.bytes</code> 太小导致”一次拉一点点”→ 调大到几 MB；</li>
-<li><code>max.poll.records</code> 与 <code>max.poll.interval.ms</code> 的平衡：调大 records 后必须确认处理时间不超踢组阈值，否则陷入”处理超时 → 踢组 → 重复消费 → 更慢”循环。</li>
-</ol>
-<p>排查思路一句话：<strong>先看分配（组内是否均匀、实例数 vs 分区数），再看处理（单条耗时埋点），最后调参（攒批&#x2F;拉取&#x2F;超时）</strong>。</p>
-<h3 id="11-4-延时队列在-Kafka-中的实现方案"><a href="#11-4-延时队列在-Kafka-中的实现方案" class="headerlink" title="11.4 延时队列在 Kafka 中的实现方案"></a>11.4 延时队列在 Kafka 中的实现方案</h3><p>Kafka 原生没有 RocketMQ 那种”延迟消息”功能（KIP-887 的原生延迟投递在较新版本中才以实验特性出现），生产实现普遍是<strong>业务侧方案</strong>：</p>
-<p><strong>方案一：时间轮 + 延迟 Topic（简单可靠）</strong></p>
 <ul>
-<li>专门建一个 <code>delay-topic</code>，消息体里携带”目标执行时间”；一个（或几个）延迟消费者只做一件事：<code>poll</code> 出来后判断是否到期，未到期就不提交并睡眠等待，到期后把消息写入真正的业务 Topic；</li>
-<li>优点：实现极简、一条链路；缺点：延迟消费者是单点，且精度受轮询周期限制（睡到到期时间再 poll），积压时到期时间会被推迟。</li>
+<li>实例数 &lt; 分区数：消费并发上限就是分区数；</li>
+<li>单条处理慢：批处理、异步化、优化下游；</li>
+<li>拉取效率低：<code>fetch.min.bytes</code> 太小。</li>
 </ul>
-<p><strong>方案二：分级延迟 Topic（生产常用）</strong></p>
-<ul>
-<li>按档位建多个延迟 Topic：<code>delay-5s</code>、<code>delay-30s</code>、<code>delay-1m</code>、<code>delay-10m</code>、<code>delay-1h</code>……每档一个消费者：取到消息后判断”该进入业务 Topic 还是转投下一级延迟 Topic”，类似<strong>层级时间轮</strong>；</li>
-<li>到期即转投，每档消费者各司其职，吞吐高、精度秒级；缺点是档位是离散的（跨档位的时间只能用”下一档 + 重投”逼近）。</li>
-</ul>
-<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">Producer ──► delay-5s ──5s到期──► 业务 Topic ──► 业务消费者</span><br><span class="line">     │             │（未到期，留在本档）</span><br><span class="line">     │             ▼（已超 30s 的消息转投下一级）</span><br><span class="line">     └──► delay-30s ──到期──► 业务 Topic</span><br></pre></td></tr></table></figure>
+<h3 id="11-4-延时队列在-Kafka-中的实现方案"><a href="#11-4-延时队列在-Kafka-中的实现方案" class="headerlink" title="11.4 延时队列在 Kafka 中的实现方案"></a>11.4 延时队列在 Kafka 中的实现方案</h3><p>Kafka 原生没有 RocketMQ 那种”延迟消息”功能，生产实现普遍是业务侧方案：</p>
+<p><strong>方案一：时间轮 + 延迟 Topic</strong>：专门建一个 <code>delay-topic</code>，消息体里携带”目标执行时间”；延迟消费者 poll 出来后判断是否到期，未到期就不提交并睡眠等待，到期后写入真正的业务 Topic。</p>
+<p><strong>方案二：分级延迟 Topic（生产常用）</strong> ：按档位建多个延迟 Topic：<code>delay-5s</code>、<code>delay-30s</code>、<code>delay-1m</code>、<code>delay-10m</code>、<code>delay-1h</code>……每档一个消费者，到期即转投下一级或业务 Topic。</p>
+<pre class="mermaid">flowchart LR
+    P[Producer] --> D5[delay-5s]
+    D5 -->|5s 到期| Biz[业务 Topic]
+    D5 -->|未到期留在本档| D5
+    D5 -->|已超 30s| D30[delay-30s]
+    D30 --> Biz
+    Biz --> C[业务消费者]</pre>
 
-<p><strong>与 RocketMQ 对比</strong>：</p>
-<table>
+
+<h2 id="12-面试速答表"><a href="#12-面试速答表" class="headerlink" title="12. 面试速答表"></a>12. 面试速答表</h2><table>
 <thead>
 <tr>
-<th>维度</th>
-<th>Kafka（自建方案）</th>
-<th>RocketMQ</th>
+<th>面试题</th>
+<th>一句话答案</th>
 </tr>
 </thead>
 <tbody><tr>
-<td>原生延迟消息</td>
-<td>无（需业务实现）</td>
-<td>支持（18 个固定延迟级别，<code>messageDelayLevel</code>）</td>
+<td>Kafka 定位？</td>
+<td>分布式事件流平台，消息写入 append-only log，消费不删除，按保留策略过期</td>
 </tr>
 <tr>
-<td>时间精度</td>
-<td>自建分级方案可逼近</td>
-<td>只支持预设档位（1s~2h），自定义延迟时间需改造</td>
+<td>Topic &#x2F; Partition &#x2F; Replica 关系？</td>
+<td>Topic 逻辑分类，Partition 物理切分，Replica 副本分布在不同 Broker</td>
 </tr>
 <tr>
-<td>实现成本</td>
-<td>中等（分级 Topic + 定时转投）</td>
-<td>零成本，发消息时指定 <code>delayTimeLevel</code></td>
+<td>ISR 是什么？</td>
+<td>与 Leader 保持同步的副本集合，只有 ISR 中的副本才有资格当选新 Leader</td>
 </tr>
 <tr>
-<td>适用场景</td>
-<td>已有 Kafka 生态、高吞吐事件流</td>
-<td>交易场景、简单固定档位延迟</td>
+<td>Controller 和 Coordinator 区别？</td>
+<td>Controller 管集群元数据，Coordinator 管消费者组成员关系和 offset</td>
+</tr>
+<tr>
+<td>为什么 Kafka 快？</td>
+<td>顺序写 + PageCache + 零拷贝 + 批量压缩 + 分区并行</td>
+</tr>
+<tr>
+<td>零拷贝是完全没有拷贝吗？</td>
+<td>不是，是没有 CPU 参与的拷贝，DMA 拷贝仍然存在</td>
+</tr>
+<tr>
+<td>消息不丢怎么保证？</td>
+<td>acks&#x3D;all + min.insync.replicas&#x3D;2 + 手动提交 offset</td>
+</tr>
+<tr>
+<td>acks&#x3D;all 一定不丢吗？</td>
+<td>不一定，ISR 只剩 Leader 时退化为 acks&#x3D;1，需要 min.insync.replicas 卡底线</td>
+</tr>
+<tr>
+<td>LEO 和 HW 的区别？</td>
+<td>LEO 是副本下一条待写入位置，HW 是所有 ISR 副本 LEO 的最小值，消费者只能读 HW 以下</td>
+</tr>
+<tr>
+<td>消息重复怎么解决？</td>
+<td>幂等生产者 + 消费端业务去重（唯一约束&#x2F;条件更新）</td>
+</tr>
+<tr>
+<td>幂等和事务的区别？</td>
+<td>幂等是去重（单分区），事务是原子性（多分区）；跨外部系统靠业务幂等兜底</td>
+</tr>
+<tr>
+<td>如何保证消息有序？</td>
+<td>同一 key 哈希到同一分区，分区内有序；全局有序只能单分区</td>
+</tr>
+<tr>
+<td>Rebalance 触发条件？</td>
+<td>成员变化、分区数变化、订阅变化、max.poll.interval.ms 超时</td>
+</tr>
+<tr>
+<td>如何减少 Rebalance？</td>
+<td>CooperativeStickyAssignor + 静态成员 group.instance.id</td>
+</tr>
+<tr>
+<td>KRaft 是什么？</td>
+<td>去掉 ZooKeeper，Controller Quorum 通过 Raft 管理元数据，Kafka 4.0 已移除 ZK</td>
+</tr>
+<tr>
+<td>消息积压怎么处理？</td>
+<td>先看 Lag 分布（均匀 vs 集中），再扩容消费者&#x2F;提升单条处理速度&#x2F;调参</td>
+</tr>
+<tr>
+<td>死信队列怎么实现？</td>
+<td>Kafka 没有原生死信，消费者侧重试 N 次后写入专门死信 Topic</td>
+</tr>
+<tr>
+<td>分区数怎么规划？</td>
+<td>先估单分区吞吐（5~10 MB&#x2F;s），按总吞吐定分区数；单 Broker 数千分区以内</td>
+</tr>
+<tr>
+<td>延时队列怎么实现？</td>
+<td>时间轮 + 延迟 Topic，或分级延迟 Topic（生产常用）</td>
 </tr>
 </tbody></table>
-<p>选型一句话：<strong>消息量小、档位固定选 RocketMQ 原生延迟；消息量大、要任意延迟时间，用 Kafka + 分级延迟 Topic 自建</strong>。</p>
+<hr>
+<blockquote>
+<p><strong>全文因果链回顾</strong>：</p>
+<ol>
+<li><strong>定位</strong>：Kafka 不是传统 MQ，是事件流平台 → 消息保留 + 多组独立消费；</li>
+<li><strong>概念</strong>：Topic&#x2F;Partition&#x2F;Replica&#x2F;ISR → 逻辑与物理的映射；</li>
+<li><strong>高吞吐</strong>：顺序写 + PageCache + 零拷贝 + 批量压缩 + 分区并行；</li>
+<li><strong>可靠性</strong>：acks&#x3D;all + min.insync.replicas + 手动提交 → 三环节不丢；</li>
+<li><strong>不重复</strong>：幂等 + 消费端去重 + 事务 → at-least-once 到 exactly-once；</li>
+<li><strong>顺序性</strong>：同一 key 哈希到同一分区 → 业务级有序；</li>
+<li><strong>消费者组</strong>：Rebalance 是积压头号元凶 → CooperativeSticky + 静态成员减少停顿；</li>
+<li><strong>KRaft</strong>：ZooKeeper 已移除 → Controller Quorum 通过 Raft 管理元数据。</li>
+</ol>
+</blockquote>
+<h2 id="13-实践：从零搭建-Kafka-事件流系统"><a href="#13-实践：从零搭建-Kafka-事件流系统" class="headerlink" title="13. 实践：从零搭建 Kafka 事件流系统"></a>13. 实践：从零搭建 Kafka 事件流系统</h2><blockquote>
+<p>本节从 Docker 环境搭建开始，带你一步步完成 Topic 管理、生产消费、可靠性配置、顺序消息、事务消息、消费者组监控与排障，全部配命令、示例数据和预期输出。</p>
+</blockquote>
+<h3 id="13-0-实验环境准备"><a href="#13-0-实验环境准备" class="headerlink" title="13.0 实验环境准备"></a>13.0 实验环境准备</h3><h4 id="13-0-1-前置条件"><a href="#13-0-1-前置条件" class="headerlink" title="13.0.1 前置条件"></a>13.0.1 前置条件</h4><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>版本要求</th>
+<th>检查命令</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Docker</td>
+<td>20.10+</td>
+<td><code>docker --version</code></td>
+<td>运行 Kafka 和 UI</td>
+</tr>
+<tr>
+<td>Docker Compose</td>
+<td>v2+</td>
+<td><code>docker compose version</code></td>
+<td>一键启动多个容器</td>
+</tr>
+<tr>
+<td>kafka 命令行工具</td>
+<td>3.x</td>
+<td><code>kafka-topics.sh --version</code></td>
+<td>管理 Topic、消费组（或使用容器内自带脚本）</td>
+</tr>
+<tr>
+<td>curl</td>
+<td>任意</td>
+<td><code>curl --version</code></td>
+<td>请求测试</td>
+</tr>
+</tbody></table>
+<blockquote>
+<p>如果本机没装 Kafka 命令行工具，本节所有 <code>kafka-*.sh</code> 命令都可用 <code>docker exec -it kafka kafka-*.sh</code> 替换执行。</p>
+</blockquote>
+<h4 id="13-0-2-启动-Kafka（KRaft-模式，无需-ZooKeeper）"><a href="#13-0-2-启动-Kafka（KRaft-模式，无需-ZooKeeper）" class="headerlink" title="13.0.2 启动 Kafka（KRaft 模式，无需 ZooKeeper）"></a>13.0.2 启动 Kafka（KRaft 模式，无需 ZooKeeper）</h4><p>创建实验目录：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">mkdir</span> -p ~/kafka-lab &amp;&amp; <span class="built_in">cd</span> ~/kafka-lab</span><br></pre></td></tr></table></figure>
+
+<p>新建 <code>docker-compose.yml</code>：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">version:</span> <span class="string">&#x27;3.8&#x27;</span></span><br><span class="line"><span class="attr">services:</span></span><br><span class="line">  <span class="attr">kafka:</span></span><br><span class="line">    <span class="attr">image:</span> <span class="string">bitnami/kafka:3.7</span></span><br><span class="line">    <span class="attr">container_name:</span> <span class="string">kafka-lab</span></span><br><span class="line">    <span class="attr">ports:</span></span><br><span class="line">      <span class="bullet">-</span> <span class="string">&quot;9092:9092&quot;</span>        <span class="comment"># 客户端连接端口（宿主机可访问）</span></span><br><span class="line">      <span class="bullet">-</span> <span class="string">&quot;9094:9094&quot;</span>        <span class="comment"># KRaft Controller 端口</span></span><br><span class="line">    <span class="attr">environment:</span></span><br><span class="line">      <span class="comment"># KRaft 模式（不再依赖 ZooKeeper）</span></span><br><span class="line">      <span class="bullet">-</span> <span class="string">KAFKA_CFG_NODE_ID=1</span></span><br><span class="line">      <span class="bullet">-</span> <span class="string">KAFKA_CFG_PROCESS_ROLES=broker,controller</span></span><br><span class="line">      <span class="bullet">-</span> <span class="string">KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9094</span></span><br><span class="line">      <span class="bullet">-</span> <span class="string">KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9094</span></span><br><span class="line">      <span class="bullet">-</span> <span class="string">KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092</span></span><br><span class="line">      <span class="bullet">-</span> <span class="string">KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT</span></span><br><span class="line">      <span class="bullet">-</span> <span class="string">KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER</span></span><br><span class="line">      <span class="bullet">-</span> <span class="string">KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT</span></span><br><span class="line">      <span class="bullet">-</span> <span class="string">KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=false</span>   <span class="comment"># 关闭自动创建，强制显式建 Topic</span></span><br><span class="line">      <span class="bullet">-</span> <span class="string">KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR=1</span></span><br><span class="line">      <span class="bullet">-</span> <span class="string">KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1</span></span><br><span class="line">      <span class="bullet">-</span> <span class="string">KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR=1</span></span><br><span class="line">    <span class="attr">volumes:</span></span><br><span class="line">      <span class="bullet">-</span> <span class="string">kafka-data:/bitnami/kafka</span></span><br><span class="line"></span><br><span class="line">  <span class="attr">kafka-ui:</span></span><br><span class="line">    <span class="attr">image:</span> <span class="string">provectuslabs/kafka-ui:latest</span></span><br><span class="line">    <span class="attr">container_name:</span> <span class="string">kafka-ui</span></span><br><span class="line">    <span class="attr">ports:</span></span><br><span class="line">      <span class="bullet">-</span> <span class="string">&quot;8080:8080&quot;</span></span><br><span class="line">    <span class="attr">environment:</span></span><br><span class="line">      <span class="bullet">-</span> <span class="string">KAFKA_CLUSTERS_0_NAME=local</span></span><br><span class="line">      <span class="bullet">-</span> <span class="string">KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092</span></span><br><span class="line">    <span class="attr">depends_on:</span></span><br><span class="line">      <span class="bullet">-</span> <span class="string">kafka</span></span><br><span class="line"></span><br><span class="line"><span class="attr">volumes:</span></span><br><span class="line">  <span class="attr">kafka-data:</span></span><br><span class="line">    <span class="attr">driver:</span> <span class="string">local</span></span><br></pre></td></tr></table></figure>
+
+<p>启动：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">docker compose up -d</span><br><span class="line">docker compose ps</span><br><span class="line"><span class="comment"># 预期输出：kafka-lab 与 kafka-ui 两个容器 Up</span></span><br></pre></td></tr></table></figure>
+
+<h4 id="13-0-3-认识你的操作工具"><a href="#13-0-3-认识你的操作工具" class="headerlink" title="13.0.3 认识你的操作工具"></a>13.0.3 认识你的操作工具</h4><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>地址</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>kafka-*.sh 命令行</strong></td>
+<td>容器内 <code>/opt/bitnami/kafka/bin/</code></td>
+<td>Topic、消费组、生产消费</td>
+</tr>
+<tr>
+<td><strong>Kafka UI</strong></td>
+<td><span class="exturl" data-url="aHR0cDovL2xvY2FsaG9zdDo4MDgwLw==">http://localhost:8080<i class="fa fa-external-link-alt"></i></span></td>
+<td>图形化管理，看 Lag 最直观</td>
+</tr>
+</tbody></table>
+<p>命令行示例统一采用：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> -it kafka-lab kafka-topics.sh --bootstrap-server localhost:9092 --list</span><br></pre></td></tr></table></figure>
+
+<h4 id="13-0-4-实验环境排障"><a href="#13-0-4-实验环境排障" class="headerlink" title="13.0.4 实验环境排障"></a>13.0.4 实验环境排障</h4><table>
+<thead>
+<tr>
+<th>问题</th>
+<th>原因</th>
+<th>解决方法</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>9092 端口被占用</td>
+<td>本机已有 Kafka</td>
+<td><code>lsof -i :9092</code> 杀掉后重试</td>
+</tr>
+<tr>
+<td>客户端连不上 localhost:9092</td>
+<td>Advertised listener 配置错</td>
+<td>检查 <code>ADVERTISED_LISTENERS</code> 是否为 <code>localhost:9092</code></td>
+</tr>
+<tr>
+<td>Auto create topic disabled 报错</td>
+<td>没显式建 Topic</td>
+<td>先 <code>kafka-topics.sh --create</code></td>
+</tr>
+<tr>
+<td>Kafka UI 空白</td>
+<td>容器内部域名解析失败</td>
+<td>用容器名 <code>kafka:9092</code>，不要用 localhost</td>
+</tr>
+</tbody></table>
+<h3 id="13-1-Topic-与分区管理"><a href="#13-1-Topic-与分区管理" class="headerlink" title="13.1 Topic 与分区管理"></a>13.1 Topic 与分区管理</h3><h4 id="13-1-1-创建-Topic"><a href="#13-1-1-创建-Topic" class="headerlink" title="13.1.1 创建 Topic"></a>13.1.1 创建 Topic</h4><p><strong>第一步：创建订单 Topic</strong></p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> -it kafka-lab kafka-topics.sh \</span><br><span class="line">  --bootstrap-server localhost:9092 \</span><br><span class="line">  --create \</span><br><span class="line">  --topic orders \</span><br><span class="line">  --partitions 3 \</span><br><span class="line">  --replication-factor 1</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期输出</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">Created topic orders.</span><br></pre></td></tr></table></figure>
+
+<p><strong>参数说明</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>说明</th>
+<th>生产建议</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>--partitions</code></td>
+<td>分区数，决定最大并行消费度</td>
+<td>按吞吐估算，先估单分区 5~10 MB&#x2F;s</td>
+</tr>
+<tr>
+<td><code>--replication-factor</code></td>
+<td>副本数，单机填 1，生产填 3</td>
+<td>生产至少 3</td>
+</tr>
+<tr>
+<td><code>--topic</code></td>
+<td>Topic 名</td>
+<td>用业务语义，如 <code>orders</code>、<code>order-events</code></td>
+</tr>
+</tbody></table>
+<p><strong>第二步：查看 Topic 详情</strong></p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> -it kafka-lab kafka-topics.sh \</span><br><span class="line">  --bootstrap-server localhost:9092 \</span><br><span class="line">  --describe --topic orders</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期输出</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">Topic: orders  TopicId: xxx  PartitionCount: 3  ReplicationFactor: 1</span><br><span class="line">  Topic: orders  Partition: 0  Leader: 1  Replicas: 1  Isr: 1</span><br><span class="line">  Topic: orders  Partition: 1  Leader: 1  Replicas: 1  Isr: 1</span><br><span class="line">  Topic: orders  Partition: 2  Leader: 1  Replicas: 1  Isr: 1</span><br></pre></td></tr></table></figure>
+
+<p><strong>观察点</strong>：<code>Partition: 0/1/2</code> 三行说明分区创建成功；<code>Leader</code> 是 Broker ID；<code>Isr</code> 是当前同步副本集合。单机环境下三列都是 1。</p>
+<h4 id="13-1-2-修改与删除-Topic"><a href="#13-1-2-修改与删除-Topic" class="headerlink" title="13.1.2 修改与删除 Topic"></a>13.1.2 修改与删除 Topic</h4><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 增加分区（只能增不能减）</span></span><br><span class="line">docker <span class="built_in">exec</span> -it kafka-lab kafka-topics.sh \</span><br><span class="line">  --bootstrap-server localhost:9092 \</span><br><span class="line">  --alter --topic orders --partitions 6</span><br><span class="line"></span><br><span class="line"><span class="comment"># 删除 Topic</span></span><br><span class="line">docker <span class="built_in">exec</span> -it kafka-lab kafka-topics.sh \</span><br><span class="line">  --bootstrap-server localhost:9092 \</span><br><span class="line">  --delete --topic orders</span><br></pre></td></tr></table></figure>
+
+<p><strong>关键限制</strong>：分区数只能增加，不能减少。增加分区会破坏按 key 的有序性（同一 key 可能路由到新分区），如果 Topic 依赖 key 有序，扩容要谨慎。</p>
+<h3 id="13-2-生产者与消费者基础操作"><a href="#13-2-生产者与消费者基础操作" class="headerlink" title="13.2 生产者与消费者基础操作"></a>13.2 生产者与消费者基础操作</h3><h4 id="13-2-1-命令行生产者"><a href="#13-2-1-命令行生产者" class="headerlink" title="13.2.1 命令行生产者"></a>13.2.1 命令行生产者</h4><p>开一个终端 A，运行生产者：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> -it kafka-lab kafka-console-producer.sh \</span><br><span class="line">  --bootstrap-server localhost:9092 \</span><br><span class="line">  --topic orders \</span><br><span class="line">  --property <span class="string">&quot;parse.key=true&quot;</span> \</span><br><span class="line">  --property <span class="string">&quot;key.separator=:&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p>看到 <code>&gt;</code> 提示符后，输入几条消息（格式 <code>key:value</code>）：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">order-1001:&#123;&quot;orderId&quot;:&quot;1001&quot;,&quot;amount&quot;:99.9,&quot;status&quot;:&quot;created&quot;&#125;</span><br><span class="line">order-1002:&#123;&quot;orderId&quot;:&quot;1002&quot;,&quot;amount&quot;:199.9,&quot;status&quot;:&quot;created&quot;&#125;</span><br><span class="line">order-1001:&#123;&quot;orderId&quot;:&quot;1001&quot;,&quot;amount&quot;:99.9,&quot;status&quot;:&quot;paid&quot;&#125;</span><br><span class="line">order-1003:&#123;&quot;orderId&quot;:&quot;1003&quot;,&quot;amount&quot;:9.9,&quot;status&quot;:&quot;created&quot;&#125;</span><br><span class="line">order-1001:&#123;&quot;orderId&quot;:&quot;1001&quot;,&quot;amount&quot;:99.9,&quot;status&quot;:&quot;shipped&quot;&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>关键点</strong>：同一个 <code>key=order-1001</code> 的消息会进入同一个分区，这是顺序消息的基础。</p>
+<h4 id="13-2-2-命令行消费者"><a href="#13-2-2-命令行消费者" class="headerlink" title="13.2.2 命令行消费者"></a>13.2.2 命令行消费者</h4><p><strong>注意</strong>：消费者默认从<strong>最新</strong>开始消费，所以必须先在另一个终端启动消费者，再用生产者发消息。</p>
+<p>开终端 B，运行消费者：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> -it kafka-lab kafka-console-consumer.sh \</span><br><span class="line">  --bootstrap-server localhost:9092 \</span><br><span class="line">  --topic orders \</span><br><span class="line">  --from-beginning \</span><br><span class="line">  --property <span class="string">&quot;print.key=true&quot;</span> \</span><br><span class="line">  --property <span class="string">&quot;key.separator=:&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期输出</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">order-1001:&#123;&quot;orderId&quot;:&quot;1001&quot;,&quot;amount&quot;:99.9,&quot;status&quot;:&quot;created&quot;&#125;</span><br><span class="line">order-1002:&#123;&quot;orderId&quot;:&quot;1002&quot;,&quot;amount&quot;:199.9,&quot;status&quot;:&quot;created&quot;&#125;</span><br><span class="line">order-1001:&#123;&quot;orderId&quot;:&quot;1001&quot;,&quot;amount&quot;:99.9,&quot;status&quot;:&quot;paid&quot;&#125;</span><br><span class="line">order-1003:&#123;&quot;orderId&quot;:&quot;1003&quot;,&quot;amount&quot;:9.9,&quot;status&quot;:&quot;created&quot;&#125;</span><br><span class="line">order-1001:&#123;&quot;orderId&quot;:&quot;1001&quot;,&quot;amount&quot;:99.9,&quot;status&quot;:&quot;shipped&quot;&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>观察点</strong>：相同 key 的消息顺序与发送顺序一致（1001 的 created → paid → shipped）。</p>
+<h4 id="13-2-3-验证分区路由"><a href="#13-2-3-验证分区路由" class="headerlink" title="13.2.3 验证分区路由"></a>13.2.3 验证分区路由</h4><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 查看每个分区的消息分布</span></span><br><span class="line">docker <span class="built_in">exec</span> -it kafka-lab kafka-run-class.sh kafka.tools.GetOffsetShell \</span><br><span class="line">  --broker-list localhost:9092 --topic orders</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期输出</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">orders:0:3</span><br><span class="line">orders:1:1</span><br><span class="line">orders:2:1</span><br></pre></td></tr></table></figure>
+
+<p><strong>解读</strong>：5 条消息分布在 3 个分区上，分区 0 有 3 条（都是 order-1001），分区 1 和 2 各 1 条。<strong>同一 key 落在同一分区</strong>已经验证。</p>
+<h3 id="13-3-Java-客户端实战"><a href="#13-3-Java-客户端实战" class="headerlink" title="13.3 Java 客户端实战"></a>13.3 Java 客户端实战</h3><h4 id="13-3-1-Maven-依赖"><a href="#13-3-1-Maven-依赖" class="headerlink" title="13.3.1 Maven 依赖"></a>13.3.1 Maven 依赖</h4><figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">dependency</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">groupId</span>&gt;</span>org.apache.kafka<span class="tag">&lt;/<span class="name">groupId</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">artifactId</span>&gt;</span>kafka-clients<span class="tag">&lt;/<span class="name">artifactId</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">version</span>&gt;</span>3.7.0<span class="tag">&lt;/<span class="name">version</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">dependency</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<h4 id="13-3-2-生产端：可靠发送"><a href="#13-3-2-生产端：可靠发送" class="headerlink" title="13.3.2 生产端：可靠发送"></a>13.3.2 生产端：可靠发送</h4><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> org.apache.kafka.clients.producer.*;</span><br><span class="line"><span class="keyword">import</span> java.util.Properties;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">ReliableProducer</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> &#123;</span><br><span class="line">        <span class="type">Properties</span> <span class="variable">props</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">Properties</span>();</span><br><span class="line">        props.put(<span class="string">&quot;bootstrap.servers&quot;</span>, <span class="string">&quot;localhost:9092&quot;</span>);</span><br><span class="line">        props.put(<span class="string">&quot;key.serializer&quot;</span>, <span class="string">&quot;org.apache.kafka.common.serialization.StringSerializer&quot;</span>);</span><br><span class="line">        props.put(<span class="string">&quot;value.serializer&quot;</span>, <span class="string">&quot;org.apache.kafka.common.serialization.StringSerializer&quot;</span>);</span><br><span class="line"></span><br><span class="line">        <span class="comment">// 可靠性三件套</span></span><br><span class="line">        props.put(<span class="string">&quot;acks&quot;</span>, <span class="string">&quot;all&quot;</span>);                       <span class="comment">// 等所有 ISR 确认</span></span><br><span class="line">        props.put(<span class="string">&quot;retries&quot;</span>, Integer.MAX_VALUE);        <span class="comment">// 无限重试</span></span><br><span class="line">        props.put(<span class="string">&quot;enable.idempotence&quot;</span>, <span class="string">&quot;true&quot;</span>);        <span class="comment">// 幂等生产者</span></span><br><span class="line"></span><br><span class="line">        <span class="comment">// 吞吐优化</span></span><br><span class="line">        props.put(<span class="string">&quot;batch.size&quot;</span>, <span class="number">131072</span>);                <span class="comment">// 128KB 攒批</span></span><br><span class="line">        props.put(<span class="string">&quot;linger.ms&quot;</span>, <span class="number">20</span>);                     <span class="comment">// 等 20ms 攒批</span></span><br><span class="line">        props.put(<span class="string">&quot;compression.type&quot;</span>, <span class="string">&quot;lz4&quot;</span>);           <span class="comment">// LZ4 压缩</span></span><br><span class="line"></span><br><span class="line">        <span class="keyword">try</span> (KafkaProducer&lt;String, String&gt; producer = <span class="keyword">new</span> <span class="title class_">KafkaProducer</span>&lt;&gt;(props)) &#123;</span><br><span class="line">            <span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">1</span>; i &lt;= <span class="number">100</span>; i++) &#123;</span><br><span class="line">                <span class="type">String</span> <span class="variable">orderId</span> <span class="operator">=</span> <span class="string">&quot;order-&quot;</span> + (<span class="number">1000</span> + i);</span><br><span class="line">                <span class="type">String</span> <span class="variable">value</span> <span class="operator">=</span> <span class="string">&quot;&#123;\&quot;orderId\&quot;:\&quot;&quot;</span> + orderId + <span class="string">&quot;\&quot;,\&quot;amount\&quot;:&quot;</span> + (i * <span class="number">1.5</span>) + <span class="string">&quot;&#125;&quot;</span>;</span><br><span class="line">                ProducerRecord&lt;String, String&gt; record =</span><br><span class="line">                    <span class="keyword">new</span> <span class="title class_">ProducerRecord</span>&lt;&gt;(<span class="string">&quot;orders&quot;</span>, orderId, value);</span><br><span class="line">                producer.send(record, (metadata, exception) -&gt; &#123;</span><br><span class="line">                    <span class="keyword">if</span> (exception != <span class="literal">null</span>) &#123;</span><br><span class="line">                        System.err.println(<span class="string">&quot;发送失败: &quot;</span> + exception.getMessage());</span><br><span class="line">                    &#125; <span class="keyword">else</span> &#123;</span><br><span class="line">                        System.out.printf(<span class="string">&quot;成功: partition=%d offset=%d%n&quot;</span>,</span><br><span class="line">                            metadata.partition(), metadata.offset());</span><br><span class="line">                    &#125;</span><br><span class="line">                &#125;);</span><br><span class="line">            &#125;</span><br><span class="line">            producer.flush();   <span class="comment">// 关前 flush，确保所有异步回调完成</span></span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>观察点</strong>：同一 <code>order-XXXX</code> key 的 offset 在同一个分区里递增；回调不报错说明可靠发送成功。</p>
+<h4 id="13-3-3-消费端：手动提交"><a href="#13-3-3-消费端：手动提交" class="headerlink" title="13.3.3 消费端：手动提交"></a>13.3.3 消费端：手动提交</h4><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br><span class="line">43</span><br><span class="line">44</span><br><span class="line">45</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> org.apache.kafka.clients.consumer.*;</span><br><span class="line"><span class="keyword">import</span> org.apache.kafka.common.TopicPartition;</span><br><span class="line"><span class="keyword">import</span> java.time.Duration;</span><br><span class="line"><span class="keyword">import</span> java.util.*;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">ManualCommitConsumer</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> &#123;</span><br><span class="line">        <span class="type">Properties</span> <span class="variable">props</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">Properties</span>();</span><br><span class="line">        props.put(<span class="string">&quot;bootstrap.servers&quot;</span>, <span class="string">&quot;localhost:9092&quot;</span>);</span><br><span class="line">        props.put(<span class="string">&quot;group.id&quot;</span>, <span class="string">&quot;order-consumer-group&quot;</span>);</span><br><span class="line">        props.put(<span class="string">&quot;key.deserializer&quot;</span>, <span class="string">&quot;org.apache.kafka.common.serialization.StringDeserializer&quot;</span>);</span><br><span class="line">        props.put(<span class="string">&quot;value.deserializer&quot;</span>, <span class="string">&quot;org.apache.kafka.common.serialization.StringDeserializer&quot;</span>);</span><br><span class="line">        props.put(<span class="string">&quot;enable.auto.commit&quot;</span>, <span class="string">&quot;false&quot;</span>);         <span class="comment">// 关闭自动提交</span></span><br><span class="line">        props.put(<span class="string">&quot;max.poll.records&quot;</span>, <span class="number">100</span>);               <span class="comment">// 单次最多 100 条</span></span><br><span class="line">        props.put(<span class="string">&quot;max.poll.interval.ms&quot;</span>, <span class="number">300000</span>);        <span class="comment">// 处理慢的业务调大</span></span><br><span class="line">        props.put(<span class="string">&quot;isolation.level&quot;</span>, <span class="string">&quot;read_committed&quot;</span>);   <span class="comment">// 只读已提交事务消息</span></span><br><span class="line"></span><br><span class="line">        <span class="keyword">try</span> (KafkaConsumer&lt;String, String&gt; consumer = <span class="keyword">new</span> <span class="title class_">KafkaConsumer</span>&lt;&gt;(props)) &#123;</span><br><span class="line">            consumer.subscribe(Collections.singletonList(<span class="string">&quot;orders&quot;</span>),</span><br><span class="line">                <span class="keyword">new</span> <span class="title class_">ConsumerRebalanceListener</span>() &#123;</span><br><span class="line">                    <span class="meta">@Override</span></span><br><span class="line">                    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">onPartitionsRevoked</span><span class="params">(Collection&lt;TopicPartition&gt; partitions)</span> &#123;</span><br><span class="line">                        <span class="comment">// Rebalance 之前一定要提交，否则重复消费窗口扩大</span></span><br><span class="line">                        consumer.commitSync();</span><br><span class="line">                    &#125;</span><br><span class="line">                    <span class="meta">@Override</span></span><br><span class="line">                    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">onPartitionsAssigned</span><span class="params">(Collection&lt;TopicPartition&gt; partitions)</span> &#123;</span><br><span class="line">                        System.out.println(<span class="string">&quot;分配到的分区: &quot;</span> + partitions);</span><br><span class="line">                    &#125;</span><br><span class="line">                &#125;);</span><br><span class="line"></span><br><span class="line">            <span class="keyword">while</span> (<span class="literal">true</span>) &#123;</span><br><span class="line">                ConsumerRecords&lt;String, String&gt; records = consumer.poll(Duration.ofMillis(<span class="number">1000</span>));</span><br><span class="line">                <span class="keyword">for</span> (ConsumerRecord&lt;String, String&gt; record : records) &#123;</span><br><span class="line">                    <span class="comment">// 业务处理（幂等！）</span></span><br><span class="line">                    System.out.printf(<span class="string">&quot;消费: partition=%d offset=%d key=%s value=%s%n&quot;</span>,</span><br><span class="line">                        record.partition(), record.offset(), record.key(), record.value());</span><br><span class="line">                &#125;</span><br><span class="line">                <span class="keyword">if</span> (!records.isEmpty()) &#123;</span><br><span class="line">                    consumer.commitSync();   <span class="comment">// 处理完再提交</span></span><br><span class="line">                &#125;</span><br><span class="line">            &#125;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>关键点</strong>：</p>
+<ul>
+<li><code>enable.auto.commit=false</code> + 处理完手动 <code>commitSync()</code> 是可靠消费的基础；</li>
+<li><code>ConsumerRebalanceListener</code> 里必须提交，否则 Rebalance 会扩大重复窗口；</li>
+<li>消费逻辑本身必须幂等（订单号唯一约束）。</li>
+</ul>
+<h3 id="13-4-消费者组与-Lag-监控"><a href="#13-4-消费者组与-Lag-监控" class="headerlink" title="13.4 消费者组与 Lag 监控"></a>13.4 消费者组与 Lag 监控</h3><h4 id="13-4-1-查看消费组状态"><a href="#13-4-1-查看消费组状态" class="headerlink" title="13.4.1 查看消费组状态"></a>13.4.1 查看消费组状态</h4><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> -it kafka-lab kafka-consumer-groups.sh \</span><br><span class="line">  --bootstrap-server localhost:9092 \</span><br><span class="line">  --describe --group order-consumer-group</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期输出</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">GROUP                 TOPIC    PARTITION  CURRENT-OFFSET  LOG-END-OFFSET  LAG   CONSUMER-ID</span><br><span class="line">order-consumer-group  orders   0          3               3               0     consumer-1-xxx</span><br><span class="line">order-consumer-group  orders   1          1               1               0     consumer-1-xxx</span><br><span class="line">order-consumer-group  orders   2          1               1               0     consumer-1-xxx</span><br></pre></td></tr></table></figure>
+
+<p><strong>字段解读</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>字段</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>CURRENT-OFFSET</code></td>
+<td>消费者已提交的 offset</td>
+</tr>
+<tr>
+<td><code>LOG-END-OFFSET</code></td>
+<td>分区当前 LEO</td>
+</tr>
+<tr>
+<td><code>LAG</code></td>
+<td>未消费消息数 &#x3D; <code>LOG-END-OFFSET - CURRENT-OFFSET</code></td>
+</tr>
+<tr>
+<td><code>CONSUMER-ID</code></td>
+<td>分配到该分区的消费者实例</td>
+</tr>
+</tbody></table>
+<h4 id="13-4-2-制造并观察-Lag"><a href="#13-4-2-制造并观察-Lag" class="headerlink" title="13.4.2 制造并观察 Lag"></a>13.4.2 制造并观察 Lag</h4><p><strong>第一步</strong>：停掉消费者进程（模拟消费停滞）。</p>
+<p><strong>第二步</strong>：用生产者灌 1000 条消息。</p>
+<p><strong>第三步</strong>：观察 Lag：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> -it kafka-lab kafka-consumer-groups.sh \</span><br><span class="line">  --bootstrap-server localhost:9092 \</span><br><span class="line">  --describe --group order-consumer-group</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期输出</strong>：<code>LAG</code> 会随着未消费消息累积逐渐变大。</p>
+<h4 id="13-4-3-增加消费者实例扩容"><a href="#13-4-3-增加消费者实例扩容" class="headerlink" title="13.4.3 增加消费者实例扩容"></a>13.4.3 增加消费者实例扩容</h4><p>再启动一个 <code>ManualCommitConsumer</code> 实例（相同 group.id），Lag 会重新分配：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 再次执行 describe，会看到两个 CONSUMER-ID</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>观察点</strong>：</p>
+<ul>
+<li>两个消费者实例自动均分 3 个分区（例如 2:1）；</li>
+<li>Lag 在两个实例上并行消化；</li>
+<li><strong>实例数超过分区数时，多出的实例分不到分区</strong>，是浪费——这是「消费者实例数 ≤ 分区数」的硬约束。</li>
+</ul>
+<h3 id="13-5-顺序消息实战"><a href="#13-5-顺序消息实战" class="headerlink" title="13.5 顺序消息实战"></a>13.5 顺序消息实战</h3><h4 id="13-5-1-验证顺序性"><a href="#13-5-1-验证顺序性" class="headerlink" title="13.5.1 验证顺序性"></a>13.5.1 验证顺序性</h4><p><strong>发送端</strong>：同一个 orderId 用相同 key 连续发送 5 条状态消息。</p>
+<p><strong>消费端</strong>：用以下消费者打印 partition 和 offset：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">for</span> (ConsumerRecord&lt;String, String&gt; record : records) &#123;</span><br><span class="line">    System.out.printf(<span class="string">&quot;key=%s partition=%d offset=%d%n&quot;</span>,</span><br><span class="line">        record.key(), record.partition(), record.offset());</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期输出</strong>（同一 key 的记录）：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">key=order-1001 partition=0 offset=0</span><br><span class="line">key=order-1001 partition=0 offset=1</span><br><span class="line">key=order-1001 partition=0 offset=2</span><br><span class="line">key=order-1001 partition=0 offset=3</span><br><span class="line">key=order-1001 partition=0 offset=4</span><br></pre></td></tr></table></figure>
+
+<p><strong>观察点</strong>：同一 key 的所有消息落在同一分区，且 offset 单调递增。</p>
+<h4 id="13-5-2-顺序破坏场景复现"><a href="#13-5-2-顺序破坏场景复现" class="headerlink" title="13.5.2 顺序破坏场景复现"></a>13.5.2 顺序破坏场景复现</h4><p><strong>场景</strong>：<code>max.in.flight.requests.per.connection &gt; 1</code> 且关闭幂等，重试时可能乱序。</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// ❌ 危险配置</span></span><br><span class="line">props.put(<span class="string">&quot;enable.idempotence&quot;</span>, <span class="string">&quot;false&quot;</span>);</span><br><span class="line">props.put(<span class="string">&quot;max.in.flight.requests.per.connection&quot;</span>, <span class="number">5</span>);</span><br><span class="line">props.put(<span class="string">&quot;retries&quot;</span>, <span class="number">3</span>);</span><br></pre></td></tr></table></figure>
+
+<p><strong>安全配置</strong>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// ✅ 安全配置：开启幂等 + 保留 in-flight &gt; 1 也不会乱序</span></span><br><span class="line">props.put(<span class="string">&quot;enable.idempotence&quot;</span>, <span class="string">&quot;true&quot;</span>);</span><br><span class="line">props.put(<span class="string">&quot;max.in.flight.requests.per.connection&quot;</span>, <span class="number">5</span>);  <span class="comment">// 幂等下可保留</span></span><br><span class="line">props.put(<span class="string">&quot;retries&quot;</span>, Integer.MAX_VALUE);</span><br></pre></td></tr></table></figure>
+
+<p><strong>面试一句话</strong>：<strong>开启幂等后，<code>max.in.flight &gt; 1</code> 不会破坏顺序</strong>——幂等 Producer 会保证 Broker 端按序号去重和排序。这是 Kafka 2.x 之后的重要改进。</p>
+<h3 id="13-6-事务消息实战"><a href="#13-6-事务消息实战" class="headerlink" title="13.6 事务消息实战"></a>13.6 事务消息实战</h3><h4 id="13-6-1-完整事务代码"><a href="#13-6-1-完整事务代码" class="headerlink" title="13.6.1 完整事务代码"></a>13.6.1 完整事务代码</h4><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">import</span> org.apache.kafka.clients.producer.*;</span><br><span class="line"><span class="keyword">import</span> org.apache.kafka.clients.consumer.OffsetAndMetadata;</span><br><span class="line"><span class="keyword">import</span> org.apache.kafka.common.TopicPartition;</span><br><span class="line"><span class="keyword">import</span> java.util.*;</span><br><span class="line"></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">TransactionalProducer</span> &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">static</span> <span class="keyword">void</span> <span class="title function_">main</span><span class="params">(String[] args)</span> &#123;</span><br><span class="line">        <span class="type">Properties</span> <span class="variable">props</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">Properties</span>();</span><br><span class="line">        props.put(<span class="string">&quot;bootstrap.servers&quot;</span>, <span class="string">&quot;localhost:9092&quot;</span>);</span><br><span class="line">        props.put(<span class="string">&quot;key.serializer&quot;</span>, <span class="string">&quot;org.apache.kafka.common.serialization.StringSerializer&quot;</span>);</span><br><span class="line">        props.put(<span class="string">&quot;value.serializer&quot;</span>, <span class="string">&quot;org.apache.kafka.common.serialization.StringSerializer&quot;</span>);</span><br><span class="line">        props.put(<span class="string">&quot;transactional.id&quot;</span>, <span class="string">&quot;order-tx-001&quot;</span>);   <span class="comment">// 事务 ID，必须唯一</span></span><br><span class="line">        props.put(<span class="string">&quot;enable.idempotence&quot;</span>, <span class="string">&quot;true&quot;</span>);         <span class="comment">// 事务强制要求幂等</span></span><br><span class="line"></span><br><span class="line">        KafkaProducer&lt;String, String&gt; producer = <span class="keyword">new</span> <span class="title class_">KafkaProducer</span>&lt;&gt;(props);</span><br><span class="line">        producer.initTransactions();                     <span class="comment">// 初始化事务（只需一次）</span></span><br><span class="line"></span><br><span class="line">        <span class="keyword">try</span> &#123;</span><br><span class="line">            producer.beginTransaction();</span><br><span class="line"></span><br><span class="line">            <span class="comment">// 两个不同 Topic 的写入，要么都成功要么都失败</span></span><br><span class="line">            producer.send(<span class="keyword">new</span> <span class="title class_">ProducerRecord</span>&lt;&gt;(<span class="string">&quot;orders&quot;</span>, <span class="string">&quot;order-2001&quot;</span>,</span><br><span class="line">                <span class="string">&quot;&#123;\&quot;orderId\&quot;:\&quot;2001\&quot;,\&quot;amount\&quot;:199.9&#125;&quot;</span>));</span><br><span class="line">            producer.send(<span class="keyword">new</span> <span class="title class_">ProducerRecord</span>&lt;&gt;(<span class="string">&quot;order-points&quot;</span>, <span class="string">&quot;order-2001&quot;</span>,</span><br><span class="line">                <span class="string">&quot;&#123;\&quot;orderId\&quot;:\&quot;2001\&quot;,\&quot;points\&quot;:100&#125;&quot;</span>));</span><br><span class="line"></span><br><span class="line">            <span class="comment">// 消费-处理-生产场景：把消费位点也纳入事务</span></span><br><span class="line">            Map&lt;TopicPartition, OffsetAndMetadata&gt; offsets = <span class="keyword">new</span> <span class="title class_">HashMap</span>&lt;&gt;();</span><br><span class="line">            offsets.put(<span class="keyword">new</span> <span class="title class_">TopicPartition</span>(<span class="string">&quot;source-topic&quot;</span>, <span class="number">0</span>),</span><br><span class="line">                <span class="keyword">new</span> <span class="title class_">OffsetAndMetadata</span>(<span class="number">100</span>));</span><br><span class="line">            producer.sendOffsetsToTransaction(offsets, <span class="string">&quot;consumer-group-1&quot;</span>);</span><br><span class="line"></span><br><span class="line">            producer.commitTransaction();                <span class="comment">// 提交</span></span><br><span class="line">            System.out.println(<span class="string">&quot;事务提交成功&quot;</span>);</span><br><span class="line">        &#125; <span class="keyword">catch</span> (Exception e) &#123;</span><br><span class="line">            producer.abortTransaction();                 <span class="comment">// 回滚</span></span><br><span class="line">            System.err.println(<span class="string">&quot;事务回滚: &quot;</span> + e.getMessage());</span><br><span class="line">        &#125; <span class="keyword">finally</span> &#123;</span><br><span class="line">            producer.close();</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h4 id="13-6-2-验证事务隔离"><a href="#13-6-2-验证事务隔离" class="headerlink" title="13.6.2 验证事务隔离"></a>13.6.2 验证事务隔离</h4><p><strong>未提交事务的消息对消费者不可见</strong>：</p>
+<ol>
+<li>启动一个 <code>isolation.level=read_committed</code> 的消费者；</li>
+<li>运行事务代码但不调用 <code>commitTransaction</code>；</li>
+<li>消费者看不到消息。</li>
+</ol>
+<p><strong>关键配置</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>消费者 <code>isolation.level</code></th>
+<th>行为</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>read_uncommitted</code>（默认）</td>
+<td>能读到未提交事务的消息</td>
+</tr>
+<tr>
+<td><code>read_committed</code></td>
+<td>只读到已提交事务的消息</td>
+</tr>
+</tbody></table>
+<p><strong>面试一句话</strong>：Kafka 事务是流处理 EOS 的工具，跨 Kafka 与外部系统的一致性仍需业务幂等兜底。</p>
+<h3 id="13-7-实战排障：消息积压、重复消费、ISR-抖动"><a href="#13-7-实战排障：消息积压、重复消费、ISR-抖动" class="headerlink" title="13.7 实战排障：消息积压、重复消费、ISR 抖动"></a>13.7 实战排障：消息积压、重复消费、ISR 抖动</h3><h4 id="13-7-1-消息积压"><a href="#13-7-1-消息积压" class="headerlink" title="13.7.1 消息积压"></a>13.7.1 消息积压</h4><p><strong>第一步：定位 Lag 分布</strong></p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> -it kafka-lab kafka-consumer-groups.sh \</span><br><span class="line">  --bootstrap-server localhost:9092 \</span><br><span class="line">  --describe --group order-consumer-group</span><br></pre></td></tr></table></figure>
+
+<p><strong>第二步：根据 Lag 分布判断原因</strong></p>
+<table>
+<thead>
+<tr>
+<th>Lag 分布</th>
+<th>根因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>均匀增长</strong></td>
+<td>整体消费能力不足</td>
+<td>扩容消费者（不超过分区数）</td>
+</tr>
+<tr>
+<td><strong>集中在少数分区</strong></td>
+<td>key 热点 &#x2F; 分区不均</td>
+<td>检查 key 分布，重建 Topic 调整分区</td>
+</tr>
+<tr>
+<td><strong>伴随频繁 Rebalance</strong></td>
+<td><code>max.poll.interval.ms</code> 超时</td>
+<td>调大或优化单条处理时间</td>
+</tr>
+</tbody></table>
+<p><strong>第三步：快速扩分区（应急手段）</strong></p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> -it kafka-lab kafka-topics.sh \</span><br><span class="line">  --bootstrap-server localhost:9092 \</span><br><span class="line">  --alter --topic orders --partitions 6</span><br></pre></td></tr></table></figure>
+
+<p><strong>注意</strong>：增加分区会破坏按 key 的有序性，仅应急使用。</p>
+<h4 id="13-7-2-重复消费"><a href="#13-7-2-重复消费" class="headerlink" title="13.7.2 重复消费"></a>13.7.2 重复消费</h4><p><strong>定位步骤</strong>：</p>
+<ol>
+<li>查看消费者日志中是否有 <code>Rebalance</code> 记录；</li>
+<li>查看 <code>max.poll.interval.ms</code> 是否触发；</li>
+<li>检查 offset 提交是否在异常路径漏提交。</li>
+</ol>
+<p><strong>关键日志</strong>：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">[Consumer] Revoke previously assigned partitions orders-0</span><br><span class="line">[Consumer] Successfully joined group with generation 5</span><br></pre></td></tr></table></figure>
+
+<p><strong>处理原则</strong>：</p>
+<ul>
+<li>消费逻辑做幂等（唯一键&#x2F;状态机校验）；</li>
+<li>静态成员 <code>group.instance.id</code> 减少非必要 Rebalance；</li>
+<li><code>max.poll.records</code> 调小 + <code>max.poll.interval.ms</code> 调大。</li>
+</ul>
+<h4 id="13-7-3-ISR-抖动"><a href="#13-7-3-ISR-抖动" class="headerlink" title="13.7.3 ISR 抖动"></a>13.7.3 ISR 抖动</h4><p><strong>现象</strong>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> -it kafka-lab kafka-topics.sh \</span><br><span class="line">  --bootstrap-server localhost:9092 \</span><br><span class="line">  --describe --topic orders</span><br></pre></td></tr></table></figure>
+
+<p>看到 <code>Isr</code> 列在不同时刻的成员数变化，或者 <code>UnderReplicatedPartitions</code> 指标抖动。</p>
+<p><strong>排查步骤</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>症状</th>
+<th>排查方向</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Follower 拉取超时</td>
+<td>网络延迟 &#x2F; <code>replica.lag.time.max.ms</code> 太小</td>
+</tr>
+<tr>
+<td>Broker Full GC</td>
+<td>查看 GC 日志</td>
+</tr>
+<tr>
+<td>磁盘慢</td>
+<td><code>iostat -x 1</code> 看 %util</td>
+</tr>
+<tr>
+<td>副本频繁切主</td>
+<td><code>unclean.leader.election.enable=false</code> 是否开启</td>
+</tr>
+</tbody></table>
+<p><strong>面试话术</strong>：</p>
+<blockquote>
+<p>“ISR 抖动的根因通常是 Follower 跟不上 Leader。先看 GC 日志排除 JVM 停顿，再看磁盘 IO 和网络。频繁切主会导致消费中断，所以要监控 <code>UnderReplicatedPartitions</code> 指标。”</p>
+</blockquote>
+<h4 id="13-7-4-死信队列（消费者侧实现）"><a href="#13-7-4-死信队列（消费者侧实现）" class="headerlink" title="13.7.4 死信队列（消费者侧实现）"></a>13.7.4 死信队列（消费者侧实现）</h4><p>Kafka 本身没有原生死信机制，需要自己实现：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">consume</span><span class="params">(ConsumerRecord&lt;String, String&gt; record)</span> &#123;</span><br><span class="line">    <span class="keyword">try</span> &#123;</span><br><span class="line">        process(record);            <span class="comment">// 业务处理</span></span><br><span class="line">        consumer.commitSync();</span><br><span class="line">    &#125; <span class="keyword">catch</span> (RetryableException e) &#123;</span><br><span class="line">        <span class="comment">// 可重试异常 → 写入重试 Topic</span></span><br><span class="line">        retryProducer.send(<span class="keyword">new</span> <span class="title class_">ProducerRecord</span>&lt;&gt;(<span class="string">&quot;order.retry&quot;</span>,</span><br><span class="line">            record.key(), record.value()));</span><br><span class="line">        consumer.commitSync();</span><br><span class="line">    &#125; <span class="keyword">catch</span> (NonRetryableException e) &#123;</span><br><span class="line">        <span class="comment">// 不可重试异常 → 写入死信 Topic 并告警</span></span><br><span class="line">        dlqProducer.send(<span class="keyword">new</span> <span class="title class_">ProducerRecord</span>&lt;&gt;(<span class="string">&quot;order.dlq&quot;</span>,</span><br><span class="line">            record.key(), DlqMessage.of(record, e.getMessage())));</span><br><span class="line">        alertService.alert(<span class="string">&quot;进入死信&quot;</span>, record.key());</span><br><span class="line">        consumer.commitSync();</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>死信处理流程</strong>：</p>
+<pre class="mermaid">flowchart LR
+    Biz[业务 Topic] --> C[消费者]
+    C -->|可重试| Retry[order.retry]
+    Retry -->|延迟重试| C
+    C -->|不可重试| DLQ[order.dlq]
+    DLQ --> Alert[告警 + 人工介入]</pre>
+
+<h4 id="13-7-5-实验环境清理"><a href="#13-7-5-实验环境清理" class="headerlink" title="13.7.5 实验环境清理"></a>13.7.5 实验环境清理</h4><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> ~/kafka-lab &amp;&amp; docker compose down</span><br><span class="line">docker volume <span class="built_in">rm</span> kafka-lab_kafka-data</span><br><span class="line"><span class="built_in">rm</span> -rf ~/kafka-lab</span><br></pre></td></tr></table></figure>
+
+<h3 id="13-8-本节核心要点速查"><a href="#13-8-本节核心要点速查" class="headerlink" title="13.8 本节核心要点速查"></a>13.8 本节核心要点速查</h3><table>
+<thead>
+<tr>
+<th>知识点</th>
+<th>一句话总结</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Topic 创建</td>
+<td>显式建 Topic，关闭 auto.create.topics.enable</td>
+</tr>
+<tr>
+<td>分区路由</td>
+<td>同一 key 哈希到同一分区，是有序性的基础</td>
+</tr>
+<tr>
+<td>可靠生产</td>
+<td><code>acks=all</code> + <code>retries</code> + <code>enable.idempotence=true</code></td>
+</tr>
+<tr>
+<td>可靠消费</td>
+<td><code>enable.auto.commit=false</code> + 处理完手动提交</td>
+</tr>
+<tr>
+<td>Lag 监控</td>
+<td><code>kafka-consumer-groups.sh --describe</code> 是第一步</td>
+</tr>
+<tr>
+<td>扩容上限</td>
+<td>消费者实例数 ≤ 分区数</td>
+</tr>
+<tr>
+<td>顺序保证</td>
+<td>同 key 同分区 + 幂等 Producer</td>
+</tr>
+<tr>
+<td>事务消息</td>
+<td><code>transactional.id</code> + <code>initTransactions</code> + <code>commitTransaction</code></td>
+</tr>
+<tr>
+<td>死信队列</td>
+<td>Kafka 无原生死信，消费者侧实现重试 Topic + DLQ Topic</td>
+</tr>
+<tr>
+<td>ISR 抖动</td>
+<td>先看 GC，再看磁盘和网络</td>
+</tr>
+</tbody></table>
 
     </div>
 
@@ -1211,14 +1986,14 @@
       <i class="fa fa-chart-line"></i>
     </span>
       <span>Word count total: </span>
-    <span title="Word count total">632k</span>
+    <span title="Word count total">642k</span>
   </span>
   <span class="post-meta-item">
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
       <span>Reading time total &asymp;</span>
-    <span title="Reading time total">38:17</span>
+    <span title="Reading time total">38:54</span>
   </span>
 </div>
   <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
