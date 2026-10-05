@@ -317,7 +317,7 @@
         <i class="far fa-clock"></i>
       </span>
       <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>40 mins.</span>
+      <span>41 mins.</span>
     </span>
 </div>
 
@@ -399,7 +399,84 @@
 <li><strong>Broker 选举机制对比</strong>：Kafka 由 Controller 从 ISR 中选举新 Leader（一致性优先，宁可分区不可用也不选落后副本）；RocketMQ 主从切换在 DLedger 模式下走 Raft 多数派选举，兼容模式下为异步复制、手动&#x2F;自动切换。</li>
 </ul>
 <h2 id="2-核心概念：Topic-Partition-Replica-ISR-Controller-Coordinator"><a href="#2-核心概念：Topic-Partition-Replica-ISR-Controller-Coordinator" class="headerlink" title="2. 核心概念：Topic &#x2F; Partition &#x2F; Replica &#x2F; ISR &#x2F; Controller &#x2F; Coordinator"></a>2. 核心概念：Topic &#x2F; Partition &#x2F; Replica &#x2F; ISR &#x2F; Controller &#x2F; Coordinator</h2><p>一张图讲清它们的关系：</p>
-<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line">                     Producer</span><br><span class="line">           （key 哈希路由到某个 Partition）</span><br><span class="line">                        |</span><br><span class="line">          ┌─────────────┼─────────────┐</span><br><span class="line">          v             v             v</span><br><span class="line">Topic &quot;orders&quot; 由 3 个 Partition 组成（每个 Partition 就是一个追加写日志）</span><br><span class="line"> ┌──────────────┐ ┌──────────────┐ ┌──────────────┐</span><br><span class="line"> │ Partition 0  │ │ Partition 1  │ │ Partition 2  │</span><br><span class="line"> └──────┬───────┘ └──────┬───────┘ └──────┬───────┘</span><br><span class="line">        | 每个 Partition 有 replication.factor 个副本，分布于不同 Broker</span><br><span class="line">  ┌─────┴───────────┐</span><br><span class="line">┌─▼────┐   ┌─▼────┐   ┌─▼────┐</span><br><span class="line">│Leader │   │Foll. │   │Foll. │   Leader 负责读写，Follower 只从 Leader 拉取</span><br><span class="line">└───────┘   └──────┘   └──────┘</span><br><span class="line">                        |</span><br><span class="line">           Consumer Group 组内实例均分 Partition，</span><br><span class="line">           一个 Partition 同一时刻只被组内一个消费者消费</span><br><span class="line">           （由 Group Coordinator 协调，offset 提交到 __consumer_offsets）</span><br></pre></td></tr></table></figure>
+<pre class="mermaid">flowchart LR
+    %% 生产者
+    subgraph Producers[生产者]
+        P[Producer]
+    end
+
+    %% Kafka 集群
+    subgraph KafkaCluster[Kafka 集群]
+        direction TB
+        
+        subgraph Broker1[Broker 1]
+            B1_P0_L["Topic A P0&lt;br/>(Leader)"]
+            B1_P1_F["Topic A P1&lt;br/>(Follower)"]
+            B1_P2_F["Topic A P2&lt;br/>(Follower)"]
+        end
+
+        subgraph Broker2[Broker 2]
+            B2_P0_F["Topic A P0&lt;br/>(Follower)"]
+            B2_P1_L["Topic A P1&lt;br/>(Leader)"]
+            B2_P2_F["Topic A P2&lt;br/>(Follower)"]
+        end
+
+        subgraph Broker3[Broker 3]
+            B3_P0_F["Topic A P0&lt;br/>(Follower)"]
+            B3_P1_F["Topic A P1&lt;br/>(Follower)"]
+            B3_P2_L["Topic A P2&lt;br/>(Leader)"]
+        end
+
+        Controller[Controller&lt;br/>集群中枢]
+        GC[Group Coordinator&lt;br/>管理消费者组]
+    end
+
+    %% 消费者组 (包含多个消费者)
+    subgraph Consumers[消费者组]
+        direction TB
+        C0[Consumer 0]
+        C1[Consumer 1]
+    end
+
+    %% Zookeeper / KRaft
+    ZK["Zookeeper / KRaft"]
+
+    %% 1. Producer 写入路由 (写三个 Leader，牵引左侧布局)
+    P -->|写入 P0| B1_P0_L
+    P -->|写入 P1| B2_P1_L
+    P -->|写入 P2| B3_P2_L
+
+    %% 2. 副本跨 Broker 同步 (虚线)
+    B1_P0_L -.->|同步副本| B2_P0_F
+    B1_P0_L -.->|同步副本| B3_P0_F
+    
+    B2_P1_L -.->|同步副本| B1_P1_F
+    B2_P1_L -.->|同步副本| B3_P1_F
+
+    B3_P2_L -.->|同步副本| B1_P2_F
+    B3_P2_L -.->|同步副本| B2_P2_F
+
+    %% 3. Consumer 消费 (组内消费者均分 Partition，牵引右侧布局)
+    B1_P0_L -->|消费 P0| C0
+    B2_P1_L -->|消费 P1| C1
+    B3_P2_L -->|消费 P2| C0
+
+    %% 4. 控制平面与元数据管理 (虚线)
+    Controller -.->|Leader 选举/元数据同步| Broker1
+    Controller -.->|Leader 选举/元数据同步| Broker2
+    Controller -.->|Leader 选举/元数据同步| Broker3
+    
+    GC -.->|Rebalance| C0
+    GC -.->|Rebalance| C1
+
+    %% 5. Zookeeper 注册 (虚线)
+    Broker1 -.-> ZK
+    Broker2 -.-> ZK
+    Broker3 -.-> ZK
+
+    %% 样式定义
+    style Controller fill:#ffe6e6
+    style GC fill:#fff4e6</pre>
 
 <ul>
 <li><strong>Topic</strong>：消息的逻辑分类（类比数据库表），一个 Topic 的数据会被切分到多个 Partition 存储。</li>
@@ -6050,14 +6127,14 @@
       <i class="fa fa-chart-line"></i>
     </span>
       <span>Word count total: </span>
-    <span title="Word count total">628k</span>
+    <span title="Word count total">632k</span>
   </span>
   <span class="post-meta-item">
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
       <span>Reading time total &asymp;</span>
-    <span title="Reading time total">38:03</span>
+    <span title="Reading time total">38:17</span>
   </span>
 </div>
   <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>

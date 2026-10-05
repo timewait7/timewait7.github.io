@@ -3108,14 +3108,14 @@
         <i class="far fa-file-word"></i>
       </span>
       <span class="post-meta-item-text">Word count in article: </span>
-      <span>12k</span>
+      <span>13k</span>
     </span>
     <span class="post-meta-item" title="Reading time">
       <span class="post-meta-item-icon">
         <i class="far fa-clock"></i>
       </span>
       <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>45 mins.</span>
+      <span>46 mins.</span>
     </span>
 </div>
 
@@ -3168,7 +3168,81 @@
 <td>镜像队列&#x2F;仲裁队列</td>
 </tr>
 </tbody></table>
-<h3 id="1-2-整体架构"><a href="#1-2-整体架构" class="headerlink" title="1.2 整体架构"></a>1.2 整体架构</h3><figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line">        ┌──────────────────────────────────────────┐</span><br><span class="line">        │             NameServer 集群               │  无状态，互不通信</span><br><span class="line">        │   （路由注册中心，Broker 全量注册 + 心跳）   │  最终一致，任意一台可用即可</span><br><span class="line">        └──────▲─────────────────────▲──────────────┘</span><br><span class="line">               │ 注册/心跳(30s)       │ Topic 路由查询</span><br><span class="line">┌──────────────┴───┐          ┌──────┴───────────────┐</span><br><span class="line">│     Broker        │          │    Producer          │</span><br><span class="line">│  Master + Slave   │◄─────────│    （发送者）         │</span><br><span class="line">│  （同步双写/异步）  │  消息投递 │                      │</span><br><span class="line">│  CommitLog/Queue  │──────────►│    Consumer          │</span><br><span class="line">└───────────────────┘  拉取/推  │    （消费者组）       │</span><br><span class="line">                                └──────────────────────┘</span><br></pre></td></tr></table></figure>
+<h3 id="1-2-整体架构"><a href="#1-2-整体架构" class="headerlink" title="1.2 整体架构"></a>1.2 整体架构</h3><pre class="mermaid">flowchart TB
+    %% 生产者
+    subgraph ProducerSide["生产者集群"]
+        P["Producer Group&lt;br/>(生产者组)"]
+        P_TX["事务消息&lt;br/>(事务回查)"]
+        P_Send["发送方式&lt;br/>(同步 / 异步 / 单向)"]
+        P --> P_TX
+        P --> P_Send
+    end
+
+    %% 注册中心
+    subgraph NameServerSide["NameServer 集群&lt;br/>(轻量级注册中心 / 无状态)"]
+        NS1["NameServer 1"]
+        NS2["NameServer 2"]
+        NS3["NameServer 3"]
+    end
+
+    %% Broker 集群
+    subgraph BrokerSide["Broker 集群"]
+        direction TB
+        
+        subgraph Master["Broker Master&lt;br/>(负责读写)"]
+            TopicMQ["Topic&lt;br/>(Message Queue 逻辑分区)"]
+            CommitLog["CommitLog&lt;br/>(物理存储文件, 顺序写)"]
+            ConsumeQueue["ConsumeQueue&lt;br/>(逻辑消费队列, 索引文件)"]
+            IndexFile["IndexFile&lt;br/>(消息 Key 索引)"]
+            RetryQueue["Retry Queue&lt;br/>(重试队列)"]
+            DLQ["DLQ&lt;br/>(死信队列)"]
+            OpQueue["Op Queue&lt;br/>(事务消息 Half Topic)"]
+            
+            TopicMQ --> CommitLog
+            CommitLog --> ConsumeQueue
+            CommitLog --> IndexFile
+            CommitLog --> RetryQueue
+            RetryQueue --> DLQ
+        end
+
+        subgraph Slave["Broker Slave&lt;br/>(负责数据备份)"]
+            SlaveCommitLog["CommitLog&lt;br/>(副本同步)"]
+        end
+
+        Master -->|同步/异步复制| Slave
+        Master -->|定时注册路由| NameServerSide
+        Slave -->|定时注册路由| NameServerSide
+    end
+
+    %% 消费者
+    subgraph ConsumerSide["消费者集群"]
+        C["Consumer Group&lt;br/>(消费者组)"]
+        C_Mode["消费模式&lt;br/>(Push / Pull)"]
+        C_Model["集群 / 广播模式"]
+        Offset["Offset 管理&lt;br/>(本地 / 远程 Broker)"]
+        C --> C_Mode
+        C --> C_Model
+        C --> Offset
+    end
+
+    %% 核心数据流
+    P -->|1. 获取路由信息| NS1
+    P -->|2. 发送消息| Master
+    
+    C -->|3. 获取路由信息| NS1
+    C -->|4. 拉取消息| Master
+    C -->|5. 提交 Offset| Offset
+    
+    %% 副本同步
+    Master -->|数据同步| Slave
+
+    %% 样式
+    style ProducerSide fill:#e1f5fe
+    style NameServerSide fill:#fff9c4
+    style BrokerSide fill:#ffe0b2
+    style ConsumerSide fill:#e8f5e9</pre>
+
+
 
 <p>四个角色：</p>
 <ul>
@@ -4029,14 +4103,14 @@
       <i class="fa fa-chart-line"></i>
     </span>
       <span>Word count total: </span>
-    <span title="Word count total">628k</span>
+    <span title="Word count total">632k</span>
   </span>
   <span class="post-meta-item">
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
       <span>Reading time total &asymp;</span>
-    <span title="Reading time total">38:03</span>
+    <span title="Reading time total">38:17</span>
   </span>
 </div>
   <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
