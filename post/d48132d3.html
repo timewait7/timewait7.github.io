@@ -19,15 +19,15 @@
 
 <script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
 
-    <meta name="description" content="「ES 为什么这么快？」——Elasticsearch 替你回答了全文搜索和实时分析的复杂度，但面试官问的往往是被封装起来的细节：一条文档从写入到可被搜索经历了什么？倒排索引到底是什么？分片和副本怎么配合？BM25 评分怎么算的？深分页为什么慢？本文按「入门 → 实践 → 原理 → 优化」四层讲透 ES，每个概念配 Mermaid 图与可运行示例。   1. 入门：ES 是什么，解决什么问题1.">
+    <meta name="description" content="「ES 为什么这么快？」——Elasticsearch 替你回答了全文搜索和实时分析的复杂度，但面试官问的往往是被封装起来的细节：一条文档从写入到可被搜索经历了什么？倒排索引到底是什么？分片和副本怎么配合？BM25 评分怎么算的？深分页为什么慢？MySQL 与 ES 双写不一致怎么收场？本文按「入门 → 实践 → 原理 → 优化 → 数据同步与一致性」五层讲透 ES，每个概念配 Mermaid">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Elasticsearch 深度解析：入门、实践、原理与优化">
 <meta property="og:url" content="http://timewait7.github.io/post/d48132d3.html">
 <meta property="og:site_name" content="知行栈">
-<meta property="og:description" content="「ES 为什么这么快？」——Elasticsearch 替你回答了全文搜索和实时分析的复杂度，但面试官问的往往是被封装起来的细节：一条文档从写入到可被搜索经历了什么？倒排索引到底是什么？分片和副本怎么配合？BM25 评分怎么算的？深分页为什么慢？本文按「入门 → 实践 → 原理 → 优化」四层讲透 ES，每个概念配 Mermaid 图与可运行示例。   1. 入门：ES 是什么，解决什么问题1.">
+<meta property="og:description" content="「ES 为什么这么快？」——Elasticsearch 替你回答了全文搜索和实时分析的复杂度，但面试官问的往往是被封装起来的细节：一条文档从写入到可被搜索经历了什么？倒排索引到底是什么？分片和副本怎么配合？BM25 评分怎么算的？深分页为什么慢？MySQL 与 ES 双写不一致怎么收场？本文按「入门 → 实践 → 原理 → 优化 → 数据同步与一致性」五层讲透 ES，每个概念配 Mermaid">
 <meta property="og:locale" content="en_US">
 <meta property="article:published_time" content="2025-09-21T08:00:35.000Z">
-<meta property="article:modified_time" content="2026-10-06T08:58:20.306Z">
+<meta property="article:modified_time" content="2026-10-06T10:30:39.192Z">
 <meta name="twitter:card" content="summary">
 
 
@@ -181,7 +181,7 @@
       <div class="sidebar-panel-container">
         <!--noindex-->
         <div class="post-toc-wrap sidebar-panel">
-            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-%E5%85%A5%E9%97%A8%EF%BC%9AES-%E6%98%AF%E4%BB%80%E4%B9%88%EF%BC%8C%E8%A7%A3%E5%86%B3%E4%BB%80%E4%B9%88%E9%97%AE%E9%A2%98"><span class="nav-text">1. 入门：ES 是什么，解决什么问题</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-%E4%B8%8E-MySQL-%E7%9A%84%E6%9C%AC%E8%B4%A8%E5%8C%BA%E5%88%AB"><span class="nav-text">1.1 与 MySQL 的本质区别</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-2-ES-%E7%9A%84%E6%A0%B8%E5%BF%83%E5%AE%9A%E4%BD%8D%EF%BC%9A%E6%90%9C%E7%B4%A2%E5%92%8C%E8%81%9A%E5%90%88%E5%BC%95%E6%93%8E%EF%BC%8C%E4%B8%8D%E6%98%AF%E6%95%B0%E6%8D%AE%E6%BA%90"><span class="nav-text">1.2 ES 的核心定位：搜索和聚合引擎，不是数据源</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-3-%E6%A0%B8%E5%BF%83%E6%A6%82%E5%BF%B5%E9%80%9F%E8%A7%88"><span class="nav-text">1.3 核心概念速览</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E5%AE%9E%E8%B7%B5%EF%BC%9A%E4%BB%8E%E9%9B%B6%E6%90%AD%E5%BB%BA%E6%90%9C%E7%B4%A2%E6%9C%8D%E5%8A%A1"><span class="nav-text">2. 实践：从零搭建搜索服务</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-0-%E5%AE%9E%E9%AA%8C%E7%8E%AF%E5%A2%83%E5%87%86%E5%A4%87"><span class="nav-text">2.0 实验环境准备</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#2-0-1-%E5%89%8D%E7%BD%AE%E6%9D%A1%E4%BB%B6"><span class="nav-text">2.0.1 前置条件</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-0-2-%E4%B8%BA%E4%BB%80%E4%B9%88%E7%94%A8-Docker-%E8%80%8C%E4%B8%8D%E6%98%AF%E7%9B%B4%E6%8E%A5%E5%AE%89%E8%A3%85%EF%BC%9F"><span class="nav-text">2.0.2 为什么用 Docker 而不是直接安装？</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-0-3-%E5%90%AF%E5%8A%A8-Elasticsearch-Kibana"><span class="nav-text">2.0.3 启动 Elasticsearch + Kibana</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-0-4-%E8%AE%A4%E8%AF%86%E4%BD%A0%E7%9A%84%E6%93%8D%E4%BD%9C%E5%B7%A5%E5%85%B7"><span class="nav-text">2.0.4 认识你的操作工具</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-0-5-%E5%AE%9E%E9%AA%8C%E7%8E%AF%E5%A2%83%E6%8E%92%E9%9A%9C"><span class="nav-text">2.0.5 实验环境排障</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E7%B4%A2%E5%BC%95%E5%88%9B%E5%BB%BA%E4%B8%8E-Mapping-%E8%AE%BE%E8%AE%A1"><span class="nav-text">2.1 索引创建与 Mapping 设计</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#2-1-1-%E5%85%88%E7%90%86%E8%A7%A3%EF%BC%9A%E4%B8%BA%E4%BB%80%E4%B9%88%E8%A6%81%E5%85%88%E5%88%9B%E5%BB%BA%E7%B4%A2%E5%BC%95%EF%BC%9F"><span class="nav-text">2.1.1 先理解：为什么要先创建索引？</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-1-2-Mapping-%E6%A0%B8%E5%BF%83%E6%A6%82%E5%BF%B5%EF%BC%9Atext-vs-keyword"><span class="nav-text">2.1.2 Mapping 核心概念：text vs keyword</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-1-3-%E5%88%9B%E5%BB%BA%E4%BD%A0%E7%9A%84%E7%AC%AC%E4%B8%80%E4%B8%AA%E7%B4%A2%E5%BC%95"><span class="nav-text">2.1.3 创建你的第一个索引</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-1-4-Mapping-%E5%8F%82%E6%95%B0%E8%AF%A6%E8%A7%A3"><span class="nav-text">2.1.4 Mapping 参数详解</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-1-5-%E4%BF%AE%E6%94%B9%E7%B4%A2%E5%BC%95%E7%9A%84-Mapping"><span class="nav-text">2.1.5 修改索引的 Mapping</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E5%9F%BA%E7%A1%80-CRUD-%E6%93%8D%E4%BD%9C"><span class="nav-text">2.2 基础 CRUD 操作</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#2-2-1-%E5%86%99%E5%85%A5%E6%96%87%E6%A1%A3%EF%BC%88Create%EF%BC%89"><span class="nav-text">2.2.1 写入文档（Create）</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-2-2-%E6%89%B9%E9%87%8F%E5%86%99%E5%85%A5%EF%BC%88Bulk-API%EF%BC%89"><span class="nav-text">2.2.2 批量写入（Bulk API）</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-2-3-%E8%AF%BB%E5%8F%96%E6%96%87%E6%A1%A3%EF%BC%88Read%EF%BC%89"><span class="nav-text">2.2.3 读取文档（Read）</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-2-4-%E6%9B%B4%E6%96%B0%E6%96%87%E6%A1%A3%EF%BC%88Update%EF%BC%89"><span class="nav-text">2.2.4 更新文档（Update）</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-2-5-%E5%88%A0%E9%99%A4%E6%96%87%E6%A1%A3%EF%BC%88Delete%EF%BC%89"><span class="nav-text">2.2.5 删除文档（Delete）</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-2-6-CRUD-%E6%93%8D%E4%BD%9C%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">2.2.6 CRUD 操作速查表</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-%E6%9F%A5%E8%AF%A2-DSL%EF%BC%9A%E5%85%A8%E6%96%87%E6%90%9C%E7%B4%A2%E3%80%81%E7%B2%BE%E7%A1%AE%E5%8C%B9%E9%85%8D%E3%80%81%E5%A4%8D%E5%90%88%E6%9F%A5%E8%AF%A2"><span class="nav-text">2.3 查询 DSL：全文搜索、精确匹配、复合查询</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#2-3-1-%E5%85%88%E7%90%86%E8%A7%A3%E4%B8%A4%E4%B8%AA%E6%A0%B8%E5%BF%83%E6%A6%82%E5%BF%B5"><span class="nav-text">2.3.1 先理解两个核心概念</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-3-2-%E5%85%A8%E6%96%87%E6%90%9C%E7%B4%A2%EF%BC%9Amatch-%E6%9F%A5%E8%AF%A2"><span class="nav-text">2.3.2 全文搜索：match 查询</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-3-3-%E7%B2%BE%E7%A1%AE%E5%8C%B9%E9%85%8D%EF%BC%9Aterm-%E6%9F%A5%E8%AF%A2"><span class="nav-text">2.3.3 精确匹配：term 查询</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-3-4-%E8%8C%83%E5%9B%B4%E6%9F%A5%E8%AF%A2%EF%BC%9Arange"><span class="nav-text">2.3.4 范围查询：range</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-3-5-%E5%A4%8D%E5%90%88%E6%9F%A5%E8%AF%A2%EF%BC%9Abool"><span class="nav-text">2.3.5 复合查询：bool</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-3-6-%E6%8E%92%E5%BA%8F%E4%B8%8E%E5%88%86%E9%A1%B5"><span class="nav-text">2.3.6 排序与分页</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-3-7-%E6%9F%A5%E8%AF%A2-DSL-%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">2.3.7 查询 DSL 速查表</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-4-%E8%81%9A%E5%90%88%E5%88%86%E6%9E%90"><span class="nav-text">2.4 聚合分析</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#2-4-1-%E8%81%9A%E5%90%88%E7%9A%84%E6%A0%B8%E5%BF%83%E6%A6%82%E5%BF%B5"><span class="nav-text">2.4.1 聚合的核心概念</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-4-2-%E5%9F%BA%E7%A1%80%E8%81%9A%E5%90%88%EF%BC%9AMetric"><span class="nav-text">2.4.2 基础聚合：Metric</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-4-3-%E6%A1%B6%E8%81%9A%E5%90%88%EF%BC%9Aterms"><span class="nav-text">2.4.3 桶聚合：terms</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-4-4-%E5%B5%8C%E5%A5%97%E8%81%9A%E5%90%88%EF%BC%9ABucket-Metric"><span class="nav-text">2.4.4 嵌套聚合：Bucket + Metric</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-4-5-%E8%8C%83%E5%9B%B4%E8%81%9A%E5%90%88%EF%BC%9Arange"><span class="nav-text">2.4.5 范围聚合：range</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-4-6-%E6%97%A5%E6%9C%9F%E8%81%9A%E5%90%88%EF%BC%9Adate-histogram"><span class="nav-text">2.4.6 日期聚合：date_histogram</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-4-7-%E8%BF%87%E6%BB%A4%E8%81%9A%E5%90%88%EF%BC%9Afilter"><span class="nav-text">2.4.7 过滤聚合：filter</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-4-8-%E8%81%9A%E5%90%88%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">2.4.8 聚合速查表</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-5-MySQL-%E5%88%B0-ES-%E7%9A%84%E6%95%B0%E6%8D%AE%E5%90%8C%E6%AD%A5"><span class="nav-text">2.5 MySQL 到 ES 的数据同步</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#2-5-1-%E4%B8%BA%E4%BB%80%E4%B9%88%E9%9C%80%E8%A6%81%E6%95%B0%E6%8D%AE%E5%90%8C%E6%AD%A5%EF%BC%9F"><span class="nav-text">2.5.1 为什么需要数据同步？</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-5-2-Canal-%E6%96%B9%E6%A1%88%E5%AE%8C%E6%95%B4%E5%AE%9E%E8%B7%B5"><span class="nav-text">2.5.2 Canal 方案完整实践</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-5-3-%E5%90%8C%E6%AD%A5%E6%96%B9%E6%A1%88%E9%80%89%E5%9E%8B%E5%86%B3%E7%AD%96%E6%A0%91"><span class="nav-text">2.5.3 同步方案选型决策树</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-5-4-%E5%90%8C%E6%AD%A5%E5%B8%B8%E8%A7%81%E9%97%AE%E9%A2%98%E4%B8%8E%E6%8E%92%E6%9F%A5"><span class="nav-text">2.5.4 同步常见问题与排查</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-6-%E6%9C%AC%E8%8A%82%E5%AE%9E%E9%AA%8C%E6%80%BB%E7%BB%93"><span class="nav-text">2.6 本节实验总结</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#2-6-1-%E5%AE%8C%E6%95%B4%E5%AE%9E%E9%AA%8C%E6%B5%81%E7%A8%8B%E5%9B%9E%E9%A1%BE"><span class="nav-text">2.6.1 完整实验流程回顾</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-6-2-%E6%9C%AC%E8%8A%82%E6%A0%B8%E5%BF%83%E8%A6%81%E7%82%B9%E9%80%9F%E6%9F%A5"><span class="nav-text">2.6.2 本节核心要点速查</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-6-3-%E6%B8%85%E7%90%86%E5%AE%9E%E9%AA%8C%E7%8E%AF%E5%A2%83"><span class="nav-text">2.6.3 清理实验环境</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E5%8E%9F%E7%90%86%EF%BC%9A%E5%80%92%E6%8E%92%E7%B4%A2%E5%BC%95%E3%80%81%E5%86%99%E5%85%A5%E9%93%BE%E8%B7%AF%E4%B8%8E%E5%88%86%E7%89%87%E6%9C%BA%E5%88%B6"><span class="nav-text">3. 原理：倒排索引、写入链路与分片机制</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E5%80%92%E6%8E%92%E7%B4%A2%E5%BC%95%EF%BC%9AES-%E5%BF%AB%E7%9A%84%E6%A0%B9%E6%9C%AC%E5%8E%9F%E5%9B%A0"><span class="nav-text">3.1 倒排索引：ES 快的根本原因</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E5%86%99%E5%85%A5%E9%93%BE%E8%B7%AF%EF%BC%9A%E4%BB%8E%E6%96%87%E6%A1%A3%E5%88%B0-Segment"><span class="nav-text">3.2 写入链路：从文档到 Segment</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-%E5%88%86%E7%89%87%E3%80%81%E5%89%AF%E6%9C%AC%E4%B8%8E%E8%B7%AF%E7%94%B1"><span class="nav-text">3.3 分片、副本与路由</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-4-%E6%9F%A5%E8%AF%A2%E6%B5%81%E7%A8%8B%EF%BC%9AQuery-Then-Fetch"><span class="nav-text">3.4 查询流程：Query Then Fetch</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-5-BM25-%E8%AF%84%E5%88%86%E7%AE%97%E6%B3%95"><span class="nav-text">3.5 BM25 评分算法</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E4%BC%98%E5%8C%96%EF%BC%9A%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98%E4%B8%8E%E9%9B%86%E7%BE%A4%E6%B2%BB%E7%90%86"><span class="nav-text">4. 优化：性能调优与集群治理</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-%E5%88%86%E7%89%87%E8%A7%84%E5%88%92"><span class="nav-text">4.1 分片规划</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-JVM-%E5%A0%86%E5%86%85%E5%AD%98%E8%B0%83%E4%BC%98"><span class="nav-text">4.2 JVM 堆内存调优</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-%E5%86%99%E5%85%A5%E4%BC%98%E5%8C%96"><span class="nav-text">4.3 写入优化</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-4-%E6%9F%A5%E8%AF%A2%E4%BC%98%E5%8C%96"><span class="nav-text">4.4 查询优化</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-5-%E9%9B%86%E7%BE%A4%E7%A8%B3%E5%AE%9A%E6%80%A7%E4%B8%8E%E8%84%91%E8%A3%82"><span class="nav-text">4.5 集群稳定性与脑裂</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E9%9D%A2%E8%AF%95%E9%80%9F%E7%AD%94%E8%A1%A8"><span class="nav-text">5. 面试速答表</span></a></li></ol></div>
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-%E5%85%A5%E9%97%A8%EF%BC%9AES-%E6%98%AF%E4%BB%80%E4%B9%88%EF%BC%8C%E8%A7%A3%E5%86%B3%E4%BB%80%E4%B9%88%E9%97%AE%E9%A2%98"><span class="nav-text">1. 入门：ES 是什么，解决什么问题</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-%E4%B8%8E-MySQL-%E7%9A%84%E6%9C%AC%E8%B4%A8%E5%8C%BA%E5%88%AB"><span class="nav-text">1.1 与 MySQL 的本质区别</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-2-ES-%E7%9A%84%E6%A0%B8%E5%BF%83%E5%AE%9A%E4%BD%8D%EF%BC%9A%E6%90%9C%E7%B4%A2%E5%92%8C%E8%81%9A%E5%90%88%E5%BC%95%E6%93%8E%EF%BC%8C%E4%B8%8D%E6%98%AF%E6%95%B0%E6%8D%AE%E6%BA%90"><span class="nav-text">1.2 ES 的核心定位：搜索和聚合引擎，不是数据源</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-3-%E6%A0%B8%E5%BF%83%E6%A6%82%E5%BF%B5%E9%80%9F%E8%A7%88"><span class="nav-text">1.3 核心概念速览</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E5%AE%9E%E8%B7%B5%EF%BC%9A%E4%BB%8E%E9%9B%B6%E6%90%AD%E5%BB%BA%E6%90%9C%E7%B4%A2%E6%9C%8D%E5%8A%A1"><span class="nav-text">2. 实践：从零搭建搜索服务</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-0-%E5%AE%9E%E9%AA%8C%E7%8E%AF%E5%A2%83%E5%87%86%E5%A4%87"><span class="nav-text">2.0 实验环境准备</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#2-0-1-%E5%89%8D%E7%BD%AE%E6%9D%A1%E4%BB%B6"><span class="nav-text">2.0.1 前置条件</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-0-2-%E4%B8%BA%E4%BB%80%E4%B9%88%E7%94%A8-Docker-%E8%80%8C%E4%B8%8D%E6%98%AF%E7%9B%B4%E6%8E%A5%E5%AE%89%E8%A3%85%EF%BC%9F"><span class="nav-text">2.0.2 为什么用 Docker 而不是直接安装？</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-0-3-%E5%90%AF%E5%8A%A8-Elasticsearch-Kibana"><span class="nav-text">2.0.3 启动 Elasticsearch + Kibana</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-0-4-%E8%AE%A4%E8%AF%86%E4%BD%A0%E7%9A%84%E6%93%8D%E4%BD%9C%E5%B7%A5%E5%85%B7"><span class="nav-text">2.0.4 认识你的操作工具</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-0-5-%E5%AE%9E%E9%AA%8C%E7%8E%AF%E5%A2%83%E6%8E%92%E9%9A%9C"><span class="nav-text">2.0.5 实验环境排障</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E7%B4%A2%E5%BC%95%E5%88%9B%E5%BB%BA%E4%B8%8E-Mapping-%E8%AE%BE%E8%AE%A1"><span class="nav-text">2.1 索引创建与 Mapping 设计</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#2-1-1-%E5%85%88%E7%90%86%E8%A7%A3%EF%BC%9A%E4%B8%BA%E4%BB%80%E4%B9%88%E8%A6%81%E5%85%88%E5%88%9B%E5%BB%BA%E7%B4%A2%E5%BC%95%EF%BC%9F"><span class="nav-text">2.1.1 先理解：为什么要先创建索引？</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-1-2-Mapping-%E6%A0%B8%E5%BF%83%E6%A6%82%E5%BF%B5%EF%BC%9Atext-vs-keyword"><span class="nav-text">2.1.2 Mapping 核心概念：text vs keyword</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-1-3-%E5%88%9B%E5%BB%BA%E4%BD%A0%E7%9A%84%E7%AC%AC%E4%B8%80%E4%B8%AA%E7%B4%A2%E5%BC%95"><span class="nav-text">2.1.3 创建你的第一个索引</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-1-4-Mapping-%E5%8F%82%E6%95%B0%E8%AF%A6%E8%A7%A3"><span class="nav-text">2.1.4 Mapping 参数详解</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-1-5-%E4%BF%AE%E6%94%B9%E7%B4%A2%E5%BC%95%E7%9A%84-Mapping"><span class="nav-text">2.1.5 修改索引的 Mapping</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E5%9F%BA%E7%A1%80-CRUD-%E6%93%8D%E4%BD%9C"><span class="nav-text">2.2 基础 CRUD 操作</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#2-2-1-%E5%86%99%E5%85%A5%E6%96%87%E6%A1%A3%EF%BC%88Create%EF%BC%89"><span class="nav-text">2.2.1 写入文档（Create）</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-2-2-%E6%89%B9%E9%87%8F%E5%86%99%E5%85%A5%EF%BC%88Bulk-API%EF%BC%89"><span class="nav-text">2.2.2 批量写入（Bulk API）</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-2-3-%E8%AF%BB%E5%8F%96%E6%96%87%E6%A1%A3%EF%BC%88Read%EF%BC%89"><span class="nav-text">2.2.3 读取文档（Read）</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-2-4-%E6%9B%B4%E6%96%B0%E6%96%87%E6%A1%A3%EF%BC%88Update%EF%BC%89"><span class="nav-text">2.2.4 更新文档（Update）</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-2-5-%E5%88%A0%E9%99%A4%E6%96%87%E6%A1%A3%EF%BC%88Delete%EF%BC%89"><span class="nav-text">2.2.5 删除文档（Delete）</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-2-6-CRUD-%E6%93%8D%E4%BD%9C%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">2.2.6 CRUD 操作速查表</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-%E6%9F%A5%E8%AF%A2-DSL%EF%BC%9A%E5%85%A8%E6%96%87%E6%90%9C%E7%B4%A2%E3%80%81%E7%B2%BE%E7%A1%AE%E5%8C%B9%E9%85%8D%E3%80%81%E5%A4%8D%E5%90%88%E6%9F%A5%E8%AF%A2"><span class="nav-text">2.3 查询 DSL：全文搜索、精确匹配、复合查询</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#2-3-1-%E5%85%88%E7%90%86%E8%A7%A3%E4%B8%A4%E4%B8%AA%E6%A0%B8%E5%BF%83%E6%A6%82%E5%BF%B5"><span class="nav-text">2.3.1 先理解两个核心概念</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-3-2-%E5%85%A8%E6%96%87%E6%90%9C%E7%B4%A2%EF%BC%9Amatch-%E6%9F%A5%E8%AF%A2"><span class="nav-text">2.3.2 全文搜索：match 查询</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-3-3-%E7%B2%BE%E7%A1%AE%E5%8C%B9%E9%85%8D%EF%BC%9Aterm-%E6%9F%A5%E8%AF%A2"><span class="nav-text">2.3.3 精确匹配：term 查询</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-3-4-%E8%8C%83%E5%9B%B4%E6%9F%A5%E8%AF%A2%EF%BC%9Arange"><span class="nav-text">2.3.4 范围查询：range</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-3-5-%E5%A4%8D%E5%90%88%E6%9F%A5%E8%AF%A2%EF%BC%9Abool"><span class="nav-text">2.3.5 复合查询：bool</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-3-6-%E6%8E%92%E5%BA%8F%E4%B8%8E%E5%88%86%E9%A1%B5"><span class="nav-text">2.3.6 排序与分页</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-3-7-%E6%9F%A5%E8%AF%A2-DSL-%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">2.3.7 查询 DSL 速查表</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-4-%E8%81%9A%E5%90%88%E5%88%86%E6%9E%90"><span class="nav-text">2.4 聚合分析</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#2-4-1-%E8%81%9A%E5%90%88%E7%9A%84%E6%A0%B8%E5%BF%83%E6%A6%82%E5%BF%B5"><span class="nav-text">2.4.1 聚合的核心概念</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-4-2-%E5%9F%BA%E7%A1%80%E8%81%9A%E5%90%88%EF%BC%9AMetric"><span class="nav-text">2.4.2 基础聚合：Metric</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-4-3-%E6%A1%B6%E8%81%9A%E5%90%88%EF%BC%9Aterms"><span class="nav-text">2.4.3 桶聚合：terms</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-4-4-%E5%B5%8C%E5%A5%97%E8%81%9A%E5%90%88%EF%BC%9ABucket-Metric"><span class="nav-text">2.4.4 嵌套聚合：Bucket + Metric</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-4-5-%E8%8C%83%E5%9B%B4%E8%81%9A%E5%90%88%EF%BC%9Arange"><span class="nav-text">2.4.5 范围聚合：range</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-4-6-%E6%97%A5%E6%9C%9F%E8%81%9A%E5%90%88%EF%BC%9Adate-histogram"><span class="nav-text">2.4.6 日期聚合：date_histogram</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-4-7-%E8%BF%87%E6%BB%A4%E8%81%9A%E5%90%88%EF%BC%9Afilter"><span class="nav-text">2.4.7 过滤聚合：filter</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-4-8-%E8%81%9A%E5%90%88%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">2.4.8 聚合速查表</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-5-MySQL-%E5%88%B0-ES-%E7%9A%84%E6%95%B0%E6%8D%AE%E5%90%8C%E6%AD%A5"><span class="nav-text">2.5 MySQL 到 ES 的数据同步</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#2-5-1-%E4%B8%BA%E4%BB%80%E4%B9%88%E9%9C%80%E8%A6%81%E6%95%B0%E6%8D%AE%E5%90%8C%E6%AD%A5%EF%BC%9F"><span class="nav-text">2.5.1 为什么需要数据同步？</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-5-2-Canal-%E6%96%B9%E6%A1%88%E5%AE%8C%E6%95%B4%E5%AE%9E%E8%B7%B5"><span class="nav-text">2.5.2 Canal 方案完整实践</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-5-3-%E5%90%8C%E6%AD%A5%E6%96%B9%E6%A1%88%E9%80%89%E5%9E%8B%E5%86%B3%E7%AD%96%E6%A0%91"><span class="nav-text">2.5.3 同步方案选型决策树</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-5-4-%E5%90%8C%E6%AD%A5%E5%B8%B8%E8%A7%81%E9%97%AE%E9%A2%98%E4%B8%8E%E6%8E%92%E6%9F%A5"><span class="nav-text">2.5.4 同步常见问题与排查</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-6-%E6%9C%AC%E8%8A%82%E5%AE%9E%E9%AA%8C%E6%80%BB%E7%BB%93"><span class="nav-text">2.6 本节实验总结</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#2-6-1-%E5%AE%8C%E6%95%B4%E5%AE%9E%E9%AA%8C%E6%B5%81%E7%A8%8B%E5%9B%9E%E9%A1%BE"><span class="nav-text">2.6.1 完整实验流程回顾</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-6-2-%E6%9C%AC%E8%8A%82%E6%A0%B8%E5%BF%83%E8%A6%81%E7%82%B9%E9%80%9F%E6%9F%A5"><span class="nav-text">2.6.2 本节核心要点速查</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#2-6-3-%E6%B8%85%E7%90%86%E5%AE%9E%E9%AA%8C%E7%8E%AF%E5%A2%83"><span class="nav-text">2.6.3 清理实验环境</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E5%8E%9F%E7%90%86%EF%BC%9A%E5%80%92%E6%8E%92%E7%B4%A2%E5%BC%95%E3%80%81%E5%86%99%E5%85%A5%E9%93%BE%E8%B7%AF%E3%80%81%E5%88%86%E7%89%87%E4%B8%8E%E6%9F%A5%E8%AF%A2"><span class="nav-text">3. 原理：倒排索引、写入链路、分片与查询</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E5%80%92%E6%8E%92%E7%B4%A2%E5%BC%95%EF%BC%9AES-%E5%BF%AB%E7%9A%84%E6%A0%B9%E6%9C%AC%E5%8E%9F%E5%9B%A0"><span class="nav-text">3.1 倒排索引：ES 快的根本原因</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#3-1-1-%E6%B7%B1%E6%8C%96%EF%BC%9A%E4%B8%BA%E4%BB%80%E4%B9%88-Lucene-%E6%AE%B5%E4%B8%8D%E5%8F%AF%E5%8F%98%E6%98%AF%E5%A5%BD%E4%BA%8B"><span class="nav-text">3.1.1 深挖：为什么 Lucene 段不可变是好事</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E5%86%99%E5%85%A5%E9%93%BE%E8%B7%AF%EF%BC%9A%E4%BB%8E%E6%96%87%E6%A1%A3%E5%88%B0-Segment"><span class="nav-text">3.2 写入链路：从文档到 Segment</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#3-2-1-%E6%B7%B1%E6%8C%96%EF%BC%9A%E4%B8%80%E6%AC%A1%E5%86%99%E5%85%A5%E7%9A%84%E4%B8%89%E6%AE%B5%E5%BC%8F%E6%97%85%E7%A8%8B"><span class="nav-text">3.2.1 深挖：一次写入的三段式旅程</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#3-2-2-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E4%BA%B2%E7%9C%BC%E7%9C%8B%E5%88%B0%E3%80%8C%E8%BF%91%E5%AE%9E%E6%97%B6%E3%80%8D"><span class="nav-text">3.2.2 动手验证：亲眼看到「近实时」</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#3-2-3-%E6%B7%B1%E6%8C%96%EF%BC%9A%E4%B8%8E-MySQL-WAL-%E7%9A%84%E5%AF%B9%E7%85%A7"><span class="nav-text">3.2.3 深挖：与 MySQL WAL 的对照</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-%E5%88%86%E7%89%87%E3%80%81%E5%89%AF%E6%9C%AC%E4%B8%8E%E8%B7%AF%E7%94%B1"><span class="nav-text">3.3 分片、副本与路由</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#3-3-1-%E6%B7%B1%E6%8C%96%EF%BC%9A%E4%B8%BB%E5%88%86%E7%89%87%E6%95%B0%E4%B8%BA%E4%BB%80%E4%B9%88%E4%B8%8D%E5%8F%AF%E5%8F%98"><span class="nav-text">3.3.1 深挖：主分片数为什么不可变</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#3-3-2-%E6%B7%B1%E6%8C%96%EF%BC%9A%E5%89%AF%E6%9C%AC%E2%80%94%E2%80%94%E8%AF%BB%E6%89%A9%E5%B1%95-%E6%95%85%E9%9A%9C%E8%BD%AC%E7%A7%BB"><span class="nav-text">3.3.2 深挖：副本——读扩展 + 故障转移</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#3-3-3-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E7%9C%8B%E5%88%86%E7%89%87%E5%88%86%E5%B8%83%E4%B8%8E%E8%B7%AF%E7%94%B1"><span class="nav-text">3.3.3 动手验证：看分片分布与路由</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-4-%E6%9F%A5%E8%AF%A2%E6%B5%81%E7%A8%8B%EF%BC%9AQuery-Then-Fetch"><span class="nav-text">3.4 查询流程：Query Then Fetch</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#3-4-1-%E6%B7%B1%E6%8C%96%EF%BC%9Afrom-size-%E4%B8%BA%E4%BB%80%E4%B9%88%E5%8F%AA%E8%83%BD-1-%E4%B8%87%E8%A1%8C"><span class="nav-text">3.4.1 深挖：from+size 为什么只能 1 万行</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#3-4-2-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%A4%8D%E7%8E%B0%E6%8A%A5%E9%94%99%E4%B8%8E-search-after-%E7%BF%BB%E9%A1%B5"><span class="nav-text">3.4.2 动手验证：复现报错与 search_after 翻页</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#3-4-3-%E9%81%BF%E5%9D%91%EF%BC%9Asearch-after-%E7%9A%84%E6%8E%92%E5%BA%8F%E5%80%BC%E9%99%B7%E9%98%B1"><span class="nav-text">3.4.3 避坑：search_after 的排序值陷阱</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-5-%E8%81%9A%E5%90%88%EF%BC%9A%E5%85%88%E5%B1%80%E9%83%A8%E5%90%8E%E5%BD%92%E5%B9%B6"><span class="nav-text">3.5 聚合：先局部后归并</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#3-5-1-%E8%81%9A%E5%90%88%E7%9A%84%E4%B8%A4%E6%AD%A5%E6%A8%A1%E5%9E%8B"><span class="nav-text">3.5.1 聚合的两步模型</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#3-5-2-%E4%B8%89%E6%8B%9B%E5%BA%94%E5%AF%B9%E9%AB%98%E5%9F%BA%E6%95%B0%E8%81%9A%E5%90%88"><span class="nav-text">3.5.2 三招应对高基数聚合</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#3-5-3-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E7%9C%8B%E8%81%9A%E5%90%88%E7%9A%84%E6%89%A7%E8%A1%8C%E4%B8%8E%E5%86%85%E5%AD%98"><span class="nav-text">3.5.3 动手验证：看聚合的执行与内存</span></a></li></ol></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-6-BM25-%E8%AF%84%E5%88%86%E7%AE%97%E6%B3%95"><span class="nav-text">3.6 BM25 评分算法</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-7-%E9%9B%86%E7%BE%A4%E5%81%A5%E5%BA%B7%EF%BC%9A%E4%B8%89%E8%89%B2%E7%8A%B6%E6%80%81%E4%B8%8E%E8%84%91%E8%A3%82"><span class="nav-text">3.7 集群健康：三色状态与脑裂</span></a><ol class="nav-child"><li class="nav-item nav-level-4"><a class="nav-link" href="#3-7-1-%E4%B8%89%E8%89%B2%E5%81%A5%E5%BA%B7%E7%9A%84%E7%9C%9F%E5%AE%9E%E5%90%AB%E4%B9%89"><span class="nav-text">3.7.1 三色健康的真实含义</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#3-7-2-%E8%84%91%E8%A3%82%EF%BC%9A%E9%9B%86%E7%BE%A4%E6%9C%80%E5%A4%A7%E7%9A%84%E5%AE%89%E5%85%A8%E9%A3%8E%E9%99%A9"><span class="nav-text">3.7.2 脑裂：集群最大的安全风险</span></a></li><li class="nav-item nav-level-4"><a class="nav-link" href="#3-7-3-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%A4%8D%E7%8E%B0-yellow-%E4%B8%8E%E7%90%86%E8%A7%A3-unassigned"><span class="nav-text">3.7.3 动手验证：复现 yellow 与理解 unassigned</span></a></li></ol></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E4%BC%98%E5%8C%96%EF%BC%9A%E6%80%A7%E8%83%BD%E8%B0%83%E4%BC%98%E4%B8%8E%E9%9B%86%E7%BE%A4%E6%B2%BB%E7%90%86"><span class="nav-text">4. 优化：性能调优与集群治理</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-%E5%88%86%E7%89%87%E8%A7%84%E5%88%92"><span class="nav-text">4.1 分片规划</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-JVM-%E5%A0%86%E5%86%85%E5%AD%98%E8%B0%83%E4%BC%98"><span class="nav-text">4.2 JVM 堆内存调优</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-%E5%86%99%E5%85%A5%E4%BC%98%E5%8C%96"><span class="nav-text">4.3 写入优化</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-4-%E6%9F%A5%E8%AF%A2%E4%BC%98%E5%8C%96"><span class="nav-text">4.4 查询优化</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-5-%E9%9B%86%E7%BE%A4%E7%A8%B3%E5%AE%9A%E6%80%A7%E4%B8%8E%E8%84%91%E8%A3%82"><span class="nav-text">4.5 集群稳定性与脑裂</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E6%95%B0%E6%8D%AE%E5%90%8C%E6%AD%A5%E4%B8%8E%E4%B8%80%E8%87%B4%E6%80%A7%EF%BC%9AMySQL-%E5%88%B0-ES-%E6%80%8E%E4%B9%88%E4%BF%9D%E8%AF%81%E4%B8%8D%E4%B8%A2"><span class="nav-text">5. 数据同步与一致性：MySQL 到 ES 怎么保证不丢</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E4%B8%BA%E4%BB%80%E4%B9%88%E9%9A%BE%EF%BC%9A%E4%B8%A4%E4%B8%AA%E7%B3%BB%E7%BB%9F%E6%B2%A1%E6%9C%89%E5%90%8C%E4%B8%80%E4%BA%8B%E5%8A%A1"><span class="nav-text">5.1 为什么难：两个系统没有同一事务</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E4%B8%89%E7%A7%8D%E6%96%B9%E6%A1%88%E5%AF%B9%E6%AF%94"><span class="nav-text">5.2 三种方案对比</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-%E6%9C%80%E7%BB%88%E4%B8%80%E8%87%B4%E6%80%A7%E5%85%9C%E5%BA%95%EF%BC%9A%E5%AF%B9%E8%B4%A6%E4%B8%8E%E4%BF%AE%E5%A4%8D"><span class="nav-text">5.3 最终一致性兜底：对账与修复</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E4%BD%93%E9%AA%8C%E3%80%8C%E5%8F%8C%E5%86%99%E3%80%8D%E7%9A%84%E8%84%86%E5%BC%B1"><span class="nav-text">5.4 动手验证：体验「双写」的脆弱</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-5-%E4%B8%8E-MySQL-%E4%B8%BB%E4%BB%8E%E7%9A%84%E5%AF%B9%E7%85%A7%EF%BC%88%E8%B7%A8%E7%AF%87%E8%81%94%E5%8A%A8%EF%BC%89"><span class="nav-text">5.5 与 MySQL 主从的对照（跨篇联动）</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#6-%E9%9D%A2%E8%AF%95%E9%80%9F%E7%AD%94%E8%A1%A8"><span class="nav-text">6. 面试速答表</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#7-%E9%99%84%E5%BD%95%EF%BC%9A%E5%AE%9E%E6%88%98%E9%81%BF%E5%9D%91%E4%B8%8E%E5%B7%A5%E5%85%B7%E9%80%9F%E6%9F%A5"><span class="nav-text">7. 附录：实战避坑与工具速查</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#7-1-%E5%AE%9E%E6%88%98%E9%81%BF%E5%9D%91%E8%A1%A8"><span class="nav-text">7.1 实战避坑表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-2-%E5%B7%A5%E5%85%B7%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">7.2 工具速查表</span></a></li></ol></li></ol></div>
         </div>
         <!--/noindex-->
 
@@ -194,18 +194,18 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">85</span>
+          <span class="site-state-item-count">78</span>
           <span class="site-state-item-name">posts</span>
         </a>
       </div>
       <div class="site-state-item site-state-categories">
           <a href="/categories/">
-        <span class="site-state-item-count">17</span>
+        <span class="site-state-item-count">14</span>
         <span class="site-state-item-name">categories</span></a>
       </div>
       <div class="site-state-item site-state-tags">
           <a href="/tags/">
-        <span class="site-state-item-count">126</span>
+        <span class="site-state-item-count">106</span>
         <span class="site-state-item-name">tags</span></a>
       </div>
   </nav>
@@ -264,17 +264,13 @@
       </a>
     </li>
     <li class="popular-posts-item">
-      <a class="popular-posts-link" href="/post/es-query-2025.html" rel="bookmark">
-        <time class="popular-posts-time">2026-08-13</time>
-        <br>
-      ES 查询优化与实战：深度分页、聚合与双写一致性
+      <a class="popular-posts-link" href="/" rel="bookmark">
+      
       </a>
     </li>
     <li class="popular-posts-item">
-      <a class="popular-posts-link" href="/post/es-deep-2025.html" rel="bookmark">
-        <time class="popular-posts-time">2026-08-13</time>
-        <br>
-      ES 原理深挖：写入链路、分片与集群健康
+      <a class="popular-posts-link" href="/" rel="bookmark">
+      
       </a>
     </li>
     <li class="popular-posts-item">
@@ -368,14 +364,6 @@
   <li class="menu-item menu-item-elasticsearch-深度解析：入门、实践、原理与优化"><a href="/post/d48132d3.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Elasticsearch 深度解析：入门、实践、原理与优化</a></li>
 
 
-      
-  <li class="menu-item menu-item-es-原理深挖：写入链路、分片与集群健康"><a href="/post/es-deep-2025.html" rel="section"><i class="fa fa-file-text fa-fw"></i>ES 原理深挖：写入链路、分片与集群健康</a></li>
-
-
-      
-  <li class="menu-item menu-item-es-查询优化与实战：深度分页、聚合与双写一致性"><a href="/post/es-query-2025.html" rel="section"><i class="fa fa-file-text fa-fw"></i>ES 查询优化与实战：深度分页、聚合与双写一致性</a></li>
-
-
     </ul>
 
 
@@ -435,14 +423,14 @@
         <i class="far fa-file-word"></i>
       </span>
       <span class="post-meta-item-text">Word count in article: </span>
-      <span>12k</span>
+      <span>17k</span>
     </span>
     <span class="post-meta-item" title="Reading time">
       <span class="post-meta-item-icon">
         <i class="far fa-clock"></i>
       </span>
       <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>42 mins.</span>
+      <span>1:01</span>
     </span>
 </div>
 
@@ -453,7 +441,7 @@
     
     
     <div class="post-body" itemprop="articleBody"><blockquote>
-<p>「ES 为什么这么快？」——Elasticsearch 替你回答了全文搜索和实时分析的复杂度，但面试官问的往往是被封装起来的细节：一条文档从写入到可被搜索经历了什么？倒排索引到底是什么？分片和副本怎么配合？BM25 评分怎么算的？深分页为什么慢？本文按「入门 → 实践 → 原理 → 优化」四层讲透 ES，每个概念配 Mermaid 图与可运行示例。</p>
+<p>「ES 为什么这么快？」——Elasticsearch 替你回答了全文搜索和实时分析的复杂度，但面试官问的往往是被封装起来的细节：一条文档从写入到可被搜索经历了什么？倒排索引到底是什么？分片和副本怎么配合？BM25 评分怎么算的？深分页为什么慢？MySQL 与 ES 双写不一致怎么收场？本文按「入门 → 实践 → 原理 → 优化 → 数据同步与一致性」五层讲透 ES，每个概念配 Mermaid 图与可运行示例。</p>
 </blockquote>
 <hr>
 <h2 id="1-入门：ES-是什么，解决什么问题"><a href="#1-入门：ES-是什么，解决什么问题" class="headerlink" title="1. 入门：ES 是什么，解决什么问题"></a>1. 入门：ES 是什么，解决什么问题</h2><h3 id="1-1-与-MySQL-的本质区别"><a href="#1-1-与-MySQL-的本质区别" class="headerlink" title="1.1 与 MySQL 的本质区别"></a>1.1 与 MySQL 的本质区别</h3><p>很多初学者把 ES 当“另一个数据库”来用，这是最常见的误区。ES 和 MySQL 解决的是完全不同的问题：</p>
@@ -1950,7 +1938,7 @@
 <h4 id="2-6-3-清理实验环境"><a href="#2-6-3-清理实验环境" class="headerlink" title="2.6.3 清理实验环境"></a>2.6.3 清理实验环境</h4><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 停止并删除所有容器</span></span><br><span class="line"><span class="built_in">cd</span> ~/es-lab &amp;&amp; docker compose down</span><br><span class="line"></span><br><span class="line"><span class="comment"># 删除数据卷（可选，彻底清理）</span></span><br><span class="line">docker volume <span class="built_in">rm</span> es-lab_es-data</span><br><span class="line"></span><br><span class="line"><span class="comment"># 删除实验目录（可选）</span></span><br><span class="line"><span class="built_in">rm</span> -rf ~/es-lab</span><br></pre></td></tr></table></figure>
 
 <hr>
-<h2 id="3-原理：倒排索引、写入链路与分片机制"><a href="#3-原理：倒排索引、写入链路与分片机制" class="headerlink" title="3. 原理：倒排索引、写入链路与分片机制"></a>3. 原理：倒排索引、写入链路与分片机制</h2><h3 id="3-1-倒排索引：ES-快的根本原因"><a href="#3-1-倒排索引：ES-快的根本原因" class="headerlink" title="3.1 倒排索引：ES 快的根本原因"></a>3.1 倒排索引：ES 快的根本原因</h3><p><strong>正排索引</strong>（MySQL 的方式）是“文档 → 词”的映射，查“包含某词的文档”需要遍历所有文档。<strong>倒排索引</strong>是“词 → 文档 ID 列表”的映射，直接定位。</p>
+<h2 id="3-原理：倒排索引、写入链路、分片与查询"><a href="#3-原理：倒排索引、写入链路、分片与查询" class="headerlink" title="3. 原理：倒排索引、写入链路、分片与查询"></a>3. 原理：倒排索引、写入链路、分片与查询</h2><h3 id="3-1-倒排索引：ES-快的根本原因"><a href="#3-1-倒排索引：ES-快的根本原因" class="headerlink" title="3.1 倒排索引：ES 快的根本原因"></a>3.1 倒排索引：ES 快的根本原因</h3><p><strong>正排索引</strong>（MySQL 的方式）是“文档 → 词”的映射，查“包含某词的文档”需要遍历所有文档。<strong>倒排索引</strong>是“词 → 文档 ID 列表”的映射，直接定位。</p>
 <pre class="mermaid">flowchart LR
     subgraph Forward["正排索引 (文档 → 词)"]
         D1["Doc 1: 苹果 手机"] 
@@ -1995,6 +1983,28 @@
 </tr>
 </tbody></table>
 <p><strong>为什么倒排索引是“不可变”的？</strong> Lucene 中的倒排索引一旦写入磁盘就永远不会改变。好处是无需锁、无并发问题；坏处是更新需要重建索引。</p>
+<h4 id="3-1-1-深挖：为什么-Lucene-段不可变是好事"><a href="#3-1-1-深挖：为什么-Lucene-段不可变是好事" class="headerlink" title="3.1.1 深挖：为什么 Lucene 段不可变是好事"></a>3.1.1 深挖：为什么 Lucene 段不可变是好事</h4><p>segment 不可变（只能整体新建）看似低效，实际是三个收益的源头：</p>
+<table>
+<thead>
+<tr>
+<th>收益</th>
+<th>机制</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>免锁</td>
+<td>不可变 &#x3D; 无需并发控制，读路径无锁</td>
+</tr>
+<tr>
+<td>缓存友好</td>
+<td>段的词典&#x2F;倒排表可整体缓存，不会失效</td>
+</tr>
+<tr>
+<td>崩溃恢复简单</td>
+<td>已落盘的段永远有效，恢复只重放 translog</td>
+</tr>
+</tbody></table>
+<p><strong>因果链</strong>：不可变 → 免锁 + 可缓存 → 单机查询吞吐高 → 但更新&#x2F;删除是「标记删除」+「新段覆盖」→ 产生段膨胀 → 后台 <strong>merge</strong>（段合并）压缩段数 → 合并是 CPU&#x2F;IO 大户，<strong>大段合并是 ES 性能问题的常见来源</strong>（集群慢先查 merge 指标）。<strong>面试答「ES 的删除是逻辑删除」时，补一句「靠 merge 物理清理」是加分项</strong>。</p>
 <h3 id="3-2-写入链路：从文档到-Segment"><a href="#3-2-写入链路：从文档到-Segment" class="headerlink" title="3.2 写入链路：从文档到 Segment"></a>3.2 写入链路：从文档到 Segment</h3><p>ES 的写入链路涉及 <strong>4 个关键阶段</strong>：Refresh、Translog、Flush、Merge。</p>
 <pre class="mermaid">sequenceDiagram
     participant Client as 客户端
@@ -2065,6 +2075,80 @@
 <li>为什么需要 Merge？Segment 不可变，更新&#x2F;删除只是标记，Merge 负责清理。</li>
 </ul>
 <p><strong>Segment 不可变的含义</strong>：更新文档 &#x3D; 标记旧文档为删除 + 写入新文档；删除文档 &#x3D; 在 <code>.del</code> 文件中标记，Merge 时才真正清除。</p>
+<h4 id="3-2-1-深挖：一次写入的三段式旅程"><a href="#3-2-1-深挖：一次写入的三段式旅程" class="headerlink" title="3.2.1 深挖：一次写入的三段式旅程"></a>3.2.1 深挖：一次写入的三段式旅程</h4><p><strong>一次写入的完整旅程</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>步骤</th>
+<th>动作</th>
+<th>数据在哪</th>
+<th>可搜？</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>①</td>
+<td>写入内存 buffer</td>
+<td>内存</td>
+<td>❌</td>
+</tr>
+<tr>
+<td>②</td>
+<td>同步写 translog（事务日志）</td>
+<td>磁盘（日志）</td>
+<td>❌</td>
+</tr>
+<tr>
+<td>③</td>
+<td><strong>refresh（默认 1s）</strong>：buffer → 内存 segment，清空 buffer</td>
+<td>内存 segment</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>④</td>
+<td><strong>flush（默认 30s 或 translog 满）</strong>：segment 落盘，清空 translog</td>
+<td>磁盘</td>
+<td>✅</td>
+</tr>
+</tbody></table>
+<p><strong>三个设计要点的因果链</strong>：</p>
+<ol>
+<li><strong>为什么返回成功时数据还没落盘？</strong> —— 批量写入内存是毫秒级，逐条刷磁盘是毫秒级的几十倍。<strong>ES 选择「先回成功、后落盘」，用 translog 兜底崩溃</strong>：机器挂了，重启后从 translog 重放未落盘的数据——<strong>这与 MySQL 的 WAL（先写 redo log 再改数据页）是同一个思想</strong>，先记日志、后落盘，日志是崩溃恢复的承诺。</li>
+<li><strong>为什么 refresh 1 秒才可搜？</strong> —— 磁盘 segment 是<strong>不可变的</strong>（只能新建不能改），每秒把内存 buffer 攒成一个新 segment 批量落内存。<strong>「近实时」不是缺陷，是「批量化换取吞吐」的必然代价</strong>：要实时可搜就得每请求刷一次盘，吞吐直接崩。1 秒的 refresh 是吞吐与实时性的平衡点。</li>
+<li><strong>translog 为什么要 fsync？</strong> —— 默认每次写入 fsync（<code>index.translog.durability: request</code>）保证 translog 真正落盘，此时才返回成功——<strong>「返回成功」的语义 &#x3D; 「translog 已落盘」</strong>，不是「数据已落盘」。</li>
+</ol>
+<h4 id="3-2-2-动手验证：亲眼看到「近实时」"><a href="#3-2-2-动手验证：亲眼看到「近实时」" class="headerlink" title="3.2.2 动手验证：亲眼看到「近实时」"></a>3.2.2 动手验证：亲眼看到「近实时」</h4><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 起一个单机 ES（Docker）</span></span><br><span class="line">docker run -d -p 9200:9200 -e discovery.type=single-node --name es-test docker.elastic.co/elasticsearch/elasticsearch:8.13.0</span><br><span class="line"><span class="comment"># 8.x 默认安全：生成密码</span></span><br><span class="line">docker <span class="built_in">exec</span> es-test elasticsearch-reset-password -u elastic -i</span><br><span class="line"></span><br><span class="line"><span class="comment"># 写入一条文档</span></span><br><span class="line">curl -X POST <span class="string">&quot;localhost:9200/test/_doc/1&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> \</span><br><span class="line">  -d <span class="string">&#x27;&#123;&quot;title&quot;:&quot;hello world&quot;&#125;&#x27;</span> --user elastic:PASSWORD</span><br><span class="line"><span class="comment"># 立即搜索——可能搜不到！</span></span><br><span class="line">curl <span class="string">&quot;localhost:9200/test/_search?q=title:hello&quot;</span> --user elastic:PASSWORD</span><br><span class="line"><span class="comment"># sleep 1.2 秒再搜——能搜到了</span></span><br><span class="line"><span class="built_in">sleep</span> 1.2 &amp;&amp; curl <span class="string">&quot;localhost:9200/test/_search?q=title:hello&quot;</span> --user elastic:PASSWORD</span><br></pre></td></tr></table></figure>
+
+<p>观察点：紧接写入的搜索 <code>hits.total</code> 可能为 0，1.2 秒后变 1——<strong>refresh 间隔的现场</strong>。判定标准：亲自复现「写入后短暂搜不到、1 秒后能搜到」，理解「近实时」的字面含义。生产意义：<strong>刚写入就要立刻搜到的场景（订单即时查询）必须调 <code>refresh=true</code>（性能换实时）或用「可搜索快照」技术，不能指望默认 1 秒</strong>。</p>
+<h4 id="3-2-3-深挖：与-MySQL-WAL-的对照"><a href="#3-2-3-深挖：与-MySQL-WAL-的对照" class="headerlink" title="3.2.3 深挖：与 MySQL WAL 的对照"></a>3.2.3 深挖：与 MySQL WAL 的对照</h4><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>MySQL</th>
+<th>ES</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>先记日志再落盘</td>
+<td>redo log（WAL）</td>
+<td>translog</td>
+</tr>
+<tr>
+<td>落盘周期</td>
+<td>每次提交（innodb_flush_log_at_trx_commit）</td>
+<td>30s 或 translog 满</td>
+</tr>
+<tr>
+<td>崩溃恢复</td>
+<td>redo log 重放</td>
+<td>translog 重放</td>
+</tr>
+<tr>
+<td>批量写</td>
+<td>group commit</td>
+<td>refresh 攒批</td>
+</tr>
+</tbody></table>
+<p><strong>一句话：ES 的 translog 就是搜索引擎界的 WAL——「先记日志、后落盘、日志兜底崩溃」是数据库与搜索引擎共同的设计底座</strong>。面试被问「ES 和 MySQL 的写入设计有什么共同点」，答出这一层是明显加分。</p>
 <h3 id="3-3-分片、副本与路由"><a href="#3-3-分片、副本与路由" class="headerlink" title="3.3 分片、副本与路由"></a>3.3 分片、副本与路由</h3><p><strong>分片（Shard）</strong> 是 ES 水平扩展的核心。一个索引被切分为多个分片，分布在不同的节点上。</p>
 <p><strong>路由公式</strong>：</p>
 <figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">shard = hash(routing) % number_of_primary_shards</span><br></pre></td></tr></table></figure>
@@ -2103,6 +2187,66 @@
 <li><strong>读吞吐</strong>：查询可以并行读主分片或副本。</li>
 </ol>
 <p><strong>注意</strong>：副本分片<strong>不参与写入</strong>。写入请求先到主分片，主分片写入成功后再同步给副本分片。</p>
+<h4 id="3-3-1-深挖：主分片数为什么不可变"><a href="#3-3-1-深挖：主分片数为什么不可变" class="headerlink" title="3.3.1 深挖：主分片数为什么不可变"></a>3.3.1 深挖：主分片数为什么不可变</h4><p>文档写入哪个分片由 <code>routing = hash(_id) % number_of_shards</code> 决定：</p>
+<p><strong>因果链</strong>：主分片数一旦确定就不能改，因为<strong>改了取模的分母，同一文档会被路由到不同分片，旧数据全找不到了</strong>。改分片数只能 <code>_reindex</code> 到新索引（重新 hash 全量重建）。<strong>面试必问「分片数怎么定」的完整答案</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>建议</th>
+<th>依据</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>分片大小</td>
+<td>每分片 20-50GB</td>
+<td>过大 merge 慢、恢复慢；过小分片数爆炸</td>
+</tr>
+<tr>
+<td>分片数量</td>
+<td>总数据量 ÷ 30GB 左右</td>
+<td>平衡并行度与开销</td>
+</tr>
+<tr>
+<td>上限参考</td>
+<td>单节点 ≤3-5 分片</td>
+<td>每个分片有独立文件句柄&#x2F;内存开销</td>
+</tr>
+<tr>
+<td>副本数</td>
+<td>≥1（生产必配）</td>
+<td>无副本 &#x3D; 单点，节点挂了数据就 red</td>
+</tr>
+</tbody></table>
+<p><strong>工程经验</strong>：分片数定少了后期只能 reindex（全量重建，灾难）；定多了浪费资源。<strong>「按数据规模反推分片数」是设计时的核心决策，不是部署后能改的</strong>。</p>
+<h4 id="3-3-2-深挖：副本——读扩展-故障转移"><a href="#3-3-2-深挖：副本——读扩展-故障转移" class="headerlink" title="3.3.2 深挖：副本——读扩展 + 故障转移"></a>3.3.2 深挖：副本——读扩展 + 故障转移</h4><table>
+<thead>
+<tr>
+<th>能力</th>
+<th>机制</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>读扩展</td>
+<td>副本分担读请求</td>
+<td>搜索默认在主+副本间负载均衡</td>
+</tr>
+<tr>
+<td>故障转移</td>
+<td>主挂了副本自动升主</td>
+<td>不需要人工干预</td>
+</tr>
+<tr>
+<td>写入一致性</td>
+<td>主写成功 → 同步副本</td>
+<td><code>wait_for_active_shards</code> 可等副本确认（牺牲延迟换一致）</td>
+</tr>
+</tbody></table>
+<p><strong>副本不是备份，是「可用的读副本」</strong>：副本与主分片数据实时同步，搜索请求可打到任意副本——<strong>副本数 &#x3D; 读吞吐的扩展维度</strong>。<strong>生产配置原则</strong>：副本数 ≥1 是底线（否则单节点故障即 red），读多写少的搜索场景副本数可 &#x3D; 2。</p>
+<h4 id="3-3-3-动手验证：看分片分布与路由"><a href="#3-3-3-动手验证：看分片分布与路由" class="headerlink" title="3.3.3 动手验证：看分片分布与路由"></a>3.3.3 动手验证：看分片分布与路由</h4><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 创建指定分片的索引（3 主分片 + 1 副本）</span></span><br><span class="line">curl -X PUT <span class="string">&quot;localhost:9200/orders&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> \</span><br><span class="line">  -d <span class="string">&#x27;&#123;&quot;settings&quot;:&#123;&quot;number_of_shards&quot;:3,&quot;number_of_replicas&quot;:1&#125;&#125;&#x27;</span> --user elastic:PASSWORD</span><br><span class="line"><span class="comment"># 看分片分布</span></span><br><span class="line">curl <span class="string">&quot;localhost:9200/_cat/shards/orders?v&quot;</span> --user elastic:PASSWORD</span><br><span class="line"><span class="comment"># 返回 3 个主分片 + 3 个副本，分布在节点上（单节点时副本 unassigned，集群 yellow）</span></span><br></pre></td></tr></table></figure>
+
+<p>观察点：<code>_cat/shards</code> 里主分片 <code>P</code> 与副本 <code>R</code> 的节点分布；单节点时副本显示 <code>UNASSIGNED</code>、集群变 yellow。判定标准：理解「副本必须分布在不同节点才有意义」——<strong>单节点集群配副本是浪费（副本和主在同节点，挂了一起挂）</strong>，这也是「集群为什么 yellow」的第一个答案。</p>
 <h3 id="3-4-查询流程：Query-Then-Fetch"><a href="#3-4-查询流程：Query-Then-Fetch" class="headerlink" title="3.4 查询流程：Query Then Fetch"></a>3.4 查询流程：Query Then Fetch</h3><p>ES 的查询分为两个阶段：<strong>Query 阶段</strong>和 <strong>Fetch 阶段</strong>。</p>
 <pre class="mermaid">sequenceDiagram
     participant Client as 客户端
@@ -2155,7 +2299,141 @@
 <td>占用资源，不能实时反映新数据</td>
 </tr>
 </tbody></table>
-<h3 id="3-5-BM25-评分算法"><a href="#3-5-BM25-评分算法" class="headerlink" title="3.5 BM25 评分算法"></a>3.5 BM25 评分算法</h3><p>ES 从 5.0 开始默认使用 <strong>Okapi BM25</strong> 作为相似度算法。BM25 基于 TF-IDF 进化而来，核心公式涉及三个因子：</p>
+<h4 id="3-4-1-深挖：from-size-为什么只能-1-万行"><a href="#3-4-1-深挖：from-size-为什么只能-1-万行" class="headerlink" title="3.4.1 深挖：from+size 为什么只能 1 万行"></a>3.4.1 深挖：from+size 为什么只能 1 万行</h4><p><code>GET /orders/_search?from=10000&amp;size=10</code> 为什么被拒绝（默认 <code>max_result_window: 10000</code>）？看它在 3 分片集群上的执行路径：</p>
+<pre class="mermaid">sequenceDiagram
+    participant C as 协调节点
+    participant S1 as 分片1
+    participant S2 as 分片2
+    participant S3 as 分片3
+    C->>S1: 取 from+size=10010 条
+    C->>S2: 取 from+size=10010 条
+    C->>S3: 取 from+size=10010 条
+    Note over S1: 各分片按 score 排序取前 10010
+    S1-->>C: 10010 条
+    S2-->>C: 10010 条
+    S3-->>C: 10010 条
+    Note over C: 归并 30030 条，排序，丢弃前 10000 条
+    C-->>C: 最终返回 10 条</pre>
+
+<p><strong>因果链</strong>：from+size 的代价是 <strong>O(from+size) × 分片数</strong>——翻到第 10 万条，每个分片都要取 10 万条到协调节点排序。这不是「ES 蠢」，是<strong>分布式查询的必然</strong>：谁也不知道全局前 10 万条分布在哪个分片，只能每片都取。<strong>这个模型下「深度分页」不是功能缺失，是代价不可接受</strong>，所以 ES 用 <code>max_result_window</code> 直接拦住。</p>
+<p><strong>三个方案的定位（面试核心）</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>方案</th>
+<th>适用场景</th>
+<th>原理</th>
+<th>缺点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>from+size</td>
+<td>前 10000 条（翻前 100 页）</td>
+<td>每片取全量排序再归并</td>
+<td>深翻页 O(from+size)×分片</td>
+</tr>
+<tr>
+<td><strong>search_after</strong></td>
+<td>实时滚动（下翻 2 万+条）</td>
+<td>记住上页最后一条的排序值，只取「比它大」的</td>
+<td>不能随机跳页、依赖排序值稳定</td>
+</tr>
+<tr>
+<td><strong>scroll</strong></td>
+<td>全量导出（导入导出&#x2F;批处理）</td>
+<td>生成快照游标，每次取一段</td>
+<td>快照期间数据不变、游标耗内存</td>
+</tr>
+</tbody></table>
+<p><strong>search_after 与 scroll 的核心区别一句话：search_after 是「活的」（每次重新查询，新数据能看到），scroll 是「死的」（固定快照，新写入不可见）</strong>。导出数据用 scroll（要一致性快照），实时翻页用 search_after（要新数据），两者用途完全不同。</p>
+<h4 id="3-4-2-动手验证：复现报错与-search-after-翻页"><a href="#3-4-2-动手验证：复现报错与-search-after-翻页" class="headerlink" title="3.4.2 动手验证：复现报错与 search_after 翻页"></a>3.4.2 动手验证：复现报错与 search_after 翻页</h4><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 造 15000 条数据</span></span><br><span class="line"><span class="keyword">for</span> i <span class="keyword">in</span> $(<span class="built_in">seq</span> 1 15000); <span class="keyword">do</span> curl -s -X POST <span class="string">&quot;localhost:9200/big/_doc&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> \</span><br><span class="line">  -d <span class="string">&quot;&#123;\&quot;n\&quot;:<span class="variable">$i</span>&#125;&quot;</span> --user elastic:PASSWORD &gt; /dev/null; <span class="keyword">done</span></span><br><span class="line">curl -s -X POST <span class="string">&quot;localhost:9200/big/_refresh&quot;</span> --user elastic:PASSWORD</span><br><span class="line"></span><br><span class="line"><span class="comment"># 1. 深翻页直接报错（默认窗口 10000）</span></span><br><span class="line">curl <span class="string">&quot;localhost:9200/big/_search?size=10&amp;from=10001&quot;</span> --user elastic:PASSWORD</span><br><span class="line"><span class="comment"># → Result window is too large, from + size must be less than or equal to [10000]</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. search_after：取第一页，拿最后一个 sort 值，再翻下一页</span></span><br><span class="line">curl -s <span class="string">&quot;localhost:9200/big/_search&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> -d \</span><br><span class="line">  <span class="string">&#x27;&#123;&quot;size&quot;:10,&quot;sort&quot;:[&#123;&quot;n&quot;:&quot;asc&quot;&#125;]&#125;&#x27;</span> --user elastic:PASSWORD</span><br><span class="line"><span class="comment"># → 记下最后一行的 &quot;sort&quot;:[n]</span></span><br><span class="line">curl -s <span class="string">&quot;localhost:9200/big/_search&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> -d \</span><br><span class="line">  <span class="string">&#x27;&#123;&quot;size&quot;:10,&quot;sort&quot;:[&#123;&quot;n&quot;:&quot;asc&quot;&#125;],&quot;search_after&quot;:[14991]&#125;&#x27;</span> --user elastic:PASSWORD</span><br></pre></td></tr></table></figure>
+
+<p>观察点：from&#x3D;10001 被拒绝；search_after 用上页的 sort 值无缝续翻。判定标准：亲手触发 <code>Result window is too large</code> 并改用 search_after 绕过，理解「不是不能翻，是不能用 from 翻」。</p>
+<h4 id="3-4-3-避坑：search-after-的排序值陷阱"><a href="#3-4-3-避坑：search-after-的排序值陷阱" class="headerlink" title="3.4.3 避坑：search_after 的排序值陷阱"></a>3.4.3 避坑：search_after 的排序值陷阱</h4><table>
+<thead>
+<tr>
+<th>坑</th>
+<th>表现</th>
+<th>解法</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>排序值有并列</td>
+<td>重复&#x2F;漏条</td>
+<td>加唯一字段作 tie-breaker（如 <code>_id</code>）</td>
+</tr>
+<tr>
+<td>排序字段有 null</td>
+<td>排序不稳定</td>
+<td>用 <code>missing:_last</code> 固定空值位置</td>
+</tr>
+<tr>
+<td>索引时间戳排序</td>
+<td>翻页中途新数据插入</td>
+<td>search_after 能看见（这是特性）；需要冻结视图则用 scroll</td>
+</tr>
+<tr>
+<td>多字段复合排序</td>
+<td>遗漏某字段就乱序</td>
+<td>sort 数组里所有字段都要有值</td>
+</tr>
+</tbody></table>
+<p><strong>因果链</strong>：search_after 的正确性建立在「排序值能唯一定位一条记录」上——<strong>排序值并列时它只知道「比这个值大」，不知道「比这条记录靠后」</strong>，所以必须加唯一字段 tie-breaker。这个细节是面试官最爱追问的：「search_after 有重复数据怎么办？」</p>
+<h3 id="3-5-聚合：先局部后归并"><a href="#3-5-聚合：先局部后归并" class="headerlink" title="3.5 聚合：先局部后归并"></a>3.5 聚合：先局部后归并</h3><h4 id="3-5-1-聚合的两步模型"><a href="#3-5-1-聚合的两步模型" class="headerlink" title="3.5.1 聚合的两步模型"></a>3.5.1 聚合的两步模型</h4><p><strong>聚合 &#x3D; 每个分片先算局部结果（bucket&#x2F;metrics），协调节点再归并成全局结果</strong>——与搜索的「每片取 topN 再归并」是同一架构，但代价模型完全不同：</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>搜索</th>
+<th>聚合</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>分片结果</td>
+<td>每片 topN（量可控）</td>
+<td>每片全部 bucket（量&#x3D;基数）</td>
+</tr>
+<tr>
+<td>归并成本</td>
+<td>O(topN × 分片数)</td>
+<td>O(bucket 数 × 分片数)</td>
+</tr>
+<tr>
+<td>内存压力</td>
+<td>排序堆</td>
+<td><strong>bucket 全部驻留内存</strong></td>
+</tr>
+</tbody></table>
+<p><strong>聚合慢的真正原因：高基数聚合（如按 user_id 分桶）每个分片都要建几百万个 bucket 存内存，协调节点再合并——基数 × 分片数 &#x3D; 内存爆炸</strong>。这就是为什么「聚合上亿日志按 IP 分桶」会 OOM。</p>
+<h4 id="3-5-2-三招应对高基数聚合"><a href="#3-5-2-三招应对高基数聚合" class="headerlink" title="3.5.2 三招应对高基数聚合"></a>3.5.2 三招应对高基数聚合</h4><table>
+<thead>
+<tr>
+<th>手段</th>
+<th>机制</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>近似聚合</strong>（cardinality）</td>
+<td>HyperLogLog，固定内存算基数</td>
+<td>只数「多少个」，不要明细</td>
+</tr>
+<tr>
+<td><strong>date_histogram</strong></td>
+<td>按时间分桶（桶数可控）</td>
+<td>日志趋势分析</td>
+</tr>
+<tr>
+<td><strong>前置预聚合</strong></td>
+<td>写入时把明细聚成汇总（rollup）</td>
+<td>上亿数据的固定报表</td>
+</tr>
+</tbody></table>
+<p><strong>因果链</strong>：<code>cardinality</code> 是近似值（误差 1% 左右）但内存恒定——<strong>HLL 用「丢了明细换固定内存」</strong>。做报表&#x2F;去重计数选它；要精确值或明细，只能 rollup 或分片预计算。<strong>面试答「聚合优化」的标准句式：「高基数聚合先问三个问题——能近似吗（cardinality）、能按时间降维吗（date_histogram）、能预计算吗（rollup）」</strong>。</p>
+<h4 id="3-5-3-动手验证：看聚合的执行与内存"><a href="#3-5-3-动手验证：看聚合的执行与内存" class="headerlink" title="3.5.3 动手验证：看聚合的执行与内存"></a>3.5.3 动手验证：看聚合的执行与内存</h4><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 按标签聚合（低基数，快）</span></span><br><span class="line">curl -s <span class="string">&quot;localhost:9200/orders/_search&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> -d \</span><br><span class="line">  <span class="string">&#x27;&#123;&quot;size&quot;:0,&quot;aggs&quot;:&#123;&quot;by_tag&quot;:&#123;&quot;terms&quot;:&#123;&quot;field&quot;:&quot;tag.keyword&quot;,&quot;size&quot;:10&#125;&#125;&#125;&#125;&#x27;</span> --user elastic:PASSWORD</span><br><span class="line"></span><br><span class="line"><span class="comment"># 精确计数 vs 近似计数（对比 hits 和 errors 字段）</span></span><br><span class="line">curl -s <span class="string">&quot;localhost:9200/big/_search&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> -d \</span><br><span class="line">  <span class="string">&#x27;&#123;&quot;size&quot;:0,&quot;aggs&quot;:&#123;&quot;exact&quot;:&#123;&quot;cardinality&quot;:&#123;&quot;field&quot;:&quot;n&quot;&#125;&#125;&#125;&#125;&#x27;</span> --user elastic:PASSWORD</span><br><span class="line"></span><br><span class="line"><span class="comment"># 聚合慢时看节点堆内存（GC 指标）</span></span><br><span class="line">curl <span class="string">&quot;localhost:9200/_cat/nodes?v&amp;h=name,heap.percent,heap.max&quot;</span> --user elastic:PASSWORD</span><br></pre></td></tr></table></figure>
+
+<p>观察点：<code>cardinality</code> 返回的 <code>value</code> 与真实值可能有 ±1% 偏差（<code>HLL</code> 精度参数 <code>precision_threshold</code> 默认 3000）。判定标准：能解释「为什么聚合比搜索更容易打爆内存」，并说出近似聚合的代价（不精确）。</p>
+<h3 id="3-6-BM25-评分算法"><a href="#3-6-BM25-评分算法" class="headerlink" title="3.6 BM25 评分算法"></a>3.6 BM25 评分算法</h3><p>ES 从 5.0 开始默认使用 <strong>Okapi BM25</strong> 作为相似度算法。BM25 基于 TF-IDF 进化而来，核心公式涉及三个因子：</p>
 <pre class="mermaid">flowchart TB
     BM25["BM25 评分"]
     BM25 --> TF["词频 TF&lt;br/>词在文档中出现的次数&lt;br/>出现越多，得分越高"]
@@ -2197,6 +2475,62 @@
 </tr>
 </tbody></table>
 <p><strong>一句话理解 BM25</strong>：词出现 100 次和出现 10 次的得分差距，远小于 TF-IDF 中的线性差距——因为“出现 100 次”可能只是堆砌关键词，而“出现 10 次”已经足够说明相关性。</p>
+<h3 id="3-7-集群健康：三色状态与脑裂"><a href="#3-7-集群健康：三色状态与脑裂" class="headerlink" title="3.7 集群健康：三色状态与脑裂"></a>3.7 集群健康：三色状态与脑裂</h3><h4 id="3-7-1-三色健康的真实含义"><a href="#3-7-1-三色健康的真实含义" class="headerlink" title="3.7.1 三色健康的真实含义"></a>3.7.1 三色健康的真实含义</h4><table>
+<thead>
+<tr>
+<th>颜色</th>
+<th>含义</th>
+<th>还能用吗</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>green</td>
+<td>主分片+副本全部就绪</td>
+<td>完全正常</td>
+<td>无需处理</td>
+</tr>
+<tr>
+<td>yellow</td>
+<td>主分片都在，<strong>副本缺失</strong>（unassigned）</td>
+<td>能读能写，<strong>但无故障转移能力</strong></td>
+<td>查为什么副本没起来（节点数不足&#x2F;磁盘满&#x2F;网络隔离）</td>
+</tr>
+<tr>
+<td>red</td>
+<td><strong>有主分片缺失</strong></td>
+<td>该分片数据不可用（部分索引不可搜）</td>
+<td>立即处理：恢复节点或 reroute</td>
+</tr>
+</tbody></table>
+<p><strong>因果链</strong>：yellow 不是「小问题」——它意味着「副本没就位，任何主分片所在节点挂掉，数据就永久丢失（除非还有别的副本）」。<strong>生产铁律：集群 yellow 必须当天处理，不能挂着过夜</strong>——常见的黄色原因（单节点配了副本、新节点加入后副本未分配、磁盘水位线导致不分配）排查路径全部在 <code>_cat/allocation</code> 里。</p>
+<h4 id="3-7-2-脑裂：集群最大的安全风险"><a href="#3-7-2-脑裂：集群最大的安全风险" class="headerlink" title="3.7.2 脑裂：集群最大的安全风险"></a>3.7.2 脑裂：集群最大的安全风险</h4><p><strong>脑裂 &#x3D; 一个集群分裂成两个「各自认为自己是主」的子集群</strong>，两边同时接受写入，数据分裂，集群永久损坏。</p>
+<p><strong>产生条件</strong>（老版本 <code>discovery.zen.minimum_master_nodes</code> 配置不当）：5 节点集群配 <code>minimum_master_nodes=2</code>——网络分区把集群切成 3+2 两半，两边都能选出主节点，各自接受写入 → 恢复后数据冲突，不可修复。</p>
+<p><strong>防护三板斧</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>手段</th>
+<th>机制</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>discovery.zen.minimum_master_nodes = (节点数/2) + 1</code></td>
+<td>选举需要过半数投票，少数派无法选主</td>
+</tr>
+<tr>
+<td>master 节点独立角色</td>
+<td>master-eligible 节点与 data 节点分离，master 不扛数据压力</td>
+</tr>
+<tr>
+<td>8.x 新机制（cluster.auto_shrink_voting_configuration）</td>
+<td>动态调整投票配置，自动规避多数派问题</td>
+</tr>
+</tbody></table>
+<p><strong>因果链</strong>：脑裂的根源是「少数派认为自己合法」——过半数投票规则让少数派选不出主（3 节点集群配 2 票，2+1 分区时 1 票的少数派选不出主）。<strong>面试答「怎么防脑裂」：一句话「minimum_master_nodes 设为过半」+ 一句解释「让少数派选不出主」</strong>，就到位了。</p>
+<h4 id="3-7-3-动手验证：复现-yellow-与理解-unassigned"><a href="#3-7-3-动手验证：复现-yellow-与理解-unassigned" class="headerlink" title="3.7.3 动手验证：复现 yellow 与理解 unassigned"></a>3.7.3 动手验证：复现 yellow 与理解 unassigned</h4><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 单节点集群配了 1 副本 → 必然是 yellow</span></span><br><span class="line">curl <span class="string">&quot;localhost:9200/_cluster/health?pretty&quot;</span> --user elastic:PASSWORD</span><br><span class="line"><span class="comment"># status: &quot;yellow&quot;（主分片 3 个 ok，副本 3 个 unassigned）</span></span><br><span class="line">curl <span class="string">&quot;localhost:9200/_cat/shards?v&quot;</span> --user elastic:PASSWORD   <span class="comment"># 副本 R 全 UNASSIGNED</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 模拟故障：停掉唯一节点 → red（集群没有可用节点，直接失联）</span></span><br><span class="line">docker stop es-test</span><br></pre></td></tr></table></figure>
+
+<p>观察点：单节点 + 副本 → yellow 且 unassigned 列表齐全；节点全停 → 集群失联。判定标准：能解释「为什么单节点集群配副本是 yellow 而不是 green」——<strong>副本需要另一台节点才就位</strong>，这个「节点不足 → 副本不分配 → yellow」链条是集群健康的第一课。</p>
 <hr>
 <h2 id="4-优化：性能调优与集群治理"><a href="#4-优化：性能调优与集群治理" class="headerlink" title="4. 优化：性能调优与集群治理"></a>4. 优化：性能调优与集群治理</h2><h3 id="4-1-分片规划"><a href="#4-1-分片规划" class="headerlink" title="4.1 分片规划"></a>4.1 分片规划</h3><p>分片数量是 ES 调优中最关键的决策。分片过多会导致堆内存和文件句柄压力；分片过少会导致单分片过大，恢复慢、查询并行度低。</p>
 <p><strong>经验公式</strong>：</p>
@@ -2355,7 +2689,133 @@
 <li><strong>Master 节点与 Data 节点分离</strong>——避免数据节点负载过高影响 Master 选举。</li>
 </ol>
 <hr>
-<h2 id="5-面试速答表"><a href="#5-面试速答表" class="headerlink" title="5. 面试速答表"></a>5. 面试速答表</h2><table>
+<h2 id="5-数据同步与一致性：MySQL-到-ES-怎么保证不丢"><a href="#5-数据同步与一致性：MySQL-到-ES-怎么保证不丢" class="headerlink" title="5. 数据同步与一致性：MySQL 到 ES 怎么保证不丢"></a>5. 数据同步与一致性：MySQL 到 ES 怎么保证不丢</h2><h3 id="5-1-为什么难：两个系统没有同一事务"><a href="#5-1-为什么难：两个系统没有同一事务" class="headerlink" title="5.1 为什么难：两个系统没有同一事务"></a>5.1 为什么难：两个系统没有同一事务</h3><p>MySQL 写成功、ES 写失败，数据就不一致了——<strong>根源是「跨系统无原子性」：MySQL 事务管不了 ES，ES 没有事务</strong>。所有方案的本质都是在回答同一个问题：<strong>怎么把「一次业务写」变成「两次可靠写」</strong>。</p>
+<h3 id="5-2-三种方案对比"><a href="#5-2-三种方案对比" class="headerlink" title="5.2 三种方案对比"></a>5.2 三种方案对比</h3><pre class="mermaid">flowchart LR
+    subgraph A["方案一：应用双写"]
+        App["业务应用"] -->|1. 写 MySQL| M1[(MySQL)]
+        App -->|2. 写 ES（可能失败）| E1[(ES)]
+    end
+    subgraph B["方案二：binlog 订阅（Canal）"]
+        M2[(MySQL)] -->|binlog| C2[Canal]
+        C2 -->|解析/转换| MQ2[(MQ)]
+        MQ2 --> W2[同步服务]
+        W2 --> E2[(ES)]
+    end
+    subgraph C["方案三：本地消息表"]
+        M3[(MySQL)] -->|同事务写消息表| T3[本地消息表]
+        T3 -->|定时扫/事务消息| MQ3[(MQ)]
+        MQ3 --> W3[同步服务]
+        W3 --> E3[(ES)]
+    end</pre>
+
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>应用双写</th>
+<th>binlog 订阅（Canal）</th>
+<th>本地消息表</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>一致性时机</td>
+<td>实时（尽力而为）</td>
+<td>近实时（秒级延迟）</td>
+<td>近实时</td>
+</tr>
+<tr>
+<td>与业务解耦</td>
+<td>❌ 侵入业务代码</td>
+<td>✅ 完全解耦</td>
+<td>半解耦（要写消息表）</td>
+</tr>
+<tr>
+<td>对 MySQL 的感知</td>
+<td>无</td>
+<td>只认 binlog（支持 ROW 格式）</td>
+<td>无</td>
+</tr>
+<tr>
+<td>丢失风险</td>
+<td>应用崩溃即丢</td>
+<td>低（Canal 有 offset）</td>
+<td>低（消息表和业务同事务）</td>
+</tr>
+<tr>
+<td>改造量</td>
+<td>最小（但最脆弱）</td>
+<td>中等（Canal+MQ+同步服务）</td>
+<td>中等</td>
+</tr>
+<tr>
+<td>生产推荐</td>
+<td>小流量临时方案</td>
+<td><strong>主流方案</strong></td>
+<td>无 MQ 时的替代</td>
+</tr>
+</tbody></table>
+<p><strong>因果链</strong>：三种方案的演进逻辑是「把「双写」从业务代码里一步步挪出来」——双写侵入业务（方案一）→ 用 binlog 当「MySQL 的变化通知」（方案二，业务无感知）→ 用同事务消息表保证「消息不丢」（方案三，比 Canal 简单但要多写一张表）。<strong>方案二是生产主流：Canal 订阅 binlog → MQ 削峰 → 同步服务写 ES</strong>，延迟秒级、业务零侵入、Canal 挂了对主库无影响。</p>
+<h3 id="5-3-最终一致性兜底：对账与修复"><a href="#5-3-最终一致性兜底：对账与修复" class="headerlink" title="5.3 最终一致性兜底：对账与修复"></a>5.3 最终一致性兜底：对账与修复</h3><p>即使有 Canal，<strong>同步服务崩溃&#x2F;ES 集群故障仍会造成短暂不一致</strong>——所以生产必须加兜底层：</p>
+<table>
+<thead>
+<tr>
+<th>层</th>
+<th>手段</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>重试</td>
+<td>同步失败进重试队列，指数退避</td>
+<td>解决瞬时故障</td>
+</tr>
+<tr>
+<td>对账</td>
+<td>定时任务对比 MySQL 与 ES 数据量&#x2F;版本号</td>
+<td>发现长期不一致</td>
+</tr>
+<tr>
+<td>兜底</td>
+<td>每日全量重建索引（reindex）</td>
+<td>修复一切历史遗留</td>
+</tr>
+</tbody></table>
+<p><strong>因果链</strong>：同步方案保证「绝大多数时间一致」，对账任务保证「发现不一致」，全量重建保证「最终一定一致」——<strong>三层叠加才是完整的最终一致性</strong>。面试答双写问题，说出「Canal + 重试 + 对账 + 定期重建」四件套，比只说 Canal 高一个档次。</p>
+<h3 id="5-4-动手验证：体验「双写」的脆弱"><a href="#5-4-动手验证：体验「双写」的脆弱" class="headerlink" title="5.4 动手验证：体验「双写」的脆弱"></a>5.4 动手验证：体验「双写」的脆弱</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 模拟最朴素的双写失败（不用真实 MySQL，看思路）：</span></span><br><span class="line"><span class="comment"># 1. MySQL 事务已提交，2. ES 写入报错（先故意关掉 ES 的写入）</span></span><br><span class="line">curl -X PUT <span class="string">&quot;localhost:9200/orders/_settings&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> \</span><br><span class="line">  -d <span class="string">&#x27;&#123;&quot;index.blocks.write&quot;: true&#125;&#x27;</span> --user elastic:PASSWORD</span><br><span class="line"><span class="comment"># 业务代码里：DB 成功 → ES 报错（index.blocks.write 拒绝写入）→ 数据不一致</span></span><br><span class="line">curl -X POST <span class="string">&quot;localhost:9200/orders/_doc/1&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> \</span><br><span class="line">  -d <span class="string">&#x27;&#123;&quot;title&quot;:&quot;x&quot;&#125;&#x27;</span> --user elastic:PASSWORD   <span class="comment"># → blocked by [FORBIDDEN/12/index write]</span></span><br><span class="line"><span class="comment"># 解除写入阻塞</span></span><br><span class="line">curl -X PUT <span class="string">&quot;localhost:9200/orders/_settings&quot;</span> -H <span class="string">&quot;Content-Type: application/json&quot;</span> \</span><br><span class="line">  -d <span class="string">&#x27;&#123;&quot;index.blocks.write&quot;: false&#125;&#x27;</span> --user elastic:PASSWORD</span><br></pre></td></tr></table></figure>
+
+<p>观察点：ES 拒绝写入但业务侧 MySQL 已提交——<strong>「DB 成功、ES 失败」的现场，双写方案必须自己处理这种不一致</strong>（重试&#x2F;补偿&#x2F;消息队列）。判定标准：理解双写方案为何脆弱——<strong>两个系统任何一方抖动，都需要人工或兜底层收尾</strong>。</p>
+<h3 id="5-5-与-MySQL-主从的对照（跨篇联动）"><a href="#5-5-与-MySQL-主从的对照（跨篇联动）" class="headerlink" title="5.5 与 MySQL 主从的对照（跨篇联动）"></a>5.5 与 MySQL 主从的对照（跨篇联动）</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>MySQL</th>
+<th>ES</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>分页</td>
+<td>limit 深翻页要扫全表</td>
+<td>from+size 深翻页每片全量取（代价模型相同）</td>
+</tr>
+<tr>
+<td>大数据分页正解</td>
+<td>游标&#x2F;书签（where id &gt; last）</td>
+<td>search_after（排序值书签）</td>
+</tr>
+<tr>
+<td>异步同步</td>
+<td>主从 binlog 复制</td>
+<td>Canal 订阅 binlog 同步 ES</td>
+</tr>
+<tr>
+<td>一致性保障</td>
+<td>半同步&#x2F;GTID</td>
+<td>重试+对账+重建</td>
+</tr>
+</tbody></table>
+<p><strong>一句话：MySQL 深分页用「书签」绕开 LIMIT 扫描，ES 用 search_after 绕开 from+size——「记住上次的位置，而不是从头上重新数」是分页优化的共同思想</strong>；ES 的 Canal 同步本质上就是「把 MySQL 的 binlog 复制架构搬到了 ES 侧」。跨库答出这层对照，面试是明显的差异化加分。</p>
+<hr>
+<h2 id="6-面试速答表"><a href="#6-面试速答表" class="headerlink" title="6. 面试速答表"></a>6. 面试速答表</h2><table>
 <thead>
 <tr>
 <th>面试题</th>
@@ -2391,8 +2851,16 @@
 <td>每个分片需要返回 <code>from+size</code> 个结果，协调节点处理 <code>shard × (from+size)</code> 个文档</td>
 </tr>
 <tr>
+<td>search_after 和 scroll 区别？</td>
+<td>search_after 重新查询（能看到新数据）、不能跳页；scroll 固定快照（数据冻结）、适合导出</td>
+</tr>
+<tr>
 <td>Filter 和 Query 的区别？</td>
 <td>Filter 不评分、可缓存、更快；Query 计算评分、不可缓存</td>
+</tr>
+<tr>
+<td>聚合为什么慢？</td>
+<td>高基数 bucket 全驻内存，基数×分片数爆炸；用 cardinality 近似、date_histogram 降维、rollup 预聚合</td>
 </tr>
 <tr>
 <td>BM25 和 TF-IDF 的区别？</td>
@@ -2403,8 +2871,145 @@
 <td>MySQL 做主存保证事务，ES 做搜索和聚合；通过 Canal 监听 Binlog 同步</td>
 </tr>
 <tr>
+<td>MySQL→ES 怎么同步？</td>
+<td>Canal 订阅 binlog → MQ → 同步服务；重试+对账+定期重建兜底</td>
+</tr>
+<tr>
+<td>双写方案为什么不好？</td>
+<td>业务侵入 + 两个系统无同一事务，任何一方失败都要手工收尾</td>
+</tr>
+<tr>
+<td>集群 yellow 怎么办？</td>
+<td>副本 unassigned：查节点数&#x2F;磁盘水位&#x2F;分配；必须当天处理</td>
+</tr>
+<tr>
 <td>脑裂怎么预防？</td>
 <td>部署奇数个专用 Master 节点，基于 Quorum 投票选举</td>
+</tr>
+<tr>
+<td>ES 写入流程？</td>
+<td>内存 buffer（不可搜）→ 同步 translog → 1s refresh 成内存 segment（可搜）→ 30s flush 落盘清 translog；返回成功 &#x3D; translog 落盘</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="7-附录：实战避坑与工具速查"><a href="#7-附录：实战避坑与工具速查" class="headerlink" title="7. 附录：实战避坑与工具速查"></a>7. 附录：实战避坑与工具速查</h2><h3 id="7-1-实战避坑表"><a href="#7-1-实战避坑表" class="headerlink" title="7.1 实战避坑表"></a>7.1 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>写入后搜不到</td>
+<td>默认 1s refresh</td>
+<td>明确需求：能等 1s 则不改；必须实时则 refresh&#x3D;true&#x2F;可搜索快照</td>
+</tr>
+<tr>
+<td><code>Result window is too large</code></td>
+<td>from+size 超 1 万</td>
+<td>改 search_after&#x2F;scroll，不要只调 max_result_window（治标不治本）</td>
+</tr>
+<tr>
+<td>search_after 翻页重复&#x2F;漏条</td>
+<td>排序值并列</td>
+<td>sort 加唯一字段 tie-breaker</td>
+</tr>
+<tr>
+<td>聚合 OOM</td>
+<td>高基数 bucket</td>
+<td>换 cardinality&#x2F;date_histogram&#x2F;rollup</td>
+</tr>
+<tr>
+<td>集群长期 yellow</td>
+<td>副本 unassigned（节点不足&#x2F;磁盘水位）</td>
+<td><code>_cat/allocation</code> 定位；加节点或调水位线</td>
+</tr>
+<tr>
+<td>集群突然 red</td>
+<td>节点挂 + 无副本</td>
+<td>恢复节点；无副本的 red 不可自愈，需快照恢复</td>
+</tr>
+<tr>
+<td>改分片数报错</td>
+<td>路由不可变</td>
+<td>新建索引 + <code>_reindex</code></td>
+</tr>
+<tr>
+<td>集群变慢</td>
+<td>大段 merge 在跑</td>
+<td>监控 merge 指标，错峰触发；分片过大</td>
+</tr>
+<tr>
+<td>ES 数据少一条</td>
+<td>双写&#x2F;同步失败</td>
+<td>查重试队列；对账任务对比；必要时重建索引</td>
+</tr>
+<tr>
+<td>同步延迟大</td>
+<td>MQ 积压&#x2F;同步服务瓶颈</td>
+<td>监控消费 lag，扩同步服务并发</td>
+</tr>
+<tr>
+<td>单节点配副本</td>
+<td>副本永远 unassigned</td>
+<td>单节点集群副本数设 0，或直接上多节点</td>
+</tr>
+</tbody></table>
+<h3 id="7-2-工具速查表"><a href="#7-2-工具速查表" class="headerlink" title="7.2 工具速查表"></a>7.2 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具&#x2F;API</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>GET /_cluster/health</code></td>
+<td>三色健康状态</td>
+</tr>
+<tr>
+<td><code>GET /_cat/shards?v</code></td>
+<td>分片分布与 unassigned 定位</td>
+</tr>
+<tr>
+<td><code>GET /_cat/allocation</code></td>
+<td>分片为什么没分配（磁盘水位等）</td>
+</tr>
+<tr>
+<td><code>GET /_cat/indices?v</code></td>
+<td>索引级状态与大小</td>
+</tr>
+<tr>
+<td><code>GET /_cat/nodes?v&amp;h=name,heap.percent</code></td>
+<td>聚合 OOM 前观察堆内存</td>
+</tr>
+<tr>
+<td><code>GET /_nodes/hot_threads</code></td>
+<td>节点 CPU 热点定位</td>
+</tr>
+<tr>
+<td><code>GET /_cluster/pending_tasks</code></td>
+<td>集群级任务堆积</td>
+</tr>
+<tr>
+<td><code>max_result_window</code>（settings）</td>
+<td>分页窗口上限，生产不建议调大</td>
+</tr>
+<tr>
+<td><code>search_after</code> &#x2F; <code>scroll</code></td>
+<td>深翻页两件套（活视图&#x2F;快照）</td>
+</tr>
+<tr>
+<td><code>cardinality</code> &#x2F; <code>date_histogram</code></td>
+<td>聚合降内存两招</td>
+</tr>
+<tr>
+<td>Canal（阿帕奇&#x2F;阿里）</td>
+<td>binlog 订阅，MySQL→ES 主流同步件</td>
+</tr>
+<tr>
+<td>对账任务 + 重建索引</td>
+<td>最终一致性兜底两层</td>
 </tr>
 </tbody></table>
 <hr>
@@ -2414,7 +3019,10 @@
 <li><strong>入门</strong>：ES 不是数据库，是搜索和聚合引擎 → 倒排索引 + 分片并行；</li>
 <li><strong>实践</strong>：Mapping 设计决定性能 → text 分词搜索，keyword 精确聚合；</li>
 <li><strong>原理</strong>：写入链路 Refresh&#x2F;Translog&#x2F;Flush&#x2F;Merge → 近实时 + 不丢数据 + 更新 &#x3D; 标记 + 重写；</li>
-<li><strong>优化</strong>：分片规划 + 堆内存 ≤ 32GB + Filter 替代 Query + 避免深分页 → 性能提升。</li>
+<li><strong>原理</strong>：查询 Query Then Fetch → 每片取 topN 归并；深度分页代价 O(from+size)×分片；</li>
+<li><strong>原理</strong>：聚合先局部后归并 → 高基数 bucket 是内存杀手；集群三色健康 + 脑裂防护；</li>
+<li><strong>优化</strong>：分片规划 + 堆内存 ≤ 32GB + Filter 替代 Query + 避免深分页 → 性能提升；</li>
+<li><strong>同步与一致性</strong>：Canal + MQ + 同步服务 + 重试&#x2F;对账&#x2F;重建 → 最终一致。</li>
 </ol>
 </blockquote>
 
@@ -2469,14 +3077,14 @@
       <i class="fa fa-chart-line"></i>
     </span>
       <span>Word count total: </span>
-    <span title="Word count total">646k</span>
+    <span title="Word count total">628k</span>
   </span>
   <span class="post-meta-item">
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
       <span>Reading time total &asymp;</span>
-    <span title="Reading time total">39:10</span>
+    <span title="Reading time total">38:02</span>
   </span>
 </div>
   <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
