@@ -189,7 +189,7 @@
   <nav class="site-state">
       <div class="site-state-item site-state-posts">
         <a href="/archives/">
-          <span class="site-state-item-count">78</span>
+          <span class="site-state-item-count">79</span>
           <span class="site-state-item-name">posts</span>
         </a>
       </div>
@@ -253,6 +253,935 @@
     </div>
 
     <div class="main-inner index posts-expand">
+
+    
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/363d431.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content=" | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h2 class="post-title" itemprop="name headline">
+          <a href="/post/363d431.html" class="post-title-link" itemprop="url">Elasticsearch 深分页问题详解</a>
+        </h2>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-10-07 15:28:53" itemprop="dateCreated datePublished" datetime="2026-10-07T15:28:53+08:00">2026-10-07</time>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>5.2k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>19 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody">
+          <h2 id="1-什么是深分页问题"><a href="#1-什么是深分页问题" class="headerlink" title="1. 什么是深分页问题"></a>1. 什么是深分页问题</h2><p>在 Elasticsearch 中执行分页查询时，如果 <code>from + size</code> 超过 10000，会直接报错：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">Result window is too large, from + size must be less than or equal to: [10000]</span><br></pre></td></tr></table></figure>
+
+<p>例如：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">GET /products/_search</span><br><span class="line">&#123;</span><br><span class="line">  <span class="string">&quot;from&quot;</span>: 9990,</span><br><span class="line">  <span class="string">&quot;size&quot;</span>: 20,</span><br><span class="line">  <span class="string">&quot;query&quot;</span>: &#123; <span class="string">&quot;match_all&quot;</span>: &#123;&#125; &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><code>from + size = 10010 &gt; 10000</code>，直接报错。</p>
+<p>这就是 <strong>深分页问题</strong>。</p>
+<hr>
+<h2 id="2-为什么-from-size-深分页会报错"><a href="#2-为什么-from-size-深分页会报错" class="headerlink" title="2. 为什么 from + size 深分页会报错"></a>2. 为什么 from + size 深分页会报错</h2><h3 id="2-1-分布式分页的执行过程"><a href="#2-1-分布式分页的执行过程" class="headerlink" title="2.1 分布式分页的执行过程"></a>2.1 分布式分页的执行过程</h3><p>ES 是分布式的，数据分散在多个分片上。假设索引有 <strong>5 个分片</strong>，每个分片 100 万条数据，要查 <code>from=9990, size=10</code>（第 9991~10000 条）。</p>
+<pre class="mermaid">flowchart TB
+    Client[客户端请求&lt;br/>from=9990, size=10] --> Coord[协调节点 Coordinating Node]
+    Coord --> S1[分片1&lt;br/>取前10000条]
+    Coord --> S2[分片2&lt;br/>取前10000条]
+    Coord --> S3[分片3&lt;br/>取前10000条]
+    Coord --> S4[分片4&lt;br/>取前10000条]
+    Coord --> S5[分片5&lt;br/>取前10000条]
+    S1 --> Merge[协调节点汇总&lt;br/>5 × 10000 = 50000 条]
+    S2 --> Merge
+    S3 --> Merge
+    S4 --> Merge
+    S5 --> Merge
+    Merge --> Sort[内存中全局排序]
+    Sort --> Drop[丢弃前 9990 条]
+    Drop --> Result[返回第 9991~10000 条]</pre>
+
+<h3 id="2-2-问题本质"><a href="#2-2-问题本质" class="headerlink" title="2.2 问题本质"></a>2.2 问题本质</h3><table>
+<thead>
+<tr>
+<th>问题</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>每个分片都要吐出前 N 条</td>
+<td>N &#x3D; from + size，分片越多，浪费越大</td>
+</tr>
+<tr>
+<td>协调节点要汇总</td>
+<td>汇总数据量 &#x3D; 分片数 × N</td>
+</tr>
+<tr>
+<td>全局排序</td>
+<td>在内存里对海量数据排序，CPU、内存飙升</td>
+</tr>
+<tr>
+<td>最后只返回少量</td>
+<td>排序结果里绝大部分被丢弃</td>
+</tr>
+</tbody></table>
+<p>翻得越深，协调节点的内存和 CPU 压力越大，高并发下直接 OOM。</p>
+<h3 id="2-3-一个直观的例子"><a href="#2-3-一个直观的例子" class="headerlink" title="2.3 一个直观的例子"></a>2.3 一个直观的例子</h3><table>
+<thead>
+<tr>
+<th>from</th>
+<th>size</th>
+<th>每个分片返回</th>
+<th>5 分片汇总</th>
+<th>最终返回</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>0</td>
+<td>10</td>
+<td>10</td>
+<td>50</td>
+<td>10</td>
+</tr>
+<tr>
+<td>990</td>
+<td>10</td>
+<td>1000</td>
+<td>5000</td>
+<td>10</td>
+</tr>
+<tr>
+<td>9990</td>
+<td>10</td>
+<td>10000</td>
+<td>50000</td>
+<td>10</td>
+</tr>
+<tr>
+<td>999990</td>
+<td>10</td>
+<td>1000000</td>
+<td>5000000</td>
+<td>10</td>
+</tr>
+</tbody></table>
+<p><strong>最终只返回 10 条，却让每个分片都吐出 100 万条</strong>——这就是深分页的代价。</p>
+<h3 id="2-4-保护机制"><a href="#2-4-保护机制" class="headerlink" title="2.4 保护机制"></a>2.4 保护机制</h3><p>ES 通过索引设置 <code>index.max_result_window</code>（默认 10000）限制 <code>from + size</code> 的最大值：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">GET /products/_settings?include_defaults=<span class="literal">true</span></span><br><span class="line"><span class="comment"># 默认结果</span></span><br><span class="line"><span class="comment"># &quot;index&quot;: &#123; &quot;max_result_window&quot;: &quot;10000&quot; &#125;</span></span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="3-为什么不建议直接调大-max-result-window"><a href="#3-为什么不建议直接调大-max-result-window" class="headerlink" title="3. 为什么不建议直接调大 max_result_window"></a>3. 为什么不建议直接调大 max_result_window</h2><p>可以调大，但<strong>强烈不推荐</strong>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">PUT /products/_settings</span><br><span class="line">&#123;</span><br><span class="line">  <span class="string">&quot;index.max_result_window&quot;</span>: 100000</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>调大后的后果：</p>
+<pre class="mermaid">flowchart TB
+    Big[调大 max_result_window] --> P1[每个分片返回更多数据]
+    P1 --> P2[协调节点汇总数据量暴增]
+    P2 --> P3[堆内存飙升]
+    P3 --> P4[GC 频繁 / 查询变慢]
+    P4 --> P5[高并发下 OOM]
+    P5 --> P6[集群不可用]</pre>
+
+<table>
+<thead>
+<tr>
+<th>问题</th>
+<th>后果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>堆内存占用</td>
+<td>每个分片都要缓存大量数据</td>
+</tr>
+<tr>
+<td>排序开销</td>
+<td>全局排序的文档数线性增长</td>
+</tr>
+<tr>
+<td>网络开销</td>
+<td>分片到协调节点传输大量数据</td>
+</tr>
+<tr>
+<td>稳定性</td>
+<td>高并发下容易 OOM、拖垮集群</td>
+</tr>
+</tbody></table>
+<p><strong>正确做法</strong>：用 <code>search_after</code>、<code>scroll</code>、<code>PIT + search_after</code> 替代深分页。</p>
+<hr>
+<h2 id="4-方案一：search-after"><a href="#4-方案一：search-after" class="headerlink" title="4. 方案一：search_after"></a>4. 方案一：search_after</h2><h3 id="4-1-核心思想"><a href="#4-1-核心思想" class="headerlink" title="4.1 核心思想"></a>4.1 核心思想</h3><p>不要“跳过前 N 条”，而是<strong>“从上一页最后一条之后继续取”</strong>。</p>
+<p>类比：</p>
+<ul>
+<li><code>from + size</code>：翻书到第 1000 页，得从第 1 页开始数。</li>
+<li><code>search_after</code>：我记得上次读到哪一行了，直接从下一行继续。</li>
+</ul>
+<pre class="mermaid">flowchart LR
+    subgraph Page1["第 1 页"]
+        A1[第1条] --> A2[第2条] --> A3[第3条] --> A4[第4条] --> A5[第5条]
+    end
+    A5 -->|sort 值作书签| B1[search_after = 第5条的 sort 值]
+    B1 --> Page2["第 2 页：从书签之后继续取"]</pre>
+
+<h3 id="4-2-使用前提：必须有唯一排序字段"><a href="#4-2-使用前提：必须有唯一排序字段" class="headerlink" title="4.2 使用前提：必须有唯一排序字段"></a>4.2 使用前提：必须有唯一排序字段</h3><p><code>search_after</code> 依赖一个<strong>稳定、唯一</strong>的排序值作为“书签”。如果排序值有重复，翻页会丢数据或重复。</p>
+<p>推荐用<strong>业务唯一 ID + 排序字段</strong>组合：</p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">&quot;sort&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span></span><br><span class="line">  <span class="punctuation">&#123;</span> <span class="attr">&quot;price&quot;</span><span class="punctuation">:</span>      <span class="punctuation">&#123;</span> <span class="attr">&quot;order&quot;</span><span class="punctuation">:</span> <span class="string">&quot;asc&quot;</span> <span class="punctuation">&#125;</span> <span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">  <span class="punctuation">&#123;</span> <span class="attr">&quot;product_id&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;order&quot;</span><span class="punctuation">:</span> <span class="string">&quot;asc&quot;</span> <span class="punctuation">&#125;</span> <span class="punctuation">&#125;</span></span><br><span class="line"><span class="punctuation">]</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="4-3-完整示例"><a href="#4-3-完整示例" class="headerlink" title="4.3 完整示例"></a>4.3 完整示例</h3><p><strong>准备数据（示例）：</strong></p>
+<table>
+<thead>
+<tr>
+<th>product_id</th>
+<th>price</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>P001</td>
+<td>39.00</td>
+</tr>
+<tr>
+<td>P002</td>
+<td>499.00</td>
+</tr>
+<tr>
+<td>P003</td>
+<td>3999.00</td>
+</tr>
+<tr>
+<td>P004</td>
+<td>5999.00</td>
+</tr>
+<tr>
+<td>P005</td>
+<td>6499.00</td>
+</tr>
+<tr>
+<td>P006</td>
+<td>6999.00</td>
+</tr>
+<tr>
+<td>P007</td>
+<td>7999.00</td>
+</tr>
+<tr>
+<td>P008</td>
+<td>8999.00</td>
+</tr>
+<tr>
+<td>P009</td>
+<td>9999.00</td>
+</tr>
+<tr>
+<td>P010</td>
+<td>10999.00</td>
+</tr>
+</tbody></table>
+<p><strong>第一页：</strong></p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">GET /products/_search</span><br><span class="line">&#123;</span><br><span class="line">  <span class="string">&quot;size&quot;</span>: 5,</span><br><span class="line">  <span class="string">&quot;query&quot;</span>: &#123; <span class="string">&quot;match_all&quot;</span>: &#123;&#125; &#125;,</span><br><span class="line">  <span class="string">&quot;sort&quot;</span>: [</span><br><span class="line">    &#123; <span class="string">&quot;price&quot;</span>:      &#123; <span class="string">&quot;order&quot;</span>: <span class="string">&quot;asc&quot;</span> &#125; &#125;,</span><br><span class="line">    &#123; <span class="string">&quot;product_id&quot;</span>: &#123; <span class="string">&quot;order&quot;</span>: <span class="string">&quot;asc&quot;</span> &#125; &#125;</span><br><span class="line">  ]</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>返回：</p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="punctuation">&#123;</span></span><br><span class="line">  <span class="attr">&quot;hits&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">    <span class="attr">&quot;hits&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span></span><br><span class="line">      <span class="punctuation">&#123;</span> <span class="attr">&quot;_source&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;product_id&quot;</span><span class="punctuation">:</span> <span class="string">&quot;P001&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;price&quot;</span><span class="punctuation">:</span> <span class="number">39.00</span> <span class="punctuation">&#125;</span><span class="punctuation">,</span>   <span class="attr">&quot;sort&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span><span class="number">39.00</span><span class="punctuation">,</span>   <span class="string">&quot;P001&quot;</span><span class="punctuation">]</span> <span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">      <span class="punctuation">&#123;</span> <span class="attr">&quot;_source&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;product_id&quot;</span><span class="punctuation">:</span> <span class="string">&quot;P002&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;price&quot;</span><span class="punctuation">:</span> <span class="number">499.00</span> <span class="punctuation">&#125;</span><span class="punctuation">,</span>  <span class="attr">&quot;sort&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span><span class="number">499.00</span><span class="punctuation">,</span>  <span class="string">&quot;P002&quot;</span><span class="punctuation">]</span> <span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">      <span class="punctuation">&#123;</span> <span class="attr">&quot;_source&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;product_id&quot;</span><span class="punctuation">:</span> <span class="string">&quot;P003&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;price&quot;</span><span class="punctuation">:</span> <span class="number">3999.00</span> <span class="punctuation">&#125;</span><span class="punctuation">,</span> <span class="attr">&quot;sort&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span><span class="number">3999.00</span><span class="punctuation">,</span> <span class="string">&quot;P003&quot;</span><span class="punctuation">]</span> <span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">      <span class="punctuation">&#123;</span> <span class="attr">&quot;_source&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;product_id&quot;</span><span class="punctuation">:</span> <span class="string">&quot;P004&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;price&quot;</span><span class="punctuation">:</span> <span class="number">5999.00</span> <span class="punctuation">&#125;</span><span class="punctuation">,</span> <span class="attr">&quot;sort&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span><span class="number">5999.00</span><span class="punctuation">,</span> <span class="string">&quot;P004&quot;</span><span class="punctuation">]</span> <span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">      <span class="punctuation">&#123;</span> <span class="attr">&quot;_source&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;product_id&quot;</span><span class="punctuation">:</span> <span class="string">&quot;P005&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;price&quot;</span><span class="punctuation">:</span> <span class="number">6499.00</span> <span class="punctuation">&#125;</span><span class="punctuation">,</span> <span class="attr">&quot;sort&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span><span class="number">6499.00</span><span class="punctuation">,</span> <span class="string">&quot;P005&quot;</span><span class="punctuation">]</span> <span class="punctuation">&#125;</span></span><br><span class="line">    <span class="punctuation">]</span></span><br><span class="line">  <span class="punctuation">&#125;</span></span><br><span class="line"><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+
+<p>注意：每条命中都有一个 <code>sort</code> 数组，这就是<strong>“书签”</strong>。</p>
+<p><strong>第二页：把上一页最后一条的 <code>sort</code> 值放进 <code>search_after</code></strong></p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">GET /products/_search</span><br><span class="line">&#123;</span><br><span class="line">  <span class="string">&quot;size&quot;</span>: 5,</span><br><span class="line">  <span class="string">&quot;query&quot;</span>: &#123; <span class="string">&quot;match_all&quot;</span>: &#123;&#125; &#125;,</span><br><span class="line">  <span class="string">&quot;sort&quot;</span>: [</span><br><span class="line">    &#123; <span class="string">&quot;price&quot;</span>:      &#123; <span class="string">&quot;order&quot;</span>: <span class="string">&quot;asc&quot;</span> &#125; &#125;,</span><br><span class="line">    &#123; <span class="string">&quot;product_id&quot;</span>: &#123; <span class="string">&quot;order&quot;</span>: <span class="string">&quot;asc&quot;</span> &#125; &#125;</span><br><span class="line">  ],</span><br><span class="line">  <span class="string">&quot;search_after&quot;</span>: [6499.00, <span class="string">&quot;P005&quot;</span>]</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>返回 <code>price=6499, product_id &gt; P005</code> 之后的 5 条：P006~P010。</p>
+<p><strong>第三页：再用第二页最后一条的 <code>sort</code> 值继续</strong></p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">GET /products/_search</span><br><span class="line">&#123;</span><br><span class="line">  <span class="string">&quot;size&quot;</span>: 5,</span><br><span class="line">  <span class="string">&quot;query&quot;</span>: &#123; <span class="string">&quot;match_all&quot;</span>: &#123;&#125; &#125;,</span><br><span class="line">  <span class="string">&quot;sort&quot;</span>: [</span><br><span class="line">    &#123; <span class="string">&quot;price&quot;</span>:      &#123; <span class="string">&quot;order&quot;</span>: <span class="string">&quot;asc&quot;</span> &#125; &#125;,</span><br><span class="line">    &#123; <span class="string">&quot;product_id&quot;</span>: &#123; <span class="string">&quot;order&quot;</span>: <span class="string">&quot;asc&quot;</span> &#125; &#125;</span><br><span class="line">  ],</span><br><span class="line">  <span class="string">&quot;search_after&quot;</span>: [10999.00, <span class="string">&quot;P010&quot;</span>]</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h3 id="4-4-客户端执行过程"><a href="#4-4-客户端执行过程" class="headerlink" title="4.4 客户端执行过程"></a>4.4 客户端执行过程</h3><pre class="mermaid">sequenceDiagram
+    participant C as 客户端
+    participant ES as Elasticsearch
+    C->>ES: 第 1 页查询（无 search_after）
+    ES-->>C: 返回 5 条 + 每条 sort 值
+    Note over C: 保存最后一条的 sort 值
+    C->>ES: 第 2 页查询（search_after = 上页最后 sort）
+    ES-->>C: 返回后 5 条 + 每条 sort 值
+    Note over C: 更新书签
+    C->>ES: 第 3 页查询（search_after = 上页最后 sort）
+    ES-->>C: 继续返回</pre>
+
+<h3 id="4-5-分布式取数过程"><a href="#4-5-分布式取数过程" class="headerlink" title="4.5 分布式取数过程"></a>4.5 分布式取数过程</h3><p><code>search_after</code> 每次请求都是<strong>独立的分布式查询</strong>，不依赖前一次的搜索上下文。因为书签已经过滤掉了“书签之前”的数据，每个分片只需要返回 <code>size</code> 条。</p>
+<p><strong>第一页请求（无 search_after）：</strong></p>
+<pre class="mermaid">flowchart TB
+    Client["客户端&lt;br/>size=5, sort=[price, product_id]"] --> Coord[协调节点]
+
+    Coord --> S1["分片1&lt;br/>本地排序后取前 5 条"]
+    Coord --> S2["分片2&lt;br/>本地排序后取前 5 条"]
+    Coord --> S3["分片3&lt;br/>本地排序后取前 5 条"]
+
+    S1 --> M["协调节点汇总&lt;br/>5+5+5 = 15 条"]
+    S2 --> M
+    S3 --> M
+
+    M --> Sort["全局排序"]
+    Sort --> Take["取前 5 条返回"]
+    Take --> Result["返回：P001~P005&lt;br/>最后一条 sort=[6499, P005]"]</pre>
+
+<p><strong>第二页请求（带 search_after）：</strong></p>
+<pre class="mermaid">flowchart TB
+    Client["客户端&lt;br/>size=5&lt;br/>search_after=[6499, P005]"] --> Coord[协调节点]
+
+    Coord --> S1["分片1&lt;br/>过滤掉 ≤ [6499,P005] 的&lt;br/>本地取前 5 条"]
+    Coord --> S2["分片2&lt;br/>过滤掉 ≤ [6499,P005] 的&lt;br/>本地取前 5 条"]
+    Coord --> S3["分片3&lt;br/>过滤掉 ≤ [6499,P005] 的&lt;br/>本地取前 5 条"]
+
+    S1 --> M["协调节点汇总&lt;br/>最多 15 条"]
+    S2 --> M
+    S3 --> M
+
+    M --> Sort["全局排序"]
+    Sort --> Take["取前 5 条返回"]
+    Take --> Result["返回：P006~P010&lt;br/>最后一条 sort=[10999, P010]"]</pre>
+
+<p><strong>关键点</strong>：</p>
+<ul>
+<li>每个分片先根据 <code>search_after</code> 过滤掉已经翻过的数据。</li>
+<li>每个分片仍然只返回 <strong>size 条</strong>，不是 from+size 条。</li>
+<li>协调节点汇总后全局排序，取前 size 条。</li>
+<li><strong>无论翻到第几页，每个分片返回的数据量都是 size 条，与页码无关</strong>，所以性能恒定。</li>
+</ul>
+<p><strong>与 from + size 的取数差异对比：</strong></p>
+<pre class="mermaid">flowchart LR
+    subgraph FS["from + size（第 1000 页）"]
+        F1["分片1&lt;br/>取前 10000 条"] --> FM["汇总 30000 条&lt;br/>全局排序后丢弃 9990 条"]
+        F2["分片2&lt;br/>取前 10000 条"] --> FM
+        F3["分片3&lt;br/>取前 10000 条"] --> FM
+    end
+
+    subgraph SA["search_after（第 1000 页）"]
+        A1["分片1&lt;br/>过滤后取 10 条"] --> AM["汇总 ≤30 条&lt;br/>全局排序取前 10 条"]
+        A2["分片2&lt;br/>过滤后取 10 条"] --> AM
+        A3["分片3&lt;br/>过滤后取 10 条"] --> AM
+    end</pre>
+
+<h3 id="4-6-特点"><a href="#4-6-特点" class="headerlink" title="4.6 特点"></a>4.6 特点</h3><table>
+<thead>
+<tr>
+<th>特性</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>翻页方式</td>
+<td>只能<strong>一页一页往后翻</strong>，不能跳页</td>
+</tr>
+<tr>
+<td>数据实时性</td>
+<td>每次查询实时，能看到新写入的数据</td>
+</tr>
+<tr>
+<td>性能</td>
+<td>每页开销恒定，与页码深度无关</td>
+</tr>
+<tr>
+<td>内存</td>
+<td>不需要协调节点缓存大量数据</td>
+</tr>
+<tr>
+<td>分片状态</td>
+<td>不保存任何搜索上下文，无状态</td>
+</tr>
+<tr>
+<td>适用场景</td>
+<td><strong>App 无限滚动、下拉加载更多、逐页浏览</strong></td>
+</tr>
+</tbody></table>
+<h3 id="4-7-缺点"><a href="#4-7-缺点" class="headerlink" title="4.7 缺点"></a>4.7 缺点</h3><ul>
+<li>不能跳页（用户不能点“第 100 页”）。</li>
+<li>排序字段必须唯一稳定，否则会漏数据或重复。</li>
+<li>前端需要保存上一页最后一条的 <code>sort</code> 值。</li>
+</ul>
+<hr>
+<h2 id="5-方案二：scroll"><a href="#5-方案二：scroll" class="headerlink" title="5. 方案二：scroll"></a>5. 方案二：scroll</h2><h3 id="5-1-核心思想"><a href="#5-1-核心思想" class="headerlink" title="5.1 核心思想"></a>5.1 核心思想</h3><p><code>scroll</code> 相当于给索引<strong>拍一张快照</strong>，然后反复从这个快照里一批一批地取数据。</p>
+<p>类比：</p>
+<ul>
+<li><code>search_after</code>：一边看书一边翻，书的内容可能被人改了。</li>
+<li><code>scroll</code>：先把整本书复印一份，然后慢慢读复印件，不管原书怎么变。</li>
+</ul>
+<pre class="mermaid">flowchart TB
+    Init[创建 scroll 快照] --> Snapshot[ES 生成数据快照&lt;br/>_scroll_id = ABC]
+    Snapshot --> Batch1[用 _scroll_id 取第 1 批]
+    Batch1 --> Batch2[用新的 _scroll_id 取第 2 批]
+    Batch2 --> Batch3[继续取第 3 批...]
+    Batch3 --> Empty[直到 hits 为空]
+    Empty --> Clear[手动删除 scroll]</pre>
+
+<h3 id="5-2-完整示例"><a href="#5-2-完整示例" class="headerlink" title="5.2 完整示例"></a>5.2 完整示例</h3><p><strong>第一步：创建 scroll 快照</strong></p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">POST /products/_search?scroll=1m</span><br><span class="line">&#123;</span><br><span class="line">  <span class="string">&quot;size&quot;</span>: 5,</span><br><span class="line">  <span class="string">&quot;query&quot;</span>: &#123; <span class="string">&quot;match_all&quot;</span>: &#123;&#125; &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li><code>scroll=1m</code>：快照保留 1 分钟，每次继续取会刷新这个时间。</li>
+<li>返回结果里带一个 <code>_scroll_id</code>：</li>
+</ul>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="punctuation">&#123;</span></span><br><span class="line">  <span class="attr">&quot;_scroll_id&quot;</span><span class="punctuation">:</span> <span class="string">&quot;DXF1ZXJ5QW5kRmV0Y2gBAAAAAA...&quot;</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;hits&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">    <span class="attr">&quot;total&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;value&quot;</span><span class="punctuation">:</span> <span class="number">10000</span><span class="punctuation">,</span> <span class="attr">&quot;relation&quot;</span><span class="punctuation">:</span> <span class="string">&quot;eq&quot;</span> <span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">    <span class="attr">&quot;hits&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span> ... 第一批 <span class="number">5</span> 条 ... <span class="punctuation">]</span></span><br><span class="line">  <span class="punctuation">&#125;</span></span><br><span class="line"><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>第二步：用 <code>_scroll_id</code> 继续取下一批</strong></p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">POST /_search/scroll</span><br><span class="line">&#123;</span><br><span class="line">  <span class="string">&quot;scroll&quot;</span>: <span class="string">&quot;1m&quot;</span>,</span><br><span class="line">  <span class="string">&quot;scroll_id&quot;</span>: <span class="string">&quot;DXF1ZXJ5QW5kRmV0Y2gBAAAAAA...&quot;</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>返回下一批 5 条，**同时返回新的 <code>_scroll_id</code>**，下次继续用新的。</p>
+<p><strong>第三步：重复第二步，直到 <code>hits.hits</code> 为空数组</strong></p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="punctuation">&#123;</span></span><br><span class="line">  <span class="attr">&quot;_scroll_id&quot;</span><span class="punctuation">:</span> <span class="string">&quot;...&quot;</span><span class="punctuation">,</span></span><br><span class="line">  <span class="attr">&quot;hits&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">    <span class="attr">&quot;hits&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span><span class="punctuation">]</span></span><br><span class="line">  <span class="punctuation">&#125;</span></span><br><span class="line"><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>第四步：显式清理 scroll（好习惯）</strong></p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">DELETE /_search/scroll</span><br><span class="line">&#123;</span><br><span class="line">  <span class="string">&quot;scroll_id&quot;</span>: <span class="string">&quot;DXF1ZXJ5QW5kRmV0Y2gBAAAAAA...&quot;</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>或清理所有：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">DELETE /_search/scroll/_all</span><br></pre></td></tr></table></figure>
+
+<h3 id="5-3-客户端执行过程"><a href="#5-3-客户端执行过程" class="headerlink" title="5.3 客户端执行过程"></a>5.3 客户端执行过程</h3><pre class="mermaid">sequenceDiagram
+    participant C as 客户端
+    participant ES as Elasticsearch
+    C->>ES: POST /_search?scroll=1m
+    ES-->>C: 快照 + _scroll_id + 第 1 批
+    loop 直到 hits 为空
+        C->>ES: POST /_search/scroll（带 _scroll_id）
+        ES-->>C: 新 _scroll_id + 下一批
+    end
+    C->>ES: DELETE /_search/scroll
+    ES-->>C: 快照释放</pre>
+
+<h3 id="5-4-分布式取数过程"><a href="#5-4-分布式取数过程" class="headerlink" title="5.4 分布式取数过程"></a>5.4 分布式取数过程</h3><p><code>scroll</code> 最大的特点是：<strong>第一次请求时，每个分片会创建一个搜索上下文（search context）</strong>，保存当时的数据视图（快照），并维护自己的游标位置。之后每次请求都从各分片的上下文里继续取。</p>
+<p><strong>初始化：创建 scroll 快照</strong></p>
+<pre class="mermaid">flowchart TB
+    Client["客户端&lt;br/>POST /_search?scroll=1m&lt;br/>size=5"] --> Coord[协调节点]
+
+    Coord --> S1["分片1&lt;br/>创建搜索上下文&lt;br/>快照 + 游标位置=0"]
+    Coord --> S2["分片2&lt;br/>创建搜索上下文&lt;br/>快照 + 游标位置=0"]
+    Coord --> S3["分片3&lt;br/>创建搜索上下文&lt;br/>快照 + 游标位置=0"]
+
+    S1 --> R1["返回本地前 5 条"]
+    S2 --> R2["返回本地前 5 条"]
+    S3 --> R3["返回本地前 5 条"]
+
+    R1 --> Merge["协调节点合并&lt;br/>返回第 1 批"]
+    R2 --> Merge
+    R3 --> Merge
+
+    Merge --> Result["返回 _scroll_id + 第 1 批"]</pre>
+
+<p><strong>后续 scroll 请求</strong></p>
+<pre class="mermaid">flowchart TB
+    Client["客户端&lt;br/>POST /_search/scroll&lt;br/>scroll_id=ABC"] --> Coord[协调节点]
+
+    Coord -->|"scroll_id=ABC"| S1["分片1&lt;br/>从游标位置继续取 5 条&lt;br/>游标 += 5"]
+    Coord -->|"scroll_id=ABC"| S2["分片2&lt;br/>从游标位置继续取 5 条&lt;br/>游标 += 5"]
+    Coord -->|"scroll_id=ABC"| S3["分片3&lt;br/>从游标位置继续取 5 条&lt;br/>游标 += 5"]
+
+    S1 --> Merge["协调节点合并&lt;br/>返回下一批"]
+    S2 --> Merge
+    S3 --> Merge
+
+    Merge --> Result["返回新 _scroll_id + 下一批"]</pre>
+
+<p><strong>多次迭代的完整时序</strong></p>
+<pre class="mermaid">sequenceDiagram
+    participant C as 客户端
+    participant Coord as 协调节点
+    participant S1 as 分片1
+    participant S2 as 分片2
+    participant S3 as 分片3
+
+    C->>Coord: POST /_search?scroll=1m
+    Coord->>S1: 创建上下文 + 取第1批
+    Coord->>S2: 创建上下文 + 取第1批
+    Coord->>S3: 创建上下文 + 取第1批
+    S1-->>Coord: 第1批
+    S2-->>Coord: 第1批
+    S3-->>Coord: 第1批
+    Coord-->>C: _scroll_id + 第1批
+
+    C->>Coord: POST /_search/scroll (scroll_id)
+    Coord->>S1: 游标继续取第2批
+    Coord->>S2: 游标继续取第2批
+    Coord->>S3: 游标继续取第2批
+    S1-->>Coord: 第2批
+    S2-->>Coord: 第2批
+    S3-->>Coord: 第2批
+    Coord-->>C: 新 _scroll_id + 第2批
+
+    C->>Coord: ...继续...
+    C->>Coord: DELETE /_search/scroll
+    Coord->>S1: 释放上下文
+    Coord->>S2: 释放上下文
+    Coord->>S3: 释放上下文</pre>
+
+<p><strong>快照与实时写入的关系</strong></p>
+<pre class="mermaid">flowchart LR
+    subgraph Snapshot["scroll 快照（固定视图）"]
+        D1["文档 A"]
+        D2["文档 B"]
+        D3["文档 C"]
+    end
+
+    subgraph RealTime["索引实时状态"]
+        D1
+        D2
+        D3
+        D4["新写入文档 D（快照看不到）"]
+        D5["新写入文档 E（快照看不到）"]
+    end
+
+    Snapshot -.->|"scroll 只读快照"| Result["scroll 返回结果&lt;br/>不含 D、E"]</pre>
+
+<p><strong>关键点</strong>：</p>
+<ul>
+<li>每个分片保存一个<strong>独立的数据视图</strong>（快照）。</li>
+<li>每个分片记录自己的游标位置，后续从自己的位置继续取。</li>
+<li>协调节点<strong>不排序</strong>，只按分片顺序合并。</li>
+<li>每次请求返回一批，直到所有分片都取完。</li>
+</ul>
+<h3 id="5-5-特点"><a href="#5-5-特点" class="headerlink" title="5.5 特点"></a>5.5 特点</h3><table>
+<thead>
+<tr>
+<th>特性</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>数据视图</td>
+<td><strong>快照</strong>，创建后新写入的数据看不到</td>
+</tr>
+<tr>
+<td>翻页方式</td>
+<td>只能顺序往后取，不能跳页</td>
+</tr>
+<tr>
+<td>性能</td>
+<td>适合大批量读取，每批开销稳定</td>
+</tr>
+<tr>
+<td>资源</td>
+<td>快照期间占用资源，需超时并主动清理</td>
+</tr>
+<tr>
+<td>分片状态</td>
+<td>每个分片保存搜索上下文 + 游标位置</td>
+</tr>
+<tr>
+<td>适用场景</td>
+<td><strong>数据导出、全量同步、批量重建索引、离线分析</strong></td>
+</tr>
+</tbody></table>
+<h3 id="5-6-缺点"><a href="#5-6-缺点" class="headerlink" title="5.6 缺点"></a>5.6 缺点</h3><ul>
+<li>数据不实时（快照）。</li>
+<li>占用资源，超时未清理会一直挂着。</li>
+<li>不适合 Web 端实时分页。</li>
+</ul>
+<hr>
+<h2 id="6-方案三：PIT-search-after"><a href="#6-方案三：PIT-search-after" class="headerlink" title="6. 方案三：PIT + search_after"></a>6. 方案三：PIT + search_after</h2><h3 id="6-1-核心思想"><a href="#6-1-核心思想" class="headerlink" title="6.1 核心思想"></a>6.1 核心思想</h3><p><code>scroll</code> 是快照，但不实时、占资源；<code>search_after</code> 实时、快，但没有快照一致性。</p>
+<p><strong>Point In Time（PIT）</strong> 是 ES 7.10 引入的方案，把两者的优点结合：</p>
+<ul>
+<li>有快照一致性（同一个 PIT 内数据视图固定）。</li>
+<li>又可以用 <code>search_after</code> 高效翻页。</li>
+<li>比 <code>scroll</code> 更轻量。</li>
+</ul>
+<pre class="mermaid">flowchart TB
+    Open[打开 PIT] --> PIT[PIT id + 数据视图固定]
+    PIT --> Query1[PIT + search_after 查第 1 页]
+    Query1 --> Query2[PIT + search_after 查第 2 页]
+    Query2 --> Query3[继续...]
+    Query3 --> Close[关闭 PIT]</pre>
+
+<h3 id="6-2-完整示例"><a href="#6-2-完整示例" class="headerlink" title="6.2 完整示例"></a>6.2 完整示例</h3><p><strong>第一步：创建 PIT</strong></p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">POST /products/_pit?keep_alive=1m</span><br></pre></td></tr></table></figure>
+
+<p>返回：</p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="punctuation">&#123;</span></span><br><span class="line">  <span class="attr">&quot;id&quot;</span><span class="punctuation">:</span> <span class="string">&quot;46ToAwMHANIDXhlbGxvX3dvcmxk...&quot;</span></span><br><span class="line"><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>第二步：用 PIT + search_after 查询</strong></p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">GET /_search</span><br><span class="line">&#123;</span><br><span class="line">  <span class="string">&quot;size&quot;</span>: 5,</span><br><span class="line">  <span class="string">&quot;query&quot;</span>: &#123; <span class="string">&quot;match_all&quot;</span>: &#123;&#125; &#125;,</span><br><span class="line">  <span class="string">&quot;pit&quot;</span>: &#123;</span><br><span class="line">    <span class="string">&quot;id&quot;</span>: <span class="string">&quot;46ToAwMHANIDXhlbGxvX3dvcmxk...&quot;</span>,</span><br><span class="line">    <span class="string">&quot;keep_alive&quot;</span>: <span class="string">&quot;1m&quot;</span></span><br><span class="line">  &#125;,</span><br><span class="line">  <span class="string">&quot;sort&quot;</span>: [</span><br><span class="line">    &#123; <span class="string">&quot;price&quot;</span>:      &#123; <span class="string">&quot;order&quot;</span>: <span class="string">&quot;asc&quot;</span> &#125; &#125;,</span><br><span class="line">    &#123; <span class="string">&quot;product_id&quot;</span>: &#123; <span class="string">&quot;order&quot;</span>: <span class="string">&quot;asc&quot;</span> &#125; &#125;</span><br><span class="line">  ],</span><br><span class="line">  <span class="string">&quot;search_after&quot;</span>: [6499.00, <span class="string">&quot;P005&quot;</span>]</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>第三步：继续用返回的 PIT id 和新的 search_after 翻页</strong></p>
+<p>注意：<strong>同一个 PIT 内，<code>pit.id</code> 保持不变</strong>，每次刷新 <code>keep_alive</code>。</p>
+<p><strong>第四步：用完关闭 PIT</strong></p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">DELETE /_search/point_in_time</span><br><span class="line">&#123;</span><br><span class="line">  <span class="string">&quot;id&quot;</span>: <span class="string">&quot;46ToAwMHANIDXhlbGxvX3dvcmxk...&quot;</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>或清理所有 PIT：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">DELETE /_search/point_in_time/_all</span><br></pre></td></tr></table></figure>
+
+<h3 id="6-3-客户端执行过程"><a href="#6-3-客户端执行过程" class="headerlink" title="6.3 客户端执行过程"></a>6.3 客户端执行过程</h3><pre class="mermaid">sequenceDiagram
+    participant C as 客户端
+    participant ES as Elasticsearch
+    C->>ES: POST /products/_pit
+    ES-->>C: PIT id
+    loop 翻页
+        C->>ES: GET /_search（pit.id + search_after）
+        ES-->>C: 本页数据 + 新的 sort 值
+    end
+    C->>ES: DELETE /_search/point_in_time
+    ES-->>C: PIT 释放</pre>
+
+<h3 id="6-4-分布式取数过程"><a href="#6-4-分布式取数过程" class="headerlink" title="6.4 分布式取数过程"></a>6.4 分布式取数过程</h3><p><strong>打开 PIT</strong></p>
+<p>PIT 打开时，每个分片创建一个 <strong>point-in-time 上下文</strong>，固定数据视图；但和 <code>scroll</code> 不同，<strong>PIT 不预先取数据，只固定视图</strong>。</p>
+<pre class="mermaid">flowchart TB
+    Client["客户端&lt;br/>POST /products/_pit?keep_alive=1m"] --> Coord[协调节点]
+
+    Coord --> S1["分片1&lt;br/>创建 PIT 上下文&lt;br/>固定数据视图"]
+    Coord --> S2["分片2&lt;br/>创建 PIT 上下文&lt;br/>固定数据视图"]
+    Coord --> S3["分片3&lt;br/>创建 PIT 上下文&lt;br/>固定数据视图"]
+
+    S1 --> Collect["协调节点收集各分片 PIT 上下文 ID"]
+    S2 --> Collect
+    S3 --> Collect
+
+    Collect --> Result["返回统一 PIT id&lt;br/>（内含各分片上下文引用）"]</pre>
+
+<p><strong>第一页查询（带 PIT，无 search_after）</strong></p>
+<pre class="mermaid">flowchart TB
+    Client["客户端&lt;br/>GET /_search&lt;br/>pit.id=XYZ, size=5&lt;br/>sort=[price, product_id]"] --> Coord[协调节点]
+
+    Coord -->|"pit.id=XYZ"| S1["分片1&lt;br/>在 PIT 快照内&lt;br/>本地取前 5 条"]
+    Coord -->|"pit.id=XYZ"| S2["分片2&lt;br/>在 PIT 快照内&lt;br/>本地取前 5 条"]
+    Coord -->|"pit.id=XYZ"| S3["分片3&lt;br/>在 PIT 快照内&lt;br/>本地取前 5 条"]
+
+    S1 --> M["协调节点汇总&lt;br/>5+5+5 = 15 条"]
+    S2 --> M
+    S3 --> M
+
+    M --> Sort["全局排序"]
+    Sort --> Take["取前 5 条返回"]
+    Take --> Result["返回第 1 页&lt;br/>最后一条 sort=[6499, P005]"]</pre>
+
+<p><strong>第二页查询（带 PIT + search_after）</strong></p>
+<pre class="mermaid">flowchart TB
+    Client["客户端&lt;br/>GET /_search&lt;br/>pit.id=XYZ&lt;br/>search_after=[6499, P005]&lt;br/>size=5"] --> Coord[协调节点]
+
+    Coord -->|"pit.id=XYZ"| S1["分片1&lt;br/>在 PIT 快照内&lt;br/>过滤后取 5 条"]
+    Coord -->|"pit.id=XYZ"| S2["分片2&lt;br/>在 PIT 快照内&lt;br/>过滤后取 5 条"]
+    Coord -->|"pit.id=XYZ"| S3["分片3&lt;br/>在 PIT 快照内&lt;br/>过滤后取 5 条"]
+
+    S1 --> M["协调节点汇总&lt;br/>最多 15 条"]
+    S2 --> M
+    S3 --> M
+
+    M --> Sort["全局排序"]
+    Sort --> Take["取前 5 条返回"]
+    Take --> Result["返回第 2 页&lt;br/>最后一条 sort=[10999, P010]"]</pre>
+
+<p><strong>关闭 PIT</strong></p>
+<pre class="mermaid">flowchart TB
+    Client["客户端&lt;br/>DELETE /_search/point_in_time&lt;br/>id=XYZ"] --> Coord[协调节点]
+
+    Coord --> S1["分片1&lt;br/>释放 PIT 上下文"]
+    Coord --> S2["分片2&lt;br/>释放 PIT 上下文"]
+    Coord --> S3["分片3&lt;br/>释放 PIT 上下文"]
+
+    S1 --> Result["PIT 释放完成"]
+    S2 --> Result
+    S3 --> Result</pre>
+
+<p><strong>PIT 与 scroll 的取数差异</strong></p>
+<pre class="mermaid">flowchart TB
+    subgraph Scroll["scroll 模式"]
+        SC1["每个分片预取第 1 批"]
+        SC2["游标位置保存"]
+        SC3["后续从游标继续"]
+        SC1 --> SC2 --> SC3
+    end
+
+    subgraph PIT["PIT + search_after 模式"]
+        P1["每个分片固定快照&lt;br/>不预取数据"]
+        P2["每次查询带 search_after&lt;br/>过滤后取 size 条"]
+        P3["分片不维护游标&lt;br/>靠 search_after 书签"]
+        P1 --> P2 --> P3
+    end</pre>
+
+<p><strong>关键点</strong>：</p>
+<ul>
+<li>每个分片都在<strong>同一个 PIT 快照</strong>内查询，数据视图一致。</li>
+<li>每个分片根据 <code>search_after</code> 过滤掉书签之前的数据。</li>
+<li>每个分片只返回 size 条，与页码无关。</li>
+<li>协调节点汇总后全局排序，和普通 <code>search_after</code> 一致。</li>
+</ul>
+<h3 id="6-5-特点"><a href="#6-5-特点" class="headerlink" title="6.5 特点"></a>6.5 特点</h3><table>
+<thead>
+<tr>
+<th>特性</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>数据视图</td>
+<td>PIT 打开时固定，之后新写入数据看不到</td>
+</tr>
+<tr>
+<td>翻页方式</td>
+<td>只能用 <code>search_after</code> 顺序翻页</td>
+</tr>
+<tr>
+<td>性能</td>
+<td>与 <code>search_after</code> 相当，非常快</td>
+</tr>
+<tr>
+<td>资源</td>
+<td>比 <code>scroll</code> 轻量</td>
+</tr>
+<tr>
+<td>分片状态</td>
+<td>每个分片保存 PIT 上下文</td>
+</tr>
+<tr>
+<td>适用场景</td>
+<td><strong>深分页搜索、导出、需要一致性视图的批量操作</strong></td>
+</tr>
+</tbody></table>
+<h3 id="6-6-优势"><a href="#6-6-优势" class="headerlink" title="6.6 优势"></a>6.6 优势</h3><ul>
+<li>官方推荐的深分页方案（ES 7.10+）。</li>
+<li>兼顾快照一致性和高效翻页。</li>
+<li>比 <code>scroll</code> 更省资源。</li>
+</ul>
+<hr>
+<h2 id="7-三种方案对比与选型"><a href="#7-三种方案对比与选型" class="headerlink" title="7. 三种方案对比与选型"></a>7. 三种方案对比与选型</h2><h3 id="7-1-对比表"><a href="#7-1-对比表" class="headerlink" title="7.1 对比表"></a>7.1 对比表</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>from + size</th>
+<th>search_after</th>
+<th>scroll</th>
+<th>PIT + search_after</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>最大深度</td>
+<td>≤ 10000</td>
+<td>无限制</td>
+<td>无限制</td>
+<td>无限制</td>
+</tr>
+<tr>
+<td>能否跳页</td>
+<td>✅</td>
+<td>❌</td>
+<td>❌</td>
+<td>❌</td>
+</tr>
+<tr>
+<td>数据实时性</td>
+<td>实时</td>
+<td>实时</td>
+<td>快照</td>
+<td>快照（PIT 期间）</td>
+</tr>
+<tr>
+<td>性能随深度</td>
+<td>越深越慢</td>
+<td>恒定</td>
+<td>恒定</td>
+<td>恒定</td>
+</tr>
+<tr>
+<td>分片返回数据量</td>
+<td>from + size 条</td>
+<td>size 条</td>
+<td>每批 size 条</td>
+<td>size 条</td>
+</tr>
+<tr>
+<td>协调节点汇总量</td>
+<td>分片数 × (from+size)</td>
+<td>分片数 × size</td>
+<td>分片数 × size</td>
+<td>分片数 × size</td>
+</tr>
+<tr>
+<td>是否需要全局排序</td>
+<td>是</td>
+<td>是</td>
+<td>否（按分片合并）</td>
+<td>是</td>
+</tr>
+<tr>
+<td>分片是否保存状态</td>
+<td>否</td>
+<td>否</td>
+<td>是（搜索上下文 + 游标）</td>
+<td>是（PIT 上下文）</td>
+</tr>
+<tr>
+<td>内存压力</td>
+<td>深分页时很大</td>
+<td>小</td>
+<td>中</td>
+<td>小</td>
+</tr>
+<tr>
+<td>资源清理</td>
+<td>不需要</td>
+<td>不需要</td>
+<td>需手动</td>
+<td>需手动</td>
+</tr>
+<tr>
+<td>推荐版本</td>
+<td>所有</td>
+<td>5.x+</td>
+<td>所有</td>
+<td>7.10+</td>
+</tr>
+<tr>
+<td>典型场景</td>
+<td>前几页</td>
+<td>App 无限滚动</td>
+<td>全量导出</td>
+<td>深分页搜索</td>
+</tr>
+</tbody></table>
+<h3 id="7-2-选型决策图"><a href="#7-2-选型决策图" class="headerlink" title="7.2 选型决策图"></a>7.2 选型决策图</h3><pre class="mermaid">flowchart TB
+    Q{要做什么？}
+    Q -->|只看前几页| A[from + size]
+    Q -->|App 无限滚动&lt;br/>逐页往后翻| B[search_after]
+    Q -->|全量导出&lt;br/>批量处理| C[scroll]
+    Q -->|深分页搜索&lt;br/>需要一致性视图| D[PIT + search_after]
+    A --> A1[from + size ≤ 10000]
+    B --> B1[用上一页最后一条的 sort 值作书签]
+    C --> C1[先拍快照&lt;br/>用 scroll_id 批量取]
+    D --> D1[先开 PIT&lt;br/>再 search_after 翻页]</pre>
+
+<h3 id="7-3-选型建议"><a href="#7-3-选型建议" class="headerlink" title="7.3 选型建议"></a>7.3 选型建议</h3><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>推荐方案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>用户看前几页搜索结果</td>
+<td><code>from + size</code></td>
+</tr>
+<tr>
+<td>App 下拉加载更多</td>
+<td><code>search_after</code></td>
+</tr>
+<tr>
+<td>后台管理列表翻页，页数不多</td>
+<td><code>from + size</code></td>
+</tr>
+<tr>
+<td>后台管理列表，可能翻很深</td>
+<td><code>search_after</code></td>
+</tr>
+<tr>
+<td>导出全量数据到 CSV</td>
+<td><code>scroll</code> 或 <code>PIT + search_after</code></td>
+</tr>
+<tr>
+<td>重建索引、批量 reindex</td>
+<td><code>scroll</code> 或 <code>_reindex</code> + <code>scroll</code></td>
+</tr>
+<tr>
+<td>数据同步到数据仓库</td>
+<td><code>scroll</code> 或 <code>PIT + search_after</code></td>
+</tr>
+<tr>
+<td>ES 7.10+ 的深分页搜索</td>
+<td><code>PIT + search_after</code></td>
+</tr>
+</tbody></table>
+<h3 id="7-4-一句话记住三种方案"><a href="#7-4-一句话记住三种方案" class="headerlink" title="7.4 一句话记住三种方案"></a>7.4 一句话记住三种方案</h3><ul>
+<li><strong>from + size</strong>：每个分片返回 <code>from + size</code> 条，协调节点汇总量随页码线性增长，深分页时资源爆炸。</li>
+<li><strong>search_after</strong>：每个分片先按书签过滤，只返回 <code>size</code> 条，协调节点汇总量恒定，性能与页码无关。</li>
+<li><strong>scroll</strong>：每个分片创建快照并维护游标，协调节点不排序，只按分片合并，适合批量导出，但占资源、不实时。</li>
+<li><strong>PIT + search_after</strong>：每个分片创建 PIT 快照，每次查询在快照内用 <code>search_after</code> 过滤，只返回 <code>size</code> 条，兼顾一致性和性能，是 ES 7.10+ 推荐的深分页方案。</li>
+</ul>
+<hr>
+<h2 id="8-常见问题与踩坑"><a href="#8-常见问题与踩坑" class="headerlink" title="8. 常见问题与踩坑"></a>8. 常见问题与踩坑</h2><h3 id="8-1-search-after-排序值必须唯一"><a href="#8-1-search-after-排序值必须唯一" class="headerlink" title="8.1 search_after 排序值必须唯一"></a>8.1 search_after 排序值必须唯一</h3><p>如果只用 <code>price</code> 排序，而两条记录价格相同，翻页时可能：</p>
+<ul>
+<li>漏掉某些数据。</li>
+<li>重复返回某些数据。</li>
+</ul>
+<p><strong>解决</strong>：加一个唯一字段（如 <code>_id</code> 或业务 ID）作为第二排序字段。</p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">&quot;sort&quot;</span><span class="punctuation">:</span> <span class="punctuation">[</span></span><br><span class="line">  <span class="punctuation">&#123;</span> <span class="attr">&quot;price&quot;</span><span class="punctuation">:</span>      <span class="punctuation">&#123;</span> <span class="attr">&quot;order&quot;</span><span class="punctuation">:</span> <span class="string">&quot;asc&quot;</span> <span class="punctuation">&#125;</span> <span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">  <span class="punctuation">&#123;</span> <span class="attr">&quot;product_id&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;order&quot;</span><span class="punctuation">:</span> <span class="string">&quot;asc&quot;</span> <span class="punctuation">&#125;</span> <span class="punctuation">&#125;</span></span><br><span class="line"><span class="punctuation">]</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="8-2-scroll-快照不实时"><a href="#8-2-scroll-快照不实时" class="headerlink" title="8.2 scroll 快照不实时"></a>8.2 scroll 快照不实时</h3><p><code>scroll</code> 创建后，新写入的数据<strong>看不到</strong>。如果需要实时性，改用 <code>search_after</code> 或 <code>PIT + search_after</code>。</p>
+<h3 id="8-3-scroll-忘记清理"><a href="#8-3-scroll-忘记清理" class="headerlink" title="8.3 scroll 忘记清理"></a>8.3 scroll 忘记清理</h3><p><code>scroll</code> 快照会一直占用资源，直到：</p>
+<ul>
+<li>超时（<code>scroll=1m</code> 里设定的时间）。</li>
+<li>手动 <code>DELETE /_search/scroll</code>。</li>
+</ul>
+<p><strong>建议</strong>：用完立即清理，或设置合理的超时时间。</p>
+<h3 id="8-4-PIT-忘记关闭"><a href="#8-4-PIT-忘记关闭" class="headerlink" title="8.4 PIT 忘记关闭"></a>8.4 PIT 忘记关闭</h3><p>PIT 有 <code>keep_alive</code>，超时会自动释放，但最好显式关闭：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">DELETE /_search/point_in_time</span><br><span class="line">&#123;</span><br><span class="line">  <span class="string">&quot;id&quot;</span>: <span class="string">&quot;PIT id&quot;</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h3 id="8-5-search-after-不能跳页"><a href="#8-5-search-after-不能跳页" class="headerlink" title="8.5 search_after 不能跳页"></a>8.5 search_after 不能跳页</h3><p><code>search_after</code> 只能顺序翻页。如果业务需要跳页（如“跳到第 100 页”），要么：</p>
+<ul>
+<li>业务上改成“滚动加载”。</li>
+<li>用 <code>from + size</code>（但页数不能太深）。</li>
+<li>用其他方案（如自定义游标）。</li>
+</ul>
+<h3 id="8-6-排序字段类型问题"><a href="#8-6-排序字段类型问题" class="headerlink" title="8.6 排序字段类型问题"></a>8.6 排序字段类型问题</h3><p><code>search_after</code> 的值类型必须和排序字段类型匹配。例如 <code>price</code> 是 <code>double</code>，<code>search_after</code> 里也要是数字，不能是字符串。</p>
+<h3 id="8-7-深分页-聚合"><a href="#8-7-深分页-聚合" class="headerlink" title="8.7 深分页 + 聚合"></a>8.7 深分页 + 聚合</h3><p>聚合和深分页是两回事。聚合用 <code>composite aggregation</code> 做分页，不要用 <code>from + size</code>。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">GET /products/_search</span><br><span class="line">&#123;</span><br><span class="line">  <span class="string">&quot;size&quot;</span>: 0,</span><br><span class="line">  <span class="string">&quot;aggs&quot;</span>: &#123;</span><br><span class="line">    <span class="string">&quot;my_buckets&quot;</span>: &#123;</span><br><span class="line">      <span class="string">&quot;composite&quot;</span>: &#123;</span><br><span class="line">        <span class="string">&quot;size&quot;</span>: 100,</span><br><span class="line">        <span class="string">&quot;sources&quot;</span>: [</span><br><span class="line">          &#123; <span class="string">&quot;category&quot;</span>: &#123; <span class="string">&quot;terms&quot;</span>: &#123; <span class="string">&quot;field&quot;</span>: <span class="string">&quot;category&quot;</span> &#125; &#125; &#125;</span><br><span class="line">        ]</span><br><span class="line">      &#125;</span><br><span class="line">    &#125;</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h3 id="8-8-max-result-window-调大后依然慢"><a href="#8-8-max-result-window-调大后依然慢" class="headerlink" title="8.8 max_result_window 调大后依然慢"></a>8.8 max_result_window 调大后依然慢</h3><p>即使把 <code>max_result_window</code> 调到 100 万，深分页依然慢。<strong>治标不治本</strong>，还是要用 <code>search_after</code> 或 <code>scroll</code>。</p>
+<hr>
+<h2 id="9-总结"><a href="#9-总结" class="headerlink" title="9. 总结"></a>9. 总结</h2><ul>
+<li><strong>from + size</strong>：简单，但深分页会拖垮集群，ES 用 10000 上限保护自己。</li>
+<li><strong>search_after</strong>：记住“上一页最后一条”，从它后面继续取，实时、快、无限深，适合逐页往后翻。</li>
+<li><strong>scroll</strong>：先拍快照，再慢慢批量取，适合一次性导出全量数据，但不实时、要清理。</li>
+<li><strong>PIT + search_after</strong>：ES 7.10+ 推荐方案，兼顾快照一致性和高效翻页，适合深分页搜索。</li>
+</ul>
+<p><strong>核心原则</strong>：能不用深分页就不用；必须深分页时，优先 <code>search_after</code>，导出场景用 <code>scroll</code>，需要一致性视图用 <code>PIT + search_after</code>。</p>
+
+      
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+        <div class="post-eof"></div>
+      
+    </footer>
+  </article>
+</div>
+
+
+
 
     
 
@@ -2279,176 +3208,6 @@
 
 
 
-    
-
-
-<div class="post-block">
-  
-  
-
-  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="">
-    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/6c4e0466.html">
-
-    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
-      <meta itemprop="image" content="/images/avatar.gif">
-      <meta itemprop="name" content="">
-    </span>
-
-    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
-      <meta itemprop="name" content="知行栈">
-      <meta itemprop="description" content="">
-    </span>
-
-    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
-      <meta itemprop="name" content=" | 知行栈">
-      <meta itemprop="description" content="">
-    </span>
-      <header class="post-header">
-        <h2 class="post-title" itemprop="name headline">
-          <a href="/post/6c4e0466.html" class="post-title-link" itemprop="url">Changed</a>
-        </h2>
-
-        <div class="post-meta-container">
-          <div class="post-meta">
-    <span class="post-meta-item">
-      <span class="post-meta-item-icon">
-        <i class="far fa-calendar"></i>
-      </span>
-      <span class="post-meta-item-text">Posted on</span>
-
-      <time title="Created: 2026-09-11 22:21:50" itemprop="dateCreated datePublished" datetime="2026-09-11T22:21:50+08:00">2026-09-11</time>
-    </span>
-
-  
-    <span class="post-meta-break"></span>
-    <span class="post-meta-item" title="Word count in article">
-      <span class="post-meta-item-icon">
-        <i class="far fa-file-word"></i>
-      </span>
-      <span class="post-meta-item-text">Word count in article: </span>
-      <span>5k</span>
-    </span>
-    <span class="post-meta-item" title="Reading time">
-      <span class="post-meta-item-icon">
-        <i class="far fa-clock"></i>
-      </span>
-      <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>18 mins.</span>
-    </span>
-</div>
-
-        </div>
-      </header>
-
-    
-    
-    
-    <div class="post-body" itemprop="articleBody">
-          <p>The CAP theorem asserts that any net­worked shared-data system can have only two of three desirable properties. How­ever, by explicitly handling partitions, designers can optimize consistency and availability, thereby achieving some trade-off of all three.</p>
-<p>In the decade since its introduction, designers and researchers have used (and sometimes abused) the CAP theorem as a reason to explore a wide variety of novel distributed systems. The NoSQL movement also has applied it as an argument against traditional databases.</p>
-<p>The CAP theorem states that any networked shared-data system can have at most two of three desirable properties:</p>
-<ul>
-<li>consistency (C) equivalent to having a single up-to-date copy of the data;</li>
-<li>high availability (A) of that data (for updates); and</li>
-<li>tolerance to network partitions (P).</li>
-</ul>
-<p>This expression of CAP served its purpose, which was to open the minds of designers to a wider range of systems and tradeoffs; indeed, in the past decade, a vast range of new systems has emerged, as well as much debate on the relative merits of consistency and availability. The “2 of 3” formulation was always misleading because it tended to oversimplify the tensions among properties. Now such nuances matter. CAP prohibits only a tiny part of the design space: perfect availability and consistency in the presence of partitions, which are rare.</p>
-<p>Although designers still need to choose between consistency and availability when partitions are present, there is an incredible range of flexibility for handling partitions and recovering from them. The modern CAP goal should be to maximize combinations of consistency and availability that make sense for the specific application. Such an approach incorporates plans for operation during a partition and for recovery afterward, thus helping designers think about CAP beyond its historically perceived limitations.</p>
-<h2 id="Why-“2-of-3”-is-missleading"><a href="#Why-“2-of-3”-is-missleading" class="headerlink" title="Why “2 of 3” is missleading"></a>Why “2 of 3” is missleading</h2><p>The easiest way to understand CAP is to think of two nodes on opposite sides of a partition. Allowing at least one node to update state will cause the nodes to become inconsistent, thus forfeiting C. Likewise, if the choice is to preserve consistency, one side of the partition must act as if it is unavailable, thus forfeiting A. Only when nodes communicate is it possible to preserve both consistency and availability, thereby forfeiting P. The general belief is that for wide-area systems, designers cannot forfeit P and therefore have a difficult choice between C and A. In some sense, the NoSQL movement is about creating choices that focus on availability first and consistency second; databases that adhere to ACID properties (atomicity, consistency, isolation, and durability) do the opposite. The “ACID, BASE, and CAP” sidebar explains this difference in more detail.</p>
-<p>In fact, this exact discussion led to the CAP theorem. In the mid-1990s, my colleagues and I were building a variety of cluster-based wide-area systems (essentially early cloud computing), including search engines, proxy caches, and content distribution systems.1 Because of both revenue goals and contract specifications, system availability was at a premium, so we found ourselves regularly choosing to optimize availability through strategies such as employing caches or logging updates for later reconciliation. Although these strategies did increase availability, the gain came at the cost of decreased consistency.</p>
-<p>The first version of this consistency-versus-availability argument appeared as ACID versus BASE,2 which was not well received at the time, primarily because people love the ACID properties and are hesitant to give them up. The CAP theorem’s aim was to justify the need to explore a wider design space-hence the “2 of 3” formulation. The theorem first appeared in fall 1998. It was published in 19993 and in the keynote address at the 2000 Symposium on Principles of Distributed Computing,4 which led to its proof.</p>
-<p>As the “CAP Confusion” sidebar explains, the “2 of 3” view is misleading on several fronts. First, because partitions are rare, there is little reason to forfeit C or A when the system is not partitioned. Second, the choice between C and A can occur many times within the same system at very fine granularity; not only can subsystems make different choices, but the choice can change according to the operation or even the specific data or user involved. Finally, all three properties are more continuous than binary. Availability is obviously continuous from 0 to 100 percent, but there are also many levels of consistency, and even partitions have nuances, including disagreement within the system about whether a partition exists.</p>
-<p>Exploring these nuances requires pushing the traditional way of dealing with partitions, which is the fundamental challenge. Because partitions are rare, CAP should allow perfect C and A most of the time, but when partitions are present or perceived, a strategy that detects partitions and explicitly accounts for them is in order. This strategy should have three steps: detect partitions, enter an explicit partition mode that can limit some operations, and initiate a recovery process to restore consistency and compensate for mistakes made during a partition.</p>
-<h2 id="Acid-base-and-cap"><a href="#Acid-base-and-cap" class="headerlink" title="Acid, base, and cap"></a>Acid, base, and cap</h2><p>ACID and BASE represent two design philosophies at opposite ends of the consistency-availability spectrum. The ACID properties focus on consistency and are the traditional approach of databases. My colleagues and I created BASE in the late 1990s to capture the emerging design approaches for high availability and to make explicit both the choice and the spectrum. Modern large-scale wide-area systems, including the cloud, use a mix of both approaches.</p>
-<p>Although both terms are more mnemonic than precise, the BASE acronym (being second) is a bit more awkward: Basically Available, Soft state, Eventually consistent. Soft state and eventual consistency are techniques that work well in the presence of partitions and thus promote availability.</p>
-<p>The relationship between CAP and ACID is more complex and often misunderstood, in part because the C and A in ACID represent different concepts than the same letters in CAP and in part because choosing availability affects only some of the ACID guarantees. The four ACID properties are:</p>
-<p><strong>Atomicity (A).</strong> All systems benefit from atomic operations. When the focus is availability, both sides of a partition should still use atomic operations. Moreover, higher-level atomic operations (the kind that ACID implies) actually simplify recovery.</p>
-<p><strong>Consistency (C).</strong> In ACID, the C means that a transaction pre-serves all the database rules, such as unique keys. In contrast, the C in CAP refers only to single]copy consistency, a strict subset of ACID consistency. ACID consistency also cannot be maintained across partitions.partition recovery will need to restore ACID consistency. More generally, maintaining invariants during partitions might be impossible, thus the need for careful thought about which operations to disallow and how to restore invariants during recovery.</p>
-<p><strong>Isolation (I).</strong> Isolation is at the core of the CAP theorem: if the system requires ACID isolation, it can operate on at most one side during a partition. Serializability requires communication in general and thus fails across partitions. Weaker definitions of correctness are viable across partitions via compensation during partition recovery.</p>
-<p><strong>Durability (D).</strong> As with atomicity, there is no reason to forfeit durability, although the developer might choose to avoid needing it via soft state (in the style of BASE) due to its expense. A subtle point is that, during partition recovery, it is possible to reverse durable operations that unknowingly violated an invariant during the operation. However, at the time of recovery, given a durable history from both sides, such operations can be detected and corrected. In general, running ACID transactions on each side of a partition makes recovery easier and enables a framework for compensating transactions that can be used for recovery from a partition.</p>
-<h2 id="Cap-latency-connection"><a href="#Cap-latency-connection" class="headerlink" title="Cap-latency connection"></a>Cap-latency connection</h2><p>In its classic interpretation, the CAP theorem ignores latency, although in practice, latency and partitions are deeply related. Operationally, the essence of CAP takes place during a timeout, a period when the program must make a fundamental decision-the <em>partition decision</em>:</p>
-<ul>
-<li><p>cancel the operation and thus decrease availability, <em>or</em></p>
-</li>
-<li><p>proceed with the operation and thus risk inconsistency.</p>
-</li>
-</ul>
-<p>Retrying communication to achieve consistency, for example, via Paxos or a two-phase commit, just delays the decision. At some point the program must make the decision; retrying communication indefinitely is in essence choosing C over A.</p>
-<p>Thus, pragmatically, a partition is a time bound on communication. Failing to achieve consistency within the time bound implies a partition and thus a choice between C and A for this operation. These concepts capture the core design issue with regard to latency: are two sides moving forward without communication?</p>
-<p>This pragmatic view gives rise to several important consequences. The first is that there is no global notion of a partition, since some nodes might detect a partition, and others might not. The second consequence is that nodes can detect a partition and enter a <em>partition mode</em>-a central part of optimizing C and A.</p>
-<p>Finally, this view means that designers can set time bounds intentionally according to target response times; systems with tighter bounds will likely enter partition mode more often and at times when the network is merely slow and not actually partitioned.</p>
-<p>Sometimes it makes sense to forfeit strong C to avoid the high latency of maintaining consistency over a wide area. Yahoo’s PNUTS system incurs inconsistency by maintaining remote copies asynchronously.5 However, it makes the master copy local, which decreases latency. This strategy works well in practice because single user data is naturally partitioned according to the user’s (normal) location. Ideally, each user’s data master is nearby.</p>
-<p>Facebook uses the opposite strategy:6 the master copy is always in one location, so a remote user typically has a closer but potentially stale copy. However, when users update their pages, the update goes to the master copy directly as do all the user’s reads for a short time, despite higher latency. After 20 seconds, the user’s traffic reverts to the closer copy, which by that time should reflect the update.</p>
-<h2 id="Cap-confusion"><a href="#Cap-confusion" class="headerlink" title="Cap confusion"></a>Cap confusion</h2><p>Aspects of the CAP theorem are often misunderstood, particularly the scope of availability and consistency, which can lead to undesirable results. If users cannot reach the service at all, there is no choice between C and A except when part of the service runs on the client. This exception, commonly known as disconnected operation or offline mode,7 is becoming increasingly important. Some HTML5 features-in particular, on-client persistent storage-make disconnected operation easier going forward. These systems normally choose A over C and thus must recover from long partitions.</p>
-<p>Scope of consistency reflects the idea that, within some boundary, state is consistent, but outside that boundary all bets are off. For example, within a primary partition, it is possible to ensure complete consistency and availability, while outside the partition, service is not available. Paxos and atomic multicast systems typically match this scenario.8 In Google, the primary partition usually resides within one datacenter; however, Paxos is used on the wide area to ensure global consensus, as in Chubby,9 and highly available durable storage, as in Megastore.10</p>
-<p>Independent, self-consistent subsets can make forward progress while partitioned, although it is not possible to ensure global invariants. For example, with sharding, in which designers prepartition data across nodes, it is highly likely that each shard can make some progress during a partition. Conversely, if the relevant state is split across a partition or global invariants are necessary, then at best only one side can make progress and at worst no progress is possible.</p>
-<p>Does choosing consistency and availability (CA) as the “2 of 3” make sense? As some researchers correctly point out, exactly what it means to forfeit P is unclear.11,12 Can a designer choose not to have partitions? If the choice is CA, and then there is a partition, the choice must revert to C or A. It is best to think about this probabilistically: choosing CA should mean that the probability of a partition is far less than that of other systemic failures, such as disasters or multiple simultaneous faults.</p>
-<p>Such a view makes sense because real systems lose both C and A under some sets of faults, so all three properties are a matter of degree. In practice, most groups assume that a datacenter (single site) has no partitions within, and thus design for CA within a single site; such designs, including traditional databases, are the pre-CAP default. However, although partitions are less likely within a datacenter, they are indeed possible, which makes a CA goal problematic. Finally, given the high latency across the wide area, it is relatively common to forfeit perfect consistency across the wide area for better performance.</p>
-<p>Another aspect of CAP confusion is the hidden cost of forfeiting consistency, which is the need to know the system’s invariants. The subtle beauty of a consistent system is that the invariants tend to hold even when the designer does not know what they are. Consequently, a wide range of reasonable invariants will work just fine. Conversely, when designers choose A, which requires restoring invariants after a partition, they must be explicit about all the invariants, which is both challenging and prone to error. At the core, this is the same concurrent updates problem that makes multithreading harder than sequential programming.</p>
-<h2 id="Managing-partitions"><a href="#Managing-partitions" class="headerlink" title="Managing partitions"></a>Managing partitions</h2><p>The challenging case for designers is to mitigate a par­tition’s effects on consistency and availability. The key idea is to manage partitions very explicitly, including not only detection, but also a specific recovery process and a plan for all of the invariants that might be violated during a partition. This management approach has three steps:</p>
-<p><img src="/Users/tw/01_code/active/Hexo/source/images/image-20260911222803428.png" alt="image-20260911222803428"></p>
-<ul>
-<li>detect the start of a partition,</li>
-<li>enter an explicit partition mode that may limit some operations, and</li>
-<li>initiate partition recovery when communication is restored.</li>
-</ul>
-<p>The last step aims to restore consistency and compensate for mistakes the program made while the system was partitioned.</p>
-<p>Figure 1 shows a partition’s evolution. Normal operation is a sequence of atomic operations, and thus partitions always start between operations. Once the system times out, it detects a partition, and the detecting side enters partition mode. If a partition does indeed exist, both sides enter this mode, but one-sided partitions are possible. In such cases, the other side communicates as needed and either this side responds correctly or no communication was required; either way, operations remain consistent. However, because the detecting side could have inconsistent operations, it must enter partition mode. Systems that use a quorum are an example of this one-sided partitioning. One side will have a quorum and can proceed, but the other cannot. Systems that support disconnected operation clearly have a notion of partition mode, as do some atomic multicast systems, such as Java’s JGroups.</p>
-<p>Once the system enters partition mode, two strategies are possible. The first is to limit some operations, thereby reducing availability. The second is to record extra information about the operations that will be helpful during partition recovery. Continuing to attempt communication will enable the system to discern when the partition ends.</p>
-<h2 id="Which-operations-should-proceed"><a href="#Which-operations-should-proceed" class="headerlink" title="Which operations should proceed?"></a>Which operations should proceed?</h2><p>Deciding which operations to limit depends primarily on the invariants that the system must maintain. Given a set of invariants, the designer must decide whether or not to maintain a particular invariant during partition mode or risk violating it with the intent of restoring it during recovery. For example, for the invariant that keys in a table are unique, designers typically decide to risk that invariant and allow duplicate keys during a partition. Duplicate keys are easy to detect during recovery, and, assuming that they can be merged, the designer can easily restore the invariant.</p>
-<p>For an invariant that must be maintained during a partition, however, the designer must prohibit or modify operations that might violate it. (In general, there is no way to tell if the operation will actually violate the invariant, since the state of the other side is not knowable.) Externalized events, such as charging a credit card, often work this way. In this case, the strategy is to record the intent and execute it after the recovery. Such transactions are typically part of a larger workflow that has an explicit order-processing state, and there is little downside to delaying the operation until the partition ends. The designer forfeits A in a way that users do not see. The users know only that they placed an order and that the system will execute it later.</p>
-<p>More generally, partition mode gives rise to a fundamental user-interface challenge, which is to communicate that tasks are in progress but not complete. Researchers have explored this problem in some detail for disconnected operation, which is just a long partition. Bayou’s calendar application, for example, shows potentially inconsistent (tentative) entries in a different color.13 Such notifications are regularly visible both in workflow applications, such as commerce with e-mail notifications, and in cloud services with an offline mode, such as Google Docs.</p>
-<p>One reason to focus on explicit atomic operations, rather than just reads and writes, is that it is vastly easier to analyze the impact of higher-level operations on invariants. Essentially, the designer must build a table that looks at the cross product of all operations and all invariants and decide for each entry if that operation could violate the invariant. If so, the designer must decide whether to prohibit, delay, or modify the operation. In practice, these decisions can also depend on the known state, on the arguments, or on both. For example, in systems with a home node for certain data, 5 operations can typically proceed on the home node but not on other nodes.</p>
-<p>The best way to track the history of operations on both sides is to use version vectors, which capture the causal dependencies among operations. The vector’s elements are a pair (node, logical time), with one entry for every node that has updated the object and the time of its last update. Given two versions of an object, A and B, A is newer than B if, for every node in common in their vectors, A’s times are greater than or equal to B’s and at least one of A’s times is greater.</p>
-<p>If it is impossible to order the vectors, then the updates were concurrent and possibly inconsistent. Thus, given the version vector history of both sides, the system can easily tell which operations are already in a known order and which executed concurrently. Recent work14 proved that this kind of causal consistency is the best possible outcome in general if the designer chooses to focus on availability.</p>
-<h2 id="Partition-recovery"><a href="#Partition-recovery" class="headerlink" title="Partition recovery"></a>Partition recovery</h2><p>At some point, communication resumes and the partition ends. During the partition, each side was available and thus making forward progress, but partitioning has delayed some operations and violated some invariants. At this point, the system knows the state and history of both sides because it kept a careful log during partition mode. The state is less useful than the history, from which the system can deduce which operations actually violated invariants and what results were externalized, including the responses sent to the user. The designer must solve two hard problems during recovery:</p>
-<ul>
-<li>the state on both sides must become consistent, and</li>
-<li>there must be compensation for the mistakes made during partition mode.</li>
-</ul>
-<p>It is generally easier to fix the current state by starting from the state at the time of the partition and rolling forward both sets of operations in some manner, maintaining consistent state along the way. Bayou did this explicitly by rolling back the database to a correct time and replaying the full set of operations in a well-defined, deterministic order so that all nodes reached the same state.15 Similarly, source-code control systems such as the Concurrent Versioning System (CVS) start from a shared consistent point and roll forward updates to merge branches.</p>
-<p>Most systems cannot always merge conflicts. For example, CVS occasionally has conflicts that the user must resolve manually, and wiki systems with offline mode typically leave conflicts in the resulting document that require manual editing.16</p>
-<p>Conversely, some systems can always merge conflicts by choosing certain operations. A case in point is text editing in Google Docs,17 which limits operations to applying a style and adding or deleting text. Thus, although the general problem of conflict resolution is not solvable, in practice, designers can choose to constrain the use of certain operations during partitioning so that the system can automatically merge state during recovery. Delaying risky operations is one relatively easy implementation of this strategy.</p>
-<p>Using commutative operations is the closest approach to a general framework for automatic state convergence. The system concatenates logs, sorts them into some order, and then executes them. Commutativity implies the ability to rearrange operations into a preferred consistent global order. Unfortunately, using only commutative operations is harder than it appears; for example, addition is commutative, but addition with a bounds check is not (a zero balance, for example).</p>
-<p>Recent work by Marc Shapiro and colleagues at INRIA18,19 has greatly improved the use of commutative operations for state convergence. The team has developed commutative replicated data types (CRDTs), a class of data structures that provably converge after a partition, and describe how to use these structures to</p>
-<ul>
-<li>ensure that all operations during a partition are commutative, <em>or</em></li>
-<li>represent values on a lattice and ensure that all operations during a partition are monotonically increasing with respect to that lattice.</li>
-</ul>
-<p>The latter approach converges state by moving to the maximum of each side’s values. It is a formalization and improvement of what Amazon does with its shopping cart:20 after a partition, the converged value is the union of the two carts, with union being a monotonic set operation. The consequence of this choice is that deleted items may reappear.</p>
-<p>However, CRDTs can also implement partition-tolerant sets that both add and delete items. The essence of this approach is to maintain two sets: one each for the added and deleted items, with the difference being the set’s membership. Each simplified set converges, and thus so does the difference. At some point, the system can clean things up simply by removing the deleted items from both sets. However, such cleanup generally is possible only while the system is not partitioned. In other words, the designer must prohibit or postpone some operations during a partition, but these are cleanup operations that do not limit perceived availability. Thus, by implementing state through CRDTs, a designer can choose A and still ensure that state converges automatically after a partition.</p>
-<h2 id="Compensating-for-mistakes"><a href="#Compensating-for-mistakes" class="headerlink" title="Compensating for mistakes"></a>Compensating for mistakes</h2><p>In addition to computing the postpartition state, there is the somewhat harder problem of fixing mistakes made during partitioning. The tracking and limitation of partition-mode operations ensures the knowledge of which invariants could have been violated, which in turn enables the designer to create a restoration strategy for each such invariant. Typically, the system discovers the violation during recovery and must implement any fix at that time.</p>
-<p>There are various ways to fix the invariants, including trivial ways such as “last writer wins” (which ignores some updates), smarter approaches that merge operations, and human escalation. An example of the latter is airplane overbooking: boarding the plane is in some sense partition recovery with the invariant that there must be at least as many seats as passengers. If there are too many passengers, some will lose their seats, and ideally customer service will compensate those passengers in some way.</p>
-<p>The airplane example also exhibits an externalized mistake: if the airline had not said that the passenger had a seat, fixing the problem would be much easier. This is another reason to delay risky operations: at the time of recovery, the truth is known. The idea of compensation is really at the core of fixing such mistakes; designers must create compensating operations that both restore an invariant and more broadly correct an externalized mistake.</p>
-<p>Technically, CRDTs allow only locally verifiable invariants-a limitation that makes compensation unnecessary but that somewhat decreases the approach’s power. However, a solution that uses CRDTs for state convergence could allow the temporary violation of a global invariant, converge the state after the partition, and then execute any needed compensations.</p>
-<p>Recovering from externalized mistakes typically requires some history about externalized outputs. Consider the drunk “dialing” scenario, in which a person does not remember making various telephone calls while intoxicated the previous night. That person’s state in the light of day might be sound, but the log still shows a list of calls, some of which might have been mistakes. The calls are the external effects of the person’s state (intoxication). Because the person failed to remember the calls, it could be hard to compensate for any trouble they have caused.</p>
-<p>In a machine context, a computer could execute orders twice during a partition. If the system can distinguish two intentional orders from two duplicate orders, it can cancel one of the duplicates. If externalized, one compensation strategy would be to autogenerate an e-mail to the customer explaining that the system accidentally executed the order twice but that the mistake has been fixed and to attach a coupon for a discount on the next order. With-out the proper history, however, the burden of catching the mistake is on the customer.</p>
-<p>Some researchers have formally explored compensating transactions as a way to deal with long-lived transactions.21,22 Long-running transactions face a variation of the partition decision: is it better to hold locks for a long time to ensure consistency, or release them early and expose uncommitted data to other transactions but allow higher concurrency? A typical example is trying to update all employee records as a single transaction. Serializing this transaction in the normal way locks all records and prevents concurrency. Compensating transactions take a different approach by breaking the large transaction into a saga, which consists of multiple subtransactions, each of which commits along the way. Thus, to abort the larger transaction, the system must undo each already committed subtransaction by issuing a new transaction that corrects for its effects-the compensating transaction.</p>
-<p>In general, the goal is to avoid aborting other transactions that used the incorrectly committed data (no cascading aborts). The correctness of this approach depends not on serializability or isolation, but rather on the net effect of the transaction sequence on state and outputs. That is, after compensations, does the database essentially end up in a place equivalent to where it would have been had the subtransactions never executed? The equivalence must include externalized actions; for example, refunding a duplicate purchase is hardly the same as not charging that customer in the first place, but it is arguably equivalent. The same idea holds in partition recovery. A service or product provider cannot always undo mistakes directly, but it aims to admit them and take new, compensating actions. How best to apply these ideas to partition recovery is an open problem. The “Compensation Issues in an Automated Teller Machine” sidebar describes some of the concerns in just one application area.</p>
-<p>System designers should not blindly sacrifice consistency or availability when partitions exist. Using the proposed approach, they can optimize both properties through careful management of invariants during partitions. As newer techniques, such as version vectors and CRDTs, move into frameworks that simplify their use, this kind of optimization should become more wide-spread. However, unlike ACID transactions, this approach requires more thoughtful deployment relative to past strategies, and the best solutions will depend heavily on details about the service’s invariants and operations.</p>
-<h2 id="Compensation-issues-in-an-automated-teller-machine"><a href="#Compensation-issues-in-an-automated-teller-machine" class="headerlink" title="Compensation issues in an automated teller machine"></a>Compensation issues in an automated teller machine</h2><p>In the design of an automated teller machine (ATM), strong consistency would appear to be the logical choice, but in practice, A trumps C. The reason is straightforward enough: higher availability means higher revenue. Regardless, ATM design serves as a good context for reviewing some of the challenges involved in compensating for invariant violations during a partition.</p>
-<p>The essential ATM operations are deposit, withdraw, and check balance. The key invariant is that the balance should be zero or higher. Because only withdraw can violate the invariant, it will need special treatment, but the other two operations can always execute.</p>
-<p>The ATM system designer could choose to prohibit withdrawals during a partition, since it is impossible to know the true balance at that time, but that would compromise availability. Instead, using stand-in mode (partition mode), modern ATMs limit the net withdrawal to at most k, where k might be $200. Below this limit, withdrawals work completely; when the balance reaches the limit, the system denies withdrawals. Thus, the ATM chooses a sophisticated limit on availability that permits withdrawals but bounds the risk.</p>
-<p>When the partition ends, there must be some way to both restore consistency and compensate for mistakes made while the system was partitioned. Restoring state is easy because the operations are commutative, but compensation can take several forms. A final balance below zero violates the invariant. In the normal case, the ATM dispensed the money, which caused the mistake to become external. The bank compensates by charging a fee and expecting repayment. Given that the risk is bounded, the problem is not severe. However, suppose that the balance was below zero at some point during the partition (unknown to the ATM), but that a later deposit brought it back up. In this case, the bank might still charge an overdraft fee retroactively, or it might ignore the violation, since the customer has already made the necessary payment.</p>
-<p>In general, because of communication delays, the banking system depends not on consistency for correctness, but rather on auditing and compensation. Another example of this is “check kiting,” in which a customer withdraws money from multiple branches before they can communicate and then flees. The overdraft will be caught later, perhaps leading to compensation in the form of legal action.</p>
-
-      
-    </div>
-
-    
-    
-    
-
-    <footer class="post-footer">
-        <div class="post-eof"></div>
-      
-    </footer>
-  </article>
-</div>
-
-
-
-
   <nav class="pagination">
     <span class="page-number current">1</span><a class="page-number" href="/home/page/2/">2</a><span class="space">&hellip;</span><a class="page-number" href="/home/page/20/">20</a><a class="extend next" rel="next" title="Next page" aria-label="Next page" href="/home/page/2/"><i class="fa fa-angle-right"></i></a>
   </nav>
@@ -2473,14 +3232,14 @@
       <i class="fa fa-chart-line"></i>
     </span>
       <span>Word count total: </span>
-    <span title="Word count total">633k</span>
+    <span title="Word count total">640k</span>
   </span>
   <span class="post-meta-item">
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
       <span>Reading time total &asymp;</span>
-    <span title="Reading time total">38:23</span>
+    <span title="Reading time total">38:46</span>
   </span>
 </div>
   <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
