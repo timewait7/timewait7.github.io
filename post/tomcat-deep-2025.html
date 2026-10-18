@@ -19,15 +19,15 @@
 
 <script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
 
-    <meta name="description" content="「你的应用是怎么跑起来的？」——Spring Boot 内嵌的 Tomcat 替你回答了这个问题的全部复杂度，但面试官问的就是这些被藏起来的细节：一个 HTTP 请求从网线到你的 Controller 经历了什么？为什么 Tomcat 要打破双亲委派？maxThreads&#x2F;maxConnections&#x2F;acceptCount 三个参数怎么配合？ 本文按 「整体架构 → 线程模">
+    <meta name="description" content="「你的应用是怎么跑起来的？」——Spring Boot 内嵌的 Tomcat 替你回答了这个问题的全部复杂度，但面试官问的就是这些被藏起来的细节：一个 HTTP 请求从网线到你的 Controller 经历了什么？为什么 Tomcat 要打破双亲委派？maxThreads &#x2F; maxConnections &#x2F; acceptCount 三个参数怎么配合？Spring Boot">
 <meta property="og:type" content="article">
 <meta property="og:title" content="Tomcat 深度解析：连接器、类加载与调优排障">
 <meta property="og:url" content="http://timewait7.github.io/post/tomcat-deep-2025.html">
 <meta property="og:site_name" content="知行栈">
-<meta property="og:description" content="「你的应用是怎么跑起来的？」——Spring Boot 内嵌的 Tomcat 替你回答了这个问题的全部复杂度，但面试官问的就是这些被藏起来的细节：一个 HTTP 请求从网线到你的 Controller 经历了什么？为什么 Tomcat 要打破双亲委派？maxThreads&#x2F;maxConnections&#x2F;acceptCount 三个参数怎么配合？ 本文按 「整体架构 → 线程模">
+<meta property="og:description" content="「你的应用是怎么跑起来的？」——Spring Boot 内嵌的 Tomcat 替你回答了这个问题的全部复杂度，但面试官问的就是这些被藏起来的细节：一个 HTTP 请求从网线到你的 Controller 经历了什么？为什么 Tomcat 要打破双亲委派？maxThreads &#x2F; maxConnections &#x2F; acceptCount 三个参数怎么配合？Spring Boot">
 <meta property="og:locale" content="en_US">
 <meta property="article:published_time" content="2026-08-13T14:00:00.000Z">
-<meta property="article:modified_time" content="2026-10-04T14:08:16.901Z">
+<meta property="article:modified_time" content="2026-10-18T02:16:42.389Z">
 <meta property="article:tag" content="面试">
 <meta property="article:tag" content="Tomcat">
 <meta property="article:tag" content="容器">
@@ -186,7 +186,7 @@
       <div class="sidebar-panel-container">
         <!--noindex-->
         <div class="post-toc-wrap sidebar-panel">
-            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-%E5%AE%9A%E4%BD%8D%EF%BC%9ATomcat-%E5%9C%A8%E9%9D%A2%E8%AF%95%E9%87%8C%E7%9A%84%E4%B8%89%E4%B8%AA%E4%BD%8D%E7%BD%AE"><span class="nav-text">1. 定位：Tomcat 在面试里的三个位置</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E6%95%B4%E4%BD%93%E6%9E%B6%E6%9E%84%EF%BC%9A%E8%BF%9E%E6%8E%A5%E5%99%A8-%E5%AE%B9%E5%99%A8"><span class="nav-text">2. 整体架构：连接器 + 容器</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E4%B8%A4%E6%AE%B5%E5%BC%8F%E6%9E%B6%E6%9E%84%E5%85%A8%E6%99%AF"><span class="nav-text">2.1 两段式架构全景</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E5%AE%B9%E5%99%A8%E5%88%86%E5%B1%82%EF%BC%9AEngine-%E2%86%92-Host-%E2%86%92-Context-%E2%86%92-Wrapper"><span class="nav-text">2.2 容器分层：Engine → Host → Context → Wrapper</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E7%9C%8B%E4%B8%80%E4%B8%AA%E8%AF%B7%E6%B1%82%E7%9A%84%E6%97%85%E7%A8%8B"><span class="nav-text">2.3 动手验证：看一个请求的旅程</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E8%BF%9E%E6%8E%A5%E5%99%A8%EF%BC%9ANIO-%E7%BA%BF%E7%A8%8B%E6%A8%A1%E5%9E%8B%E4%B8%8E%E4%B8%89%E5%A4%A7%E5%8F%82%E6%95%B0"><span class="nav-text">3. 连接器：NIO 线程模型与三大参数</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E4%B8%89%E4%B8%AA%E7%BA%BF%E7%A8%8B%E7%9A%84%E8%81%8C%E8%B4%A3%E5%88%86%E5%B7%A5"><span class="nav-text">3.1 三个线程的职责分工</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E4%B8%80%E6%AC%A1%E8%AF%B7%E6%B1%82%E5%9C%A8%E8%BF%9E%E6%8E%A5%E5%99%A8%E4%B8%AD%E7%9A%84%E5%AE%8C%E6%95%B4%E7%94%9F%E5%91%BD%E5%91%A8%E6%9C%9F"><span class="nav-text">3.2 一次请求在连接器中的完整生命周期</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-maxThreads-maxConnections-acceptCount-%E4%B8%89%E5%8F%82%E6%95%B0%E8%AF%A6%E8%A7%A3"><span class="nav-text">3.3 maxThreads &#x2F; maxConnections &#x2F; acceptCount 三参数详解</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-4-%E4%B8%89%E7%BA%A7%E7%BC%93%E5%86%B2%E7%9A%84%E6%8E%92%E9%98%9F%E6%A8%A1%E5%9E%8B"><span class="nav-text">3.4 三级缓冲的排队模型</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-5-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%8E%8B%E6%B5%8B%E8%A7%82%E5%AF%9F%E4%B8%89%E5%8F%82%E6%95%B0%E6%8E%92%E9%98%9F"><span class="nav-text">3.5 动手验证：压测观察三参数排队</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E8%AF%B7%E6%B1%82%E5%A4%84%E7%90%86%EF%BC%9APipeline-%E4%B8%8E-Servlet-%E7%94%9F%E5%91%BD%E5%91%A8%E6%9C%9F"><span class="nav-text">4. 请求处理：Pipeline 与 Servlet 生命周期</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-Valve-%E8%B4%A3%E4%BB%BB%E9%93%BE"><span class="nav-text">4.1 Valve 责任链</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-Servlet-%E4%B8%89%E6%AE%B5%E7%94%9F%E5%91%BD%E5%91%A8%E6%9C%9F"><span class="nav-text">4.2 Servlet 三段生命周期</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E7%9C%8B-Servlet-%E5%AE%9E%E4%BE%8B%E4%B8%8E%E7%BA%BF%E7%A8%8B"><span class="nav-text">4.3 动手验证：看 Servlet 实例与线程</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E7%B1%BB%E5%8A%A0%E8%BD%BD%EF%BC%9A%E4%B8%BA%E4%BB%80%E4%B9%88%E6%89%93%E7%A0%B4%E5%8F%8C%E4%BA%B2%E5%A7%94%E6%B4%BE"><span class="nav-text">5. 类加载：为什么打破双亲委派</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E5%8F%8C%E4%BA%B2%E5%A7%94%E6%B4%BE%E6%9C%BA%E5%88%B6%E5%9B%9E%E9%A1%BE"><span class="nav-text">5.1 双亲委派机制回顾</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-Tomcat-%E7%9A%84-WebappClassLoader-%E5%A6%82%E4%BD%95%E6%89%93%E7%A0%B4"><span class="nav-text">5.2 Tomcat 的 WebappClassLoader 如何打破</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-Tomcat-%E7%B1%BB%E5%8A%A0%E8%BD%BD%E5%99%A8%E5%85%A8%E6%99%AF%E5%9B%BE"><span class="nav-text">5.3 Tomcat 类加载器全景图</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-%E7%83%AD%E9%83%A8%E7%BD%B2%E4%B8%8E%E7%B1%BB%E5%8A%A0%E8%BD%BD%E5%99%A8%E6%B3%84%E6%BC%8F"><span class="nav-text">5.4 热部署与类加载器泄漏</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-5-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E6%89%93%E5%8D%B0%E7%B1%BB%E5%8A%A0%E8%BD%BD%E5%99%A8%E9%93%BE"><span class="nav-text">5.5 动手验证：打印类加载器链</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#6-%E8%B0%83%E4%BC%98%E4%B8%8E%E6%8E%92%E9%9A%9C%EF%BC%9A%E5%AE%9E%E6%88%98%E4%B8%89%E4%BB%B6%E5%A5%97"><span class="nav-text">6. 调优与排障：实战三件套</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#6-1-%E8%B0%83%E4%BC%98%E5%8F%82%E6%95%B0%E9%80%9F%E6%9F%A5"><span class="nav-text">6.1 调优参数速查</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-2-%E6%8E%92%E9%9A%9C%E8%B7%AF%E5%BE%84%EF%BC%9A%E7%97%87%E7%8A%B6-%E2%86%92-%E5%85%88%E7%9C%8B%E4%BB%80%E4%B9%88"><span class="nav-text">6.2 排障路径：症状 → 先看什么</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-3-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%88%B6%E9%80%A0%E5%B9%B6%E5%AE%9A%E4%BD%8D%E7%BA%BF%E7%A8%8B%E6%B1%A0%E8%80%97%E5%B0%BD"><span class="nav-text">6.3 动手验证：制造并定位线程池耗尽</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#7-%E9%9D%A2%E8%AF%95%E5%BA%94%E7%AD%94%EF%BC%9ATomcat-%E4%BA%94%E8%BF%9E%E9%97%AE"><span class="nav-text">7. 面试应答：Tomcat 五连问</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#7-1-%E5%AE%8C%E6%95%B4%E8%AF%9D%E6%9C%AF"><span class="nav-text">7.1 完整话术</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-2-%E6%B7%B1%E6%8C%96%EF%BC%9A%E4%B8%8E-Netty-%E7%9A%84%E5%AF%B9%E7%85%A7"><span class="nav-text">7.2 深挖：与 Netty 的对照</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#8-%E6%80%BB%E7%BB%93"><span class="nav-text">8. 总结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#8-1-%E9%9D%A2%E8%AF%95%E9%80%9F%E7%AD%94%E8%A1%A8"><span class="nav-text">8.1 面试速答表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#8-2-%E5%AE%9E%E6%88%98%E9%81%BF%E5%9D%91%E8%A1%A8"><span class="nav-text">8.2 实战避坑表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#8-3-%E5%B7%A5%E5%85%B7%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">8.3 工具速查表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#8-4-%E7%B3%BB%E5%88%97%E5%AE%9A%E4%BD%8D"><span class="nav-text">8.4 系列定位</span></a></li></ol></li></ol></div>
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-%E5%AE%9A%E4%BD%8D%EF%BC%9ATomcat-%E5%9C%A8%E9%9D%A2%E8%AF%95%E9%87%8C%E7%9A%84%E4%BD%8D%E7%BD%AE"><span class="nav-text">1. 定位：Tomcat 在面试里的位置</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-%E4%B8%89%E4%B8%AA%E9%AB%98%E9%A2%91%E9%9D%A2%E8%AF%95%E4%BD%8D%E7%BD%AE"><span class="nav-text">1.1 三个高频面试位置</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-2-%E5%9B%A0%E6%9E%9C%E9%93%BE%E4%B8%BB%E7%BA%BF"><span class="nav-text">1.2 因果链主线</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-3-Tomcat-%E5%9C%A8-Java-%E5%90%8E%E7%AB%AF%E6%8A%80%E6%9C%AF%E6%A0%88%E4%B8%AD%E7%9A%84%E4%BD%8D%E7%BD%AE"><span class="nav-text">1.3 Tomcat 在 Java 后端技术栈中的位置</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E6%95%B4%E4%BD%93%E6%9E%B6%E6%9E%84%EF%BC%9A%E8%BF%9E%E6%8E%A5%E5%99%A8-%E5%AE%B9%E5%99%A8"><span class="nav-text">2. 整体架构：连接器 + 容器</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E4%B8%A4%E6%AE%B5%E5%BC%8F%E6%9E%B6%E6%9E%84%E5%85%A8%E6%99%AF"><span class="nav-text">2.1 两段式架构全景</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E7%BB%84%E4%BB%B6%E5%85%B3%E7%B3%BB%EF%BC%9AServer-Service-Connector-Engine"><span class="nav-text">2.2 组件关系：Server &#x2F; Service &#x2F; Connector &#x2F; Engine</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-%E5%AE%B9%E5%99%A8%E5%88%86%E5%B1%82%EF%BC%9AEngine-%E2%86%92-Host-%E2%86%92-Context-%E2%86%92-Wrapper"><span class="nav-text">2.3 容器分层：Engine → Host → Context → Wrapper</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-4-%E7%8B%AC%E7%AB%8B%E9%83%A8%E7%BD%B2-vs-Spring-Boot-%E5%86%85%E5%B5%8C"><span class="nav-text">2.4 独立部署 vs Spring Boot 内嵌</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-5-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E7%9C%8B%E4%B8%80%E4%B8%AA%E8%AF%B7%E6%B1%82%E7%9A%84%E6%97%85%E7%A8%8B"><span class="nav-text">2.5 动手验证：看一个请求的旅程</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E5%90%AF%E5%8A%A8%E6%B5%81%E7%A8%8B%EF%BC%9ATomcat-%E6%98%AF%E6%80%8E%E4%B9%88%E8%B5%B7%E6%9D%A5%E7%9A%84"><span class="nav-text">3. 启动流程：Tomcat 是怎么起来的</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E5%90%AF%E5%8A%A8%E6%B5%81%E7%A8%8B%E5%85%A8%E6%99%AF"><span class="nav-text">3.1 启动流程全景</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E5%90%84%E9%98%B6%E6%AE%B5%E8%81%8C%E8%B4%A3"><span class="nav-text">3.2 各阶段职责</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-%E5%90%AF%E5%8A%A8%E5%91%BD%E4%BB%A4%E4%B8%8E%E6%97%A5%E5%BF%97"><span class="nav-text">3.3 启动命令与日志</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-4-%E5%90%AF%E5%8A%A8%E5%A4%B1%E8%B4%A5%E7%9A%84%E5%B8%B8%E8%A7%81%E5%8E%9F%E5%9B%A0"><span class="nav-text">3.4 启动失败的常见原因</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E8%BF%9E%E6%8E%A5%E5%99%A8%EF%BC%9ANIO-%E7%BA%BF%E7%A8%8B%E6%A8%A1%E5%9E%8B%E3%80%81%E5%8D%8F%E8%AE%AE%E4%B8%8E%E4%B8%89%E5%A4%A7%E5%8F%82%E6%95%B0"><span class="nav-text">4. 连接器：NIO 线程模型、协议与三大参数</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-%E4%B8%89%E4%B8%AA%E7%BA%BF%E7%A8%8B%E7%9A%84%E8%81%8C%E8%B4%A3%E5%88%86%E5%B7%A5"><span class="nav-text">4.1 三个线程的职责分工</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-%E4%B8%80%E6%AC%A1%E8%AF%B7%E6%B1%82%E5%9C%A8%E8%BF%9E%E6%8E%A5%E5%99%A8%E4%B8%AD%E7%9A%84%E5%AE%8C%E6%95%B4%E7%94%9F%E5%91%BD%E5%91%A8%E6%9C%9F"><span class="nav-text">4.2 一次请求在连接器中的完整生命周期</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-NIO-%E8%BF%9E%E6%8E%A5%E5%99%A8%E5%86%85%E9%83%A8%E7%BB%84%E4%BB%B6"><span class="nav-text">4.3 NIO 连接器内部组件</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-4-%E4%B8%89%E5%A4%A7%E5%8F%82%E6%95%B0%E8%AF%A6%E8%A7%A3"><span class="nav-text">4.4 三大参数详解</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-5-%E4%B8%89%E7%BA%A7%E7%BC%93%E5%86%B2%E7%9A%84%E6%8E%92%E9%98%9F%E6%A8%A1%E5%9E%8B"><span class="nav-text">4.5 三级缓冲的排队模型</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-6-%E5%8D%8F%E8%AE%AE%E5%AF%B9%E6%AF%94%EF%BC%9ABIO-NIO-NIO2-APR"><span class="nav-text">4.6 协议对比：BIO &#x2F; NIO &#x2F; NIO2 &#x2F; APR</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-7-HTTP-2-%E4%B8%8E-AJP"><span class="nav-text">4.7 HTTP&#x2F;2 与 AJP</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-8-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%8E%8B%E6%B5%8B%E8%A7%82%E5%AF%9F%E4%B8%89%E5%8F%82%E6%95%B0%E6%8E%92%E9%98%9F"><span class="nav-text">4.8 动手验证：压测观察三参数排队</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E8%AF%B7%E6%B1%82%E5%A4%84%E7%90%86%EF%BC%9APipeline%E3%80%81Valve-%E4%B8%8E-Servlet-%E7%94%9F%E5%91%BD%E5%91%A8%E6%9C%9F"><span class="nav-text">5. 请求处理：Pipeline、Valve 与 Servlet 生命周期</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-Valve-%E8%B4%A3%E4%BB%BB%E9%93%BE"><span class="nav-text">5.1 Valve 责任链</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-Filter-%E4%B8%8E-Interceptor-%E7%9A%84%E6%89%A7%E8%A1%8C%E9%A1%BA%E5%BA%8F"><span class="nav-text">5.2 Filter 与 Interceptor 的执行顺序</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-Servlet-%E4%B8%89%E6%AE%B5%E7%94%9F%E5%91%BD%E5%91%A8%E6%9C%9F"><span class="nav-text">5.3 Servlet 三段生命周期</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-%E8%AF%B7%E6%B1%82%E5%8F%82%E6%95%B0%E8%A7%A3%E6%9E%90%E4%B8%8E%E7%BC%96%E7%A0%81"><span class="nav-text">5.4 请求参数解析与编码</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-5-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E7%9C%8B-Servlet-%E5%AE%9E%E4%BE%8B%E4%B8%8E%E7%BA%BF%E7%A8%8B"><span class="nav-text">5.5 动手验证：看 Servlet 实例与线程</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#6-%E7%B1%BB%E5%8A%A0%E8%BD%BD%EF%BC%9A%E4%B8%BA%E4%BB%80%E4%B9%88%E6%89%93%E7%A0%B4%E5%8F%8C%E4%BA%B2%E5%A7%94%E6%B4%BE"><span class="nav-text">6. 类加载：为什么打破双亲委派</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#6-1-%E5%8F%8C%E4%BA%B2%E5%A7%94%E6%B4%BE%E6%9C%BA%E5%88%B6%E5%9B%9E%E9%A1%BE"><span class="nav-text">6.1 双亲委派机制回顾</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-2-Tomcat-%E7%9A%84-WebappClassLoader-%E5%A6%82%E4%BD%95%E6%89%93%E7%A0%B4"><span class="nav-text">6.2 Tomcat 的 WebappClassLoader 如何打破</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-3-Tomcat-%E7%B1%BB%E5%8A%A0%E8%BD%BD%E5%99%A8%E5%85%A8%E6%99%AF%E5%9B%BE"><span class="nav-text">6.3 Tomcat 类加载器全景图</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-4-%E7%83%AD%E9%83%A8%E7%BD%B2%E4%B8%8E%E7%B1%BB%E5%8A%A0%E8%BD%BD%E5%99%A8%E6%B3%84%E6%BC%8F"><span class="nav-text">6.4 热部署与类加载器泄漏</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-5-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E6%89%93%E5%8D%B0%E7%B1%BB%E5%8A%A0%E8%BD%BD%E5%99%A8%E9%93%BE"><span class="nav-text">6.5 动手验证：打印类加载器链</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#7-Spring-Boot-%E5%86%85%E5%B5%8C-Tomcat-%E5%8E%9F%E7%90%86"><span class="nav-text">7. Spring Boot 内嵌 Tomcat 原理</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#7-1-%E5%86%85%E5%B5%8C-Tomcat-%E7%9A%84%E7%B1%BB%E5%85%B3%E7%B3%BB"><span class="nav-text">7.1 内嵌 Tomcat 的类关系</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-2-%E5%86%85%E5%B5%8C-Tomcat-%E7%9A%84%E5%90%AF%E5%8A%A8%E6%B5%81%E7%A8%8B"><span class="nav-text">7.2 内嵌 Tomcat 的启动流程</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-3-%E5%86%85%E5%B5%8C-Tomcat-%E7%9A%84%E9%85%8D%E7%BD%AE%E6%96%B9%E5%BC%8F"><span class="nav-text">7.3 内嵌 Tomcat 的配置方式</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-4-Tomcat-vs-Jetty-vs-Undertow"><span class="nav-text">7.4 Tomcat vs Jetty vs Undertow</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#8-Session%E3%80%81%E5%AE%89%E5%85%A8%E4%B8%8E%E6%97%A5%E5%BF%97"><span class="nav-text">8. Session、安全与日志</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#8-1-Session-%E7%AE%A1%E7%90%86"><span class="nav-text">8.1 Session 管理</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#8-2-%E5%AE%89%E5%85%A8%E9%85%8D%E7%BD%AE"><span class="nav-text">8.2 安全配置</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#8-3-%E6%97%A5%E5%BF%97%E4%BD%93%E7%B3%BB%EF%BC%9AJULI-%E4%B8%8E-AccessLog"><span class="nav-text">8.3 日志体系：JULI 与 AccessLog</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#8-4-JVM-%E5%8F%82%E6%95%B0%E4%B8%8E-catalina-sh"><span class="nav-text">8.4 JVM 参数与 catalina.sh</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#9-%E8%B0%83%E4%BC%98%E4%B8%8E%E6%8E%92%E9%9A%9C%EF%BC%9A%E5%AE%9E%E6%88%98%E4%B8%89%E4%BB%B6%E5%A5%97"><span class="nav-text">9. 调优与排障：实战三件套</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#9-1-%E8%B0%83%E4%BC%98%E5%8F%82%E6%95%B0%E9%80%9F%E6%9F%A5"><span class="nav-text">9.1 调优参数速查</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#9-2-%E6%8E%92%E9%9A%9C%E8%B7%AF%E5%BE%84%EF%BC%9A%E7%97%87%E7%8A%B6-%E2%86%92-%E5%85%88%E7%9C%8B%E4%BB%80%E4%B9%88"><span class="nav-text">9.2 排障路径：症状 → 先看什么</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#9-3-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%88%B6%E9%80%A0%E5%B9%B6%E5%AE%9A%E4%BD%8D%E7%BA%BF%E7%A8%8B%E6%B1%A0%E8%80%97%E5%B0%BD"><span class="nav-text">9.3 动手验证：制造并定位线程池耗尽</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#9-4-%E8%BF%9E%E6%8E%A5%E6%B3%84%E6%BC%8F%E6%8E%92%E6%9F%A5"><span class="nav-text">9.4 连接泄漏排查</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#9-5-%E7%BA%BF%E7%A8%8B%E6%B1%A0%E6%8B%92%E7%BB%9D%E7%AD%96%E7%95%A5"><span class="nav-text">9.5 线程池拒绝策略</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#9-6-%E6%85%A2%E8%AF%B7%E6%B1%82%E6%8E%92%E6%9F%A5"><span class="nav-text">9.6 慢请求排查</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#10-%E4%BC%98%E9%9B%85%E5%81%9C%E6%9C%BA%E4%B8%8E%E7%94%9F%E4%BA%A7%E9%83%A8%E7%BD%B2"><span class="nav-text">10. 优雅停机与生产部署</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#10-1-%E4%BC%98%E9%9B%85%E5%81%9C%E6%9C%BA"><span class="nav-text">10.1 优雅停机</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#10-2-Tomcat-Nginx-%E9%83%A8%E7%BD%B2%E6%9E%B6%E6%9E%84"><span class="nav-text">10.2 Tomcat + Nginx 部署架构</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#10-3-%E5%A4%9A%E5%AE%9E%E4%BE%8B%E9%83%A8%E7%BD%B2"><span class="nav-text">10.3 多实例部署</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#10-4-K8s-%E9%83%A8%E7%BD%B2%E5%BB%BA%E8%AE%AE"><span class="nav-text">10.4 K8s 部署建议</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#11-%E9%9D%A2%E8%AF%95%E5%BA%94%E7%AD%94%EF%BC%9ATomcat-%E4%BA%94%E8%BF%9E%E9%97%AE%E4%B8%8E%E6%B7%B1%E6%8C%96"><span class="nav-text">11. 面试应答：Tomcat 五连问与深挖</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#11-1-%E5%AE%8C%E6%95%B4%E8%AF%9D%E6%9C%AF"><span class="nav-text">11.1 完整话术</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#11-2-%E6%B7%B1%E6%8C%96%EF%BC%9A%E4%B8%8E-Netty-%E7%9A%84%E5%AF%B9%E7%85%A7"><span class="nav-text">11.2 深挖：与 Netty 的对照</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#11-3-%E6%B7%B1%E6%8C%96%EF%BC%9ATomcat-%E7%9A%84%E3%80%8C%E6%85%A2%E3%80%8D%E9%80%9A%E5%B8%B8%E6%85%A2%E5%9C%A8%E5%93%AA"><span class="nav-text">11.3 深挖：Tomcat 的「慢」通常慢在哪</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#11-4-%E6%B7%B1%E6%8C%96%EF%BC%9A%E5%B8%B8%E8%A7%81%E8%BF%BD%E9%97%AE"><span class="nav-text">11.4 深挖：常见追问</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#12-%E6%80%BB%E7%BB%93"><span class="nav-text">12. 总结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#12-1-%E9%9D%A2%E8%AF%95%E9%80%9F%E7%AD%94%E8%A1%A8"><span class="nav-text">12.1 面试速答表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#12-2-%E5%AE%9E%E6%88%98%E9%81%BF%E5%9D%91%E8%A1%A8"><span class="nav-text">12.2 实战避坑表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#12-3-%E5%B7%A5%E5%85%B7%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">12.3 工具速查表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#12-4-%E7%B3%BB%E5%88%97%E5%AE%9A%E4%BD%8D"><span class="nav-text">12.4 系列定位</span></a></li></ol></li></ol></div>
         </div>
         <!--/noindex-->
 
@@ -264,29 +264,27 @@
   </div>
   <ul class="popular-posts">
     <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/mybatis-2025.html" rel="bookmark">
+        <time class="popular-posts-time">2025-07-20</time>
+        <br>
+      MyBatis 深度解析
+      </a>
+    </li>
+    <li class="popular-posts-item">
       <a class="popular-posts-link" href="/" rel="bookmark">
       
       </a>
     </li>
     <li class="popular-posts-item">
-      <a class="popular-posts-link" href="/post/java-ai-frameworks-2026.html" rel="bookmark">
-        <time class="popular-posts-time">2026-08-05</time>
+      <a class="popular-posts-link" href="/post/67126.html" rel="bookmark">
+        <time class="popular-posts-time">2026-08-12</time>
         <br>
-      Spring AI与LangChain4j实战
+      设计模式：15 个高频模式的实战内化
       </a>
     </li>
     <li class="popular-posts-item">
-      <a class="popular-posts-link" href="/post/de264802.html" rel="bookmark">
-        <time class="popular-posts-time">2026-08-13</time>
-        <br>
-      TCP 协议：可靠传输的代价
-      </a>
-    </li>
-    <li class="popular-posts-item">
-      <a class="popular-posts-link" href="/post/f6253398.html" rel="bookmark">
-        <time class="popular-posts-time">2025-09-21</time>
-        <br>
-      Dubbo 原理与实践
+      <a class="popular-posts-link" href="/" rel="bookmark">
+      
       </a>
     </li>
   </ul>
@@ -434,14 +432,14 @@
         <i class="far fa-file-word"></i>
       </span>
       <span class="post-meta-item-text">Word count in article: </span>
-      <span>6.2k</span>
+      <span>12k</span>
     </span>
     <span class="post-meta-item" title="Reading time">
       <span class="post-meta-item-icon">
         <i class="far fa-clock"></i>
       </span>
       <span class="post-meta-item-text">Reading time &asymp;</span>
-      <span>22 mins.</span>
+      <span>44 mins.</span>
     </span>
 </div>
 
@@ -452,11 +450,11 @@
     
     
     <div class="post-body" itemprop="articleBody"><blockquote>
-<p>「你的应用是怎么跑起来的？」——Spring Boot 内嵌的 Tomcat 替你回答了这个问题的全部复杂度，但面试官问的就是这些被藏起来的细节：一个 HTTP 请求从网线到你的 Controller 经历了什么？为什么 Tomcat 要打破双亲委派？maxThreads&#x2F;maxConnections&#x2F;acceptCount 三个参数怎么配合？</p>
-<p>本文按 <strong>「整体架构 → 线程模型 → 请求处理 → 类加载 → 调优排障」</strong> 五层讲透 Tomcat：每个概念配可运行验证 + Mermaid 图，读完你能在面试中画出请求旅程图，并在线上「Tomcat 线程打满&#x2F;连接堆积」时知道先看什么。</p>
+<p>「你的应用是怎么跑起来的？」——Spring Boot 内嵌的 Tomcat 替你回答了这个问题的全部复杂度，但面试官问的就是这些被藏起来的细节：一个 HTTP 请求从网线到你的 Controller 经历了什么？为什么 Tomcat 要打破双亲委派？maxThreads &#x2F; maxConnections &#x2F; acceptCount 三个参数怎么配合？Spring Boot 是怎么把 Tomcat 嵌进来的？</p>
+<p>本文按 <strong>「定位 → 整体架构 → 启动流程 → 连接器线程模型 → 请求处理 → 类加载 → Spring Boot 内嵌 → Session&#x2F;安全&#x2F;日志 → 调优排障 → 生产部署 → 面试应答」</strong> 十一层讲透 Tomcat：每个概念配可运行验证 + Mermaid 图，读完你能在面试中画出请求旅程图，并在线上「Tomcat 线程打满 &#x2F; 连接堆积 &#x2F; 类加载泄漏」时知道先看什么。</p>
 </blockquote>
 <hr>
-<h2 id="1-定位：Tomcat-在面试里的三个位置"><a href="#1-定位：Tomcat-在面试里的三个位置" class="headerlink" title="1. 定位：Tomcat 在面试里的三个位置"></a>1. 定位：Tomcat 在面试里的三个位置</h2><table>
+<h2 id="1-定位：Tomcat-在面试里的位置"><a href="#1-定位：Tomcat-在面试里的位置" class="headerlink" title="1. 定位：Tomcat 在面试里的位置"></a>1. 定位：Tomcat 在面试里的位置</h2><h3 id="1-1-三个高频面试位置"><a href="#1-1-三个高频面试位置" class="headerlink" title="1.1 三个高频面试位置"></a>1.1 三个高频面试位置</h3><table>
 <thead>
 <tr>
 <th>面试问题</th>
@@ -467,23 +465,23 @@
 <tbody><tr>
 <td>Tomcat 的架构？一个请求怎么走？</td>
 <td>连接器 + 容器两段式，IO 线程与业务线程分离</td>
-<td>§2、§4</td>
+<td>§2、§5</td>
 </tr>
 <tr>
 <td>maxThreads &#x2F; maxConnections &#x2F; acceptCount 什么关系？</td>
 <td>连接缓冲深度与线程模型的配合</td>
-<td>§3</td>
+<td>§4</td>
 </tr>
 <tr>
 <td>Tomcat 为什么打破双亲委派？</td>
 <td>类加载器的隔离设计</td>
-<td>§5</td>
+<td>§6</td>
 </tr>
 </tbody></table>
-<p><strong>因果链主线</strong>：Tomcat 的全部设计都围绕一个矛盾——「Web 容器要同时服务很多请求（并发），但每个请求的 IO 很慢（网络）」。解法有两条：</p>
+<h3 id="1-2-因果链主线"><a href="#1-2-因果链主线" class="headerlink" title="1.2 因果链主线"></a>1.2 因果链主线</h3><p>Tomcat 的全部设计都围绕一个矛盾——<strong>「Web 容器要同时服务很多请求（并发），但每个请求的 IO 很慢（网络）」</strong>。解法有两条：</p>
 <ol>
 <li><strong>IO 线程只做读写不干活，业务线程池干活</strong>（连接器两段式）；</li>
-<li><strong>应用之间&#x2F;应用与容器之间的类要隔离</strong>（WebappClassLoader）。</li>
+<li><strong>应用之间 &#x2F; 应用与容器之间的类要隔离</strong>（WebappClassLoader）。</li>
 </ol>
 <p>记住这两条，所有参数和机制都能推出来。</p>
 <pre class="mermaid">mindmap
@@ -513,8 +511,39 @@
     三级缓冲
       acceptCount
       maxConnections
-      maxThreads</pre>
+      maxThreads
+    生产实践
+      启动流程
+      SpringBoot内嵌
+      Session管理
+      优雅停机</pre>
 
+<h3 id="1-3-Tomcat-在-Java-后端技术栈中的位置"><a href="#1-3-Tomcat-在-Java-后端技术栈中的位置" class="headerlink" title="1.3 Tomcat 在 Java 后端技术栈中的位置"></a>1.3 Tomcat 在 Java 后端技术栈中的位置</h3><pre class="mermaid">flowchart TB
+    App[业务应用&lt;br/>Spring Boot / SSM]
+    Framework[Spring Framework&lt;br/>IoC / AOP / MVC]
+    WebServer[Tomcat&lt;br/>Web 容器 / Servlet 容器]
+    JVM[JVM&lt;br/>HotSpot / OpenJDK]
+    OS[操作系统&lt;br/>Linux / Windows / macOS]
+    HW[硬件&lt;br/>CPU / 内存 / 网卡 / 磁盘]
+
+    App --> Framework
+    Framework --> WebServer
+    WebServer --> JVM
+    JVM --> OS
+    OS --> HW
+
+    style WebServer fill:#ffe6e6
+    style Framework fill:#e6f0ff
+    style JVM fill:#e6ffe6</pre>
+
+<p><strong>理解</strong>：</p>
+<ul>
+<li><strong>Spring 负责业务对象管理与 MVC 路由</strong>；</li>
+<li><strong>Tomcat 负责 HTTP 协议解析与 Servlet 调用</strong>；</li>
+<li><strong>JVM 负责字节码执行与内存管理</strong>；</li>
+<li><strong>OS 负责网络、文件、进程调度</strong>。</li>
+</ul>
+<p>面试时被问「一个请求怎么走完」，就是从 <code>OS 网卡 → Tomcat Connector → Tomcat Container → Spring DispatcherServlet → Controller</code> 的完整链路。</p>
 <hr>
 <h2 id="2-整体架构：连接器-容器"><a href="#2-整体架构：连接器-容器" class="headerlink" title="2. 整体架构：连接器 + 容器"></a>2. 整体架构：连接器 + 容器</h2><h3 id="2-1-两段式架构全景"><a href="#2-1-两段式架构全景" class="headerlink" title="2.1 两段式架构全景"></a>2.1 两段式架构全景</h3><p>Tomcat 的核心抽象只有两个：<strong>Connector（连接器）</strong> 和 <strong>Container（容器）</strong>。这是整个 Tomcat 的骨架。</p>
 <pre class="mermaid">flowchart LR
@@ -569,7 +598,88 @@
 <blockquote>
 <p><strong>IO 与业务彻底分离</strong>——这是 Tomcat 能扛高并发的架构根基。</p>
 </blockquote>
-<h3 id="2-2-容器分层：Engine-→-Host-→-Context-→-Wrapper"><a href="#2-2-容器分层：Engine-→-Host-→-Context-→-Wrapper" class="headerlink" title="2.2 容器分层：Engine → Host → Context → Wrapper"></a>2.2 容器分层：Engine → Host → Context → Wrapper</h3><p>容器为什么要分四层？一句话：<strong>分层是为了「多应用共存 + 每个应用独立管理」</strong>。</p>
+<h3 id="2-2-组件关系：Server-Service-Connector-Engine"><a href="#2-2-组件关系：Server-Service-Connector-Engine" class="headerlink" title="2.2 组件关系：Server &#x2F; Service &#x2F; Connector &#x2F; Engine"></a>2.2 组件关系：Server &#x2F; Service &#x2F; Connector &#x2F; Engine</h3><p><code>server.xml</code> 是 Tomcat 的核心配置文件，理解它的结构就理解了 Tomcat 的组件关系：</p>
+<pre class="mermaid">flowchart TB
+    Server[Server&lt;br/>整个 Tomcat 实例&lt;br/>监听 8005 shutdown 端口]
+    Service1[Service: Catalina&lt;br/>一组 Connector + 一个 Engine]
+    Service2[Service: 其他业务&lt;br/>（可选）]
+    Connector1[Connector HTTP/1.1&lt;br/>port=8080]
+    Connector2[Connector AJP&lt;br/>port=8009]
+    Engine[Engine: Catalina&lt;br/>顶层容器]
+    Host1[Host: localhost]
+    Host2[Host: www.example.com]
+    Context1[Context: /app1]
+    Context2[Context: /app2]
+    Wrapper1[Wrapper: DispatcherServlet]
+    Wrapper2[Wrapper: ServletA]
+
+    Server --> Service1
+    Server --> Service2
+    Service1 --> Connector1
+    Service1 --> Connector2
+    Service1 --> Engine
+    Engine --> Host1
+    Engine --> Host2
+    Host1 --> Context1
+    Host1 --> Context2
+    Context1 --> Wrapper1
+    Context2 --> Wrapper2
+
+    style Server fill:#ffe6e6
+    style Service1 fill:#fff4e6
+    style Connector1 fill:#e6f0ff
+    style Connector2 fill:#e6f0ff
+    style Engine fill:#e6ffe6</pre>
+
+<p><strong>关键理解</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>组件</th>
+<th>职责</th>
+<th>常见配置位置</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Server</strong></td>
+<td>最顶层，代表整个 Tomcat 实例，管理 Service 生命周期</td>
+<td><code>server.xml</code> 根节点</td>
+</tr>
+<tr>
+<td><strong>Service</strong></td>
+<td>一组 Connector + 一个 Engine，是「一个服务」的完整单元</td>
+<td><code>&lt;Service&gt;</code> 节点</td>
+</tr>
+<tr>
+<td><strong>Connector</strong></td>
+<td>接收网络请求，协议解析，交给 Engine</td>
+<td><code>&lt;Connector&gt;</code> 节点</td>
+</tr>
+<tr>
+<td><strong>Engine</strong></td>
+<td>请求分发入口，管理多个 Host</td>
+<td><code>&lt;Engine&gt;</code> 节点</td>
+</tr>
+<tr>
+<td><strong>Host</strong></td>
+<td>虚拟主机，按域名路由</td>
+<td><code>&lt;Host&gt;</code> 节点</td>
+</tr>
+<tr>
+<td><strong>Context</strong></td>
+<td>一个 Web 应用（WAR 或目录）</td>
+<td><code>&lt;Context&gt;</code> 节点</td>
+</tr>
+<tr>
+<td><strong>Wrapper</strong></td>
+<td>一个 Servlet</td>
+<td>代码或 <code>&lt;Servlet&gt;</code> 配置</td>
+</tr>
+</tbody></table>
+<p><strong>server.xml 最小结构</strong>：</p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">Server</span> <span class="attr">port</span>=<span class="string">&quot;8005&quot;</span> <span class="attr">shutdown</span>=<span class="string">&quot;SHUTDOWN&quot;</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">Service</span> <span class="attr">name</span>=<span class="string">&quot;Catalina&quot;</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">Connector</span> <span class="attr">port</span>=<span class="string">&quot;8080&quot;</span> <span class="attr">protocol</span>=<span class="string">&quot;HTTP/1.1&quot;</span></span></span><br><span class="line"><span class="tag">               <span class="attr">connectionTimeout</span>=<span class="string">&quot;20000&quot;</span></span></span><br><span class="line"><span class="tag">               <span class="attr">redirectPort</span>=<span class="string">&quot;8443&quot;</span> /&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">Engine</span> <span class="attr">name</span>=<span class="string">&quot;Catalina&quot;</span> <span class="attr">defaultHost</span>=<span class="string">&quot;localhost&quot;</span>&gt;</span></span><br><span class="line">      <span class="tag">&lt;<span class="name">Host</span> <span class="attr">name</span>=<span class="string">&quot;localhost&quot;</span> <span class="attr">appBase</span>=<span class="string">&quot;webapps&quot;</span></span></span><br><span class="line"><span class="tag">            <span class="attr">unpackWARs</span>=<span class="string">&quot;true&quot;</span> <span class="attr">autoDeploy</span>=<span class="string">&quot;true&quot;</span>&gt;</span></span><br><span class="line">      <span class="tag">&lt;/<span class="name">Host</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;/<span class="name">Engine</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;/<span class="name">Service</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">Server</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="2-3-容器分层：Engine-→-Host-→-Context-→-Wrapper"><a href="#2-3-容器分层：Engine-→-Host-→-Context-→-Wrapper" class="headerlink" title="2.3 容器分层：Engine → Host → Context → Wrapper"></a>2.3 容器分层：Engine → Host → Context → Wrapper</h3><p>容器为什么要分四层？一句话：<strong>分层是为了「多应用共存 + 每个应用独立管理」</strong>。</p>
 <table>
 <thead>
 <tr>
@@ -638,13 +748,52 @@
     style W4 fill:#fff4e6</pre>
 
 <p><strong>因果链</strong>：容器分层粒度 &#x3D; 「一个 Tomcat 可以跑多个应用（多 Context），一个应用由多个 Servlet 组成」。</p>
-<p><strong>Spring Boot 内嵌 Tomcat 的区别</strong>：</p>
-<ul>
-<li>独立部署：多 Host 多 Context，Tomcat 独立进程；</li>
-<li>内嵌部署：单 Context（你的应用），Tomcat 生命周期由 Spring Boot 管理；</li>
-<li><strong>但分层结构不变</strong>——<code>Engine → Host → Context → Wrapper</code> 依然存在。</li>
-</ul>
-<h3 id="2-3-动手验证：看一个请求的旅程"><a href="#2-3-动手验证：看一个请求的旅程" class="headerlink" title="2.3 动手验证：看一个请求的旅程"></a>2.3 动手验证：看一个请求的旅程</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 用 Spring Boot 内嵌 Tomcat 的默认 8080（或 docker 起一个 tomcat）</span></span><br><span class="line">docker run -d -p 8080:8080 --name tomcat9 tomcat:9.0</span><br><span class="line"><span class="comment"># 访问默认页</span></span><br><span class="line">curl -i <span class="string">&quot;http://localhost:8080/&quot;</span> | <span class="built_in">head</span> -5</span><br><span class="line"></span><br><span class="line"><span class="comment"># 观察连接与线程：8080 上有 ESTABLISHED 连接，Tomcat 进程有工作线程</span></span><br><span class="line">lsof -i :8080 | <span class="built_in">head</span> -5</span><br><span class="line">jps -l | grep -i tomcat   <span class="comment"># 容器内 Tomcat 是 java 进程</span></span><br></pre></td></tr></table></figure>
+<h3 id="2-4-独立部署-vs-Spring-Boot-内嵌"><a href="#2-4-独立部署-vs-Spring-Boot-内嵌" class="headerlink" title="2.4 独立部署 vs Spring Boot 内嵌"></a>2.4 独立部署 vs Spring Boot 内嵌</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>独立部署</th>
+<th>Spring Boot 内嵌</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Tomcat 位置</strong></td>
+<td>独立进程，应用打成 WAR 丢进 webapps</td>
+<td>Tomcat 作为依赖打进应用的 jar</td>
+</tr>
+<tr>
+<td><strong>启动方式</strong></td>
+<td><code>catalina.sh start</code></td>
+<td><code>java -jar app.jar</code></td>
+</tr>
+<tr>
+<td><strong>Host &#x2F; Context</strong></td>
+<td>多 Host、多 Context</td>
+<td>单 Host、单 Context（你的应用）</td>
+</tr>
+<tr>
+<td><strong>生命周期</strong></td>
+<td>Tomcat 管理应用</td>
+<td>Spring Boot 管理 Tomcat</td>
+</tr>
+<tr>
+<td><strong>配置方式</strong></td>
+<td><code>server.xml</code>、<code>context.xml</code></td>
+<td><code>application.yml</code>、<code>WebServerFactoryCustomizer</code></td>
+</tr>
+<tr>
+<td><strong>部署灵活度</strong></td>
+<td>一个 Tomcat 部署多个应用</td>
+<td>一个应用一个进程，天然隔离</td>
+</tr>
+<tr>
+<td><strong>典型场景</strong></td>
+<td>传统企业应用、多应用共用 Tomcat</td>
+<td>微服务、Spring Cloud、K8s</td>
+</tr>
+</tbody></table>
+<p><strong>但分层结构不变</strong>——<code>Engine → Host → Context → Wrapper</code> 依然存在，只是内嵌模式下 Engine 和 Host 是默认创建的空壳。</p>
+<h3 id="2-5-动手验证：看一个请求的旅程"><a href="#2-5-动手验证：看一个请求的旅程" class="headerlink" title="2.5 动手验证：看一个请求的旅程"></a>2.5 动手验证：看一个请求的旅程</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 用 Spring Boot 内嵌 Tomcat 的默认 8080（或 docker 起一个 tomcat）</span></span><br><span class="line">docker run -d -p 8080:8080 --name tomcat9 tomcat:9.0</span><br><span class="line"><span class="comment"># 访问默认页</span></span><br><span class="line">curl -i <span class="string">&quot;http://localhost:8080/&quot;</span> | <span class="built_in">head</span> -5</span><br><span class="line"></span><br><span class="line"><span class="comment"># 观察连接与线程：8080 上有 ESTABLISHED 连接，Tomcat 进程有工作线程</span></span><br><span class="line">lsof -i :8080 | <span class="built_in">head</span> -5</span><br><span class="line">jps -l | grep -i tomcat   <span class="comment"># 容器内 Tomcat 是 java 进程</span></span><br></pre></td></tr></table></figure>
 
 <p><strong>观察点</strong>：</p>
 <ul>
@@ -653,7 +802,152 @@
 </ul>
 <p><strong>判定标准</strong>：理解「Tomcat &#x3D; 一个 Java 程序，用线程处理并发，用 socket 收发数据」——它没有魔法，就是 JVM 上的多线程网络程序，所以 Java 并发编程的线程模型知识全部适用。</p>
 <hr>
-<h2 id="3-连接器：NIO-线程模型与三大参数"><a href="#3-连接器：NIO-线程模型与三大参数" class="headerlink" title="3. 连接器：NIO 线程模型与三大参数"></a>3. 连接器：NIO 线程模型与三大参数</h2><h3 id="3-1-三个线程的职责分工"><a href="#3-1-三个线程的职责分工" class="headerlink" title="3.1 三个线程的职责分工"></a>3.1 三个线程的职责分工</h3><p>Tomcat NIO 连接器内部有 <strong>三类线程</strong>：</p>
+<h2 id="3-启动流程：Tomcat-是怎么起来的"><a href="#3-启动流程：Tomcat-是怎么起来的" class="headerlink" title="3. 启动流程：Tomcat 是怎么起来的"></a>3. 启动流程：Tomcat 是怎么起来的</h2><h3 id="3-1-启动流程全景"><a href="#3-1-启动流程全景" class="headerlink" title="3.1 启动流程全景"></a>3.1 启动流程全景</h3><p>Tomcat 启动是<strong>逐层初始化 + 逐层启动</strong>的过程：先创建 Server，再创建 Service，然后初始化 Connector 和 Engine，最后 Engine 下钻初始化 Host → Context → Wrapper。</p>
+<pre class="mermaid">sequenceDiagram
+    participant Main as Bootstrap.main
+    participant Catalina as Catalina
+    participant Server as Server
+    participant Service as Service
+    participant Connector as Connector
+    participant Engine as Engine
+    participant Host as Host
+    participant Context as Context
+    participant Wrapper as Wrapper
+
+    Main->>Catalina: 读取 server.xml
+    Catalina->>Server: 创建 Server 实例
+    Server->>Service: 创建 Service
+    Service->>Connector: 创建 Connector（监听端口）
+    Service->>Engine: 创建 Engine
+    Engine->>Host: 创建 Host（虚拟主机）
+    Host->>Context: 扫描 webapps 创建 Context
+    Context->>Wrapper: 解析 web.xml 创建 Wrapper
+
+    Note over Server,Wrapper: init 阶段完成，开始 start
+
+    Server->>Service: start()
+    Service->>Engine: start()
+    Engine->>Host: start()
+    Host->>Context: start()
+    Context->>Wrapper: start()（调用 Servlet.init）
+    Service->>Connector: start()（开始 accept 连接）
+
+    Note over Connector: 端口监听就绪&lt;br/>可以接受请求</pre>
+
+<h3 id="3-2-各阶段职责"><a href="#3-2-各阶段职责" class="headerlink" title="3.2 各阶段职责"></a>3.2 各阶段职责</h3><table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>做什么</th>
+<th>关键类 &#x2F; 方法</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Bootstrap</strong></td>
+<td>解析 <code>catalina.home</code>、<code>catalina.base</code>，启动 JVM</td>
+<td><code>org.apache.catalina.startup.Bootstrap</code></td>
+</tr>
+<tr>
+<td><strong>Catalina</strong></td>
+<td>读取 <code>server.xml</code>，创建 Server</td>
+<td><code>org.apache.catalina.startup.Catalina</code></td>
+</tr>
+<tr>
+<td><strong>Server.init</strong></td>
+<td>初始化 Service、Connector、Engine</td>
+<td><code>StandardServer.init()</code></td>
+</tr>
+<tr>
+<td><strong>Connector.init</strong></td>
+<td>创建协议处理器、初始化线程池</td>
+<td><code>Connector.initInternal()</code></td>
+</tr>
+<tr>
+<td><strong>Engine.init</strong></td>
+<td>初始化 Host</td>
+<td><code>StandardEngine.initInternal()</code></td>
+</tr>
+<tr>
+<td><strong>Host.init</strong></td>
+<td>扫描 <code>webapps</code> 目录，创建 Context</td>
+<td><code>StandardHost.initInternal()</code></td>
+</tr>
+<tr>
+<td><strong>Context.init</strong></td>
+<td>解析 <code>web.xml</code>，创建 Wrapper（Servlet）</td>
+<td><code>StandardContext.initInternal()</code></td>
+</tr>
+<tr>
+<td><strong>Wrapper.init</strong></td>
+<td>调用 <code>Servlet.init()</code></td>
+<td><code>StandardWrapper.initServlet()</code></td>
+</tr>
+<tr>
+<td><strong>Server.start</strong></td>
+<td>逐层 start，最后 Connector 开始 accept</td>
+<td><code>StandardServer.startInternal()</code></td>
+</tr>
+</tbody></table>
+<h3 id="3-3-启动命令与日志"><a href="#3-3-启动命令与日志" class="headerlink" title="3.3 启动命令与日志"></a>3.3 启动命令与日志</h3><p><strong>独立部署启动</strong>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># Linux / macOS</span></span><br><span class="line"><span class="variable">$CATALINA_HOME</span>/bin/startup.sh</span><br><span class="line"></span><br><span class="line"><span class="comment"># 或直接调 catalina.sh</span></span><br><span class="line"><span class="variable">$CATALINA_HOME</span>/bin/catalina.sh start</span><br><span class="line"></span><br><span class="line"><span class="comment"># 查看日志</span></span><br><span class="line"><span class="built_in">tail</span> -f <span class="variable">$CATALINA_HOME</span>/logs/catalina.out</span><br></pre></td></tr></table></figure>
+
+<p><strong>典型启动日志</strong>：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">INFO [main] org.apache.catalina.startup.VersionLoggerListener.log Server version name:   Apache Tomcat/9.0.85</span><br><span class="line">INFO [main] org.apache.catalina.core.StandardService.startInternal Starting service [Catalina]</span><br><span class="line">INFO [main] org.apache.catalina.core.StandardEngine.startInternal Starting Servlet engine: [Apache Tomcat/9.0.85]</span><br><span class="line">INFO [main] org.apache.catalina.startup.HostConfig.deployDirectory Deploying web application directory [/opt/tomcat/webapps/ROOT]</span><br><span class="line">INFO [main] org.apache.catalina.startup.HostConfig.deployDirectory Deployment of web application directory [/opt/tomcat/webapps/ROOT] has finished in [1,234] ms</span><br><span class="line">INFO [main] org.apache.coyote.http11.Http11NioProtocol.start Starting ProtocolHandler [&quot;http-nio-8080&quot;]</span><br><span class="line">INFO [main] org.apache.catalina.startup.Catalina.start Server startup in [2,345] milliseconds</span><br></pre></td></tr></table></figure>
+
+<p><strong>观察点</strong>：</p>
+<ul>
+<li><code>Starting ProtocolHandler [&quot;http-nio-8080&quot;]</code> 表示 Connector 开始监听；</li>
+<li><code>Server startup in [xxx] milliseconds</code> 表示启动完成。</li>
+</ul>
+<p><strong>Spring Boot 内嵌启动</strong>：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">2026-10-18 10:00:00.000  INFO 12345 --- [main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat initialized with port(s): 8080 (http)</span><br><span class="line">2026-10-18 10:00:00.123  INFO 12345 --- [main] o.apache.catalina.core.StandardService   : Starting service [Tomcat]</span><br><span class="line">2026-10-18 10:00:00.124  INFO 12345 --- [main] org.apache.catalina.core.StandardEngine  : Starting Servlet engine: [Apache Tomcat/9.0.85]</span><br><span class="line">2026-10-18 10:00:00.456  INFO 12345 --- [main] o.s.b.w.embedded.tomcat.TomcatWebServer  : Tomcat started on port(s): 8080 (http) with context path &#x27;&#x27;</span><br></pre></td></tr></table></figure>
+
+<p><strong>关键差异</strong>：</p>
+<ul>
+<li>内嵌模式下 Context 是你自己的应用（context path 通常为空 <code>&#39;&#39;</code>）；</li>
+<li>启动流程被 Spring Boot 封装在 <code>TomcatWebServer.start()</code> 里。</li>
+</ul>
+<h3 id="3-4-启动失败的常见原因"><a href="#3-4-启动失败的常见原因" class="headerlink" title="3.4 启动失败的常见原因"></a>3.4 启动失败的常见原因</h3><table>
+<thead>
+<tr>
+<th>现象</th>
+<th>原因</th>
+<th>解决</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>java.net.BindException</code></td>
+<td>端口被占用</td>
+<td><code>lsof -i :8080</code> 找到占用进程，改端口或杀进程</td>
+</tr>
+<tr>
+<td><code>ClassNotFoundException</code></td>
+<td>依赖缺失</td>
+<td>检查 <code>WEB-INF/lib</code>、<code>catalina.sh</code> 的 classpath</td>
+</tr>
+<tr>
+<td><code>NoSuchMethodError</code></td>
+<td>依赖版本冲突</td>
+<td><code>mvn dependency:tree</code> 排查</td>
+</tr>
+<tr>
+<td><code>OutOfMemoryError: Metaspace</code></td>
+<td>类加载器泄漏 &#x2F; Metaspace 太小</td>
+<td>调大 <code>-XX:MaxMetaspaceSize</code>，排查泄漏</td>
+</tr>
+<tr>
+<td><code>SEVERE: Error deploying web application</code></td>
+<td>web.xml 配置错 &#x2F; 应用初始化失败</td>
+<td>看 <code>catalina.out</code> 完整堆栈</td>
+</tr>
+<tr>
+<td>启动卡住</td>
+<td>数据库连接、外部依赖超时</td>
+<td>检查应用启动阶段的阻塞点</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="4-连接器：NIO-线程模型、协议与三大参数"><a href="#4-连接器：NIO-线程模型、协议与三大参数" class="headerlink" title="4. 连接器：NIO 线程模型、协议与三大参数"></a>4. 连接器：NIO 线程模型、协议与三大参数</h2><h3 id="4-1-三个线程的职责分工"><a href="#4-1-三个线程的职责分工" class="headerlink" title="4.1 三个线程的职责分工"></a>4.1 三个线程的职责分工</h3><p>Tomcat NIO 连接器内部有 <strong>三类线程</strong>：</p>
 <table>
 <thead>
 <tr>
@@ -722,7 +1016,7 @@
 <li>所以 <code>maxThreads</code> 是「<strong>同时处理的请求数</strong>」，<strong>不是「连接数上限」</strong>；</li>
 <li>连接可以有几万个，同时干活的最多 200 个，其余在队列等待。</li>
 </ul>
-<h3 id="3-2-一次请求在连接器中的完整生命周期"><a href="#3-2-一次请求在连接器中的完整生命周期" class="headerlink" title="3.2 一次请求在连接器中的完整生命周期"></a>3.2 一次请求在连接器中的完整生命周期</h3><p>把上面的三类线程串起来，一个请求从到达 socket 到进入业务代码，经历的完整步骤：</p>
+<h3 id="4-2-一次请求在连接器中的完整生命周期"><a href="#4-2-一次请求在连接器中的完整生命周期" class="headerlink" title="4.2 一次请求在连接器中的完整生命周期"></a>4.2 一次请求在连接器中的完整生命周期</h3><p>把上面的三类线程串起来，一个请求从到达 socket 到进入业务代码，经历的完整步骤：</p>
 <pre class="mermaid">sequenceDiagram
     participant C as Client
     participant OS as 内核 TCP 队列
@@ -753,7 +1047,50 @@
 <li><code>Worker</code> 从线程池取任务，<strong>才真正解析协议 + 执行业务</strong>。</li>
 </ol>
 <p>这就是「IO 与业务分离」的落地方式。</p>
-<h3 id="3-3-maxThreads-maxConnections-acceptCount-三参数详解"><a href="#3-3-maxThreads-maxConnections-acceptCount-三参数详解" class="headerlink" title="3.3 maxThreads &#x2F; maxConnections &#x2F; acceptCount 三参数详解"></a>3.3 maxThreads &#x2F; maxConnections &#x2F; acceptCount 三参数详解</h3><table>
+<h3 id="4-3-NIO-连接器内部组件"><a href="#4-3-NIO-连接器内部组件" class="headerlink" title="4.3 NIO 连接器内部组件"></a>4.3 NIO 连接器内部组件</h3><p>Tomcat NIO 连接器的核心内部类：</p>
+<table>
+<thead>
+<tr>
+<th>组件</th>
+<th>职责</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>NioEndpoint</code></td>
+<td>NIO 连接器实现，管理 Acceptor &#x2F; Poller &#x2F; Worker</td>
+</tr>
+<tr>
+<td><code>Acceptor</code></td>
+<td>独立线程，循环调用 <code>serverSocket.accept()</code></td>
+</tr>
+<tr>
+<td><code>Poller</code></td>
+<td>独立线程，持有 <code>Selector</code>，轮询就绪的 <code>SocketChannel</code></td>
+</tr>
+<tr>
+<td><code>PollerEvent</code></td>
+<td>Acceptor 注册连接的事件，放入 Poller 的队列</td>
+</tr>
+<tr>
+<td><code>SocketProcessor</code></td>
+<td>可运行任务，提交到 Worker 线程池执行协议解析</td>
+</tr>
+<tr>
+<td><code>Http11Processor</code></td>
+<td>HTTP&#x2F;1.1 协议解析器，生成 Request &#x2F; Response</td>
+</tr>
+<tr>
+<td><code>NioChannel</code></td>
+<td>封装 <code>SocketChannel</code> + <code>SocketBufferHandler</code></td>
+</tr>
+<tr>
+<td><code>NioSelectorPool</code></td>
+<td>Selector 池，用于阻塞写（大响应时）</td>
+</tr>
+</tbody></table>
+<p><strong>为什么 Poller 只有 1-2 个线程却能管几千连接？</strong></p>
+<p>因为 NIO 的 <code>Selector.select()</code> 是<strong>多路复用</strong>——一个线程就能监听成千上万个 <code>Channel</code> 的可读&#x2F;可写事件。这是 NIO 相对 BIO 的核心优势。</p>
+<h3 id="4-4-三大参数详解"><a href="#4-4-三大参数详解" class="headerlink" title="4.4 三大参数详解"></a>4.4 三大参数详解</h3><table>
 <thead>
 <tr>
 <th>参数</th>
@@ -787,7 +1124,57 @@
 <li><strong>maxConnections 是 Tomcat 层参数</strong>：达到上限后，Tomcat 不再从 OS 队列里 <code>accept</code>，新连接积压在 OS 队列；</li>
 <li><strong>maxThreads 是业务层参数</strong>：线程全忙时，请求进入 Tomcat 内部的 <code>TaskQueue</code>（默认无界）排队——<strong>无界队列意味着不会拒绝，只会越堆越多直到超时</strong>。</li>
 </ul>
-<h3 id="3-4-三级缓冲的排队模型"><a href="#3-4-三级缓冲的排队模型" class="headerlink" title="3.4 三级缓冲的排队模型"></a>3.4 三级缓冲的排队模型</h3><p>这是面试必画图——三个参数构成 <strong>三级缓冲</strong>，从外到内依次是：</p>
+<p><strong>相关参数补充</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>默认值</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>minSpareThreads</code></td>
+<td>10</td>
+<td>最小空闲线程数，低于此值会创建新线程</td>
+</tr>
+<tr>
+<td><code>threadPriority</code></td>
+<td>5</td>
+<td>线程优先级</td>
+</tr>
+<tr>
+<td><code>connectionTimeout</code></td>
+<td>20000ms</td>
+<td>连接超时，超过后关闭连接</td>
+</tr>
+<tr>
+<td><code>keepAliveTimeout</code></td>
+<td>同 connectionTimeout</td>
+<td>keep-alive 超时</td>
+</tr>
+<tr>
+<td><code>maxKeepAliveRequests</code></td>
+<td>100</td>
+<td>单连接最多复用多少次</td>
+</tr>
+<tr>
+<td><code>maxHttpHeaderSize</code></td>
+<td>8192</td>
+<td>HTTP 头最大字节数</td>
+</tr>
+<tr>
+<td><code>maxPostSize</code></td>
+<td>2MB</td>
+<td>POST 表单最大字节数</td>
+</tr>
+<tr>
+<td><code>maxSwallowSize</code></td>
+<td>2MB</td>
+<td>失败请求最多吞掉多少字节</td>
+</tr>
+</tbody></table>
+<h3 id="4-5-三级缓冲的排队模型"><a href="#4-5-三级缓冲的排队模型" class="headerlink" title="4.5 三级缓冲的排队模型"></a>4.5 三级缓冲的排队模型</h3><p>这是面试必画图——三个参数构成 <strong>三级缓冲</strong>，从外到内依次是：</p>
 <pre class="mermaid">flowchart TB
     New[新连接到达] --> Q1{OS accept 队列&lt;br/>长度 = acceptCount&lt;br/>默认 100}
     Q1 -->|队列满| R1[connection refused&lt;br/>客户端收到 RST]
@@ -837,7 +1224,89 @@
 <td>connection refused</td>
 </tr>
 </tbody></table>
-<h3 id="3-5-动手验证：压测观察三参数排队"><a href="#3-5-动手验证：压测观察三参数排队" class="headerlink" title="3.5 动手验证：压测观察三参数排队"></a>3.5 动手验证：压测观察三参数排队</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 起一个限速应用（业务 sleep 100ms，模拟慢接口）</span></span><br><span class="line"><span class="comment"># 用 JMeter/ab 发 1000 并发：</span></span><br><span class="line">ab -n 1000 -c 500 <span class="string">&quot;http://localhost:8080/slow&quot;</span> &amp;</span><br><span class="line"></span><br><span class="line"><span class="comment"># 观察线程池状态：内部队列堆积、线程全忙</span></span><br><span class="line">jstack &lt;tomcat_pid&gt; | grep -c <span class="string">&quot;http-nio-8080-exec&quot;</span>    <span class="comment"># 工作线程数</span></span><br><span class="line">curl <span class="string">&quot;http://localhost:8080/manager/status&quot;</span>            <span class="comment"># 连接器状态页（需配置）</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 调参对比：server.xml connector 节点</span></span><br><span class="line"><span class="comment"># &lt;Connector port=&quot;8080&quot; protocol=&quot;HTTP/1.1&quot;</span></span><br><span class="line"><span class="comment">#            maxThreads=&quot;400&quot; acceptCount=&quot;200&quot;</span></span><br><span class="line"><span class="comment">#            maxConnections=&quot;10000&quot;</span></span><br><span class="line"><span class="comment">#            connectionTimeout=&quot;20000&quot;/&gt;</span></span><br></pre></td></tr></table></figure>
+<h3 id="4-6-协议对比：BIO-NIO-NIO2-APR"><a href="#4-6-协议对比：BIO-NIO-NIO2-APR" class="headerlink" title="4.6 协议对比：BIO &#x2F; NIO &#x2F; NIO2 &#x2F; APR"></a>4.6 协议对比：BIO &#x2F; NIO &#x2F; NIO2 &#x2F; APR</h3><p>Tomcat 支持多种 IO 模型，通过 <code>protocol</code> 属性选择：</p>
+<table>
+<thead>
+<tr>
+<th>协议</th>
+<th>模型</th>
+<th>特点</th>
+<th>适用场景</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>HTTP/1.1</code>（默认 NIO）</td>
+<td>NIO</td>
+<td>多路复用，非阻塞，性能好</td>
+<td>绝大多数场景，<strong>默认推荐</strong></td>
+</tr>
+<tr>
+<td><code>org.apache.coyote.http11.Http11Nio2Protocol</code></td>
+<td>NIO2</td>
+<td>基于 JDK7+ 异步 IO，性能略优于 NIO</td>
+<td>高并发、新 JDK</td>
+</tr>
+<tr>
+<td><code>org.apache.coyote.http11.Http11AprProtocol</code></td>
+<td>APR</td>
+<td>基于 JNI 调用操作系统层，性能最好，需装 apr 库</td>
+<td>对性能极致要求，运维成本高</td>
+</tr>
+<tr>
+<td><code>org.apache.coyote.http11.Http11Protocol</code></td>
+<td>BIO</td>
+<td>一连接一线程，已废弃，不推荐</td>
+<td>仅兼容旧环境</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart LR
+    subgraph BIO["BIO 模型"]
+        B1[连接1] --> BT1[线程1]
+        B2[连接2] --> BT2[线程2]
+        B3[连接3] --> BT3[线程3]
+    end
+
+    subgraph NIO["NIO 模型"]
+        N1[连接1] --> Selector
+        N2[连接2] --> Selector
+        N3[连接3] --> Selector
+        Selector --> Worker[Worker 线程池]
+    end
+
+    style BIO fill:#ffe6e6
+    style NIO fill:#e6ffe6</pre>
+
+<p><strong>结论</strong>：</p>
+<ul>
+<li><strong>默认用 NIO</strong>，兼顾性能与部署简单；</li>
+<li><strong>NIO2 在 JDK7+ 更优</strong>，但差异不大；</li>
+<li><strong>APR 适合极致性能</strong>，但要装 <code>libapr</code> 和 <code>tomcat-native</code>；</li>
+<li><strong>BIO 已废弃</strong>，不要用。</li>
+</ul>
+<h3 id="4-7-HTTP-2-与-AJP"><a href="#4-7-HTTP-2-与-AJP" class="headerlink" title="4.7 HTTP&#x2F;2 与 AJP"></a>4.7 HTTP&#x2F;2 与 AJP</h3><table>
+<thead>
+<tr>
+<th>协议</th>
+<th>用途</th>
+<th>配置</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>HTTP&#x2F;2</strong></td>
+<td>客户端到 Tomcat，多路复用、头部压缩、服务器推送</td>
+<td><code>&lt;Connector protocol=&quot;org.apache.coyote.http2.Http2Protocol&quot;&gt;</code> 或 <code>server.http2.enabled=true</code></td>
+</tr>
+<tr>
+<td><strong>AJP</strong></td>
+<td>Nginx&#x2F;Apache 到 Tomcat 的二进制协议，性能略优</td>
+<td><code>&lt;Connector protocol=&quot;AJP/1.3&quot; port=&quot;8009&quot;&gt;</code></td>
+</tr>
+</tbody></table>
+<p><strong>AJP 的安全风险（Ghostcat 漏洞）</strong> ：</p>
+<p>Tomcat AJP 协议在 9.0.31 之前存在任意文件读取 + 包含漏洞（CVE-2020-1938，别名 Ghostcat）。<strong>生产建议直接禁用 AJP</strong>，用 HTTP 反向代理替代。</p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">&lt;!-- 禁用 AJP：不配置 AJP Connector 即可 --&gt;</span></span><br><span class="line"><span class="comment">&lt;!-- 如果必须用，设置 secretRequired 和 secret --&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">Connector</span> <span class="attr">protocol</span>=<span class="string">&quot;AJP/1.3&quot;</span> <span class="attr">port</span>=<span class="string">&quot;8009&quot;</span> <span class="attr">secretRequired</span>=<span class="string">&quot;true&quot;</span> <span class="attr">secret</span>=<span class="string">&quot;your-secret&quot;</span> /&gt;</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="4-8-动手验证：压测观察三参数排队"><a href="#4-8-动手验证：压测观察三参数排队" class="headerlink" title="4.8 动手验证：压测观察三参数排队"></a>4.8 动手验证：压测观察三参数排队</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 起一个限速应用（业务 sleep 100ms，模拟慢接口）</span></span><br><span class="line"><span class="comment"># 用 JMeter/ab 发 1000 并发：</span></span><br><span class="line">ab -n 1000 -c 500 <span class="string">&quot;http://localhost:8080/slow&quot;</span> &amp;</span><br><span class="line"></span><br><span class="line"><span class="comment"># 观察线程池状态：内部队列堆积、线程全忙</span></span><br><span class="line">jstack &lt;tomcat_pid&gt; | grep -c <span class="string">&quot;http-nio-8080-exec&quot;</span>    <span class="comment"># 工作线程数</span></span><br><span class="line">curl <span class="string">&quot;http://localhost:8080/manager/status&quot;</span>            <span class="comment"># 连接器状态页（需配置）</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 调参对比：server.xml connector 节点</span></span><br><span class="line"><span class="comment"># &lt;Connector port=&quot;8080&quot; protocol=&quot;HTTP/1.1&quot;</span></span><br><span class="line"><span class="comment">#            maxThreads=&quot;400&quot; acceptCount=&quot;200&quot;</span></span><br><span class="line"><span class="comment">#            maxConnections=&quot;10000&quot;</span></span><br><span class="line"><span class="comment">#            connectionTimeout=&quot;20000&quot;/&gt;</span></span><br></pre></td></tr></table></figure>
 
 <p><strong>观察点</strong>：</p>
 <ul>
@@ -846,7 +1315,7 @@
 </ul>
 <p><strong>判定标准</strong>：能说出「调 <code>maxThreads</code> 是调吞吐上限，调 <code>acceptCount</code> 是调拒绝时机」——**别一压测失败就盲目调 <code>maxThreads</code>**。</p>
 <hr>
-<h2 id="4-请求处理：Pipeline-与-Servlet-生命周期"><a href="#4-请求处理：Pipeline-与-Servlet-生命周期" class="headerlink" title="4. 请求处理：Pipeline 与 Servlet 生命周期"></a>4. 请求处理：Pipeline 与 Servlet 生命周期</h2><h3 id="4-1-Valve-责任链"><a href="#4-1-Valve-责任链" class="headerlink" title="4.1 Valve 责任链"></a>4.1 Valve 责任链</h3><p>容器每一层（Engine&#x2F;Host&#x2F;Context&#x2F;Wrapper）都有一条 <strong>Pipeline</strong>，请求逐层穿过 Valve（责任链模式）：</p>
+<h2 id="5-请求处理：Pipeline、Valve-与-Servlet-生命周期"><a href="#5-请求处理：Pipeline、Valve-与-Servlet-生命周期" class="headerlink" title="5. 请求处理：Pipeline、Valve 与 Servlet 生命周期"></a>5. 请求处理：Pipeline、Valve 与 Servlet 生命周期</h2><h3 id="5-1-Valve-责任链"><a href="#5-1-Valve-责任链" class="headerlink" title="5.1 Valve 责任链"></a>5.1 Valve 责任链</h3><p>容器每一层（Engine&#x2F;Host&#x2F;Context&#x2F;Wrapper）都有一条 <strong>Pipeline</strong>，请求逐层穿过 Valve（责任链模式）：</p>
 <pre class="mermaid">flowchart LR
     Req[Request] --> EP[Engine Pipeline]
     EP --> EV1[Engine Valve]
@@ -897,7 +1366,50 @@
 </tr>
 </tbody></table>
 <p>这是 AOP 思想的容器版——Spring 的拦截器是同一模式。</p>
-<h3 id="4-2-Servlet-三段生命周期"><a href="#4-2-Servlet-三段生命周期" class="headerlink" title="4.2 Servlet 三段生命周期"></a>4.2 Servlet 三段生命周期</h3><table>
+<h3 id="5-2-Filter-与-Interceptor-的执行顺序"><a href="#5-2-Filter-与-Interceptor-的执行顺序" class="headerlink" title="5.2 Filter 与 Interceptor 的执行顺序"></a>5.2 Filter 与 Interceptor 的执行顺序</h3><p>一个请求进入 Spring MVC 后，经过的组件顺序：</p>
+<pre class="mermaid">flowchart LR
+    A[Filter&lt;br/>Servlet 规范] --> B[DispatcherServlet]
+    B --> C[HandlerInterceptor.preHandle]
+    C --> D[Controller]
+    D --> E[HandlerInterceptor.postHandle]
+    E --> F[HandlerInterceptor.afterCompletion]
+    F --> G[Filter 返回]
+
+    style A fill:#e6f0ff
+    style C fill:#fff4e6
+    style D fill:#ffe6e6
+    style E fill:#fff4e6
+    style F fill:#fff4e6</pre>
+
+<table>
+<thead>
+<tr>
+<th>组件</th>
+<th>规范&#x2F;框架</th>
+<th>执行时机</th>
+<th>典型用途</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Filter</strong></td>
+<td>Servlet 规范</td>
+<td>请求进入 Servlet 前 &#x2F; 后</td>
+<td>编码、CORS、请求日志</td>
+</tr>
+<tr>
+<td><strong>Interceptor</strong></td>
+<td>Spring MVC</td>
+<td>Controller 前后</td>
+<td>鉴权、参数校验、日志</td>
+</tr>
+<tr>
+<td><strong>AOP</strong></td>
+<td>Spring</td>
+<td>方法调用前后</td>
+<td>事务、性能监控</td>
+</tr>
+</tbody></table>
+<h3 id="5-3-Servlet-三段生命周期"><a href="#5-3-Servlet-三段生命周期" class="headerlink" title="5.3 Servlet 三段生命周期"></a>5.3 Servlet 三段生命周期</h3><table>
 <thead>
 <tr>
 <th>阶段</th>
@@ -947,7 +1459,15 @@
 <li>✅ 用 <code>ThreadLocal</code> 或者无状态设计；</li>
 <li>✅ 需要状态就用外部存储（Redis&#x2F;DB）。</li>
 </ul>
-<h3 id="4-3-动手验证：看-Servlet-实例与线程"><a href="#4-3-动手验证：看-Servlet-实例与线程" class="headerlink" title="4.3 动手验证：看 Servlet 实例与线程"></a>4.3 动手验证：看 Servlet 实例与线程</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 一个简单 Servlet 打印「实例 hashCode + 线程名 + 请求路径」</span></span><br><span class="line"><span class="meta">@WebServlet(&quot;/who&quot;)</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">WhoServlet</span> <span class="keyword">extends</span> <span class="title class_">HttpServlet</span> &#123;</span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">protected</span> <span class="keyword">void</span> <span class="title function_">doGet</span><span class="params">(HttpServletRequest req, HttpServletResponse resp)</span></span><br><span class="line">            <span class="keyword">throws</span> IOException &#123;</span><br><span class="line">        resp.getWriter().write(<span class="string">&quot;instance=&quot;</span> + <span class="built_in">this</span>.hashCode()</span><br><span class="line">                + <span class="string">&quot;, thread=&quot;</span> + Thread.currentThread().getName()</span><br><span class="line">                + <span class="string">&quot;, path=&quot;</span> + req.getRequestURI());</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p><strong>Spring MVC 的 Controller 也是单例吗？</strong></p>
+<p>默认是单例（<code>@Controller</code> &#x2F; <code>@RestController</code> 默认 <code>singleton</code>）。所以 <strong>Controller 不能有非线程安全的实例变量</strong>——这是 Spring 与 Tomcat 的联合约束。</p>
+<h3 id="5-4-请求参数解析与编码"><a href="#5-4-请求参数解析与编码" class="headerlink" title="5.4 请求参数解析与编码"></a>5.4 请求参数解析与编码</h3><p><strong>GET 请求中文乱码</strong>：</p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">&lt;!-- server.xml Connector 加 URIEncoding --&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">Connector</span> <span class="attr">port</span>=<span class="string">&quot;8080&quot;</span> <span class="attr">protocol</span>=<span class="string">&quot;HTTP/1.1&quot;</span> <span class="attr">URIEncoding</span>=<span class="string">&quot;UTF-8&quot;</span> /&gt;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>POST 请求中文乱码</strong>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 方式一：Filter</span></span><br><span class="line">request.setCharacterEncoding(<span class="string">&quot;UTF-8&quot;</span>);</span><br><span class="line">response.setCharacterEncoding(<span class="string">&quot;UTF-8&quot;</span>);</span><br><span class="line"></span><br><span class="line"><span class="comment">// 方式二：Spring Boot 配置</span></span><br><span class="line"><span class="comment">// server.servlet.encoding.charset=UTF-8</span></span><br><span class="line"><span class="comment">// server.servlet.encoding.enabled=true</span></span><br><span class="line"><span class="comment">// server.servlet.encoding.force=true</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="5-5-动手验证：看-Servlet-实例与线程"><a href="#5-5-动手验证：看-Servlet-实例与线程" class="headerlink" title="5.5 动手验证：看 Servlet 实例与线程"></a>5.5 动手验证：看 Servlet 实例与线程</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 一个简单 Servlet 打印「实例 hashCode + 线程名 + 请求路径」</span></span><br><span class="line"><span class="meta">@WebServlet(&quot;/who&quot;)</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">WhoServlet</span> <span class="keyword">extends</span> <span class="title class_">HttpServlet</span> &#123;</span><br><span class="line">    <span class="meta">@Override</span></span><br><span class="line">    <span class="keyword">protected</span> <span class="keyword">void</span> <span class="title function_">doGet</span><span class="params">(HttpServletRequest req, HttpServletResponse resp)</span></span><br><span class="line">            <span class="keyword">throws</span> IOException &#123;</span><br><span class="line">        resp.getWriter().write(<span class="string">&quot;instance=&quot;</span> + <span class="built_in">this</span>.hashCode()</span><br><span class="line">                + <span class="string">&quot;, thread=&quot;</span> + Thread.currentThread().getName()</span><br><span class="line">                + <span class="string">&quot;, path=&quot;</span> + req.getRequestURI());</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 
 <figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 并发访问 10 次</span></span><br><span class="line"><span class="keyword">for</span> i <span class="keyword">in</span> $(<span class="built_in">seq</span> 1 10); <span class="keyword">do</span> curl -s <span class="string">&quot;http://localhost:8080/who&quot;</span> &amp; <span class="keyword">done</span>; <span class="built_in">wait</span></span><br><span class="line"><span class="comment"># 输出：instance= 全部相同（单实例），thread= 各不相同（线程池并发）</span></span><br></pre></td></tr></table></figure>
 
@@ -958,7 +1478,7 @@
 </ul>
 <p><strong>判定标准</strong>：亲眼确认「Servlet 实例只有一个、线程是池里随便抽的」，理解实例变量的危险性。</p>
 <hr>
-<h2 id="5-类加载：为什么打破双亲委派"><a href="#5-类加载：为什么打破双亲委派" class="headerlink" title="5. 类加载：为什么打破双亲委派"></a>5. 类加载：为什么打破双亲委派</h2><h3 id="5-1-双亲委派机制回顾"><a href="#5-1-双亲委派机制回顾" class="headerlink" title="5.1 双亲委派机制回顾"></a>5.1 双亲委派机制回顾</h3><p>JVM 默认的类加载器层次（自顶向下）：</p>
+<h2 id="6-类加载：为什么打破双亲委派"><a href="#6-类加载：为什么打破双亲委派" class="headerlink" title="6. 类加载：为什么打破双亲委派"></a>6. 类加载：为什么打破双亲委派</h2><h3 id="6-1-双亲委派机制回顾"><a href="#6-1-双亲委派机制回顾" class="headerlink" title="6.1 双亲委派机制回顾"></a>6.1 双亲委派机制回顾</h3><p>JVM 默认的类加载器层次（自顶向下）：</p>
 <pre class="mermaid">flowchart TB
     App[Application ClassLoader&lt;br/>AppClassLoader&lt;br/>加载 classpath]
     Ext[Extension ClassLoader&lt;br/>ExtClassLoader&lt;br/>加载 java.ext.dirs]
@@ -984,7 +1504,7 @@
     style Result fill:#e6ffe6</pre>
 
 <p><strong>目的</strong>：保证核心类不被篡改（<code>java.lang.String</code> 永远由 Bootstrap 加载）。</p>
-<h3 id="5-2-Tomcat-的-WebappClassLoader-如何打破"><a href="#5-2-Tomcat-的-WebappClassLoader-如何打破" class="headerlink" title="5.2 Tomcat 的 WebappClassLoader 如何打破"></a>5.2 Tomcat 的 WebappClassLoader 如何打破</h3><p>Tomcat 的 <code>WebappClassLoader</code> <strong>对 Web 应用类目录中的类，先自己找，找不到再委派父加载器</strong>：</p>
+<h3 id="6-2-Tomcat-的-WebappClassLoader-如何打破"><a href="#6-2-Tomcat-的-WebappClassLoader-如何打破" class="headerlink" title="6.2 Tomcat 的 WebappClassLoader 如何打破"></a>6.2 Tomcat 的 WebappClassLoader 如何打破</h3><p>Tomcat 的 <code>WebappClassLoader</code> <strong>对 Web 应用类目录中的类，先自己找，找不到再委派父加载器</strong>：</p>
 <pre class="mermaid">flowchart TB
     Start[需要加载 com.example.Foo] --> Check{是否 JVM 核心类?&lt;br/>java.* / javax.*}
     Check -->|是| Delegate1[委派给父加载器&lt;br/>Bootstrap/Ext]
@@ -1027,7 +1547,7 @@
 <li>对 <code>java.*</code> 等 <strong>JVM 核心类</strong>：仍然委派 Bootstrap。</li>
 </ul>
 <p><strong>完整答案</strong>：『打破双亲委派有两个原因——多应用类隔离 + 热部署；但规范类与核心类仍走委派』，两个原因 + 边界都说全才是完整答案。</p>
-<h3 id="5-3-Tomcat-类加载器全景图"><a href="#5-3-Tomcat-类加载器全景图" class="headerlink" title="5.3 Tomcat 类加载器全景图"></a>5.3 Tomcat 类加载器全景图</h3><p>Tomcat 的类加载器体系比 JVM 默认复杂得多：</p>
+<h3 id="6-3-Tomcat-类加载器全景图"><a href="#6-3-Tomcat-类加载器全景图" class="headerlink" title="6.3 Tomcat 类加载器全景图"></a>6.3 Tomcat 类加载器全景图</h3><p>Tomcat 的类加载器体系比 JVM 默认复杂得多：</p>
 <pre class="mermaid">flowchart TB
     Boot[Bootstrap ClassLoader&lt;br/>JVM 核心类&lt;br/>java.*]
     System[System ClassLoader&lt;br/>CLASSPATH&lt;br/>catalina.sh 里的 jars]
@@ -1102,7 +1622,7 @@
 </tr>
 </tbody></table>
 <p><strong>因果链</strong>：每个 Web 应用一个 <code>WebappClassLoader</code> 实例，是「应用隔离」的物理实现。</p>
-<h3 id="5-4-热部署与类加载器泄漏"><a href="#5-4-热部署与类加载器泄漏" class="headerlink" title="5.4 热部署与类加载器泄漏"></a>5.4 热部署与类加载器泄漏</h3><p><strong>热部署的原理</strong>：应用重新部署时，Tomcat 会<strong>丢弃旧的 <code>WebappClassLoader</code> 整个实例</strong>，创建新的加载器重新加载类。</p>
+<h3 id="6-4-热部署与类加载器泄漏"><a href="#6-4-热部署与类加载器泄漏" class="headerlink" title="6.4 热部署与类加载器泄漏"></a>6.4 热部署与类加载器泄漏</h3><p><strong>热部署的原理</strong>：应用重新部署时，Tomcat 会<strong>丢弃旧的 <code>WebappClassLoader</code> 整个实例</strong>，创建新的加载器重新加载类。</p>
 <pre class="mermaid">sequenceDiagram
     participant Admin as 管理员
     participant Tomcat as Tomcat
@@ -1119,16 +1639,20 @@
     New->>App: 重新加载所有类
     App-->>Admin: 部署完成</pre>
 
-<p><strong>类加载器泄漏</strong>：如果应用里有线程&#x2F;ThreadLocal&#x2F;静态变量持有 <code>WebappClassLoader</code> 的引用，旧加载器无法被 GC，导致 <strong>Metaspace OOM</strong>。</p>
+<p><strong>类加载器泄漏</strong>：如果应用里有线程 &#x2F; ThreadLocal &#x2F; 静态变量持有 <code>WebappClassLoader</code> 的引用，旧加载器无法被 GC，导致 <strong>Metaspace OOM</strong>。</p>
 <p><strong>常见泄漏源</strong>：</p>
 <ul>
 <li><code>ThreadLocal</code> 未清理，且线程是 Tomcat 线程池的；</li>
 <li><code>DriverManager</code> 注册的 JDBC 驱动（Tomcat 会警告）；</li>
 <li>定时器线程未停止；</li>
-<li>自定义 <code>ClassLoader</code> 未释放。</li>
+<li>自定义 <code>ClassLoader</code> 未释放；</li>
+<li>第三方库缓存了类加载器引用（如日志框架、Fastjson 的 ASM 缓存）。</li>
 </ul>
-<p><strong>排查方式</strong>：<code>jmap -clstats &lt;pid&gt;</code> 看类加载器数量，或 <code>jcmd &lt;pid&gt; GC.class_stats</code>。</p>
-<h3 id="5-5-动手验证：打印类加载器链"><a href="#5-5-动手验证：打印类加载器链" class="headerlink" title="5.5 动手验证：打印类加载器链"></a>5.5 动手验证：打印类加载器链</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 在任意 Servlet 里打印：</span></span><br><span class="line"><span class="type">ClassLoader</span> <span class="variable">cl</span> <span class="operator">=</span> getClass().getClassLoader();</span><br><span class="line"><span class="keyword">while</span> (cl != <span class="literal">null</span>) &#123;</span><br><span class="line">    System.out.println(cl.getClass().getName());</span><br><span class="line">    cl = cl.getParent();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+<p><strong>排查方式</strong>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 看类加载器数量</span></span><br><span class="line">jmap -clstats &lt;pid&gt;</span><br><span class="line"></span><br><span class="line"><span class="comment"># 或</span></span><br><span class="line">jcmd &lt;pid&gt; GC.class_stats</span><br><span class="line"></span><br><span class="line"><span class="comment"># 看 Metaspace 使用</span></span><br><span class="line">jstat -gcmetacapacity &lt;pid&gt; 1000 10</span><br></pre></td></tr></table></figure>
+
+<p><strong>Tomcat 自带的泄漏检测</strong>：<code>context.xml</code> 中配置 <code>&lt;Context clearReferencesStopThreads=&quot;true&quot;&gt;</code> 可在应用停止时强制停止泄漏线程（有风险，生产慎用）。</p>
+<h3 id="6-5-动手验证：打印类加载器链"><a href="#6-5-动手验证：打印类加载器链" class="headerlink" title="6.5 动手验证：打印类加载器链"></a>6.5 动手验证：打印类加载器链</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 在任意 Servlet 里打印：</span></span><br><span class="line"><span class="type">ClassLoader</span> <span class="variable">cl</span> <span class="operator">=</span> getClass().getClassLoader();</span><br><span class="line"><span class="keyword">while</span> (cl != <span class="literal">null</span>) &#123;</span><br><span class="line">    System.out.println(cl.getClass().getName());</span><br><span class="line">    cl = cl.getParent();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
 
 <p><strong>输出链（典型顺序）</strong>：</p>
 <figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">org.apache.catalina.loader.WebappClassLoader   ← 打破双亲委派的加载器</span><br><span class="line">sun.misc.Launcher$AppClassLoader               ← 应用类加载器</span><br><span class="line">sun.misc.Launcher$ExtClassLoader               ← 扩展类加载器</span><br><span class="line">null                                           ← Bootstrap（JVM 核心类）</span><br></pre></td></tr></table></figure>
@@ -1136,7 +1660,464 @@
 <p><strong>观察点</strong>：顶层是 <code>WebappClassLoader</code> 而非 <code>AppClassLoader</code>——你的类默认由 <code>WebappClassLoader</code> 加载。</p>
 <p><strong>判定标准</strong>：能指着这条链讲「<code>WebappClassLoader</code> 先找自己、再委派」，并说出为什么 JVM 核心类（<code>java.lang.String</code>）不经过它。</p>
 <hr>
-<h2 id="6-调优与排障：实战三件套"><a href="#6-调优与排障：实战三件套" class="headerlink" title="6. 调优与排障：实战三件套"></a>6. 调优与排障：实战三件套</h2><h3 id="6-1-调优参数速查"><a href="#6-1-调优参数速查" class="headerlink" title="6.1 调优参数速查"></a>6.1 调优参数速查</h3><table>
+<h2 id="7-Spring-Boot-内嵌-Tomcat-原理"><a href="#7-Spring-Boot-内嵌-Tomcat-原理" class="headerlink" title="7. Spring Boot 内嵌 Tomcat 原理"></a>7. Spring Boot 内嵌 Tomcat 原理</h2><h3 id="7-1-内嵌-Tomcat-的类关系"><a href="#7-1-内嵌-Tomcat-的类关系" class="headerlink" title="7.1 内嵌 Tomcat 的类关系"></a>7.1 内嵌 Tomcat 的类关系</h3><p>Spring Boot 内嵌 Tomcat 的核心类：</p>
+<pre class="mermaid">classDiagram
+    class ServletWebServerApplicationContext {
+        +onRefresh()
+        +createWebServer()
+    }
+    class ServletWebServerFactory {
+        &lt;&lt;interface>>
+        +getWebServer(ServletContextInitializer...)
+    }
+    class TomcatServletWebServerFactory {
+        +getWebServer(...)
+        +getTomcatWebServer(Tomcat)
+    }
+    class TomcatWebServer {
+        -Tomcat tomcat
+        +start()
+        +stop()
+        +getPort()
+    }
+    class Tomcat {
+        +addConnector(Connector)
+        +addEngine(Engine)
+        +start()
+        +stop()
+    }
+    class Connector
+    class Engine
+    class Host
+    class Context
+
+    ServletWebServerApplicationContext --> ServletWebServerFactory
+    ServletWebServerFactory &lt;|.. TomcatServletWebServerFactory
+    TomcatServletWebServerFactory --> TomcatWebServer
+    TomcatWebServer --> Tomcat
+    Tomcat --> Connector
+    Tomcat --> Engine
+    Engine --> Host
+    Host --> Context</pre>
+
+<p><strong>关键类职责</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>类</th>
+<th>职责</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>ServletWebServerApplicationContext</code></td>
+<td>Spring Boot 的 Web 应用上下文，<code>onRefresh()</code> 时创建 WebServer</td>
+</tr>
+<tr>
+<td><code>ServletWebServerFactory</code></td>
+<td>WebServer 工厂接口，屏蔽 Tomcat &#x2F; Jetty &#x2F; Undertow 差异</td>
+</tr>
+<tr>
+<td><code>TomcatServletWebServerFactory</code></td>
+<td>Tomcat 工厂实现，创建并配置 Tomcat 实例</td>
+</tr>
+<tr>
+<td><code>TomcatWebServer</code></td>
+<td>包装 Tomcat，管理生命周期（start &#x2F; stop）</td>
+</tr>
+<tr>
+<td><code>Tomcat</code></td>
+<td>Tomcat 核心类，持有 Server &#x2F; Service &#x2F; Connector &#x2F; Engine</td>
+</tr>
+</tbody></table>
+<h3 id="7-2-内嵌-Tomcat-的启动流程"><a href="#7-2-内嵌-Tomcat-的启动流程" class="headerlink" title="7.2 内嵌 Tomcat 的启动流程"></a>7.2 内嵌 Tomcat 的启动流程</h3><pre class="mermaid">sequenceDiagram
+    participant App as SpringApplication
+    participant Ctx as ServletWebServerApplicationContext
+    participant Factory as TomcatServletWebServerFactory
+    participant WS as TomcatWebServer
+    participant Tomcat as Tomcat
+    participant Connector as Connector
+    participant Engine as Engine
+
+    App->>Ctx: refresh()
+    Ctx->>Ctx: onRefresh()
+    Ctx->>Factory: getWebServer(initializers)
+    Factory->>Tomcat: new Tomcat()
+    Factory->>Tomcat: addConnector(port)
+    Factory->>Tomcat: addEngine()
+    Factory->>Engine: addHost()
+    Engine->>Engine: addContext(app)
+    Factory->>WS: new TomcatWebServer(tomcat)
+    WS->>Tomcat: start()
+    Tomcat->>Connector: start()
+    Note over Connector: 开始监听端口
+    Tomcat->>Engine: start()
+    Engine->>Engine: 启动 Context（你的应用）
+    WS-->>Ctx: WebServer 就绪
+    Ctx-->>App: refresh 完成</pre>
+
+<p><strong>关键点</strong>：</p>
+<ul>
+<li><code>onRefresh()</code> 是 Spring Boot 创建 WebServer 的时机；</li>
+<li><code>TomcatWebServer.start()</code> 调用 <code>tomcat.start()</code>，逐层启动；</li>
+<li><strong>Context 是你的 Spring 应用</strong>，通过 <code>TomcatServletWebServerFactory</code> 的 <code>ContextInitializer</code> 注入。</li>
+</ul>
+<h3 id="7-3-内嵌-Tomcat-的配置方式"><a href="#7-3-内嵌-Tomcat-的配置方式" class="headerlink" title="7.3 内嵌 Tomcat 的配置方式"></a>7.3 内嵌 Tomcat 的配置方式</h3><p><strong>application.yml 配置</strong>：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">server:</span></span><br><span class="line">  <span class="attr">port:</span> <span class="number">8080</span></span><br><span class="line">  <span class="attr">servlet:</span></span><br><span class="line">    <span class="attr">context-path:</span> <span class="string">/api</span></span><br><span class="line">    <span class="attr">encoding:</span></span><br><span class="line">      <span class="attr">charset:</span> <span class="string">UTF-8</span></span><br><span class="line">      <span class="attr">force:</span> <span class="literal">true</span></span><br><span class="line">  <span class="attr">tomcat:</span></span><br><span class="line">    <span class="attr">max-threads:</span> <span class="number">400</span></span><br><span class="line">    <span class="attr">min-spare-threads:</span> <span class="number">50</span></span><br><span class="line">    <span class="attr">max-connections:</span> <span class="number">10000</span></span><br><span class="line">    <span class="attr">accept-count:</span> <span class="number">200</span></span><br><span class="line">    <span class="attr">connection-timeout:</span> <span class="number">20000</span></span><br><span class="line">    <span class="attr">uri-encoding:</span> <span class="string">UTF-8</span></span><br><span class="line">    <span class="attr">basedir:</span> <span class="string">/tmp/tomcat</span></span><br><span class="line">    <span class="attr">accesslog:</span></span><br><span class="line">      <span class="attr">enabled:</span> <span class="literal">true</span></span><br><span class="line">      <span class="attr">directory:</span> <span class="string">/var/log/tomcat</span></span><br><span class="line">      <span class="attr">pattern:</span> <span class="string">&quot;%h %l %u %t \&quot;%r\&quot; %s %b&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>Java 配置（WebServerFactoryCustomizer）</strong>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">@Configuration</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">class</span> <span class="title class_">TomcatConfig</span> &#123;</span><br><span class="line"></span><br><span class="line">    <span class="meta">@Bean</span></span><br><span class="line">    <span class="keyword">public</span> WebServerFactoryCustomizer&lt;TomcatServletWebServerFactory&gt; <span class="title function_">tomcatCustomizer</span><span class="params">()</span> &#123;</span><br><span class="line">        <span class="keyword">return</span> factory -&gt; &#123;</span><br><span class="line">            factory.addConnectorCustomizers(connector -&gt; &#123;</span><br><span class="line">                connector.setProperty(<span class="string">&quot;maxThreads&quot;</span>, <span class="string">&quot;400&quot;</span>);</span><br><span class="line">                connector.setProperty(<span class="string">&quot;acceptCount&quot;</span>, <span class="string">&quot;200&quot;</span>);</span><br><span class="line">                connector.setProperty(<span class="string">&quot;maxConnections&quot;</span>, <span class="string">&quot;10000&quot;</span>);</span><br><span class="line">                connector.setProperty(<span class="string">&quot;connectionTimeout&quot;</span>, <span class="string">&quot;20000&quot;</span>);</span><br><span class="line">            &#125;);</span><br><span class="line">        &#125;;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>替换为 Jetty</strong>：</p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">dependency</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">groupId</span>&gt;</span>org.springframework.boot<span class="tag">&lt;/<span class="name">groupId</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">artifactId</span>&gt;</span>spring-boot-starter-web<span class="tag">&lt;/<span class="name">artifactId</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">exclusions</span>&gt;</span></span><br><span class="line">        <span class="tag">&lt;<span class="name">exclusion</span>&gt;</span></span><br><span class="line">            <span class="tag">&lt;<span class="name">groupId</span>&gt;</span>org.springframework.boot<span class="tag">&lt;/<span class="name">groupId</span>&gt;</span></span><br><span class="line">            <span class="tag">&lt;<span class="name">artifactId</span>&gt;</span>spring-boot-starter-tomcat<span class="tag">&lt;/<span class="name">artifactId</span>&gt;</span></span><br><span class="line">        <span class="tag">&lt;/<span class="name">exclusion</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;/<span class="name">exclusions</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">dependency</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">dependency</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">groupId</span>&gt;</span>org.springframework.boot<span class="tag">&lt;/<span class="name">groupId</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">artifactId</span>&gt;</span>spring-boot-starter-jetty<span class="tag">&lt;/<span class="name">artifactId</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">dependency</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>替换为 Undertow</strong>：</p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">dependency</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">groupId</span>&gt;</span>org.springframework.boot<span class="tag">&lt;/<span class="name">groupId</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">artifactId</span>&gt;</span>spring-boot-starter-undertow<span class="tag">&lt;/<span class="name">artifactId</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">dependency</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="7-4-Tomcat-vs-Jetty-vs-Undertow"><a href="#7-4-Tomcat-vs-Jetty-vs-Undertow" class="headerlink" title="7.4 Tomcat vs Jetty vs Undertow"></a>7.4 Tomcat vs Jetty vs Undertow</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>Tomcat</th>
+<th>Jetty</th>
+<th>Undertow</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>定位</strong></td>
+<td>Servlet 容器事实标准</td>
+<td>轻量、可嵌入</td>
+<td>JBoss 高性能 Web 服务器</td>
+</tr>
+<tr>
+<td><strong>线程模型</strong></td>
+<td>Acceptor + Poller + Worker</td>
+<td>类似 NIO</td>
+<td>XNIO（事件驱动）</td>
+</tr>
+<tr>
+<td><strong>内存占用</strong></td>
+<td>中等</td>
+<td>低</td>
+<td>低</td>
+</tr>
+<tr>
+<td><strong>吞吐</strong></td>
+<td>高</td>
+<td>中</td>
+<td>高</td>
+</tr>
+<tr>
+<td><strong>生态</strong></td>
+<td>Spring Boot 默认</td>
+<td>老牌，Eclipse 系</td>
+<td>Red Hat 系</td>
+</tr>
+<tr>
+<td><strong>适用</strong></td>
+<td>通用、稳</td>
+<td>轻量、嵌入式</td>
+<td>高并发、低内存</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart LR
+    subgraph Tomcat["Tomcat"]
+        T1[Acceptor] --> T2[Poller] --> T3[Worker]
+    end
+
+    subgraph Jetty["Jetty"]
+        J1[Acceptor] --> J2[Selector] --> J3[Worker]
+    end
+
+    subgraph Undertow["Undertow"]
+        U1[XNIO Worker] --> U2[IO Thread] --> U3[Worker Thread]
+    end
+
+    style Tomcat fill:#e6f0ff
+    style Jetty fill:#e6ffe6
+    style Undertow fill:#fff4e6</pre>
+
+<p><strong>选型建议</strong>：</p>
+<ul>
+<li><strong>默认 Tomcat</strong>：稳、生态好、Spring Boot 默认；</li>
+<li><strong>Jetty</strong>：轻量、嵌入式场景；</li>
+<li><strong>Undertow</strong>：高并发、低内存，Spring Boot 支持好。</li>
+</ul>
+<hr>
+<h2 id="8-Session、安全与日志"><a href="#8-Session、安全与日志" class="headerlink" title="8. Session、安全与日志"></a>8. Session、安全与日志</h2><h3 id="8-1-Session-管理"><a href="#8-1-Session-管理" class="headerlink" title="8.1 Session 管理"></a>8.1 Session 管理</h3><p><strong>Session 生命周期</strong>：</p>
+<pre class="mermaid">stateDiagram-v2
+    [*] --> 无Session: 首次请求
+    无Session --> 创建Session: request.getSession()
+    创建Session --> 有Session: 返回 JSESSIONID
+    有Session --> 有Session: 后续请求带 Cookie
+    有Session --> 过期: 超过 maxInactiveInterval
+    有Session --> 失效: session.invalidate()
+    过期 --> [*]
+    失效 --> [*]</pre>
+
+<p><strong>Session 管理方式</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>方式</th>
+<th>实现</th>
+<th>适用场景</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>内存 Session</strong></td>
+<td>Tomcat 内存（<code>StandardManager</code>）</td>
+<td>单机</td>
+</tr>
+<tr>
+<td><strong>持久化</strong></td>
+<td><code>PersistentManager</code> + <code>FileStore</code></td>
+<td>单机重启保留 Session</td>
+</tr>
+<tr>
+<td><strong>JDBC</strong></td>
+<td><code>JDBCStore</code></td>
+<td>多机共享 Session</td>
+</tr>
+<tr>
+<td><strong>Redis</strong></td>
+<td>Spring Session Data Redis</td>
+<td>分布式、无状态应用首选</td>
+</tr>
+<tr>
+<td><strong>Session 复制</strong></td>
+<td>Tomcat 集群（<code>DeltaManager</code> &#x2F; <code>BackupManager</code>）</td>
+<td>小集群，广播开销大</td>
+</tr>
+</tbody></table>
+<p><strong>Session 配置（web.xml）</strong> ：</p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">session-config</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">session-timeout</span>&gt;</span>30<span class="tag">&lt;/<span class="name">session-timeout</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">cookie-config</span>&gt;</span></span><br><span class="line">        <span class="tag">&lt;<span class="name">http-only</span>&gt;</span>true<span class="tag">&lt;/<span class="name">http-only</span>&gt;</span></span><br><span class="line">        <span class="tag">&lt;<span class="name">secure</span>&gt;</span>true<span class="tag">&lt;/<span class="name">secure</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;/<span class="name">cookie-config</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">session-config</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>Spring Session 方案（推荐）</strong> ：</p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">dependency</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">groupId</span>&gt;</span>org.springframework.session<span class="tag">&lt;/<span class="name">groupId</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">artifactId</span>&gt;</span>spring-session-data-redis<span class="tag">&lt;/<span class="name">artifactId</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">dependency</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">spring:</span></span><br><span class="line">  <span class="attr">session:</span></span><br><span class="line">    <span class="attr">store-type:</span> <span class="string">redis</span></span><br><span class="line">    <span class="attr">timeout:</span> <span class="string">30m</span></span><br><span class="line">  <span class="attr">redis:</span></span><br><span class="line">    <span class="attr">host:</span> <span class="string">localhost</span></span><br><span class="line">    <span class="attr">port:</span> <span class="number">6379</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>为什么推荐 Redis Session？</strong></p>
+<ul>
+<li>多实例共享 Session，不需要 Session 复制；</li>
+<li>应用无状态，可以水平扩容；</li>
+<li>重启不丢 Session。</li>
+</ul>
+<h3 id="8-2-安全配置"><a href="#8-2-安全配置" class="headerlink" title="8.2 安全配置"></a>8.2 安全配置</h3><p><strong>Tomcat 常见安全风险与对策</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>风险</th>
+<th>说明</th>
+<th>对策</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>shutdown 端口暴露</strong></td>
+<td>8005 端口默认监听，任意人可发送 SHUTDOWN 关服务</td>
+<td>改端口 + 改命令 + 绑定 127.0.0.1</td>
+</tr>
+<tr>
+<td><strong>AJP Ghostcat（CVE-2020-1938）</strong></td>
+<td>AJP 协议可任意读文件、RCE</td>
+<td>禁用 AJP，或升级到 9.0.31+ 并设置 secret</td>
+</tr>
+<tr>
+<td><strong>版本号泄露</strong></td>
+<td>默认错误页显示 Tomcat 版本</td>
+<td>自定义错误页，隐藏版本</td>
+</tr>
+<tr>
+<td><strong>管理后台暴露</strong></td>
+<td><code>/manager/html</code> 默认开启</td>
+<td>删除 <code>manager</code> 和 <code>host-manager</code> 应用</td>
+</tr>
+<tr>
+<td><strong>危险 HTTP 方法</strong></td>
+<td>PUT &#x2F; DELETE &#x2F; TRACE 可能被利用</td>
+<td><code>allowTrace=false</code>，禁用不必要方法</td>
+</tr>
+<tr>
+<td><strong>目录遍历</strong></td>
+<td><code>listings=true</code> 暴露目录</td>
+<td>关闭 <code>listings</code></td>
+</tr>
+<tr>
+<td><strong>弱密码</strong></td>
+<td><code>tomcat-users.xml</code> 弱密码</td>
+<td>强密码 + 限制 IP</td>
+</tr>
+<tr>
+<td><strong>日志泄露</strong></td>
+<td>默认日志包含敏感信息</td>
+<td>脱敏、限制访问</td>
+</tr>
+</tbody></table>
+<p><strong>加固示例（server.xml）</strong> ：</p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">&lt;!-- 隐藏版本号 --&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">Connector</span> <span class="attr">port</span>=<span class="string">&quot;8080&quot;</span> <span class="attr">protocol</span>=<span class="string">&quot;HTTP/1.1&quot;</span> <span class="attr">server</span>=<span class="string">&quot;WebServer&quot;</span> /&gt;</span></span><br><span class="line"></span><br><span class="line"><span class="comment">&lt;!-- 关闭 shutdown 端口或改端口 --&gt;</span></span><br><span class="line"><span class="tag">&lt;<span class="name">Server</span> <span class="attr">port</span>=<span class="string">&quot;-1&quot;</span> <span class="attr">shutdown</span>=<span class="string">&quot;SHUTDOWN&quot;</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>加固示例（context.xml）</strong> ：</p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">Context</span>&gt;</span></span><br><span class="line">    <span class="comment">&lt;!-- 关闭目录列表 --&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">Resources</span> <span class="attr">listings</span>=<span class="string">&quot;false&quot;</span> /&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">Context</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="8-3-日志体系：JULI-与-AccessLog"><a href="#8-3-日志体系：JULI-与-AccessLog" class="headerlink" title="8.3 日志体系：JULI 与 AccessLog"></a>8.3 日志体系：JULI 与 AccessLog</h3><p><strong>Tomcat 日志分类</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>日志</th>
+<th>文件</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>catalina</strong></td>
+<td><code>catalina.out</code></td>
+<td>Tomcat 启动、停止、严重错误</td>
+</tr>
+<tr>
+<td><strong>localhost</strong></td>
+<td><code>localhost.yyyy-mm-dd.log</code></td>
+<td>应用未捕获的异常（无应用日志框架时）</td>
+</tr>
+<tr>
+<td><strong>localhost_access_log</strong></td>
+<td><code>localhost_access_log.yyyy-mm-dd.txt</code></td>
+<td>访问日志</td>
+</tr>
+<tr>
+<td><strong>manager</strong></td>
+<td><code>manager.yyyy-mm-dd.log</code></td>
+<td>管理应用日志</td>
+</tr>
+<tr>
+<td><strong>host-manager</strong></td>
+<td><code>host-manager.yyyy-mm-dd.log</code></td>
+<td>虚拟主机管理日志</td>
+</tr>
+</tbody></table>
+<p><strong>JULI 是 Tomcat 的日志框架</strong>：它是 <code>java.util.logging</code> 的扩展，配置文件在 <code>$CATALINA_BASE/conf/logging.properties</code>。</p>
+<p><strong>AccessLog 配置（server.xml）</strong> ：</p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">Host</span> <span class="attr">name</span>=<span class="string">&quot;localhost&quot;</span> <span class="attr">appBase</span>=<span class="string">&quot;webapps&quot;</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">Valve</span> <span class="attr">className</span>=<span class="string">&quot;org.apache.catalina.valves.AccessLogValve&quot;</span></span></span><br><span class="line"><span class="tag">           <span class="attr">directory</span>=<span class="string">&quot;logs&quot;</span></span></span><br><span class="line"><span class="tag">           <span class="attr">prefix</span>=<span class="string">&quot;localhost_access_log&quot;</span></span></span><br><span class="line"><span class="tag">           <span class="attr">suffix</span>=<span class="string">&quot;.txt&quot;</span></span></span><br><span class="line"><span class="tag">           <span class="attr">pattern</span>=<span class="string">&quot;%h %l %u %t <span class="symbol">&amp;quot;</span>%r<span class="symbol">&amp;quot;</span> %s %b %D&quot;</span></span></span><br><span class="line"><span class="tag">           <span class="attr">rotatable</span>=<span class="string">&quot;true&quot;</span> /&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">Host</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>pattern 常用占位符</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>占位符</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>%h</code></td>
+<td>客户端 IP</td>
+</tr>
+<tr>
+<td><code>%t</code></td>
+<td>时间</td>
+</tr>
+<tr>
+<td><code>%r</code></td>
+<td>请求行（方法 + URL + 协议）</td>
+</tr>
+<tr>
+<td><code>%s</code></td>
+<td>HTTP 状态码</td>
+</tr>
+<tr>
+<td><code>%b</code></td>
+<td>响应字节数</td>
+</tr>
+<tr>
+<td><code>%D</code></td>
+<td>处理耗时（毫秒）</td>
+</tr>
+<tr>
+<td><code>%T</code></td>
+<td>处理耗时（秒）</td>
+</tr>
+</tbody></table>
+<p><strong>日志轮转</strong>：</p>
+<p><code>logrotate</code> 配置示例：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">/opt/tomcat/logs/catalina.out &#123;</span><br><span class="line">    daily</span><br><span class="line">    rotate 30</span><br><span class="line">    compress</span><br><span class="line">    missingok</span><br><span class="line">    copytruncate</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h3 id="8-4-JVM-参数与-catalina-sh"><a href="#8-4-JVM-参数与-catalina-sh" class="headerlink" title="8.4 JVM 参数与 catalina.sh"></a>8.4 JVM 参数与 catalina.sh</h3><p><strong>catalina.sh 常用环境变量</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>变量</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>JAVA_HOME</code></td>
+<td>JDK 路径</td>
+</tr>
+<tr>
+<td><code>CATALINA_HOME</code></td>
+<td>Tomcat 安装目录</td>
+</tr>
+<tr>
+<td><code>CATALINA_BASE</code></td>
+<td>Tomcat 运行目录（可多实例共享安装目录）</td>
+</tr>
+<tr>
+<td><code>CATALINA_OPTS</code></td>
+<td>Tomcat 自身 JVM 参数（推荐用这个）</td>
+</tr>
+<tr>
+<td><code>JAVA_OPTS</code></td>
+<td>所有 Java 进程通用的 JVM 参数</td>
+</tr>
+<tr>
+<td><code>JPDA_OPTS</code></td>
+<td>远程调试参数</td>
+</tr>
+</tbody></table>
+<p><strong>生产 JVM 参数示例</strong>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># setenv.sh</span></span><br><span class="line"><span class="built_in">export</span> CATALINA_OPTS=<span class="string">&quot;\</span></span><br><span class="line"><span class="string">  -server \</span></span><br><span class="line"><span class="string">  -Xms4g \</span></span><br><span class="line"><span class="string">  -Xmx4g \</span></span><br><span class="line"><span class="string">  -Xmn1g \</span></span><br><span class="line"><span class="string">  -XX:MetaspaceSize=256m \</span></span><br><span class="line"><span class="string">  -XX:MaxMetaspaceSize=512m \</span></span><br><span class="line"><span class="string">  -XX:+UseG1GC \</span></span><br><span class="line"><span class="string">  -XX:MaxGCPauseMillis=200 \</span></span><br><span class="line"><span class="string">  -XX:+HeapDumpOnOutOfMemoryError \</span></span><br><span class="line"><span class="string">  -XX:HeapDumpPath=/opt/tomcat/logs/heapdump.hprof \</span></span><br><span class="line"><span class="string">  -Xloggc:/opt/tomcat/logs/gc.log \</span></span><br><span class="line"><span class="string">  -XX:+PrintGCDetails \</span></span><br><span class="line"><span class="string">  -XX:+PrintGCDateStamps \</span></span><br><span class="line"><span class="string">  -XX:+UseGCLogFileRotation \</span></span><br><span class="line"><span class="string">  -XX:NumberOfGCLogFiles=10 \</span></span><br><span class="line"><span class="string">  -XX:GCLogFileSize=100M \</span></span><br><span class="line"><span class="string">  -Djava.security.egd=file:/dev/./urandom \</span></span><br><span class="line"><span class="string">  -Dfile.encoding=UTF-8 \</span></span><br><span class="line"><span class="string">  -Duser.timezone=Asia/Shanghai&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>关键参数说明</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>-Xms</code> &#x2F; <code>-Xmx</code></td>
+<td>堆初始 &#x2F; 最大值，建议相等，避免动态扩容</td>
+</tr>
+<tr>
+<td><code>-Xmn</code></td>
+<td>年轻代大小</td>
+</tr>
+<tr>
+<td><code>-XX:MetaspaceSize</code></td>
+<td>Metaspace 初始大小</td>
+</tr>
+<tr>
+<td><code>-XX:MaxMetaspaceSize</code></td>
+<td>Metaspace 最大值，防止无限增长</td>
+</tr>
+<tr>
+<td><code>-XX:+UseG1GC</code></td>
+<td>G1 垃圾回收器，大堆推荐</td>
+</tr>
+<tr>
+<td><code>-XX:MaxGCPauseMillis</code></td>
+<td>G1 目标停顿时间</td>
+</tr>
+<tr>
+<td><code>-XX:+HeapDumpOnOutOfMemoryError</code></td>
+<td>OOM 时 dump 堆</td>
+</tr>
+<tr>
+<td><code>-Djava.security.egd=file:/dev/./urandom</code></td>
+<td>加速 SecureRandom 初始化</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="9-调优与排障：实战三件套"><a href="#9-调优与排障：实战三件套" class="headerlink" title="9. 调优与排障：实战三件套"></a>9. 调优与排障：实战三件套</h2><h3 id="9-1-调优参数速查"><a href="#9-1-调优参数速查" class="headerlink" title="9.1 调优参数速查"></a>9.1 调优参数速查</h3><table>
 <thead>
 <tr>
 <th>场景</th>
@@ -1184,11 +2165,21 @@
 <td><code>development</code> 模式</td>
 <td>生产环境设为 <code>false</code></td>
 </tr>
+<tr>
+<td>Metaspace OOM</td>
+<td><code>MaxMetaspaceSize</code></td>
+<td>调大 + 排查类加载器泄漏</td>
+</tr>
+<tr>
+<td>大响应慢</td>
+<td><code>socketBuffer</code> &#x2F; <code>maxSwallowSize</code></td>
+<td>按需调整</td>
+</tr>
 </tbody></table>
 <p><strong>server.xml 完整 Connector 示例</strong>：</p>
 <figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">Connector</span> <span class="attr">port</span>=<span class="string">&quot;8080&quot;</span></span></span><br><span class="line"><span class="tag">           <span class="attr">protocol</span>=<span class="string">&quot;org.apache.coyote.http11.Http11NioProtocol&quot;</span></span></span><br><span class="line"><span class="tag">           <span class="attr">maxThreads</span>=<span class="string">&quot;400&quot;</span></span></span><br><span class="line"><span class="tag">           <span class="attr">minSpareThreads</span>=<span class="string">&quot;50&quot;</span></span></span><br><span class="line"><span class="tag">           <span class="attr">maxConnections</span>=<span class="string">&quot;10000&quot;</span></span></span><br><span class="line"><span class="tag">           <span class="attr">acceptCount</span>=<span class="string">&quot;200&quot;</span></span></span><br><span class="line"><span class="tag">           <span class="attr">connectionTimeout</span>=<span class="string">&quot;20000&quot;</span></span></span><br><span class="line"><span class="tag">           <span class="attr">keepAliveTimeout</span>=<span class="string">&quot;15000&quot;</span></span></span><br><span class="line"><span class="tag">           <span class="attr">maxKeepAliveRequests</span>=<span class="string">&quot;100&quot;</span></span></span><br><span class="line"><span class="tag">           <span class="attr">URIEncoding</span>=<span class="string">&quot;UTF-8&quot;</span></span></span><br><span class="line"><span class="tag">           <span class="attr">compression</span>=<span class="string">&quot;on&quot;</span></span></span><br><span class="line"><span class="tag">           <span class="attr">compressionMinSize</span>=<span class="string">&quot;2048&quot;</span></span></span><br><span class="line"><span class="tag">           <span class="attr">compressableMimeType</span>=<span class="string">&quot;text/html,text/xml,text/plain,application/json&quot;</span>/&gt;</span></span><br></pre></td></tr></table></figure>
 
-<h3 id="6-2-排障路径：症状-→-先看什么"><a href="#6-2-排障路径：症状-→-先看什么" class="headerlink" title="6.2 排障路径：症状 → 先看什么"></a>6.2 排障路径：症状 → 先看什么</h3><pre class="mermaid">flowchart TB
+<h3 id="9-2-排障路径：症状-→-先看什么"><a href="#9-2-排障路径：症状-→-先看什么" class="headerlink" title="9.2 排障路径：症状 → 先看什么"></a>9.2 排障路径：症状 → 先看什么</h3><pre class="mermaid">flowchart TB
     Start[线上故障] --> Symptom{症状分类}
 
     Symptom -->|请求全部超时| S1[jstack 看 http-nio-8080-exec&lt;br/>线程都在哪]
@@ -1212,20 +2203,25 @@
 
     Symptom -->|重启后还是慢| S5[检查连接泄漏&lt;br/>未归还的连接池]
 
+    Symptom -->|Metaspace OOM| S6[jmap -clstats&lt;br/>看类加载器数量]
+    S6 --> S6a[类加载器泄漏&lt;br/>查 ThreadLocal/Driver]
+
     style Start fill:#ffe6e6
     style S1b fill:#ffcccc
     style S2b fill:#ffcccc
     style S3b fill:#ffcccc
-    style S4a fill:#ffcccc</pre>
+    style S4a fill:#ffcccc
+    style S6a fill:#ffcccc</pre>
 
-<p><strong>因果链（排障核心）</strong>：Tomcat 故障的本质只有三类——</p>
+<p><strong>因果链（排障核心）</strong>：Tomcat 故障的本质只有四类——</p>
 <ol>
 <li><strong>线程池耗尽</strong>（业务慢&#x2F;死锁）；</li>
 <li><strong>连接池耗尽</strong>（连接泄漏）；</li>
-<li><strong>accept 队列满</strong>（洪峰&#x2F;慢客户端）。</li>
+<li><strong>accept 队列满</strong>（洪峰&#x2F;慢客户端）；</li>
+<li><strong>类加载器泄漏</strong>（Metaspace OOM）。</li>
 </ol>
 <p>**先判断是哪一类，再对症调参，不要一慢就调 <code>maxThreads</code>**。</p>
-<h3 id="6-3-动手验证：制造并定位线程池耗尽"><a href="#6-3-动手验证：制造并定位线程池耗尽" class="headerlink" title="6.3 动手验证：制造并定位线程池耗尽"></a>6.3 动手验证：制造并定位线程池耗尽</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 起一个 sleep 30s 的接口（模拟慢业务）</span></span><br><span class="line"><span class="comment"># 2. 并发打满线程池</span></span><br><span class="line">ab -n 1000 -c 300 <span class="string">&quot;http://localhost:8080/sleep&quot;</span> &amp;</span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 观察：新请求开始排队/超时</span></span><br><span class="line"><span class="comment"># 4. 定位线程都卡在哪</span></span><br><span class="line">jstack &lt;pid&gt; | grep <span class="string">&quot;http-nio-8080-exec&quot;</span> | <span class="built_in">wc</span> -l          <span class="comment"># 200（全忙）</span></span><br><span class="line">jstack &lt;pid&gt; | grep -A3 <span class="string">&quot;sleep&quot;</span> | <span class="built_in">head</span> -20                  <span class="comment"># 都在 sleep 阻塞</span></span><br><span class="line">jstack &lt;pid&gt; | grep -c <span class="string">&quot;java.lang.Thread.State: RUNNABLE&quot;</span>   <span class="comment"># 区分忙 vs 等锁</span></span><br></pre></td></tr></table></figure>
+<h3 id="9-3-动手验证：制造并定位线程池耗尽"><a href="#9-3-动手验证：制造并定位线程池耗尽" class="headerlink" title="9.3 动手验证：制造并定位线程池耗尽"></a>9.3 动手验证：制造并定位线程池耗尽</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 起一个 sleep 30s 的接口（模拟慢业务）</span></span><br><span class="line"><span class="comment"># 2. 并发打满线程池</span></span><br><span class="line">ab -n 1000 -c 300 <span class="string">&quot;http://localhost:8080/sleep&quot;</span> &amp;</span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 观察：新请求开始排队/超时</span></span><br><span class="line"><span class="comment"># 4. 定位线程都卡在哪</span></span><br><span class="line">jstack &lt;pid&gt; | grep <span class="string">&quot;http-nio-8080-exec&quot;</span> | <span class="built_in">wc</span> -l          <span class="comment"># 200（全忙）</span></span><br><span class="line">jstack &lt;pid&gt; | grep -A3 <span class="string">&quot;sleep&quot;</span> | <span class="built_in">head</span> -20                  <span class="comment"># 都在 sleep 阻塞</span></span><br><span class="line">jstack &lt;pid&gt; | grep -c <span class="string">&quot;java.lang.Thread.State: RUNNABLE&quot;</span>   <span class="comment"># 区分忙 vs 等锁</span></span><br></pre></td></tr></table></figure>
 
 <p><strong>观察点</strong>：</p>
 <ul>
@@ -1233,8 +2229,175 @@
 <li><code>jstack</code> 显示线程全在业务代码里 → <strong>瓶颈是业务慢，不是容器参数</strong>。</li>
 </ul>
 <p><strong>判定标准</strong>：能说出「调 <code>maxThreads</code> 是治标，治本是查业务为什么慢」——容器参数只决定排队深度，不决定处理速度。</p>
+<h3 id="9-4-连接泄漏排查"><a href="#9-4-连接泄漏排查" class="headerlink" title="9.4 连接泄漏排查"></a>9.4 连接泄漏排查</h3><p><strong>现象</strong>：应用运行一段时间后，数据库连接池耗尽，或者 Tomcat 连接数异常增长。</p>
+<p><strong>排查步骤</strong>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1. 看 Tomcat 连接数</span></span><br><span class="line">lsof -i :8080 | <span class="built_in">wc</span> -l</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2. 看数据库连接数</span></span><br><span class="line">netstat -anp | grep 3306 | <span class="built_in">wc</span> -l</span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 看应用连接池状态（HikariCP / Druid）</span></span><br><span class="line"><span class="comment"># HikariCP: /actuator/metrics/hikaricp.connections.active</span></span><br><span class="line"><span class="comment"># Druid: /druid/index.html</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 4. jstack 看线程是否卡在获取连接</span></span><br><span class="line">jstack &lt;pid&gt; | grep -A 10 <span class="string">&quot;getConnection&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>常见原因</strong>：</p>
+<ul>
+<li>连接未在 <code>finally</code> 中关闭；</li>
+<li>连接池配置太小；</li>
+<li>长事务占用连接；</li>
+<li>连接池泄漏检测未开启（HikariCP <code>leakDetectionThreshold</code>）。</li>
+</ul>
+<h3 id="9-5-线程池拒绝策略"><a href="#9-5-线程池拒绝策略" class="headerlink" title="9.5 线程池拒绝策略"></a>9.5 线程池拒绝策略</h3><p>Tomcat 内部 <code>TaskQueue</code> 默认<strong>无界</strong>，所以不会主动拒绝，只会堆积。但可以通过自定义 <code>Executor</code> 改变行为：</p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">Executor</span> <span class="attr">name</span>=<span class="string">&quot;tomcatThreadPool&quot;</span></span></span><br><span class="line"><span class="tag">          <span class="attr">namePrefix</span>=<span class="string">&quot;catalina-exec-&quot;</span></span></span><br><span class="line"><span class="tag">          <span class="attr">maxThreads</span>=<span class="string">&quot;400&quot;</span></span></span><br><span class="line"><span class="tag">          <span class="attr">minSpareThreads</span>=<span class="string">&quot;50&quot;</span></span></span><br><span class="line"><span class="tag">          <span class="attr">maxQueueSize</span>=<span class="string">&quot;1000&quot;</span></span></span><br><span class="line"><span class="tag">          <span class="attr">prestartminSpareThreads</span>=<span class="string">&quot;true&quot;</span></span></span><br><span class="line"><span class="tag">          <span class="attr">maxIdleTime</span>=<span class="string">&quot;60000&quot;</span>/&gt;</span></span><br><span class="line"></span><br><span class="line"><span class="tag">&lt;<span class="name">Connector</span> <span class="attr">port</span>=<span class="string">&quot;8080&quot;</span> <span class="attr">executor</span>=<span class="string">&quot;tomcatThreadPool&quot;</span> <span class="attr">...</span> /&gt;</span></span><br></pre></td></tr></table></figure>
+
+<ul>
+<li><code>maxQueueSize=1000</code>：队列满后触发拒绝；</li>
+<li>默认拒绝策略是 <code>AbortPolicy</code>（抛 <code>RejectedExecutionException</code>）；</li>
+<li>可自定义 <code>RejectedExecutionHandler</code> 实现降级、限流、落盘。</li>
+</ul>
+<h3 id="9-6-慢请求排查"><a href="#9-6-慢请求排查" class="headerlink" title="9.6 慢请求排查"></a>9.6 慢请求排查</h3><p><strong>工具链</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>工具</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>jstack</code></td>
+<td>看线程栈，定位阻塞点</td>
+</tr>
+<tr>
+<td><code>arthas</code></td>
+<td>在线诊断，<code>trace</code> &#x2F; <code>watch</code> &#x2F; <code>profiler</code></td>
+</tr>
+<tr>
+<td><code>async-profiler</code></td>
+<td>CPU &#x2F; 内存 &#x2F; 锁 火焰图</td>
+</tr>
+<tr>
+<td><code>JFR</code>（Java Flight Recorder）</td>
+<td>JVM 内置飞行记录器</td>
+</tr>
+<tr>
+<td><code>Arthas trace</code></td>
+<td>追踪方法调用耗时</td>
+</tr>
+</tbody></table>
+<p><strong>Arthas 示例</strong>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 追踪 Controller 方法耗时</span></span><br><span class="line">trace com.example.controller.OrderController getOrder</span><br><span class="line"></span><br><span class="line"><span class="comment"># 监控方法入参出参</span></span><br><span class="line">watch com.example.service.OrderService getOrder <span class="string">&#x27;&#123;params, returnObj, cost&#125;&#x27;</span></span><br></pre></td></tr></table></figure>
+
 <hr>
-<h2 id="7-面试应答：Tomcat-五连问"><a href="#7-面试应答：Tomcat-五连问" class="headerlink" title="7. 面试应答：Tomcat 五连问"></a>7. 面试应答：Tomcat 五连问</h2><h3 id="7-1-完整话术"><a href="#7-1-完整话术" class="headerlink" title="7.1 完整话术"></a>7.1 完整话术</h3><table>
+<h2 id="10-优雅停机与生产部署"><a href="#10-优雅停机与生产部署" class="headerlink" title="10. 优雅停机与生产部署"></a>10. 优雅停机与生产部署</h2><h3 id="10-1-优雅停机"><a href="#10-1-优雅停机" class="headerlink" title="10.1 优雅停机"></a>10.1 优雅停机</h3><p><strong>问题</strong>：直接 <code>kill -9</code> 会导致正在处理的请求中断、连接被重置、消息未提交。</p>
+<p><strong>优雅停机的目标</strong>：</p>
+<ol>
+<li>停止接收新请求（关闭 Connector）；</li>
+<li>等待正在处理的请求完成（<code>awaitTermination</code>）；</li>
+<li>关闭线程池、连接池、消息消费者；</li>
+<li>释放资源。</li>
+</ol>
+<pre class="mermaid">sequenceDiagram
+    participant Admin as 运维
+    participant Tomcat as Tomcat
+    participant Connector as Connector
+    participant Worker as Worker 线程池
+    participant App as 应用
+
+    Admin->>Tomcat: kill -15（SIGTERM）
+    Tomcat->>Connector: pause() 停止接收新连接
+    Tomcat->>Worker: shutdown() 等待任务完成
+    Note over Worker: 等待 maxWait 时间
+    Worker-->>Tomcat: 所有任务完成
+    Tomcat->>App: 调用 Servlet.destroy()
+    Tomcat->>App: 关闭 Spring 上下文
+    App-->>Admin: 进程退出</pre>
+
+<p><strong>Tomcat 优雅停机配置</strong>：</p>
+<figure class="highlight xml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">Server</span> <span class="attr">port</span>=<span class="string">&quot;8005&quot;</span> <span class="attr">shutdown</span>=<span class="string">&quot;SHUTDOWN&quot;</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">Service</span> <span class="attr">name</span>=<span class="string">&quot;Catalina&quot;</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">Connector</span> <span class="attr">port</span>=<span class="string">&quot;8080&quot;</span> <span class="attr">...</span> /&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">Engine</span> <span class="attr">name</span>=<span class="string">&quot;Catalina&quot;</span> <span class="attr">defaultHost</span>=<span class="string">&quot;localhost&quot;</span>&gt;</span></span><br><span class="line">      <span class="comment">&lt;!-- 优雅停机等待时间 --&gt;</span></span><br><span class="line">      <span class="tag">&lt;<span class="name">Host</span> <span class="attr">name</span>=<span class="string">&quot;localhost&quot;</span> <span class="attr">appBase</span>=<span class="string">&quot;webapps&quot;</span>&gt;</span></span><br><span class="line">      <span class="tag">&lt;/<span class="name">Host</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;/<span class="name">Engine</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;/<span class="name">Service</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">Server</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>Spring Boot 优雅停机</strong>：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">server:</span></span><br><span class="line">  <span class="attr">shutdown:</span> <span class="string">graceful</span>   <span class="comment"># 开启优雅停机</span></span><br><span class="line"></span><br><span class="line"><span class="attr">spring:</span></span><br><span class="line">  <span class="attr">lifecycle:</span></span><br><span class="line">    <span class="attr">timeout-per-shutdown-phase:</span> <span class="string">30s</span>   <span class="comment"># 等待时间</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>原理</strong>：Spring Boot 收到 SIGTERM 后，调用 <code>WebServerGracefulShutdown</code>，先停止接收请求，等待 <code>timeout-per-shutdown-phase</code> 时间让请求处理完，再销毁上下文。</p>
+<h3 id="10-2-Tomcat-Nginx-部署架构"><a href="#10-2-Tomcat-Nginx-部署架构" class="headerlink" title="10.2 Tomcat + Nginx 部署架构"></a>10.2 Tomcat + Nginx 部署架构</h3><p>生产环境最常见的是「Nginx 反向代理 + Tomcat 多实例」：</p>
+<pre class="mermaid">flowchart TB
+    User[用户] --> LB[Nginx / SLB&lt;br/>负载均衡]
+    LB --> N1[Nginx 静态资源&lt;br/>动静分离]
+    LB --> T1[Tomcat 实例 1]
+    LB --> T2[Tomcat 实例 2]
+    LB --> T3[Tomcat 实例 3]
+
+    N1 --> Static[CSS/JS/图片]
+
+    T1 --> DB[(数据库)]
+    T2 --> DB
+    T3 --> DB
+
+    T1 --> Redis[(Redis)]
+    T2 --> Redis
+    T3 --> Redis
+
+    style LB fill:#ffe6e6
+    style N1 fill:#e6ffe6
+    style T1 fill:#e6f0ff
+    style T2 fill:#e6f0ff
+    style T3 fill:#e6f0ff</pre>
+
+<p><strong>Nginx 配置示例</strong>：</p>
+<figure class="highlight nginx"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line"><span class="section">upstream</span> tomcat_cluster &#123;</span><br><span class="line">    <span class="attribute">server</span> <span class="number">192.168.1.10:8080</span> weight=<span class="number">1</span>;</span><br><span class="line">    <span class="attribute">server</span> <span class="number">192.168.1.11:8080</span> weight=<span class="number">1</span>;</span><br><span class="line">    <span class="attribute">server</span> <span class="number">192.168.1.12:8080</span> weight=<span class="number">1</span>;</span><br><span class="line">    <span class="attribute">keepalive</span> <span class="number">32</span>;</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="section">server</span> &#123;</span><br><span class="line">    <span class="attribute">listen</span> <span class="number">80</span>;</span><br><span class="line">    <span class="attribute">server_name</span> example.com;</span><br><span class="line"></span><br><span class="line">    <span class="comment"># 静态资源直接由 Nginx 返回</span></span><br><span class="line">    <span class="section">location</span> <span class="regexp">~* \.(css|js|jpg|png|gif|ico)$</span> &#123;</span><br><span class="line">        <span class="attribute">root</span> /var/www/static;</span><br><span class="line">        <span class="attribute">expires</span> <span class="number">30d</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    <span class="comment"># 动态请求转发到 Tomcat</span></span><br><span class="line">    <span class="section">location</span> / &#123;</span><br><span class="line">        <span class="attribute">proxy_pass</span> http://tomcat_cluster;</span><br><span class="line">        <span class="attribute">proxy_set_header</span> Host <span class="variable">$host</span>;</span><br><span class="line">        <span class="attribute">proxy_set_header</span> X-Real-IP <span class="variable">$remote_addr</span>;</span><br><span class="line">        <span class="attribute">proxy_set_header</span> X-Forwarded-For <span class="variable">$proxy_add_x_forwarded_for</span>;</span><br><span class="line">        <span class="attribute">proxy_set_header</span> X-Forwarded-Proto <span class="variable">$scheme</span>;</span><br><span class="line">        <span class="attribute">proxy_http_version</span> <span class="number">1</span>.<span class="number">1</span>;</span><br><span class="line">        <span class="attribute">proxy_set_header</span> Connection <span class="string">&quot;&quot;</span>;</span><br><span class="line">        <span class="attribute">proxy_connect_timeout</span> <span class="number">5s</span>;</span><br><span class="line">        <span class="attribute">proxy_read_timeout</span> <span class="number">60s</span>;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>关键点</strong>：</p>
+<ul>
+<li><strong>动静分离</strong>：静态资源由 Nginx 直接返回，减轻 Tomcat 压力；</li>
+<li><strong>keepalive</strong>：Nginx 到 Tomcat 保持长连接，减少握手开销；</li>
+<li><strong>超时配置</strong>：<code>proxy_connect_timeout</code> &#x2F; <code>proxy_read_timeout</code> 要小于 Tomcat 的 <code>connectionTimeout</code>；</li>
+<li><strong>X-Forwarded-For</strong>：让 Tomcat 拿到真实客户端 IP。</li>
+</ul>
+<h3 id="10-3-多实例部署"><a href="#10-3-多实例部署" class="headerlink" title="10.3 多实例部署"></a>10.3 多实例部署</h3><p><strong>同一台机器多实例</strong>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 复制一份 CATALINA_BASE</span></span><br><span class="line"><span class="built_in">cp</span> -r /opt/tomcat /opt/tomcat-2</span><br><span class="line"></span><br><span class="line"><span class="comment"># 修改端口</span></span><br><span class="line"><span class="comment"># /opt/tomcat-2/conf/server.xml</span></span><br><span class="line"><span class="comment"># &lt;Server port=&quot;8006&quot; ...&gt;</span></span><br><span class="line"><span class="comment"># &lt;Connector port=&quot;8081&quot; ...&gt;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 启动</span></span><br><span class="line">CATALINA_BASE=/opt/tomcat-2 /opt/tomcat/bin/startup.sh</span><br></pre></td></tr></table></figure>
+
+<p><strong>多实例共享 CATALINA_HOME</strong>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 只复制 conf、logs、temp、webapps、work</span></span><br><span class="line"><span class="built_in">mkdir</span> -p /opt/tomcat-instance-2/&#123;conf,logs,temp,webapps,work&#125;</span><br><span class="line"><span class="built_in">cp</span> -r /opt/tomcat/conf/* /opt/tomcat-instance-2/conf/</span><br><span class="line"></span><br><span class="line"><span class="comment"># 启动</span></span><br><span class="line">CATALINA_HOME=/opt/tomcat \</span><br><span class="line">CATALINA_BASE=/opt/tomcat-instance-2 \</span><br><span class="line">/opt/tomcat/bin/startup.sh</span><br></pre></td></tr></table></figure>
+
+<h3 id="10-4-K8s-部署建议"><a href="#10-4-K8s-部署建议" class="headerlink" title="10.4 K8s 部署建议"></a>10.4 K8s 部署建议</h3><p><strong>Tomcat 在 K8s 中的部署要点</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>要点</th>
+<th>建议</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>镜像</strong></td>
+<td>用 <code>tomcat:9-jdk17-temurin</code> 或自己的基础镜像</td>
+</tr>
+<tr>
+<td><strong>JVM 参数</strong></td>
+<td>用 <code>-XX:MaxRAMPercentage=75</code> 让 JVM 感知容器内存限制</td>
+</tr>
+<tr>
+<td><strong>探针</strong></td>
+<td><code>livenessProbe</code> &#x2F; <code>readinessProbe</code> 用 <code>/actuator/health</code></td>
+</tr>
+<tr>
+<td><strong>优雅停机</strong></td>
+<td><code>terminationGracePeriodSeconds</code> 大于 <code>timeout-per-shutdown-phase</code></td>
+</tr>
+<tr>
+<td><strong>资源限制</strong></td>
+<td><code>resources.limits.memory</code> 要大于 JVM 堆 + Metaspace + 堆外</td>
+</tr>
+<tr>
+<td><strong>日志</strong></td>
+<td>输出到 stdout，由 K8s 收集</td>
+</tr>
+<tr>
+<td><strong>Session</strong></td>
+<td>用 Redis Session，不要用内存 Session</td>
+</tr>
+<tr>
+<td><strong>配置</strong></td>
+<td>用 ConfigMap &#x2F; Secret 管理</td>
+</tr>
+</tbody></table>
+<p><strong>Deployment 示例</strong>：</p>
+<figure class="highlight yaml"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br><span class="line">41</span><br><span class="line">42</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">apiVersion:</span> <span class="string">apps/v1</span></span><br><span class="line"><span class="attr">kind:</span> <span class="string">Deployment</span></span><br><span class="line"><span class="attr">metadata:</span></span><br><span class="line">  <span class="attr">name:</span> <span class="string">tomcat-app</span></span><br><span class="line"><span class="attr">spec:</span></span><br><span class="line">  <span class="attr">replicas:</span> <span class="number">3</span></span><br><span class="line">  <span class="attr">selector:</span></span><br><span class="line">    <span class="attr">matchLabels:</span></span><br><span class="line">      <span class="attr">app:</span> <span class="string">tomcat-app</span></span><br><span class="line">  <span class="attr">template:</span></span><br><span class="line">    <span class="attr">metadata:</span></span><br><span class="line">      <span class="attr">labels:</span></span><br><span class="line">        <span class="attr">app:</span> <span class="string">tomcat-app</span></span><br><span class="line">    <span class="attr">spec:</span></span><br><span class="line">      <span class="attr">terminationGracePeriodSeconds:</span> <span class="number">60</span></span><br><span class="line">      <span class="attr">containers:</span></span><br><span class="line">        <span class="bullet">-</span> <span class="attr">name:</span> <span class="string">app</span></span><br><span class="line">          <span class="attr">image:</span> <span class="string">myapp:1.0.0</span></span><br><span class="line">          <span class="attr">ports:</span></span><br><span class="line">            <span class="bullet">-</span> <span class="attr">containerPort:</span> <span class="number">8080</span></span><br><span class="line">          <span class="attr">env:</span></span><br><span class="line">            <span class="bullet">-</span> <span class="attr">name:</span> <span class="string">JAVA_OPTS</span></span><br><span class="line">              <span class="attr">value:</span> <span class="string">&quot;-XX:MaxRAMPercentage=75 -XX:+UseG1GC&quot;</span></span><br><span class="line">          <span class="attr">resources:</span></span><br><span class="line">            <span class="attr">limits:</span></span><br><span class="line">              <span class="attr">memory:</span> <span class="string">&quot;2Gi&quot;</span></span><br><span class="line">              <span class="attr">cpu:</span> <span class="string">&quot;2&quot;</span></span><br><span class="line">            <span class="attr">requests:</span></span><br><span class="line">              <span class="attr">memory:</span> <span class="string">&quot;1Gi&quot;</span></span><br><span class="line">              <span class="attr">cpu:</span> <span class="string">&quot;500m&quot;</span></span><br><span class="line">          <span class="attr">readinessProbe:</span></span><br><span class="line">            <span class="attr">httpGet:</span></span><br><span class="line">              <span class="attr">path:</span> <span class="string">/actuator/health/readiness</span></span><br><span class="line">              <span class="attr">port:</span> <span class="number">8080</span></span><br><span class="line">            <span class="attr">initialDelaySeconds:</span> <span class="number">30</span></span><br><span class="line">            <span class="attr">periodSeconds:</span> <span class="number">10</span></span><br><span class="line">          <span class="attr">livenessProbe:</span></span><br><span class="line">            <span class="attr">httpGet:</span></span><br><span class="line">              <span class="attr">path:</span> <span class="string">/actuator/health/liveness</span></span><br><span class="line">              <span class="attr">port:</span> <span class="number">8080</span></span><br><span class="line">            <span class="attr">initialDelaySeconds:</span> <span class="number">60</span></span><br><span class="line">            <span class="attr">periodSeconds:</span> <span class="number">20</span></span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="11-面试应答：Tomcat-五连问与深挖"><a href="#11-面试应答：Tomcat-五连问与深挖" class="headerlink" title="11. 面试应答：Tomcat 五连问与深挖"></a>11. 面试应答：Tomcat 五连问与深挖</h2><h3 id="11-1-完整话术"><a href="#11-1-完整话术" class="headerlink" title="11.1 完整话术"></a>11.1 完整话术</h3><table>
 <thead>
 <tr>
 <th>面试题</th>
@@ -1265,8 +2428,24 @@
 <td><strong>内嵌 Tomcat 与独立部署区别？</strong></td>
 <td>架构相同；内嵌单 Context、生命周期由 Spring Boot 管理</td>
 </tr>
+<tr>
+<td><strong>Tomcat 启动流程？</strong></td>
+<td>Bootstrap → Catalina → Server → Service → Connector&#x2F;Engine → Host → Context → Wrapper，逐层 init 后逐层 start</td>
+</tr>
+<tr>
+<td><strong>Tomcat 怎么优雅停机？</strong></td>
+<td>停止接收新请求 → 等待处理中请求完成 → 销毁 Servlet → 关闭上下文</td>
+</tr>
+<tr>
+<td><strong>Tomcat 类加载器泄漏怎么排查？</strong></td>
+<td><code>jmap -clstats</code> 看加载器数量；查 ThreadLocal、JDBC Driver、定时器</td>
+</tr>
+<tr>
+<td><strong>Tomcat 和 Jetty&#x2F;Undertow 区别？</strong></td>
+<td>Tomcat 稳、生态好；Jetty 轻量；Undertow 高并发低内存</td>
+</tr>
 </tbody></table>
-<h3 id="7-2-深挖：与-Netty-的对照"><a href="#7-2-深挖：与-Netty-的对照" class="headerlink" title="7.2 深挖：与 Netty 的对照"></a>7.2 深挖：与 Netty 的对照</h3><pre class="mermaid">flowchart LR
+<h3 id="11-2-深挖：与-Netty-的对照"><a href="#11-2-深挖：与-Netty-的对照" class="headerlink" title="11.2 深挖：与 Netty 的对照"></a>11.2 深挖：与 Netty 的对照</h3><pre class="mermaid">flowchart LR
     subgraph Tomcat["Tomcat 线程模型"]
         TA[Acceptor] --> TP[Poller]
         TP --> TW[Worker 线程池&lt;br/>可阻塞]
@@ -1318,8 +2497,61 @@
 </tbody></table>
 <p><strong>一句话</strong>：Tomcat 是「Netty 思想的服务化产物」——都用多路复用 + 线程池，但 <strong>Tomcat 允许业务线程阻塞（用线程池隔离），Netty 的 EventLoop 模型不允许（阻塞即灾难）</strong>。</p>
 <p><strong>面试被问「Tomcat 和 Netty 的线程模型区别」</strong>，答出「<strong>业务可阻塞 vs 不可阻塞</strong>」就是区分点。</p>
+<h3 id="11-3-深挖：Tomcat-的「慢」通常慢在哪"><a href="#11-3-深挖：Tomcat-的「慢」通常慢在哪" class="headerlink" title="11.3 深挖：Tomcat 的「慢」通常慢在哪"></a>11.3 深挖：Tomcat 的「慢」通常慢在哪</h3><pre class="mermaid">flowchart TB
+    Slow[Tomcat 慢] --> L1[业务层]
+    Slow --> L2[容器层]
+    Slow --> L3[JVM 层]
+    Slow --> L4[OS 层]
+
+    L1 --> L1a[DB 慢查询]
+    L1 --> L1b[外部 API 超时]
+    L1 --> L1c[锁竞争]
+    L1 --> L1d[大对象序列化]
+
+    L2 --> L2a[maxThreads 太小]
+    L2 --> L2b[acceptCount 太小]
+    L2 --> L2c[连接泄漏]
+
+    L3 --> L3a[Full GC]
+    L3 --> L3b[Metaspace OOM]
+    L3 --> L3c[线程数过多]
+
+    L4 --> L4a[磁盘 IO]
+    L4 --> L4b[网络带宽]
+    L4 --> L4c[CPU 争抢]
+
+    style L1 fill:#ffe6e6
+    style L2 fill:#fff4e6
+    style L3 fill:#e6f0ff
+    style L4 fill:#e6ffe6</pre>
+
+<p><strong>排查顺序</strong>：先看业务（80% 的慢在业务），再看容器参数，再看 JVM，最后看 OS。</p>
+<h3 id="11-4-深挖：常见追问"><a href="#11-4-深挖：常见追问" class="headerlink" title="11.4 深挖：常见追问"></a>11.4 深挖：常见追问</h3><p><strong>Q1：Tomcat 的 maxThreads 设置多少合适？</strong></p>
+<blockquote>
+<p>没有固定值。IO 密集型可以 CPU × 2 以上（甚至 500+），CPU 密集型不超过 CPU 核数。<strong>关键看业务耗时</strong>：如果单请求 10ms，200 线程理论 QPS &#x3D; 20000；如果单请求 1s，200 线程 QPS 只有 200。<strong>先压测，再定参</strong>。</p>
+</blockquote>
+<p><strong>Q2：Tomcat 为什么默认 maxThreads&#x3D;200？</strong></p>
+<blockquote>
+<p>历史经验值。200 线程对多数 Web 应用足够，且不会因为线程过多导致上下文切换开销。但现代高并发场景常调到 400~800。</p>
+</blockquote>
+<p><strong>Q3：Tomcat 的 Connector 可以配多个吗？</strong></p>
+<blockquote>
+<p>可以。一个 Service 可以有多个 Connector（如 HTTP 8080 + HTTPS 8443 + AJP 8009），共享同一个 Engine。但生产建议只开必要的。</p>
+</blockquote>
+<p><strong>Q4：Tomcat 的 Session 和 Cookie 关系？</strong></p>
+<blockquote>
+<p>Session 存在服务端，通过 <code>JSESSIONID</code> Cookie 关联客户端。Cookie 被禁用时可用 URL 重写（<code>;jsessionid=xxx</code>），但不安全，生产建议只用 Cookie。</p>
+</blockquote>
+<p><strong>Q5：Tomcat 支持 HTTP&#x2F;2 吗？</strong></p>
+<blockquote>
+<p>支持（Tomcat 8.5+）。配置 <code>server.http2.enabled=true</code> 或 <code>&lt;Connector&gt;&lt;UpgradeProtocol className=&quot;org.apache.coyote.http2.Http2Protocol&quot;/&gt;&lt;/Connector&gt;</code>。但 HTTP&#x2F;2 需要 HTTPS 才生效（浏览器限制）。</p>
+</blockquote>
+<p><strong>Q6：Tomcat 的 WAR 和 JAR 部署区别？</strong></p>
+<blockquote>
+<p>WAR 是传统 Java Web 应用打包方式，丢进 <code>webapps</code> 自动解压部署；JAR 是 Spring Boot 内嵌方式，<code>java -jar</code> 启动。<strong>WAR 适合多应用共用 Tomcat，JAR 适合微服务独立部署</strong>。</p>
+</blockquote>
 <hr>
-<h2 id="8-总结"><a href="#8-总结" class="headerlink" title="8. 总结"></a>8. 总结</h2><h3 id="8-1-面试速答表"><a href="#8-1-面试速答表" class="headerlink" title="8.1 面试速答表"></a>8.1 面试速答表</h3><table>
+<h2 id="12-总结"><a href="#12-总结" class="headerlink" title="12. 总结"></a>12. 总结</h2><h3 id="12-1-面试速答表"><a href="#12-1-面试速答表" class="headerlink" title="12.1 面试速答表"></a>12.1 面试速答表</h3><table>
 <thead>
 <tr>
 <th>面试题</th>
@@ -1329,6 +2561,10 @@
 <tbody><tr>
 <td>请求怎么走完 Tomcat？</td>
 <td>连接器收连接+解析 → 容器分发（Engine→Host→Context→Wrapper）→ Servlet 处理 → 原路返回</td>
+</tr>
+<tr>
+<td>Tomcat 启动流程？</td>
+<td>Bootstrap → Catalina → Server → Service → Connector&#x2F;Engine → Host → Context → Wrapper，逐层 init 后逐层 start</td>
 </tr>
 <tr>
 <td>为什么 NIO 能扛大并发？</td>
@@ -1351,11 +2587,23 @@
 <td>init 一次 → service 多线程并发 → destroy 一次</td>
 </tr>
 <tr>
+<td>Spring Boot 怎么内嵌 Tomcat？</td>
+<td><code>TomcatServletWebServerFactory</code> 创建 Tomcat，<code>TomcatWebServer</code> 管理生命周期</td>
+</tr>
+<tr>
+<td>Tomcat 怎么优雅停机？</td>
+<td>停接收 → 等处理完 → 销毁 Servlet → 关上下文</td>
+</tr>
+<tr>
+<td>类加载器泄漏怎么查？</td>
+<td><code>jmap -clstats</code> 看加载器数量，查 ThreadLocal &#x2F; Driver &#x2F; 定时器</td>
+</tr>
+<tr>
 <td>压测慢先查什么？</td>
-<td>先分三类：线程池耗尽&#x2F;连接池耗尽&#x2F;accept 队列满，别盲目调 maxThreads</td>
+<td>先分四类：线程池耗尽 &#x2F; 连接池耗尽 &#x2F; accept 队列满 &#x2F; 类加载器泄漏，别盲目调 maxThreads</td>
 </tr>
 </tbody></table>
-<h3 id="8-2-实战避坑表"><a href="#8-2-实战避坑表" class="headerlink" title="8.2 实战避坑表"></a>8.2 实战避坑表</h3><table>
+<h3 id="12-2-实战避坑表"><a href="#12-2-实战避坑表" class="headerlink" title="12.2 实战避坑表"></a>12.2 实战避坑表</h3><table>
 <thead>
 <tr>
 <th>症状</th>
@@ -1398,8 +2646,28 @@
 <td>类加载器泄漏（热部署多次后）</td>
 <td>检查 ThreadLocal、JDBC 驱动、定时器</td>
 </tr>
+<tr>
+<td>启动慢</td>
+<td>应用初始化阻塞</td>
+<td>查数据库连接、外部依赖、<code>@PostConstruct</code></td>
+</tr>
+<tr>
+<td>优雅停机无效</td>
+<td>未配置或等待时间太短</td>
+<td><code>server.shutdown=graceful</code> + 调大等待时间</td>
+</tr>
+<tr>
+<td>Session 丢失</td>
+<td>多实例无共享 Session</td>
+<td>用 Spring Session Redis</td>
+</tr>
+<tr>
+<td>中文乱码</td>
+<td>编码未配置</td>
+<td><code>URIEncoding=&quot;UTF-8&quot;</code> + <code>server.servlet.encoding</code></td>
+</tr>
 </tbody></table>
-<h3 id="8-3-工具速查表"><a href="#8-3-工具速查表" class="headerlink" title="8.3 工具速查表"></a>8.3 工具速查表</h3><table>
+<h3 id="12-3-工具速查表"><a href="#12-3-工具速查表" class="headerlink" title="12.3 工具速查表"></a>12.3 工具速查表</h3><table>
 <thead>
 <tr>
 <th>工具</th>
@@ -1423,6 +2691,14 @@
 <td>看类加载器数量（排查类加载器泄漏）</td>
 </tr>
 <tr>
+<td><code>jstat -gc &lt;pid&gt;</code></td>
+<td>看 GC 统计</td>
+</tr>
+<tr>
+<td><code>jcmd &lt;pid&gt; GC.class_stats</code></td>
+<td>类加载统计</td>
+</tr>
+<tr>
 <td><code>JConsole</code> &#x2F; <code>VisualVM</code></td>
 <td>线程池与连接池监控</td>
 </tr>
@@ -1431,31 +2707,45 @@
 <td>压测触发排队现象</td>
 </tr>
 <tr>
+<td><code>arthas</code></td>
+<td>在线诊断（trace &#x2F; watch &#x2F; profiler）</td>
+</tr>
+<tr>
+<td><code>async-profiler</code></td>
+<td>CPU &#x2F; 内存 &#x2F; 锁 火焰图</td>
+</tr>
+<tr>
 <td>Tomcat Manager Status</td>
 <td>连接器实时状态（线程&#x2F;连接&#x2F;排队）</td>
 </tr>
 </tbody></table>
-<h3 id="8-4-系列定位"><a href="#8-4-系列定位" class="headerlink" title="8.4 系列定位"></a>8.4 系列定位</h3><pre class="mermaid">flowchart LR
+<h3 id="12-4-系列定位"><a href="#12-4-系列定位" class="headerlink" title="12.4 系列定位"></a>12.4 系列定位</h3><pre class="mermaid">flowchart LR
     Spring[Spring 深度解析&lt;br/>应用框架层] --> Tomcat[Tomcat 深度解析&lt;br/>Web 容器层]
     Tomcat --> JVM[JVM 原理与调优&lt;br/>运行时层]
     Tomcat -.对照.-> Netty[Netty 原理与实践&lt;br/>网络底层]
     Tomcat -.压测.-> Zeus[Zeus 压测实战]
+    Tomcat -.部署.-> K8s[K8s 实战&lt;br/>容器编排]
 
     style Tomcat fill:#ffe6e6
     style Spring fill:#e6f0ff
     style JVM fill:#e6ffe6
-    style Netty fill:#fff4e6</pre>
+    style Netty fill:#fff4e6
+    style K8s fill:#f0e6ff</pre>
 
-<p>本文补上「框架」组最后一块正文。框架三条线闭环：<strong>Spring（应用框架）→ Tomcat（Web 容器）→ JVM（运行时）</strong>，与 Java 后端面试导航的能力链第 2 阶段对应；下一篇可联动 Netty 原理与实践（网络底层）继续下潜。</p>
+<p>本文补上「框架」组最后一块正文。框架三条线闭环：<strong>Spring（应用框架）→ Tomcat（Web 容器）→ JVM（运行时）</strong>，与 Java 后端面试导航的能力链第 2 阶段对应；下一篇可联动 Netty 原理与实践（网络底层）继续下潜，或进入 K8s 实战（容器编排）向上扩展。</p>
 <hr>
 <blockquote>
 <p><strong>全文因果链回顾</strong>：</p>
 <ol>
 <li><strong>架构</strong>：IO 与业务分离 → 连接器 + 容器两段式；</li>
-<li><strong>线程</strong>：Acceptor&#x2F;Poller&#x2F;Worker 三层 → <code>maxThreads</code>&#x2F;<code>maxConnections</code>&#x2F;<code>acceptCount</code> 三级缓冲；</li>
+<li><strong>启动</strong>：Bootstrap → Catalina → Server → Service → Connector&#x2F;Engine → Host → Context → Wrapper，逐层 init 后逐层 start；</li>
+<li><strong>线程</strong>：Acceptor &#x2F; Poller &#x2F; Worker 三层 → <code>maxThreads</code> &#x2F; <code>maxConnections</code> &#x2F; <code>acceptCount</code> 三级缓冲；</li>
 <li><strong>请求</strong>：Pipeline + Valve 责任链 → Servlet 单实例多线程；</li>
 <li><strong>类加载</strong>：WebappClassLoader 打破双亲委派 → 应用隔离 + 热部署；</li>
-<li><strong>排障</strong>：线程池耗尽&#x2F;连接池耗尽&#x2F;accept 队列满 → 对症下药，别盲目调参。</li>
+<li><strong>内嵌</strong>：<code>TomcatServletWebServerFactory</code> 创建 Tomcat，<code>TomcatWebServer</code> 管理生命周期；</li>
+<li><strong>Session &#x2F; 安全 &#x2F; 日志</strong>：Redis Session、安全加固、JULI + AccessLog；</li>
+<li><strong>排障</strong>：线程池耗尽 &#x2F; 连接池耗尽 &#x2F; accept 队列满 &#x2F; 类加载器泄漏 → 对症下药，别盲目调参；</li>
+<li><strong>生产</strong>：优雅停机 + Nginx 反向代理 + 多实例 + K8s。</li>
 </ol>
 </blockquote>
 
@@ -1517,14 +2807,14 @@
       <i class="fa fa-chart-line"></i>
     </span>
       <span>Word count total: </span>
-    <span title="Word count total">640k</span>
+    <span title="Word count total">646k</span>
   </span>
   <span class="post-meta-item">
     <span class="post-meta-item-icon">
       <i class="fa fa-coffee"></i>
     </span>
       <span>Reading time total &asymp;</span>
-    <span title="Reading time total">38:46</span>
+    <span title="Reading time total">39:07</span>
   </span>
 </div>
   <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
