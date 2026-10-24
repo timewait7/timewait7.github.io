@@ -1,0 +1,1212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="索引不是「加一个就快」，而是用「写代价 + 磁盘空间」买「读路径」。它唯一能改变的东西是上一篇那把尺子：一次查询碰了多少个 16KB 页。所以索引设计的本质不是记口诀，而是把查询的访问形态——等值、范围、排序——翻译成 B+ 树的物理顺序，让引擎沿着顺序读，而不是满地找。 本文用一张 100 万行的订单表回答四个问题：B+ 树到底怎么排、为什么二级索引要回表、复合索引的列序为什么不能拍脑袋、以及每">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Schema 与索引：把逻辑读降下来">
+<meta property="og:url" content="http://timewait7.github.io/post/e1724727.html">
+<meta property="og:site_name" content="知行栈">
+<meta property="og:description" content="索引不是「加一个就快」，而是用「写代价 + 磁盘空间」买「读路径」。它唯一能改变的东西是上一篇那把尺子：一次查询碰了多少个 16KB 页。所以索引设计的本质不是记口诀，而是把查询的访问形态——等值、范围、排序——翻译成 B+ 树的物理顺序，让引擎沿着顺序读，而不是满地找。 本文用一张 100 万行的订单表回答四个问题：B+ 树到底怎么排、为什么二级索引要回表、复合索引的列序为什么不能拍脑袋、以及每">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-10-24T14:40:00.000Z">
+<meta property="article:modified_time" content="2026-10-24T13:36:16.668Z">
+<meta property="article:tag" content="MySQL">
+<meta property="article:tag" content="面试">
+<meta property="article:tag" content="性能优化">
+<meta property="article:tag" content="索引">
+<meta property="article:tag" content="B+树">
+<meta property="article:tag" content="执行计划">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/e1724727.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/e1724727.html","path":"post/e1724727.html","title":"Schema 与索引：把逻辑读降下来"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>Schema 与索引：把逻辑读降下来 | 知行栈</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<!-- hexo injector head_end start --><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
+</style><style>
+/* 菜单链高亮：sub-menu 祖先（同主题 .menu-item-active 的 Pisces 规则） */
+.sub-menu .menu-item a.menu-chain-active {
+  border-bottom-color: #fc6423;
+  color: #fc6423;
+}
+.sub-menu .menu-item a.menu-chain-active:hover {
+  border-bottom-color: #fc6423;
+}
+/* 菜单链高亮：main-menu 祖先（同主题 hover/active 的背景规则） */
+.main-menu .menu-item a.menu-chain-active {
+  background: var(--menu-item-bg-color);
+}
+</style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">知行栈</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section" class="menu-chain-active"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>Categories</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-B-%E6%A0%91%EF%BC%9A%E7%89%A9%E7%90%86%E9%A1%BA%E5%BA%8F%E5%86%B3%E5%AE%9A%E4%B8%80%E5%88%87"><span class="nav-text">1. B+ 树：物理顺序决定一切</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-%E4%B8%89%E5%B1%82%E7%BB%93%E6%9E%84%EF%BC%8C%E4%B8%80%E4%B8%AA%E5%85%AC%E5%BC%8F"><span class="nav-text">1.1 三层结构，一个公式</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-2-%E4%B8%A4%E6%A3%B5%E6%A0%91%EF%BC%9A%E8%81%9A%E7%B0%87%E7%B4%A2%E5%BC%95%E4%B8%8E%E4%BA%8C%E7%BA%A7%E7%B4%A2%E5%BC%95"><span class="nav-text">1.2 两棵树：聚簇索引与二级索引</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-3-%E6%B7%B1%E6%8C%96%EF%BC%9A%E4%BA%8C%E7%BA%A7%E7%B4%A2%E5%BC%95%E4%B8%BA%E4%BB%80%E4%B9%88%E5%AD%98%E4%B8%BB%E9%94%AE%EF%BC%8C%E8%80%8C%E4%B8%8D%E6%98%AF%E8%A1%8C%E5%9C%B0%E5%9D%80"><span class="nav-text">1.3 深挖：二级索引为什么存主键，而不是行地址</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E6%95%B0%E6%B8%85%E4%B8%80%E6%AC%A1%E4%B8%BB%E9%94%AE%E6%9F%A5%E8%AF%A2%E7%A2%B0%E4%BA%86%E5%87%A0%E9%A1%B5"><span class="nav-text">1.4 动手验证：数清一次主键查询碰了几页</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E5%A4%8D%E5%90%88%E7%B4%A2%E5%BC%95%EF%BC%9A%E5%88%97%E5%BA%8F%E6%98%AF%E7%94%B1%E7%89%A9%E7%90%86%E9%A1%BA%E5%BA%8F%E5%86%B3%E5%AE%9A%E7%9A%84%EF%BC%8C%E4%B8%8D%E6%98%AF%E4%B9%A0%E6%83%AF"><span class="nav-text">2. 复合索引：列序是由物理顺序决定的，不是习惯</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E6%9C%80%E5%B7%A6%E5%89%8D%E7%BC%80%E4%B8%8D%E6%98%AF%E8%A7%84%E5%88%99%EF%BC%8C%E6%98%AF%E5%AD%97%E5%85%B8%E5%BA%8F"><span class="nav-text">2.1 最左前缀不是规则，是字典序</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E4%B8%83%E7%A7%8D%E7%B4%A2%E5%BC%95%E6%96%B9%E6%A1%88%EF%BC%8C%E4%B8%A4%E6%9D%A1%E7%9C%9F%E5%AE%9E%E6%9F%A5%E8%AF%A2"><span class="nav-text">2.2 七种索引方案，两条真实查询</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-%E8%BF%99%E5%BC%A0%E7%9F%A9%E9%98%B5%E8%AF%BB%E5%87%BA%E7%9A%84%E4%B8%89%E4%BB%B6%E4%BA%8B"><span class="nav-text">2.3 这张矩阵读出的三件事</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-4-%E4%B8%89%E6%98%9F%E7%B4%A2%E5%BC%95%EF%BC%9A%E6%8A%8A%E3%80%8C%E7%AD%89%E5%80%BC%E3%80%81%E6%8E%92%E5%BA%8F%E3%80%81%E8%A6%86%E7%9B%96%E3%80%8D%E4%B8%80%E6%AC%A1%E5%90%83%E4%B8%8B"><span class="nav-text">2.4 三星索引：把「等值、排序、覆盖」一次吃下</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-5-%E6%B7%B1%E6%8C%96%EF%BC%9A%E8%8C%83%E5%9B%B4%E6%9D%A1%E4%BB%B6%E4%B8%BA%E4%BB%80%E4%B9%88%E6%88%AA%E6%96%AD%E5%90%8E%E9%9D%A2%E7%9A%84%E5%88%97"><span class="nav-text">2.5 深挖：范围条件为什么截断后面的列</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-6-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%9C%A8%E8%87%AA%E5%B7%B1%E7%9A%84%E8%A1%A8%E4%B8%8A%E8%B7%91%E8%BF%99%E5%BC%A0%E7%9F%A9%E9%98%B5"><span class="nav-text">2.6 动手验证：在自己的表上跑这张矩阵</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E5%86%99%E6%94%BE%E5%A4%A7%E4%B8%8E%E7%A9%BA%E9%97%B4%EF%BC%9A%E7%B4%A2%E5%BC%95%E6%98%AF%E6%94%B6%E8%B4%B9%E7%9A%84"><span class="nav-text">3. 写放大与空间：索引是收费的</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E5%AE%9E%E6%B5%8B%EF%BC%9A0-%E5%88%B0-5-%E4%B8%AA%E7%B4%A2%E5%BC%95%E7%9A%84%E6%8F%92%E5%85%A5%E8%80%97%E6%97%B6"><span class="nav-text">3.1 实测：0 到 5 个索引的插入耗时</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E7%A9%BA%E9%97%B4%E8%B4%A6"><span class="nav-text">3.2 空间账</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-%E6%B7%B1%E6%8C%96%EF%BC%9Achange-buffer-%E5%8F%AA%E6%95%91%E9%9D%9E%E5%94%AF%E4%B8%80%E4%BA%8C%E7%BA%A7%E7%B4%A2%E5%BC%95"><span class="nav-text">3.3 深挖：change buffer 只救非唯一二级索引</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E6%B5%8B%E4%BD%A0%E8%87%AA%E5%B7%B1%E7%9A%84%E5%86%99%E6%94%BE%E5%A4%A7%E6%9B%B2%E7%BA%BF"><span class="nav-text">3.4 动手验证：测你自己的写放大曲线</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E4%BB%8E%E6%9F%A5%E8%AF%A2%E5%8F%8D%E6%8E%A8%E7%B4%A2%E5%BC%95%EF%BC%9A%E4%BA%94%E6%AD%A5%E6%B3%95%E4%B8%8E%E6%B8%85%E7%90%86"><span class="nav-text">4. 从查询反推索引：五步法与清理</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-%E4%BA%94%E6%AD%A5%E6%B3%95"><span class="nav-text">4.1 五步法</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-%E5%9B%9E%E5%88%B0%E8%AE%A2%E5%8D%95%E8%A1%A8%EF%BC%9A%E6%9C%80%E7%BB%88%E6%96%B9%E6%A1%88"><span class="nav-text">4.2 回到订单表：最终方案</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-%E5%86%97%E4%BD%99%E7%B4%A2%E5%BC%95%E7%9A%84%E4%B8%89%E7%A7%8D%E5%BD%A2%E6%80%81"><span class="nav-text">4.3 冗余索引的三种形态</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E7%BB%99%E4%BD%A0%E7%9A%84%E5%BA%93%E5%81%9A%E4%B8%80%E6%AC%A1%E7%B4%A2%E5%BC%95%E4%BD%93%E6%A3%80"><span class="nav-text">4.4 动手验证：给你的库做一次索引体检</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E6%80%BB%E7%BB%93"><span class="nav-text">5. 总结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E9%9D%A2%E8%AF%95%E9%80%9F%E7%AD%94%E8%A1%A8"><span class="nav-text">5.1 面试速答表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E5%AE%9E%E6%88%98%E9%81%BF%E5%9D%91%E8%A1%A8"><span class="nav-text">5.2 实战避坑表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-%E5%B7%A5%E5%85%B7%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">5.3 工具速查表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-%E5%AE%9E%E6%93%8D%E5%BB%BA%E8%AE%AE"><span class="nav-text">5.4 实操建议</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">104</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">14</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">175</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+    <div class="sidebar-inner sidebar-blogroll">
+      <div class="links-of-blogroll animated">
+        <div class="links-of-blogroll-title"><i class="fa fa-globe fa-fw"></i>
+          Links
+        </div>
+        <ul class="links-of-blogroll-list">
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9wYXVsZ3JhaGFtLmNvbS9hcnRpY2xlcy5odG1s" title="https:&#x2F;&#x2F;paulgraham.com&#x2F;articles.html">paulgraham</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly93d3cuam9lbG9uc29mdHdhcmUuY29tLw==" title="https:&#x2F;&#x2F;www.joelonsoftware.com&#x2F;">Joel on Software</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9tYXJ0aW5mb3dsZXIuY29tLw==" title="https:&#x2F;&#x2F;martinfowler.com&#x2F;">Martin Flower</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly96aGFuZ3RpZWxlaS5jb20v" title="https:&#x2F;&#x2F;zhangtielei.com&#x2F;">zhangtielei</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhLWRlc2lnbi1wYXR0ZXJucy5jb20vemgv" title="https:&#x2F;&#x2F;java-design-patterns.com&#x2F;zh&#x2F;">Java Design Patterns</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9taWNyb3NlcnZpY2VzLmlvLw==" title="https:&#x2F;&#x2F;microservices.io&#x2F;">Microservice Architecture</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhZ3VpZGUuY24v" title="https:&#x2F;&#x2F;javaguide.cn&#x2F;">JavaGuide</span>
+            </li>
+        </ul>
+      </div>
+    </div>
+        <div class="pjax">
+        
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-后端开发"><a href="/docs/nav/backend-dev-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-code fa-fw"></i>后端开发</a></li>
+
+
+      
+  <li class="menu-item menu-item-计算机基础"><a href="/docs/nav/cs-foundation-nav.html" rel="section"><i class="fa fa-desktop fa-fw"></i>计算机基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-ai-学习"><a href="/docs/nav/ai-learning-nav.html" rel="section"><i class="fa fa-robot fa-fw"></i>AI 学习</a></li>
+
+
+      
+  <li class="menu-item menu-item-项目实战"><a href="/docs/nav/5964f4da.html" rel="section"><i class="fa fa-flask fa-fw"></i>项目实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-misc"><a href="/docs/nav/misc-nav.html" rel="section"><i class="fa fa-box fa-fw"></i>Misc</a></li>
+
+
+      
+  <li class="menu-item menu-item-随笔·生活"><a href="/docs/nav/life-nav.html" rel="section"><i class="fa fa-feather fa-fw"></i>随笔·生活</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java"><a href="/docs/nav/java-nav.html" rel="section"><i class="fa fa-coffee fa-fw"></i>Java</a></li>
+
+
+      
+  <li class="menu-item menu-item-框架"><a href="/docs/nav/framework-nav.html" rel="section"><i class="fa fa-th-large fa-fw"></i>框架</a></li>
+
+
+      
+  <li class="menu-item menu-item-数据存储"><a href="/docs/nav/data-storage-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-hdd fa-fw"></i>数据存储</a></li>
+
+
+      
+  <li class="menu-item menu-item-中间件"><a href="/docs/nav/middleware-nav.html" rel="section"><i class="fa fa-cubes fa-fw"></i>中间件</a></li>
+
+
+      
+  <li class="menu-item menu-item-分布式与微服务"><a href="/docs/nav/distributed-nav.html" rel="section"><i class="fa fa-sitemap fa-fw"></i>分布式与微服务</a></li>
+
+
+      
+  <li class="menu-item menu-item-系统设计"><a href="/docs/nav/system-design-nav.html" rel="section"><i class="fa fa-pencil-ruler fa-fw"></i>系统设计</a></li>
+
+
+      
+  <li class="menu-item menu-item-部署运维"><a href="/docs/nav/devops-nav.html" rel="section"><i class="fa fa-terminal fa-fw"></i>部署运维</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-mysql"><a href="/docs/nav/mysql-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-database fa-fw"></i>MySQL</a></li>
+
+
+      
+  <li class="menu-item menu-item-redis"><a href="/docs/nav/redis-nav.html" rel="section"><i class="fa fa-bolt fa-fw"></i>Redis</a></li>
+
+
+      
+  <li class="menu-item menu-item-elasticsearch"><a href="/docs/nav/es-nav.html" rel="section"><i class="fa fa-search fa-fw"></i>ElasticSearch</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-mysql-深度解析：从原理到高可用与分库分表实战"><a href="/post/32511a71.html" rel="section"><i class="fa fa-file-text fa-fw"></i>MySQL 深度解析：从原理到高可用与分库分表实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-①-从这里开始：把-mysql-变成你的实验台"><a href="/post/60f95c16.html" rel="section"><i class="fa fa-file-text fa-fw"></i>① 从这里开始：把 MySQL 变成你的实验台</a></li>
+
+
+      
+  <li class="menu-item menu-item-②-一条-sql-的六层成本账：架构不是画流程图"><a href="/post/ffd9df8b.html" rel="section"><i class="fa fa-file-text fa-fw"></i>② 一条 SQL 的六层成本账：架构不是画流程图</a></li>
+
+
+      
+  <li class="menu-item menu-item-③-schema-与索引：把逻辑读降下来"><a href="/post/e1724727.html" rel="section"><i class="fa fa-file-text fa-fw"></i>③ Schema 与索引：把逻辑读降下来</a></li>
+
+
+      
+  <li class="menu-item menu-item-④-查询优化：优化器为什么会选错索引"><a href="/post/d65d7254.html" rel="section"><i class="fa fa-file-text fa-fw"></i>④ 查询优化：优化器为什么会选错索引</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑤-事务与-mvcc：把「不可重复读」亲手复现出来"><a href="/post/88fb6d0c.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑤ 事务与 MVCC：把「不可重复读」亲手复现出来</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑥-锁、死锁与-mdl：一次变更如何堵死整张表"><a href="/post/d090a538.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑥ 锁、死锁与 MDL：一次变更如何堵死整张表</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑦-innodb-内存与刷盘：物理-io-的钱花在哪"><a href="/post/8e8e95b7.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑦ InnoDB 内存与刷盘：物理 IO 的钱花在哪</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑧-复制与高可用：延迟的量化与判定"><a href="/post/51687861.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑧ 复制与高可用：延迟的量化与判定</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑨-备份与恢复：删库之后-30-分钟救回来"><a href="/post/f375ea2a.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑨ 备份与恢复：删库之后 30 分钟救回来</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑩-在线-ddl：一次加索引如何堵死整张表"><a href="/post/b5c3673.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑩ 在线 DDL：一次加索引如何堵死整张表</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑪-java-侧：连接池打满与-@transactional-失效的真相"><a href="/post/4d87a909.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑪ Java 侧：连接池打满与 @Transactional 失效的真相</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑫-容量与扩展：什么时候才该分库分表"><a href="/post/f8f36186.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑫ 容量与扩展：什么时候才该分库分表</a></li>
+
+
+    </ul>
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/e1724727.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="Schema 与索引：把逻辑读降下来 | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          Schema 与索引：把逻辑读降下来
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-10-24 22:40:00" itemprop="dateCreated datePublished" datetime="2026-10-24T22:40:00+08:00">2026-10-24</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/" itemprop="url" rel="index"><span itemprop="name">数据存储</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>5.7k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>21 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><p><strong>索引不是「加一个就快」，而是用「写代价 + 磁盘空间」买「读路径」</strong>。它唯一能改变的东西是上一篇那把尺子：一次查询碰了多少个 16KB 页。所以索引设计的本质不是记口诀，而是把查询的访问形态——等值、范围、排序——翻译成 B+ 树的物理顺序，让引擎沿着顺序读，而不是满地找。</p>
+<p>本文用一张 100 万行的订单表回答四个问题：B+ 树到底怎么排、为什么二级索引要回表、复合索引的列序为什么不能拍脑袋、以及<strong>每个索引要向写入收多少费</strong>。所有数字都在 MySQL 8.0.46 容器里实测。</p>
+<blockquote>
+<p><strong>系列地图（高性能 MySQL 实战路线，12 篇）</strong></p>
+<p>① 实验台与基线 → ② 六层成本账 → ③ <strong>索引与 Schema（本文）</strong> → ④ 优化器与慢查询 → ⑤ 事务与 MVCC → ⑥ 锁与死锁 → ⑦ 内存与刷盘 → ⑧ 复制与高可用 → ⑨ 备份与恢复 → ⑩ 在线 DDL → ⑪ Java 侧连接池 → ⑫ 容量与分库分表</p>
+<p>与前后篇的关系：② 测出「回表让逻辑读涨 589 倍」，本文解释这 589 倍长什么样、怎么用列序把它削掉；本文实测的「<code>(user_id, status)</code> 相比 <code>(user_id)</code> 几乎没有收益」，是 ④ 里判断「优化器为什么不用某个索引」的前提。</p>
+</blockquote>
+<h2 id="1-B-树：物理顺序决定一切"><a href="#1-B-树：物理顺序决定一切" class="headerlink" title="1. B+ 树：物理顺序决定一切"></a>1. B+ 树：物理顺序决定一切</h2><h3 id="1-1-三层结构，一个公式"><a href="#1-1-三层结构，一个公式" class="headerlink" title="1.1 三层结构，一个公式"></a>1.1 三层结构，一个公式</h3><p>InnoDB 的索引是一棵 B+ 树，页大小默认 16KB（<code>innodb_page_size</code>，实测 16384，建库时定死）。</p>
+<pre class="mermaid">flowchart TD
+    ROOT["Root page&lt;br/>~1170 entries"]
+    ROOT --> B1["Branch page&lt;br/>~1170 entries"]
+    ROOT --> B2["Branch page"]
+    ROOT --> B3["Branch page"]
+    B1 --> L1["Leaf pages&lt;br/>rows = 16384 / row_size"]
+    B1 --> L2["Leaf pages"]
+    B2 --> L3["Leaf pages"]
+    B3 --> L4["Leaf pages"]
+    L1 -.->|"leaf chained by&lt;br/>doubly linked list"| L2</pre>
+
+<p>非叶子节点只存「键 + 页指针」，所以一页能装很多项：</p>
+<ul>
+<li>主键 <code>BIGINT</code> 8 字节 + 页指针 6 字节 &#x3D; 14 字节 → 每页约 <strong>1170</strong> 个分支项</li>
+<li>叶子节点存整行（聚簇索引）或「索引列 + 主键」（二级索引）→ 每页行数 &#x3D; 16384 &#x2F; 行大小</li>
+</ul>
+<p>于是容量公式是：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">三层 B+ 树容量 ≈ 1170 × 1170 × (16384 / 行大小)</span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th>行大小</th>
+<th>每页行数</th>
+<th>三层容量</th>
+<th>1000 万行需要几层</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>50 字节（窄表）</td>
+<td>~327</td>
+<td>~4.4 亿</td>
+<td>3 层</td>
+</tr>
+<tr>
+<td>100 字节</td>
+<td>~163</td>
+<td>~2.2 亿</td>
+<td>3 层</td>
+</tr>
+<tr>
+<td>1KB（宽表）</td>
+<td>~16</td>
+<td>~2190 万</td>
+<td>3~4 层</td>
+</tr>
+<tr>
+<td>4KB（含大字段）</td>
+<td>~4</td>
+<td>~547 万</td>
+<td>4 层</td>
+</tr>
+</tbody></table>
+<p><strong>这张表就是「三层 2000 万行」这个说法的出处</strong>：它只在行大小 1KB 时成立。窄表三层能装 4 亿行，宽表可能四层都不够。面试时先问行大小，再给数字，比背结论有效。</p>
+<p>本文的 <code>orders</code> 表 100 万行、56.6MB → 每行约 59 字节 → 每页约 275 行 → 叶子页约 3636 个 → 分支页 4 个 → <strong>树高 3 层</strong>。所以主键等值查询要碰 3~4 个页（根 + 分支 + 叶子，加上定位记录那次）。</p>
+<h3 id="1-2-两棵树：聚簇索引与二级索引"><a href="#1-2-两棵树：聚簇索引与二级索引" class="headerlink" title="1.2 两棵树：聚簇索引与二级索引"></a>1.2 两棵树：聚簇索引与二级索引</h3><pre class="mermaid">flowchart LR
+    subgraph CI["Clustered index (primary key id)"]
+        CR["root: id ranges"] --> CL["leaf: FULL ROW&lt;br/>id, user_id, status, amount, create_time, remark"]
+    end
+    subgraph SI["Secondary index idx(user_id, status)"]
+        SR["root: user_id ranges"] --> SL["leaf: user_id, status, id&lt;br/>(no other columns)"]
+    end
+    Q["WHERE user_id=123 AND status=0&lt;br/>SELECT *"] --> SR
+    SL -->|"back to table:&lt;br/>lookup by id"| CR</pre>
+
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>聚簇索引（主键）</th>
+<th>二级索引</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>叶子存什么</td>
+<td>整行数据</td>
+<td>索引列 + 主键值</td>
+</tr>
+<tr>
+<td>数量</td>
+<td>每表一个</td>
+<td>0 到多个</td>
+</tr>
+<tr>
+<td>一次等值查询碰几棵树</td>
+<td>1 棵</td>
+<td>2 棵（自己 + 回表）</td>
+</tr>
+<tr>
+<td>覆盖查询可能</td>
+<td>总是</td>
+<td>只有查询列全在索引里才可能</td>
+</tr>
+<tr>
+<td>排序能力</td>
+<td>按主键</td>
+<td>按索引列顺序</td>
+</tr>
+<tr>
+<td>占用空间</td>
+<td>就是数据本身</td>
+<td>独立 B+ 树（实测见 3.2）</td>
+</tr>
+</tbody></table>
+<p><strong>回表的成本不是「多一次查找」，而是「第二次树遍历 + 随机页访问」</strong>。上一篇测过：同一批 1 万行，覆盖索引 53 次逻辑读，回表 31223 次。差出来的 3 万次，全是聚簇索引上的随机页。</p>
+<h3 id="1-3-深挖：二级索引为什么存主键，而不是行地址"><a href="#1-3-深挖：二级索引为什么存主键，而不是行地址" class="headerlink" title="1.3 深挖：二级索引为什么存主键，而不是行地址"></a>1.3 深挖：二级索引为什么存主键，而不是行地址</h3><p>如果二级索引的叶子存「数据文件的物理地址」，一次回表就不用再走 B+ 树，看起来更快。InnoDB 没这么做，原因在<strong>页分裂</strong>：插入一行导致叶子页分裂时，页内所有行的物理位置都会变，所有指向它的二级索引条目都要跟着改——写放大直接变成灾难。</p>
+<p>存主键则只需要主键稳定，行的物理位置怎么搬都不影响索引。代价是<strong>回表必须重新走一次聚簇索引</strong>，多一层树遍历。</p>
+<p>这个取舍在生产上的后果很具体：</p>
+<ul>
+<li>主键越短越好。主键是 <code>BIGINT</code>（8 字节）时，二级索引每条结束都要多 8 字节；换成 <code>CHAR(32)</code> 的 UUID，二级索引体积直接膨胀几十个百分点，Buffer Pool 能装的页变少（⑦ 会算这笔账）。</li>
+<li>主键别用「业务上会变」的列。改主键 &#x3D; 搬整行 + 重建所有二级索引条目。</li>
+<li>自增主键的顺序插入让叶子页基本只在右侧追加，页分裂少；随机主键（UUID）会把分裂摊到整棵树，这是「UUID 做 PK 写入慢」的真实机制。</li>
+</ul>
+<h3 id="1-4-动手验证：数清一次主键查询碰了几页"><a href="#1-4-动手验证：数清一次主键查询碰了几页" class="headerlink" title="1.4 动手验证：数清一次主键查询碰了几页"></a>1.4 动手验证：数清一次主键查询碰了几页</h3><figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 1) 看表大小与行数，算出每页行数与树高</span></span><br><span class="line"><span class="keyword">SELECT</span> table_rows, ROUND(data_length<span class="operator">/</span><span class="number">1024</span><span class="operator">/</span><span class="number">1024</span>,<span class="number">1</span>) <span class="keyword">AS</span> data_mb,</span><br><span class="line">       ROUND(data_length<span class="operator">/</span><span class="built_in">NULLIF</span>(table_rows,<span class="number">0</span>)) <span class="keyword">AS</span> bytes_per_row</span><br><span class="line"><span class="keyword">FROM</span> information_schema.tables</span><br><span class="line"><span class="keyword">WHERE</span> table_schema<span class="operator">=</span><span class="string">&#x27;lab&#x27;</span> <span class="keyword">AND</span> table_name<span class="operator">=</span><span class="string">&#x27;orders&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="comment">-- 2) 一次主键等值的页请求次数（前后取差）</span></span><br><span class="line"><span class="keyword">SET</span> <span class="variable">@r0</span> :<span class="operator">=</span> (<span class="keyword">SELECT</span> VARIABLE_VALUE <span class="keyword">FROM</span> performance_schema.global_status</span><br><span class="line">            <span class="keyword">WHERE</span> VARIABLE_NAME<span class="operator">=</span><span class="string">&#x27;Innodb_buffer_pool_read_requests&#x27;</span>);</span><br><span class="line"><span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> orders <span class="keyword">WHERE</span> id <span class="operator">=</span> <span class="number">500000</span>;</span><br><span class="line"><span class="keyword">SET</span> <span class="variable">@r1</span> :<span class="operator">=</span> (<span class="keyword">SELECT</span> VARIABLE_VALUE <span class="keyword">FROM</span> performance_schema.global_status</span><br><span class="line">            <span class="keyword">WHERE</span> VARIABLE_NAME<span class="operator">=</span><span class="string">&#x27;Innodb_buffer_pool_read_requests&#x27;</span>);</span><br><span class="line"><span class="keyword">SELECT</span> <span class="variable">@r1</span> <span class="operator">-</span> <span class="variable">@r0</span> <span class="keyword">AS</span> page_requests;</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：<code>bytes_per_row</code> 落在几十到几百字节；<code>page_requests</code> 是 3~4（树高 3 层 + 定位记录）。如果结果是几十，说明你查的不是主键，或者表上还有别的开销。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>页请求数 ≈ <code>log1170(叶子页数) + 1</code> → 结构正常；</li>
+<li>页请求数异常大 → 检查是否用了 <code>WHERE id + 0 = ?</code>（表达式让优化器放弃等值定位）。</li>
+</ul>
+<h2 id="2-复合索引：列序是由物理顺序决定的，不是习惯"><a href="#2-复合索引：列序是由物理顺序决定的，不是习惯" class="headerlink" title="2. 复合索引：列序是由物理顺序决定的，不是习惯"></a>2. 复合索引：列序是由物理顺序决定的，不是习惯</h2><h3 id="2-1-最左前缀不是规则，是字典序"><a href="#2-1-最左前缀不是规则，是字典序" class="headerlink" title="2.1 最左前缀不是规则，是字典序"></a>2.1 最左前缀不是规则，是字典序</h3><p><code>idx(user_id, status, create_time)</code> 的叶子按 <code>(user_id, status, create_time)</code> 三级排序，等价于一本先按姓氏、再按名字、最后按生日的电话簿：</p>
+<ul>
+<li>你能直接翻到「姓张」的区段 → 只给 <code>user_id</code> 能用</li>
+<li>你能翻到「姓张、名三」的区段 → 给 <code>user_id + status</code> 也能用</li>
+<li>你<strong>没法</strong>直接翻到「所有叫三的人」→ 只给 <code>status</code> 用不上</li>
+</ul>
+<pre class="mermaid">flowchart TD
+    K["Index key order:&lt;br/>user_id -> status -> create_time"] --> Q1{"Equality on user_id?"}
+    Q1 -- no --> NO["Cannot seek&lt;br/>full scan or other index"]
+    Q1 -- yes --> Q2{"Equality on status?"}
+    Q2 -- yes --> Q3{"Need ORDER BY create_time?"}
+    Q3 -- yes --> PERFECT["Seek + ordered read&lt;br/>no filesort"]
+    Q3 -- no --> GOOD["Seek within (user_id,status)"]
+    Q2 -- no --> RANGE["Seek by user_id only&lt;br/>status can be filtered,&lt;br/>create_time can be sorted"]</pre>
+
+<table>
+<thead>
+<tr>
+<th>查询条件</th>
+<th>能用到哪几列</th>
+<th>排序能否被索引吃掉</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>user_id = ?</code></td>
+<td>第 1 列</td>
+<td>按 status 有序，不是 create_time</td>
+</tr>
+<tr>
+<td><code>user_id = ? AND status = ?</code></td>
+<td>前 2 列</td>
+<td>剩余部分按 create_time 有序 ✅</td>
+</tr>
+<tr>
+<td><code>user_id = ? AND status IN (?, ?)</code></td>
+<td>前 2 列（多个区间）</td>
+<td>每一段内有序，整体有序 ✅（但要去重合并）</td>
+</tr>
+<tr>
+<td><code>user_id = ? AND create_time &gt; ?</code></td>
+<td>第 1 列</td>
+<td>范围之后，status 只能过滤</td>
+</tr>
+<tr>
+<td><code>status = ?</code></td>
+<td>用不上 ❌</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>create_time &gt; ?</code></td>
+<td>用不上 ❌</td>
+<td>—</td>
+</tr>
+</tbody></table>
+<h3 id="2-2-七种索引方案，两条真实查询"><a href="#2-2-七种索引方案，两条真实查询" class="headerlink" title="2.2 七种索引方案，两条真实查询"></a>2.2 七种索引方案，两条真实查询</h3><p>场景是一张 100 万行的订单表：5000 个用户，每人约 200 单，状态分布 90% &#x2F; 9% &#x2F; 1%（已完成 &#x2F; 处理中 &#x2F; 异常）。</p>
+<p>两条真实查询：</p>
+<ul>
+<li><strong>Q1 用户订单列表</strong>：<code>WHERE user_id = 123 AND status = 0 ORDER BY create_time DESC LIMIT 20</code></li>
+<li><strong>Q2 运营后台筛选</strong>：<code>WHERE status = 2 ORDER BY create_time DESC LIMIT 20</code></li>
+</ul>
+<table>
+<thead>
+<tr>
+<th>索引方案</th>
+<th>Q1 耗时</th>
+<th>Q1 逻辑读</th>
+<th>Q1 排序</th>
+<th>Q2 耗时</th>
+<th>Q2 逻辑读</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>A 无二级索引</td>
+<td>128 ms</td>
+<td>5723</td>
+<td>filesort</td>
+<td>113 ms</td>
+<td>5723</td>
+</tr>
+<tr>
+<td>B <code>(user_id)</code></td>
+<td>0.317 ms</td>
+<td>820</td>
+<td>filesort</td>
+<td>114 ms</td>
+<td>5724</td>
+</tr>
+<tr>
+<td>C <code>(user_id, status)</code></td>
+<td>0.304 ms</td>
+<td>821</td>
+<td>filesort</td>
+<td>114 ms</td>
+<td>5724</td>
+</tr>
+<tr>
+<td>D <code>(user_id, status, create_time)</code></td>
+<td><strong>0.052 ms</strong></td>
+<td><strong>108</strong></td>
+<td>无</td>
+<td>119 ms</td>
+<td>5724</td>
+</tr>
+<tr>
+<td>E <code>(user_id, create_time)</code></td>
+<td>0.054 ms</td>
+<td>107</td>
+<td>无</td>
+<td>115 ms</td>
+<td>5724</td>
+</tr>
+<tr>
+<td>F <code>(status, user_id, create_time)</code></td>
+<td>0.053 ms</td>
+<td>107</td>
+<td>无</td>
+<td>9.73 ms</td>
+<td>40049</td>
+</tr>
+<tr>
+<td>G <code>(status, create_time)</code></td>
+<td>7.21 ms（首行 102 ms 全量）</td>
+<td><strong>333178</strong></td>
+<td>无</td>
+<td><strong>0.346 ms</strong></td>
+<td><strong>1469</strong></td>
+</tr>
+</tbody></table>
+<h3 id="2-3-这张矩阵读出的三件事"><a href="#2-3-这张矩阵读出的三件事" class="headerlink" title="2.3 这张矩阵读出的三件事"></a>2.3 这张矩阵读出的三件事</h3><p><strong>第一，没有万能索引。</strong> D 让 Q1 快了 2400 倍，但对 Q2 毫无作用（119ms，等于全表扫）；G 让 Q2 快了 300 倍，但对 Q1 是灾难。原因是同一件事：<strong>索引只在「最左列被等值约束」时才定位得动</strong>。Q1 限制 <code>user_id</code>，Q2 限制 <code>status</code>，两个条件互为「非最左列」，各自都需要一棵按自己打头的树。</p>
+<p><strong>第二，能用 ≠ 该用。</strong> G 在 Q1 上被优化器选中了（因为能省掉 filesort），结果是扫了 <strong>333,178 个索引项</strong>才凑够 20 行——7.21ms 才吐出第一行，全部 20 行用了 102ms，比 A 的全表扫还接近。这就是「优化器为了省排序，愿意付出三千倍的扫描」：它按成本估算，而估算里没有「你要等 7 秒才看到第一行」这件事。</p>
+<p><strong>第三，排序被索引吃掉时，收益最大。</strong> C → D 只多了一个列，耗时从 0.304ms 掉到 0.052ms，逻辑读从 821 掉到 108。区别不在「过滤更多行」，而在<strong>逻辑读从 820 页降到 108 页</strong>：C 需要把该用户的 200 行全部回表、再排序取 20 行；D 顺着索引直接取前 20 行就停。</p>
+<p>反过来看 B → C 几乎没变化（820 → 821）。这是因为只有 200 行的内存排序本来就很便宜。<strong>这解释了为什么「把 WHERE 里的列都塞进索引」多半没用</strong>：索引的价值在「少读页」和「省排序」，不在「条件看起来都覆盖了」。</p>
+<blockquote>
+<p>一个需要标明的推理（非实测）：E <code>(user_id, create_time)</code> 在 Q1 上与 D 打平，依赖的是 <code>status = 0</code> 占 90% 这个分布——它顺着 create_time 扫，碰到非 0 状态就跳过。如果把条件换成 <code>status = 2</code>（占 1%），E 就要扫完该用户全部 200 行、回表 200 次才能凑够 20 条，而 D 依然直接定位。<strong>索引方案的选择不能脱离数据分布</strong>。</p>
+</blockquote>
+<h3 id="2-4-三星索引：把「等值、排序、覆盖」一次吃下"><a href="#2-4-三星索引：把「等值、排序、覆盖」一次吃下" class="headerlink" title="2.4 三星索引：把「等值、排序、覆盖」一次吃下"></a>2.4 三星索引：把「等值、排序、覆盖」一次吃下</h3><p>Lahdenmäki 的三星评价体系，是复合索引列序的实用口诀：</p>
+<table>
+<thead>
+<tr>
+<th>星级</th>
+<th>条件</th>
+<th>收益</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>★ 一星</td>
+<td>WHERE 里的<strong>等值</strong>列放在索引最左</td>
+<td>能定位，减少扫描</td>
+</tr>
+<tr>
+<td>★★ 二星</td>
+<td>ORDER BY 的列紧跟等值列</td>
+<td>消除 filesort，LIMIT 能提前停</td>
+</tr>
+<tr>
+<td>★★★ 三星</td>
+<td>SELECT 需要的列全在索引里</td>
+<td>不回表</td>
+</tr>
+</tbody></table>
+<p>对应到 Q1：<code>(user_id, status, create_time)</code> 拿到 ★★（等值 <code>user_id, status</code> + 排序 <code>create_time</code>），但因为 <code>SELECT *</code> 需要 <code>amount</code>、<code>remark</code>，拿不到第三星——所以它是「两星索引 + 20 次回表」。如果接口只要 <code>user_id / status / create_time / amount</code> 这 4 个字段，把 <code>amount</code> 追加进索引就能拿满三星，回表次数从 20 降到 0。</p>
+<p><strong>口诀</strong>：等值在前，排序在中，覆盖在后；范围一旦出现，后面的列只能当过滤器。</p>
+<h3 id="2-5-深挖：范围条件为什么截断后面的列"><a href="#2-5-深挖：范围条件为什么截断后面的列" class="headerlink" title="2.5 深挖：范围条件为什么截断后面的列"></a>2.5 深挖：范围条件为什么截断后面的列</h3><p>因为 B+ 树在范围内是<strong>有序</strong>的，但<strong>范围之间不保证全局序</strong>。<code>create_time &gt; &#39;2026-01-01&#39;</code> 命中很多叶子页，每页内部按 <code>create_time</code> 有序，而 <code>status</code> 在这些页之间是完全乱序的。引擎只能逐页扫、逐行过滤，无法「跳到 status &#x3D; 0 的位置」。</p>
+<p>生产上的三个直接后果：</p>
+<ol>
+<li><strong>范围列别放中间</strong>。<code>(a, b_range, c)</code> 里 <code>c</code> 基本废了，应改成 <code>(a, c, b_range)</code>（如果 c 是等值）。</li>
+<li><strong><code>IN</code> 是多个等值区间，不是范围</strong>。<code>status IN (1,2)</code> 会让索引变成两段 seek，通常比 <code>status &gt; 0</code> 这种真范围好得多。</li>
+<li><strong><code>!=</code>、<code>NOT IN</code>、<code>IS NOT NULL</code> 都是范围</strong>，后面的列同样失效。</li>
+</ol>
+<h3 id="2-6-动手验证：在自己的表上跑这张矩阵"><a href="#2-6-动手验证：在自己的表上跑这张矩阵" class="headerlink" title="2.6 动手验证：在自己的表上跑这张矩阵"></a>2.6 动手验证：在自己的表上跑这张矩阵</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#!/usr/bin/env bash</span></span><br><span class="line"><span class="comment"># 逐个建索引测同一条查询：改 $DDL 就能换方案</span></span><br><span class="line">DDL=<span class="string">&quot;CREATE INDEX idx_s ON orders (user_id, status, create_time)&quot;</span></span><br><span class="line">docker <span class="built_in">exec</span> -i mysql-lab mysql -uroot -plab123 lab -e <span class="string">&quot;DROP INDEX idx_s ON orders;&quot;</span> 2&gt;/dev/null</span><br><span class="line">docker <span class="built_in">exec</span> -i mysql-lab mysql -uroot -plab123 lab -e <span class="string">&quot;<span class="variable">$DDL</span>; ANALYZE TABLE orders;&quot;</span> 2&gt;/dev/null</span><br><span class="line">docker <span class="built_in">exec</span> -i mysql-lab mysql -uroot -plab123 lab -t -e <span class="string">&quot;</span></span><br><span class="line"><span class="string">SET @r0 := (SELECT VARIABLE_VALUE FROM performance_schema.global_status</span></span><br><span class="line"><span class="string">            WHERE VARIABLE_NAME=&#x27;Innodb_buffer_pool_read_requests&#x27;);</span></span><br><span class="line"><span class="string">EXPLAIN ANALYZE SELECT * FROM orders</span></span><br><span class="line"><span class="string"> WHERE user_id = 123 AND status = 0 ORDER BY create_time DESC LIMIT 20;</span></span><br><span class="line"><span class="string">SET @r1 := (SELECT VARIABLE_VALUE FROM performance_schema.global_status</span></span><br><span class="line"><span class="string">            WHERE VARIABLE_NAME=&#x27;Innodb_buffer_pool_read_requests&#x27;);</span></span><br><span class="line"><span class="string">SELECT @r1 - @r0 AS logical_reads;&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：方案的差异会集中在两个地方——<code>actual time</code> 的首行时间，以及计划里有没有 <code>Sort</code> 节点。有 <code>Sort</code> 的说明排序没被吃掉。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>逻辑读 &gt; 1000 → 索引没定位住，检查最左列是不是等值；</li>
+<li>有 <code>Sort</code> 且行数 &gt; 1 万 → 排序是主要成本，把 ORDER BY 列挪到等值列之后；</li>
+<li>逻辑读个位数但耗时几十毫秒 → 你在等锁或等 IO，去 ⑥⑦。</li>
+</ul>
+<h2 id="3-写放大与空间：索引是收费的"><a href="#3-写放大与空间：索引是收费的" class="headerlink" title="3. 写放大与空间：索引是收费的"></a>3. 写放大与空间：索引是收费的</h2><h3 id="3-1-实测：0-到-5-个索引的插入耗时"><a href="#3-1-实测：0-到-5-个索引的插入耗时" class="headerlink" title="3.1 实测：0 到 5 个索引的插入耗时"></a>3.1 实测：0 到 5 个索引的插入耗时</h3><p>同一张表结构、插入 30 万行，只改二级索引数量（单线程、同容器、<code>innodb_flush_log_at_trx_commit=1</code>）：</p>
+<table>
+<thead>
+<tr>
+<th>二级索引数</th>
+<th>插入耗时</th>
+<th>相对倍数</th>
+<th>索引占用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>0</td>
+<td>0.451 s</td>
+<td>1.00×</td>
+<td>0</td>
+</tr>
+<tr>
+<td>1</td>
+<td>0.610 s</td>
+<td>1.35×</td>
+<td>7.5 MB</td>
+</tr>
+<tr>
+<td>2</td>
+<td>0.877 s</td>
+<td>1.94×</td>
+<td>13.0 MB</td>
+</tr>
+<tr>
+<td>3</td>
+<td>1.102 s</td>
+<td>2.44×</td>
+<td>18.5 MB</td>
+</tr>
+<tr>
+<td>4</td>
+<td>1.299 s</td>
+<td>2.88×</td>
+<td>28.1 MB</td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong>1.882 s</strong></td>
+<td><strong>4.17×</strong></td>
+<td>—（统计未刷新）</td>
+</tr>
+</tbody></table>
+<p><strong>五个索引让写入慢了 4.2 倍。</strong> 每插入一行，InnoDB 要做：1 次聚簇索引插入 + N 次二级索引插入 + undo&#x2F;redo 记录。每个二级索引都是一棵独立的 B+ 树，都要找位置、可能分裂页。</p>
+<pre class="mermaid">flowchart LR
+    I["INSERT one row"] --> C["Clustered index&lt;br/>find leaf, maybe split"]
+    I --> S1["Secondary idx 1&lt;br/>find leaf"]
+    I --> S2["Secondary idx 2"]
+    I --> SN["Secondary idx N"]
+    C --> R["redo + undo"]
+    S1 --> R
+    S2 --> R
+    SN --> R
+    R --> F["flush at commit"]</pre>
+
+<h3 id="3-2-空间账"><a href="#3-2-空间账" class="headerlink" title="3.2 空间账"></a>3.2 空间账</h3><p><code>orders</code> 表本体 56.6MB，一个 <code>(status, create_time)</code> 索引就占 21.5MB——**索引是数据的 38%**。300 万行的表如果有 5 个索引，索引体积很容易超过数据本体。</p>
+<p>更要紧的是这些页要一起进 Buffer Pool。池的大小固定（⑦ 会算），索引越多，能缓存的数据页越少，物理读越多。<strong>所以「加索引」在内存上是一笔真实的支出，不是免费的</strong>。</p>
+<h3 id="3-3-深挖：change-buffer-只救非唯一二级索引"><a href="#3-3-深挖：change-buffer-只救非唯一二级索引" class="headerlink" title="3.3 深挖：change buffer 只救非唯一二级索引"></a>3.3 深挖：change buffer 只救非唯一二级索引</h3><p>写放大有一个缓冲机制：<strong>change buffer</strong>。当二级索引页不在内存时，InnoDB 先把变更记在 change buffer 里，等页被读进来时再合并，省掉一次随机读。</p>
+<p>但它有边界：</p>
+<table>
+<thead>
+<tr>
+<th>索引类型</th>
+<th>change buffer 是否生效</th>
+<th>原因</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>非唯一二级索引</td>
+<td>是</td>
+<td>不需要检查唯一性，先记下来</td>
+</tr>
+<tr>
+<td>唯一二级索引</td>
+<td><strong>否</strong></td>
+<td>必须读页确认没有重复值，读都读了，直接改</td>
+</tr>
+<tr>
+<td>聚簇索引（主键）</td>
+<td>否</td>
+<td>聚簇索引的变更本身就是数据变更</td>
+</tr>
+</tbody></table>
+<p>这就是一条常被忽略的工程结论：<strong>「唯一索引」不是免费的约束，它把随机写放大了一倍</strong>。业务上真需要唯一性（防重复下单、幂等键）当然要用，但「顺手加个唯一」的代价要算清楚。</p>
+<p>顺带解释一个常见疑问：为什么批量导入时先把唯一索引去掉、导完再加回去会快？因为省掉的是「每行一次唯一性检查的随机读」。</p>
+<h3 id="3-4-动手验证：测你自己的写放大曲线"><a href="#3-4-动手验证：测你自己的写放大曲线" class="headerlink" title="3.4 动手验证：测你自己的写放大曲线"></a>3.4 动手验证：测你自己的写放大曲线</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#!/usr/bin/env bash</span></span><br><span class="line"><span class="comment"># 0 到 5 个二级索引，各插 30 万行</span></span><br><span class="line"><span class="keyword">for</span> K <span class="keyword">in</span> 0 1 2 3 4 5; <span class="keyword">do</span></span><br><span class="line">  KEYS=<span class="string">&quot;&quot;</span></span><br><span class="line">  [ <span class="variable">$K</span> -ge 1 ] &amp;&amp; KEYS=<span class="string">&quot;<span class="variable">$KEYS</span>, KEY i1 (user_id)&quot;</span></span><br><span class="line">  [ <span class="variable">$K</span> -ge 2 ] &amp;&amp; KEYS=<span class="string">&quot;<span class="variable">$KEYS</span>, KEY i2 (status)&quot;</span></span><br><span class="line">  [ <span class="variable">$K</span> -ge 3 ] &amp;&amp; KEYS=<span class="string">&quot;<span class="variable">$KEYS</span>, KEY i3 (create_time)&quot;</span></span><br><span class="line">  [ <span class="variable">$K</span> -ge 4 ] &amp;&amp; KEYS=<span class="string">&quot;<span class="variable">$KEYS</span>, KEY i4 (amount)&quot;</span></span><br><span class="line">  [ <span class="variable">$K</span> -ge 5 ] &amp;&amp; KEYS=<span class="string">&quot;<span class="variable">$KEYS</span>, KEY i5 (remark(20))&quot;</span></span><br><span class="line">  docker <span class="built_in">exec</span> -i mysql-lab mysql -uroot -plab123 lab 2&gt;/dev/null &lt;&lt;<span class="string">SQL</span></span><br><span class="line"><span class="string">SET SESSION cte_max_recursion_depth = 300001;</span></span><br><span class="line"><span class="string">DROP TABLE IF EXISTS w$K;</span></span><br><span class="line"><span class="string">CREATE TABLE w$K (</span></span><br><span class="line"><span class="string">  id BIGINT PRIMARY KEY AUTO_INCREMENT, user_id INT NOT NULL, status TINYINT NOT NULL,</span></span><br><span class="line"><span class="string">  amount DECIMAL(10,2) NOT NULL, create_time DATETIME NOT NULL, remark VARCHAR(64) NOT NULL</span></span><br><span class="line"><span class="string">  $KEYS) ENGINE=InnoDB;</span></span><br><span class="line"><span class="string">SET @s := SYSDATE(6);</span></span><br><span class="line"><span class="string">INSERT INTO w$K (user_id, status, amount, create_time, remark)</span></span><br><span class="line"><span class="string">WITH RECURSIVE seq(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM seq WHERE n &lt; 300000)</span></span><br><span class="line"><span class="string">SELECT n % 5000, n % 10, ROUND(10 + (n % 900)*0.37, 2), NOW() - INTERVAL n SECOND,</span></span><br><span class="line"><span class="string">       CONCAT(&#x27;order-&#x27;, n) FROM seq;</span></span><br><span class="line"><span class="string">SET @e := SYSDATE(6);</span></span><br><span class="line"><span class="string">SELECT CONCAT(&#x27;indexes=$K seconds=&#x27;, ROUND(TIMESTAMPDIFF(MICROSECOND,@s,@e)/1000000,3));</span></span><br><span class="line"><span class="string">SQL</span></span><br><span class="line"><span class="keyword">done</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：耗时随索引数单调上升，5 个索引时约为 0 索引的 4 倍；同时 <code>information_schema.tables</code> 的 <code>index_length</code> 也在涨。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>每加一个索引，写入劣化超过 40% → 先算清这个索引带来的读收益是否值得；</li>
+<li>写入劣化明显但读没有改善 → 索引列序错了（回到 2.2 的矩阵）；</li>
+<li>索引体积超过数据体积 → 该做冗余索引清理了（4.3）。</li>
+</ul>
+<h2 id="4-从查询反推索引：五步法与清理"><a href="#4-从查询反推索引：五步法与清理" class="headerlink" title="4. 从查询反推索引：五步法与清理"></a>4. 从查询反推索引：五步法与清理</h2><h3 id="4-1-五步法"><a href="#4-1-五步法" class="headerlink" title="4.1 五步法"></a>4.1 五步法</h3><table>
+<thead>
+<tr>
+<th>步骤</th>
+<th>做什么</th>
+<th>用什么工具</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1 收查询</td>
+<td>把该表的 Top SQL 按访问形态分类（等值 &#x2F; 范围 &#x2F; 排序 &#x2F; 聚合）</td>
+<td><code>events_statements_summary_by_digest</code></td>
+</tr>
+<tr>
+<td>2 定列序</td>
+<td>等值列在前、排序列居中、覆盖列在后</td>
+<td>2.4 的三星口诀</td>
+</tr>
+<tr>
+<td>3 算收益</td>
+<td>对比建索引前后的逻辑读与 <code>actual time</code></td>
+<td><code>EXPLAIN ANALYZE</code> + 前后取差</td>
+</tr>
+<tr>
+<td>4 算成本</td>
+<td>写入劣化（3.1）+ 空间（3.2）</td>
+<td>插入耗时对比、<code>index_length</code></td>
+</tr>
+<tr>
+<td>5 清冗余</td>
+<td>前缀冗余、重复索引、从未使用的索引</td>
+<td><code>sys.schema_redundant_indexes</code></td>
+</tr>
+</tbody></table>
+<h3 id="4-2-回到订单表：最终方案"><a href="#4-2-回到订单表：最终方案" class="headerlink" title="4.2 回到订单表：最终方案"></a>4.2 回到订单表：最终方案</h3><p>结合 2.2 的矩阵，两条查询的结论很清晰：</p>
+<table>
+<thead>
+<tr>
+<th>保留</th>
+<th>理由</th>
+<th>放弃</th>
+<th>理由</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>(user_id, status, create_time)</code></td>
+<td>覆盖 Q1，等值 + 排序都吃到</td>
+<td><code>(user_id)</code></td>
+<td>是上面前缀，冗余</td>
+</tr>
+<tr>
+<td><code>(status, create_time)</code></td>
+<td>覆盖 Q2，运营后台唯一入口</td>
+<td><code>(user_id, status)</code></td>
+<td>也是前缀，冗余</td>
+</tr>
+<tr>
+<td>—</td>
+<td>—</td>
+<td><code>(user_id, create_time)</code></td>
+<td>与 D 打平但对低占比状态会退化</td>
+</tr>
+</tbody></table>
+<p>最终两个索引，各服务一种访问形态。这不是「索引越多越好」，也不是「越少越好」，而是<strong>每个索引都要有一个明确的、被量化的查询在用它</strong>。</p>
+<h3 id="4-3-冗余索引的三种形态"><a href="#4-3-冗余索引的三种形态" class="headerlink" title="4.3 冗余索引的三种形态"></a>4.3 冗余索引的三种形态</h3><table>
+<thead>
+<tr>
+<th>形态</th>
+<th>例子</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>前缀冗余</td>
+<td><code>(a)</code> 与 <code>(a, b)</code> 同时存在</td>
+<td>删掉短的（长的能替代它）</td>
+</tr>
+<tr>
+<td>完全重复</td>
+<td><code>(a, b)</code> 建了两次</td>
+<td>删一个</td>
+</tr>
+<tr>
+<td>从未使用</td>
+<td>建了半年，<code>count_star = 0</code></td>
+<td>删（注意统计周期要覆盖月结、大促）</td>
+</tr>
+</tbody></table>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 找出本库的冗余索引</span></span><br><span class="line"><span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> sys.schema_redundant_indexes <span class="keyword">WHERE</span> table_schema <span class="operator">=</span> <span class="string">&#x27;lab&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="comment">-- 找出从未被使用过的索引（依赖 performance_schema 的索引使用统计）</span></span><br><span class="line"><span class="keyword">SELECT</span> object_schema, object_name, index_name</span><br><span class="line"><span class="keyword">FROM</span> sys.schema_unused_indexes</span><br><span class="line"><span class="keyword">WHERE</span> object_schema <span class="operator">=</span> <span class="string">&#x27;lab&#x27;</span>;</span><br></pre></td></tr></table></figure>
+
+<blockquote>
+<p>一个实测的细节：<code>SHOW INDEX</code> 里 <code>status</code> 列的 <code>Cardinality</code> 显示 <strong>2</strong>，而它实际有 10 个不同值。因为统计信息是采样估算，不是精确值——<strong>基数也会骗人</strong>。这件事在 ④ 会展开：优化器就是拿着这种估算去做决策的。</p>
+</blockquote>
+<h3 id="4-4-动手验证：给你的库做一次索引体检"><a href="#4-4-动手验证：给你的库做一次索引体检" class="headerlink" title="4.4 动手验证：给你的库做一次索引体检"></a>4.4 动手验证：给你的库做一次索引体检</h3><figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 1) 表上所有索引及其基数</span></span><br><span class="line"><span class="keyword">SELECT</span> index_name, seq_in_index, column_name, <span class="keyword">cardinality</span></span><br><span class="line"><span class="keyword">FROM</span> information_schema.statistics</span><br><span class="line"><span class="keyword">WHERE</span> table_schema <span class="operator">=</span> <span class="string">&#x27;lab&#x27;</span> <span class="keyword">AND</span> table_name <span class="operator">=</span> <span class="string">&#x27;orders&#x27;</span></span><br><span class="line"><span class="keyword">ORDER</span> <span class="keyword">BY</span> index_name, seq_in_index;</span><br><span class="line"></span><br><span class="line"><span class="comment">-- 2) 冗余与未使用</span></span><br><span class="line"><span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> sys.schema_redundant_indexes <span class="keyword">WHERE</span> table_schema<span class="operator">=</span><span class="string">&#x27;lab&#x27;</span>;</span><br><span class="line"><span class="keyword">SELECT</span> object_name, index_name <span class="keyword">FROM</span> sys.schema_unused_indexes <span class="keyword">WHERE</span> object_schema<span class="operator">=</span><span class="string">&#x27;lab&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="comment">-- 3) 索引占了多少空间</span></span><br><span class="line"><span class="keyword">SELECT</span> table_name, ROUND(data_length<span class="operator">/</span><span class="number">1024</span><span class="operator">/</span><span class="number">1024</span>,<span class="number">1</span>) <span class="keyword">AS</span> data_mb,</span><br><span class="line">       ROUND(index_length<span class="operator">/</span><span class="number">1024</span><span class="operator">/</span><span class="number">1024</span>,<span class="number">1</span>) <span class="keyword">AS</span> index_mb,</span><br><span class="line">       ROUND(index_length<span class="operator">/</span><span class="built_in">NULLIF</span>(data_length,<span class="number">0</span>)<span class="operator">*</span><span class="number">100</span>,<span class="number">1</span>) <span class="keyword">AS</span> index_pct</span><br><span class="line"><span class="keyword">FROM</span> information_schema.tables <span class="keyword">WHERE</span> table_schema<span class="operator">=</span><span class="string">&#x27;lab&#x27;</span>;</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：<code>schema_redundant_indexes</code> 会直接把「短的被长的覆盖」列出来；<code>index_pct</code> 超过 50% 说明索引比数据还重。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li><code>index_pct &gt; 100%</code> → 索引体积已超过数据，先清冗余再谈加索引；</li>
+<li>冗余索引存在但你不敢删 → 先设 <code>ALTER TABLE ... ALTER INDEX ... INVISIBLE</code>（8.0 特性），观察一周无异常再删。</li>
+</ul>
+<h2 id="5-总结"><a href="#5-总结" class="headerlink" title="5. 总结"></a>5. 总结</h2><h3 id="5-1-面试速答表"><a href="#5-1-面试速答表" class="headerlink" title="5.1 面试速答表"></a>5.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>为什么用 B+ 树而不用 B 树 &#x2F; 红黑树</td>
+<td>B+ 树非叶子只存键，一页装更多分支 → 树更矮；叶子有链表 → 范围扫描快；磁盘读写以页为单位，矮树意味着更少 IO</td>
+</tr>
+<tr>
+<td>三层 B+ 树能存多少行</td>
+<td>1170 × 1170 × (16384 &#x2F; 行大小)；1KB 行约 2000 万，50 字节行约 4 亿</td>
+</tr>
+<tr>
+<td>聚簇索引和二级索引的区别</td>
+<td>聚簇索引叶子存整行，二级索引叶子存「索引列 + 主键」，所以二级索引查询可能要回表</td>
+</tr>
+<tr>
+<td>为什么二级索引存主键不存行地址</td>
+<td>页分裂会让行地址变化，存主键只需主键稳定；代价是回表要再走一次聚簇索引</td>
+</tr>
+<tr>
+<td>最左前缀为什么必须从最左开始</td>
+<td>索引按列顺序排序，等价于多级字典；不知道第一级的键就没法定位区段</td>
+</tr>
+<tr>
+<td>索引列越多越好吗</td>
+<td>不是。等值列和排序列才有定位价值；范围列之后的列只能过滤；每多一个索引写入慢 20%~45%</td>
+</tr>
+<tr>
+<td>为什么范围查询后面的列用不上</td>
+<td>范围命中的多个叶子页之间，后续列是乱序的，无法 seek</td>
+</tr>
+<tr>
+<td>唯一索引为什么比普通索引写入慢</td>
+<td>唯一索引不能走 change buffer，每次插入必须读页做唯一性检查</td>
+</tr>
+<tr>
+<td>覆盖索引为什么快</td>
+<td>不用回表，逻辑读从「索引页 + 数据页」降到只有索引页</td>
+</tr>
+<tr>
+<td>什么时候该删索引</td>
+<td>前缀冗余、完全重复、统计周期内零使用；先用 INVISIBLE 观察</td>
+</tr>
+</tbody></table>
+<h3 id="5-2-实战避坑表"><a href="#5-2-实战避坑表" class="headerlink" title="5.2 实战避坑表"></a>5.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>建了索引还是全表扫</td>
+<td>索引最左列没出现在等值条件里</td>
+<td>按查询形态重建列序（2.1）</td>
+</tr>
+<tr>
+<td>索引建了，排序还在</td>
+<td>ORDER BY 列不在等值列之后</td>
+<td>把排序列紧跟在等值列后面（2.4）</td>
+</tr>
+<tr>
+<td>查询变快但写入崩了</td>
+<td>索引过多，写放大</td>
+<td>按 3.1 的量级砍到「每个索引都有明确查询」</td>
+</tr>
+<tr>
+<td>索引体积超过数据</td>
+<td>冗余索引 + 宽列进了索引</td>
+<td><code>sys.schema_redundant_indexes</code> 清理，别把 <code>VARCHAR(255)</code> 塞进索引</td>
+</tr>
+<tr>
+<td>明明有索引，优化器不用</td>
+<td>统计信息偏差或成本估算错</td>
+<td><code>ANALYZE TABLE</code>；<code>FORCE INDEX</code> 只作最后手段并留注释</td>
+</tr>
+<tr>
+<td><code>Cardinality</code> 与实际差很多</td>
+<td>采样估算</td>
+<td>别用它做精确判断，改用 <code>COUNT(DISTINCT)</code> 抽样验证</td>
+</tr>
+</tbody></table>
+<h3 id="5-3-工具速查表"><a href="#5-3-工具速查表" class="headerlink" title="5.3 工具速查表"></a>5.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>判定标准</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>EXPLAIN ANALYZE</code></td>
+<td><code>actual time</code>、<code>actual rows</code>、有没有 <code>Sort</code></td>
+<td>有 <code>Sort</code> 且行数大 → 排序列没进索引</td>
+</tr>
+<tr>
+<td><code>information_schema.statistics</code></td>
+<td>索引列序与 <code>Cardinality</code></td>
+<td>基数极低的列不适合单独做首列</td>
+</tr>
+<tr>
+<td><code>sys.schema_redundant_indexes</code></td>
+<td>前缀冗余 &#x2F; 重复索引</td>
+<td>有输出就能删一部分</td>
+</tr>
+<tr>
+<td><code>sys.schema_unused_indexes</code></td>
+<td>零使用的索引</td>
+<td>结合统计周期判断，别误删月结用的</td>
+</tr>
+<tr>
+<td><code>information_schema.tables</code></td>
+<td><code>data_length</code> &#x2F; <code>index_length</code></td>
+<td><code>index/data &gt; 100%</code> → 索引过重</td>
+</tr>
+<tr>
+<td><code>Innodb_buffer_pool_read_requests</code></td>
+<td>逻辑读</td>
+<td>建索引前后的差值就是收益</td>
+</tr>
+</tbody></table>
+<h3 id="5-4-实操建议"><a href="#5-4-实操建议" class="headerlink" title="5.4 实操建议"></a>5.4 实操建议</h3><ol>
+<li><strong>先列查询形态，再想索引</strong>。等值、范围、排序各是哪几列，写在一张纸上，比直接 <code>ADD INDEX</code> 有效。</li>
+<li><strong>每加一个索引，就记录三件事</strong>：它服务哪条 SQL、逻辑读降了多少、写入慢了多少。记不住的索引，就是该删的索引。</li>
+<li><strong>优先做覆盖索引</strong>，它同时省逻辑读和回表；做不到时再退一步做「等值 + 排序」的两星索引。</li>
+<li><strong>范围条件一律放到最后</strong>，<code>status IN (...)</code> 比 <code>status &gt; 0</code> 友好得多。</li>
+<li>**删索引之前先 <code>INVISIBLE</code>**，观察一个完整业务周期（含月结）再物理删除。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告</strong>：④《查询优化：优化器为什么会选错索引》。本文的矩阵里藏着一个反常现象——G 索引对 Q1 明明要扫 33 万个索引项，优化器还是选了它。下一篇打开优化器的账本：成本怎么算、<code>filtered</code> 为什么会是 10.00、直方图能把估算修正到什么程度，以及<strong>什么时候该用人脑覆盖优化器的判断</strong>。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/MySQL/" rel="tag"># MySQL</a>
+              <a href="/tags/%E9%9D%A2%E8%AF%95/" rel="tag"># 面试</a>
+              <a href="/tags/%E6%80%A7%E8%83%BD%E4%BC%98%E5%8C%96/" rel="tag"># 性能优化</a>
+              <a href="/tags/%E7%B4%A2%E5%BC%95/" rel="tag"># 索引</a>
+              <a href="/tags/B-%E6%A0%91/" rel="tag"># B+树</a>
+              <a href="/tags/%E6%89%A7%E8%A1%8C%E8%AE%A1%E5%88%92/" rel="tag"># 执行计划</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/ffd9df8b.html" rel="prev" title="一条 SQL 的六层成本账：架构不是画流程图">
+                  <i class="fa fa-angle-left"></i> 一条 SQL 的六层成本账：架构不是画流程图
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/post/d65d7254.html" rel="next" title="查询优化：优化器为什么会选错索引">
+                  查询优化：优化器为什么会选错索引 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">740k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">44:51</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
+</html>

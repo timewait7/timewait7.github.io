@@ -1,0 +1,1115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="备份的唯一价值是「能不能恢复」，而恢复只有两个数字：RPO（丢多少）和 RTO（要多久）。没演练过的备份等于没有备份——因为你不知道它能不能恢复，也不知道要花几分钟。 本文做了一件很多教程只说不做的事：真的删表，再恢复回来。全备用 mysqldump、恢复用 binlog 重放，全程计时。实测结果：全备 0.09 秒，恢复（全备 + 重放）0.46 秒，120,000 行数据一字不差地回来了。">
+<meta property="og:type" content="article">
+<meta property="og:title" content="备份与恢复：删库之后 30 分钟救回来">
+<meta property="og:url" content="http://timewait7.github.io/post/f375ea2a.html">
+<meta property="og:site_name" content="知行栈">
+<meta property="og:description" content="备份的唯一价值是「能不能恢复」，而恢复只有两个数字：RPO（丢多少）和 RTO（要多久）。没演练过的备份等于没有备份——因为你不知道它能不能恢复，也不知道要花几分钟。 本文做了一件很多教程只说不做的事：真的删表，再恢复回来。全备用 mysqldump、恢复用 binlog 重放，全程计时。实测结果：全备 0.09 秒，恢复（全备 + 重放）0.46 秒，120,000 行数据一字不差地回来了。">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-10-24T20:00:00.000Z">
+<meta property="article:modified_time" content="2026-10-24T13:36:16.669Z">
+<meta property="article:tag" content="MySQL">
+<meta property="article:tag" content="面试">
+<meta property="article:tag" content="备份">
+<meta property="article:tag" content="PITR">
+<meta property="article:tag" content="mysqldump">
+<meta property="article:tag" content="xtrabackup">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/f375ea2a.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/f375ea2a.html","path":"post/f375ea2a.html","title":"备份与恢复：删库之后 30 分钟救回来"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>备份与恢复：删库之后 30 分钟救回来 | 知行栈</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<!-- hexo injector head_end start --><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
+</style><style>
+/* 菜单链高亮：sub-menu 祖先（同主题 .menu-item-active 的 Pisces 规则） */
+.sub-menu .menu-item a.menu-chain-active {
+  border-bottom-color: #fc6423;
+  color: #fc6423;
+}
+.sub-menu .menu-item a.menu-chain-active:hover {
+  border-bottom-color: #fc6423;
+}
+/* 菜单链高亮：main-menu 祖先（同主题 hover/active 的背景规则） */
+.main-menu .menu-item a.menu-chain-active {
+  background: var(--menu-item-bg-color);
+}
+</style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">知行栈</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section" class="menu-chain-active"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>Categories</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-%E5%85%88%E5%AE%9A%E7%9B%AE%E6%A0%87%EF%BC%8C%E5%86%8D%E9%80%89%E5%B7%A5%E5%85%B7"><span class="nav-text">1. 先定目标，再选工具</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-RPO-%E4%B8%8E-RTO"><span class="nav-text">1.1 RPO 与 RTO</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-2-%E9%80%BB%E8%BE%91%E5%A4%87%E4%BB%BD-vs-%E7%89%A9%E7%90%86%E5%A4%87%E4%BB%BD"><span class="nav-text">1.2 逻辑备份 vs 物理备份</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-3-%E5%85%A8%E5%A4%87%E3%80%81%E5%A2%9E%E9%87%8F%E3%80%81binlog"><span class="nav-text">1.3 全备、增量、binlog</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-4-%E4%B8%80%E8%87%B4%E6%80%A7%E5%BF%AB%E7%85%A7%E9%9D%A0%E4%BB%80%E4%B9%88"><span class="nav-text">1.4 一致性快照靠什么</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E5%AE%9E%E6%B5%8B%EF%BC%9A%E4%B8%80%E6%AC%A1%E5%AE%8C%E6%95%B4%E7%9A%84-PITR"><span class="nav-text">2. 实测：一次完整的 PITR</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E6%97%B6%E9%97%B4%E8%BD%B4"><span class="nav-text">2.1 时间轴</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E5%85%A8%E5%A4%87%EF%BC%9A0-09-%E7%A7%92%EF%BC%8C4-2MB"><span class="nav-text">2.2 全备：0.09 秒，4.2MB</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-%E4%BA%8B%E6%95%85%E7%8E%B0%E5%9C%BA"><span class="nav-text">2.3 事故现场</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-4-%E6%81%A2%E5%A4%8D%EF%BC%9A0-46-%E7%A7%92%EF%BC%8C%E6%95%B0%E6%8D%AE%E4%B8%80%E5%AD%97%E4%B8%8D%E5%B7%AE"><span class="nav-text">2.4 恢复：0.46 秒，数据一字不差</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-5-%E4%B8%80%E4%B8%AA%E6%84%8F%E5%A4%96%E5%8F%91%E7%8E%B0%EF%BC%9Aid-%E4%BB%8E-131071-%E5%BC%80%E5%A7%8B"><span class="nav-text">2.5 一个意外发现：id 从 131071 开始</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-6-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E8%87%AA%E5%B7%B1%E8%B7%91%E4%B8%80%E9%81%8D%E5%AE%8C%E6%95%B4-PITR"><span class="nav-text">2.6 动手验证：自己跑一遍完整 PITR</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E8%AF%AF%E5%88%A0-2-%E5%B0%8F%E6%97%B6%E5%90%8E%E6%89%8D%E5%8F%91%E7%8E%B0%EF%BC%9A%E4%B8%BA%E4%BB%80%E4%B9%88%E4%B8%8D%E8%83%BD%E6%95%B4%E5%BA%93%E5%9B%9E%E6%BB%9A"><span class="nav-text">3. 误删 2 小时后才发现：为什么不能整库回滚</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E5%A4%87%E4%BB%BD%E7%AD%96%E7%95%A5%EF%BC%9A%E6%8A%8A-RTO-%E5%8E%8B%E4%B8%8B%E6%9D%A5"><span class="nav-text">4. 备份策略：把 RTO 压下来</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-%E7%9B%AE%E6%A0%87%E4%B8%8E%E6%89%8B%E6%AE%B5"><span class="nav-text">4.1 目标与手段</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-%E4%BB%8E%E5%BA%93%E5%A4%87%E4%BB%BD%EF%BC%8C%E4%BD%86%E5%88%AB%E6%8A%8A%E5%A4%8D%E5%88%B6%E5%BD%93%E5%A4%87%E4%BB%BD"><span class="nav-text">4.2 从库备份，但别把复制当备份</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-%E5%A4%87%E4%BB%BD%E5%BF%85%E9%A1%BB%E5%81%9A%E7%9A%84%E4%B8%89%E4%BB%B6%E4%BA%8B"><span class="nav-text">4.3 备份必须做的三件事</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-4-%E5%B7%A5%E5%85%B7%E5%AF%B9%E6%AF%94"><span class="nav-text">4.4 工具对比</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E6%80%BB%E7%BB%93"><span class="nav-text">5. 总结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E9%9D%A2%E8%AF%95%E9%80%9F%E7%AD%94%E8%A1%A8"><span class="nav-text">5.1 面试速答表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E5%AE%9E%E6%88%98%E9%81%BF%E5%9D%91%E8%A1%A8"><span class="nav-text">5.2 实战避坑表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-%E5%B7%A5%E5%85%B7%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">5.3 工具速查表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-%E5%AE%9E%E6%93%8D%E5%BB%BA%E8%AE%AE"><span class="nav-text">5.4 实操建议</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">104</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">14</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">175</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+    <div class="sidebar-inner sidebar-blogroll">
+      <div class="links-of-blogroll animated">
+        <div class="links-of-blogroll-title"><i class="fa fa-globe fa-fw"></i>
+          Links
+        </div>
+        <ul class="links-of-blogroll-list">
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9wYXVsZ3JhaGFtLmNvbS9hcnRpY2xlcy5odG1s" title="https:&#x2F;&#x2F;paulgraham.com&#x2F;articles.html">paulgraham</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly93d3cuam9lbG9uc29mdHdhcmUuY29tLw==" title="https:&#x2F;&#x2F;www.joelonsoftware.com&#x2F;">Joel on Software</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9tYXJ0aW5mb3dsZXIuY29tLw==" title="https:&#x2F;&#x2F;martinfowler.com&#x2F;">Martin Flower</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly96aGFuZ3RpZWxlaS5jb20v" title="https:&#x2F;&#x2F;zhangtielei.com&#x2F;">zhangtielei</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhLWRlc2lnbi1wYXR0ZXJucy5jb20vemgv" title="https:&#x2F;&#x2F;java-design-patterns.com&#x2F;zh&#x2F;">Java Design Patterns</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9taWNyb3NlcnZpY2VzLmlvLw==" title="https:&#x2F;&#x2F;microservices.io&#x2F;">Microservice Architecture</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhZ3VpZGUuY24v" title="https:&#x2F;&#x2F;javaguide.cn&#x2F;">JavaGuide</span>
+            </li>
+        </ul>
+      </div>
+    </div>
+        <div class="pjax">
+        
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-后端开发"><a href="/docs/nav/backend-dev-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-code fa-fw"></i>后端开发</a></li>
+
+
+      
+  <li class="menu-item menu-item-计算机基础"><a href="/docs/nav/cs-foundation-nav.html" rel="section"><i class="fa fa-desktop fa-fw"></i>计算机基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-ai-学习"><a href="/docs/nav/ai-learning-nav.html" rel="section"><i class="fa fa-robot fa-fw"></i>AI 学习</a></li>
+
+
+      
+  <li class="menu-item menu-item-项目实战"><a href="/docs/nav/5964f4da.html" rel="section"><i class="fa fa-flask fa-fw"></i>项目实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-misc"><a href="/docs/nav/misc-nav.html" rel="section"><i class="fa fa-box fa-fw"></i>Misc</a></li>
+
+
+      
+  <li class="menu-item menu-item-随笔·生活"><a href="/docs/nav/life-nav.html" rel="section"><i class="fa fa-feather fa-fw"></i>随笔·生活</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java"><a href="/docs/nav/java-nav.html" rel="section"><i class="fa fa-coffee fa-fw"></i>Java</a></li>
+
+
+      
+  <li class="menu-item menu-item-框架"><a href="/docs/nav/framework-nav.html" rel="section"><i class="fa fa-th-large fa-fw"></i>框架</a></li>
+
+
+      
+  <li class="menu-item menu-item-数据存储"><a href="/docs/nav/data-storage-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-hdd fa-fw"></i>数据存储</a></li>
+
+
+      
+  <li class="menu-item menu-item-中间件"><a href="/docs/nav/middleware-nav.html" rel="section"><i class="fa fa-cubes fa-fw"></i>中间件</a></li>
+
+
+      
+  <li class="menu-item menu-item-分布式与微服务"><a href="/docs/nav/distributed-nav.html" rel="section"><i class="fa fa-sitemap fa-fw"></i>分布式与微服务</a></li>
+
+
+      
+  <li class="menu-item menu-item-系统设计"><a href="/docs/nav/system-design-nav.html" rel="section"><i class="fa fa-pencil-ruler fa-fw"></i>系统设计</a></li>
+
+
+      
+  <li class="menu-item menu-item-部署运维"><a href="/docs/nav/devops-nav.html" rel="section"><i class="fa fa-terminal fa-fw"></i>部署运维</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-mysql"><a href="/docs/nav/mysql-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-database fa-fw"></i>MySQL</a></li>
+
+
+      
+  <li class="menu-item menu-item-redis"><a href="/docs/nav/redis-nav.html" rel="section"><i class="fa fa-bolt fa-fw"></i>Redis</a></li>
+
+
+      
+  <li class="menu-item menu-item-elasticsearch"><a href="/docs/nav/es-nav.html" rel="section"><i class="fa fa-search fa-fw"></i>ElasticSearch</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-mysql-深度解析：从原理到高可用与分库分表实战"><a href="/post/32511a71.html" rel="section"><i class="fa fa-file-text fa-fw"></i>MySQL 深度解析：从原理到高可用与分库分表实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-①-从这里开始：把-mysql-变成你的实验台"><a href="/post/60f95c16.html" rel="section"><i class="fa fa-file-text fa-fw"></i>① 从这里开始：把 MySQL 变成你的实验台</a></li>
+
+
+      
+  <li class="menu-item menu-item-②-一条-sql-的六层成本账：架构不是画流程图"><a href="/post/ffd9df8b.html" rel="section"><i class="fa fa-file-text fa-fw"></i>② 一条 SQL 的六层成本账：架构不是画流程图</a></li>
+
+
+      
+  <li class="menu-item menu-item-③-schema-与索引：把逻辑读降下来"><a href="/post/e1724727.html" rel="section"><i class="fa fa-file-text fa-fw"></i>③ Schema 与索引：把逻辑读降下来</a></li>
+
+
+      
+  <li class="menu-item menu-item-④-查询优化：优化器为什么会选错索引"><a href="/post/d65d7254.html" rel="section"><i class="fa fa-file-text fa-fw"></i>④ 查询优化：优化器为什么会选错索引</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑤-事务与-mvcc：把「不可重复读」亲手复现出来"><a href="/post/88fb6d0c.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑤ 事务与 MVCC：把「不可重复读」亲手复现出来</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑥-锁、死锁与-mdl：一次变更如何堵死整张表"><a href="/post/d090a538.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑥ 锁、死锁与 MDL：一次变更如何堵死整张表</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑦-innodb-内存与刷盘：物理-io-的钱花在哪"><a href="/post/8e8e95b7.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑦ InnoDB 内存与刷盘：物理 IO 的钱花在哪</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑧-复制与高可用：延迟的量化与判定"><a href="/post/51687861.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑧ 复制与高可用：延迟的量化与判定</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑨-备份与恢复：删库之后-30-分钟救回来"><a href="/post/f375ea2a.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑨ 备份与恢复：删库之后 30 分钟救回来</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑩-在线-ddl：一次加索引如何堵死整张表"><a href="/post/b5c3673.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑩ 在线 DDL：一次加索引如何堵死整张表</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑪-java-侧：连接池打满与-@transactional-失效的真相"><a href="/post/4d87a909.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑪ Java 侧：连接池打满与 @Transactional 失效的真相</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑫-容量与扩展：什么时候才该分库分表"><a href="/post/f8f36186.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑫ 容量与扩展：什么时候才该分库分表</a></li>
+
+
+    </ul>
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/f375ea2a.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="备份与恢复：删库之后 30 分钟救回来 | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          备份与恢复：删库之后 30 分钟救回来
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-10-25 04:00:00" itemprop="dateCreated datePublished" datetime="2026-10-25T04:00:00+08:00">2026-10-25</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/" itemprop="url" rel="index"><span itemprop="name">数据存储</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>3.5k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>13 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><p><strong>备份的唯一价值是「能不能恢复」，而恢复只有两个数字：RPO（丢多少）和 RTO（要多久）</strong>。没演练过的备份等于没有备份——因为你不知道它能不能恢复，也不知道要花几分钟。</p>
+<p>本文做了一件很多教程只说不做的事：<strong>真的删表，再恢复回来</strong>。全备用 <code>mysqldump</code>、恢复用 binlog 重放，全程计时。实测结果：全备 0.09 秒，恢复（全备 + 重放）<strong>0.46 秒</strong>，120,000 行数据一字不差地回来了。</p>
+<blockquote>
+<p><strong>系列地图（高性能 MySQL 实战路线，12 篇）</strong></p>
+<p>① 实验台与基线 → ② 六层成本账 → ③ 索引与 Schema → ④ 优化器与慢查询 → ⑤ 事务与 MVCC → ⑥ 锁与死锁 → ⑦ 内存与刷盘 → ⑧ 复制与高可用 → ⑨ <strong>备份与恢复（本文）</strong> → ⑩ 在线 DDL → ⑪ Java 侧连接池 → ⑫ 容量与分库分表</p>
+<p>与前后篇的关系：⑦ 的两阶段提交保证 binlog 与数据一致，这是「重放 binlog 能补回数据」的前提；⑧ 的从库可以当备份源，但<strong>复制不是备份</strong>（逻辑错误会同步过去），本文解释两者边界。</p>
+</blockquote>
+<h2 id="1-先定目标，再选工具"><a href="#1-先定目标，再选工具" class="headerlink" title="1. 先定目标，再选工具"></a>1. 先定目标，再选工具</h2><h3 id="1-1-RPO-与-RTO"><a href="#1-1-RPO-与-RTO" class="headerlink" title="1.1 RPO 与 RTO"></a>1.1 RPO 与 RTO</h3><table>
+<thead>
+<tr>
+<th>指标</th>
+<th>定义</th>
+<th>通俗说法</th>
+<th>由什么决定</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>RPO（Recovery Point Objective）</td>
+<td>能容忍丢多少数据</td>
+<td>最多丢几分钟</td>
+<td>备份频率 + binlog 是否完整</td>
+</tr>
+<tr>
+<td>RTO（Recovery Time Objective）</td>
+<td>恢复要多久</td>
+<td>多久能对外服务</td>
+<td>数据量 + 恢复方式 + 演练熟练度</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart LR
+    T0["Last backup&lt;br/>03:00"] --> X["Incident&lt;br/>05:00"] --> R["Recovery done&lt;br/>05:20"]
+    T0 -.->|"RPO: 2 hours&lt;br/>of binlog replay"| X
+    X -.->|"RTO: 20 min"| R</pre>
+
+<p><strong>关键认知</strong>：RPO 由「备份 + binlog 保留策略」决定，RTO 由「恢复流程 + 演练次数」决定。只买备份工具、不做演练，RPO 达标而 RTO 不可控。</p>
+<h3 id="1-2-逻辑备份-vs-物理备份"><a href="#1-2-逻辑备份-vs-物理备份" class="headerlink" title="1.2 逻辑备份 vs 物理备份"></a>1.2 逻辑备份 vs 物理备份</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>逻辑备份（mysqldump）</th>
+<th>物理备份（xtrabackup &#x2F; clone）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>产出</td>
+<td>SQL 文本（CREATE + INSERT）</td>
+<td>数据文件拷贝（.ibd 等）</td>
+</tr>
+<tr>
+<td>速度</td>
+<td>慢（要转成 SQL 再执行）</td>
+<td>快（直接拷页）</td>
+</tr>
+<tr>
+<td>恢复粒度</td>
+<td>可只恢复某张表</td>
+<td>整实例，或单表（需 export&#x2F;import tablespace）</td>
+</tr>
+<tr>
+<td>跨版本</td>
+<td>兼容性好（8.0 → 8.4 没问题）</td>
+<td>大版本间通常不行</td>
+</tr>
+<tr>
+<td>空间</td>
+<td>小（纯文本，压缩后更小）</td>
+<td>大（含索引、碎片）</td>
+</tr>
+<tr>
+<td>适合</td>
+<td>中小库、单表恢复、跨环境迁移</td>
+<td>大库（TB 级）、要求 RTO 极短</td>
+</tr>
+</tbody></table>
+<h3 id="1-3-全备、增量、binlog"><a href="#1-3-全备、增量、binlog" class="headerlink" title="1.3 全备、增量、binlog"></a>1.3 全备、增量、binlog</h3><table>
+<thead>
+<tr>
+<th>类型</th>
+<th>内容</th>
+<th>频率</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>全备</td>
+<td>某时刻的完整数据</td>
+<td>每天&#x2F;每周</td>
+<td>恢复的起点</td>
+</tr>
+<tr>
+<td>增量</td>
+<td>上次备份以来的变化</td>
+<td>每小时</td>
+<td>缩短重放链</td>
+</tr>
+<tr>
+<td>binlog</td>
+<td>每个事务的变更流</td>
+<td>持续</td>
+<td>恢复到任意时间点（PITR）</td>
+</tr>
+</tbody></table>
+<p><strong>只有全备 + binlog 才能做 PITR</strong>。只有全备，只能回到备份那一刻；只有 binlog，没有起点也恢复不了。</p>
+<h3 id="1-4-一致性快照靠什么"><a href="#1-4-一致性快照靠什么" class="headerlink" title="1.4 一致性快照靠什么"></a>1.4 一致性快照靠什么</h3><p><code>mysqldump --single-transaction</code> 的原理是：开一个 <code>REPEATABLE READ</code> 事务，拿到一致快照，然后边读边导，不锁表（InnoDB 表）。</p>
+<p>三个前提：</p>
+<table>
+<thead>
+<tr>
+<th>前提</th>
+<th>不满足的后果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>表必须是 InnoDB</td>
+<td>MyISAM 表会不一致</td>
+</tr>
+<tr>
+<td>备份期间不能有 DDL</td>
+<td>会破坏快照一致性（DDL 隐式提交）</td>
+</tr>
+<tr>
+<td>需要 <code>--source-data</code> 记录位点</td>
+<td>不知道从哪里开始重放 binlog</td>
+</tr>
+</tbody></table>
+<p><code>--master-data</code> 在 8.0.26 之后更名 <code>--source-data</code>（实测 dump 里写入的是 <code>CHANGE MASTER TO MASTER_LOG_FILE=..., MASTER_LOG_POS=...</code> 注释）。</p>
+<h2 id="2-实测：一次完整的-PITR"><a href="#2-实测：一次完整的-PITR" class="headerlink" title="2. 实测：一次完整的 PITR"></a>2. 实测：一次完整的 PITR</h2><h3 id="2-1-时间轴"><a href="#2-1-时间轴" class="headerlink" title="2.1 时间轴"></a>2.1 时间轴</h3><pre class="mermaid">flowchart TD
+    A["T0: 全备&lt;br/>binlog.000002 pos 2411114"] --> B["T0~T1: 业务写入&lt;br/>+20000 行, UPDATE 5000 行"]
+    B --> C["T1: 误删 DROP TABLE&lt;br/>pos 3110658"]
+    C --> D["恢复①：导入全备&lt;br/>回到 T0 的 100000 行"]
+    D --> E["恢复②：重放 binlog&lt;br/>2411114 -> 3110658"]
+    E --> F["回到 T1 前一刻&lt;br/>120000 行, status2=14500"]</pre>
+
+<h3 id="2-2-全备：0-09-秒，4-2MB"><a href="#2-2-全备：0-09-秒，4-2MB" class="headerlink" title="2.2 全备：0.09 秒，4.2MB"></a>2.2 全备：0.09 秒，4.2MB</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">mysqldump -uroot -p --single-transaction --source-data=2 --databases shop &gt; /tmp/full.sql</span><br></pre></td></tr></table></figure>
+
+<p>实测：</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>值</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>耗时</td>
+<td><strong>0.09 s</strong></td>
+</tr>
+<tr>
+<td>大小</td>
+<td>4.2 MB</td>
+</tr>
+<tr>
+<td>记录位点</td>
+<td><code>binlog.000002</code>, pos <code>2411114</code></td>
+</tr>
+<tr>
+<td>数据量</td>
+<td>100,000 行</td>
+</tr>
+</tbody></table>
+<h3 id="2-3-事故现场"><a href="#2-3-事故现场" class="headerlink" title="2.3 事故现场"></a>2.3 事故现场</h3><p>模拟业务写入后误删：</p>
+<table>
+<thead>
+<tr>
+<th>时点</th>
+<th>操作</th>
+<th>位点 &#x2F; 数据</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>T0</td>
+<td>全备</td>
+<td><code>binlog.000002:2411114</code>，100,000 行</td>
+</tr>
+<tr>
+<td>T0~T1</td>
+<td>插入 20,000 行 + 更新 5,000 行</td>
+<td>—</td>
+</tr>
+<tr>
+<td>T1 前</td>
+<td>记录位点</td>
+<td><code>binlog.000002:3110658</code>，120,000 行，<code>status=2</code> 共 14,500 行</td>
+</tr>
+<tr>
+<td>T1</td>
+<td><code>DROP TABLE shop.orders</code></td>
+<td>表消失</td>
+</tr>
+</tbody></table>
+<p><strong>关键动作</strong>：删表之前（或发现事故的第一时间）先记下位点。如果事故已经发生，也可以从 binlog 里找到 DROP 事件的位置，用 <code>mysqlbinlog | grep -n &quot;DROP TABLE&quot;</code> 定位。</p>
+<h3 id="2-4-恢复：0-46-秒，数据一字不差"><a href="#2-4-恢复：0-46-秒，数据一字不差" class="headerlink" title="2.4 恢复：0.46 秒，数据一字不差"></a>2.4 恢复：0.46 秒，数据一字不差</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1) 导入全备</span></span><br><span class="line">mysql -uroot -p &lt; /tmp/full.sql</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2) 重放 binlog 到误删前位点</span></span><br><span class="line">mysqlbinlog --start-position=2411114 --stop-position=3110658 /var/lib/mysql/binlog.000002 | mysql -uroot -p</span><br></pre></td></tr></table></figure>
+
+<p>实测：</p>
+<table>
+<thead>
+<tr>
+<th>步骤</th>
+<th>耗时</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>导入全备</td>
+<td>~0.35 s</td>
+<td>100,000 行</td>
+</tr>
+<tr>
+<td>重放 binlog（683 KB 区间）</td>
+<td><strong>0.11 s</strong></td>
+<td>+20,000 行</td>
+</tr>
+<tr>
+<td>合计（RTO）</td>
+<td><strong>0.46 s</strong></td>
+<td>120,000 行</td>
+</tr>
+<tr>
+<td>校验 <code>status=2</code></td>
+<td>—</td>
+<td>14,500（与误删前一致）</td>
+</tr>
+</tbody></table>
+<p><strong>校验必须做</strong>，而且要校验「业务含义」而不是只看行数：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">SELECT</span> <span class="built_in">COUNT</span>(<span class="operator">*</span>) <span class="keyword">AS</span> total, <span class="built_in">SUM</span>(status <span class="operator">=</span> <span class="number">2</span>) <span class="keyword">AS</span> updated_rows, <span class="built_in">MAX</span>(id) <span class="keyword">AS</span> max_id <span class="keyword">FROM</span> orders;</span><br></pre></td></tr></table></figure>
+
+<h3 id="2-5-一个意外发现：id-从-131071-开始"><a href="#2-5-一个意外发现：id-从-131071-开始" class="headerlink" title="2.5 一个意外发现：id 从 131071 开始"></a>2.5 一个意外发现：id 从 131071 开始</h3><p>恢复后 <code>MAX(id)</code> 是 <strong>151070</strong>，而不是我预期的 120000。原因不在恢复，而在写入方式：<code>INSERT ... SELECT</code> 属于「批量插入」，InnoDB 在 <code>innodb_autoinc_lock_mode=2</code>（实测默认）下会按 2 的幂预分配自增值，所以第二段插入拿到的 id 从 <strong>131071</strong> 开始，中间留下大段空洞。</p>
+<p>这带来两个结论：</p>
+<ol>
+<li><strong>自增 id 不连续是正常现象</strong>，不要拿它当「有没有丢数据」的证据——校验要用 <code>COUNT(*)</code> 与业务聚合值；</li>
+<li>恢复时要确认<strong>行事件里的 id 是显式值</strong>（ROW 格式天然如此），所以恢复出来的 id 与原文一致，这一点实测验证过（<code>MAX(id)</code> 恢复前后都是 151070）。</li>
+</ol>
+<h3 id="2-6-动手验证：自己跑一遍完整-PITR"><a href="#2-6-动手验证：自己跑一遍完整-PITR" class="headerlink" title="2.6 动手验证：自己跑一遍完整 PITR"></a>2.6 动手验证：自己跑一遍完整 PITR</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 0) 准备：开 binlog 的实例（8.0 默认开启）</span></span><br><span class="line">docker run -d --name mysql-lab -e MYSQL_ROOT_PASSWORD=lab123 -p 3320:3306 mysql:8.0</span><br><span class="line"></span><br><span class="line"><span class="comment"># 1) 造数据 + 全备</span></span><br><span class="line">docker <span class="built_in">exec</span> -i mysql-lab mysql -uroot -plab123 -e <span class="string">&quot;</span></span><br><span class="line"><span class="string">CREATE DATABASE shop; USE shop;</span></span><br><span class="line"><span class="string">CREATE TABLE orders (id BIGINT PRIMARY KEY AUTO_INCREMENT, status TINYINT, amount DECIMAL(10,2)) ENGINE=InnoDB;</span></span><br><span class="line"><span class="string">INSERT INTO orders (status, amount) VALUES (1,10),(2,20),(1,30);&quot;</span></span><br><span class="line">docker <span class="built_in">exec</span> mysql-lab sh -c <span class="string">&quot;mysqldump -uroot -plab123 --single-transaction --source-data=2 --databases shop &gt; /tmp/full.sql&quot;</span></span><br><span class="line">docker <span class="built_in">exec</span> mysql-lab sh -c <span class="string">&quot;grep &#x27;CHANGE MASTER&#x27; /tmp/full.sql&quot;</span>   <span class="comment"># 记下位点</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 2) 制造事故</span></span><br><span class="line">docker <span class="built_in">exec</span> -i mysql-lab mysql -uroot -plab123 shop -e <span class="string">&quot;</span></span><br><span class="line"><span class="string">INSERT INTO orders (status, amount) VALUES (1,40),(2,50);&quot;</span></span><br><span class="line">docker <span class="built_in">exec</span> -i mysql-lab mysql -uroot -plab123 -N -e <span class="string">&quot;SHOW MASTER STATUS;&quot;</span>   <span class="comment"># 记下事故前位点</span></span><br><span class="line">docker <span class="built_in">exec</span> -i mysql-lab mysql -uroot -plab123 -e <span class="string">&quot;DROP TABLE shop.orders;&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 3) 恢复</span></span><br><span class="line">docker <span class="built_in">exec</span> mysql-lab sh -c <span class="string">&quot;mysql -uroot -plab123 &lt; /tmp/full.sql&quot;</span></span><br><span class="line">docker <span class="built_in">cp</span> mysql-lab:/var/lib/mysql/$(docker <span class="built_in">exec</span> mysql-lab sh -c <span class="string">&quot;ls /var/lib/mysql | grep &#x27;^binlog&#x27; | head -1&quot;</span>) /tmp/binlog.cur</span><br><span class="line">mysqlbinlog --start-position=&lt;备份位点&gt; --stop-position=&lt;事故前位点&gt; /tmp/binlog.cur | docker <span class="built_in">exec</span> -i mysql-lab mysql -uroot -plab123</span><br><span class="line"></span><br><span class="line"><span class="comment"># 4) 校验</span></span><br><span class="line">docker <span class="built_in">exec</span> -i mysql-lab mysql -uroot -plab123 shop -e <span class="string">&quot;SELECT COUNT(*), SUM(amount) FROM orders;&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：恢复后应该是 5 行、<code>SUM(amount)=150</code>，与删除前完全一致。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>行数对但金额不对 → 重放区间端点选错（包含了不该重放的事务，或多重放了一遍）；</li>
+<li>重放报 <code>ERROR 1062 Duplicate entry</code> → 起点位置选在了全备位点之前，导致重复应用；</li>
+<li>恢复耗时远超预期 → 全备太大或 binlog 区间太长，考虑增量备份。</li>
+</ul>
+<blockquote>
+<p>说明：官方 <code>mysql:8.0</code> 镜像里**没有 <code>mysqlbinlog</code>**（我实测 <code>command not found</code>），所以要么把 binlog 拷出来用宿主机的 <code>mysqlbinlog</code>，要么单独装客户端工具。这一点很少有文章提到，但真到恢复时会卡住。</p>
+</blockquote>
+<h2 id="3-误删-2-小时后才发现：为什么不能整库回滚"><a href="#3-误删-2-小时后才发现：为什么不能整库回滚" class="headerlink" title="3. 误删 2 小时后才发现：为什么不能整库回滚"></a>3. 误删 2 小时后才发现：为什么不能整库回滚</h2><p>如果事故发生在 2 小时前，而此时库里已经有 2 小时的新写入，直接「全备 + 重放到 2 小时前」会导致<strong>这 2 小时的数据全部回退</strong>。</p>
+<p>正确做法是「只捞那一张表」：</p>
+<pre class="mermaid">flowchart TD
+    A["Detect loss at T+2h"] --> B["Spin up a temp instance"]
+    B --> C["Restore full backup&lt;br/>+ binlog to T-1s"]
+    C --> D["Dump only the lost table&lt;br/>from temp instance"]
+    D --> E["Import that table&lt;br/>into production or a new name"]
+    E --> F["Rename / verify / switch"]</pre>
+
+<table>
+<thead>
+<tr>
+<th>步骤</th>
+<th>命令要点</th>
+<th>注意</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1 起临时实例</td>
+<td>同版本、同字符集</td>
+<td>别在生产实例上折腾</td>
+</tr>
+<tr>
+<td>2 恢复到误删前</td>
+<td><code>--stop-position</code> 精确到 DROP 之前</td>
+<td>位点用 <code>SHOW MASTER STATUS</code> 或 binlog 里定位</td>
+</tr>
+<tr>
+<td>3 只导出目标表</td>
+<td><code>mysqldump shop orders --where=&quot;id&lt;=...&quot;</code></td>
+<td>表大就分批导</td>
+</tr>
+<tr>
+<td>4 导入生产</td>
+<td>导入到新表名，校验后 <code>RENAME TABLE</code></td>
+<td>避免直接覆盖</td>
+</tr>
+<tr>
+<td>5 校验</td>
+<td>行数 + 关键聚合值 + 抽样对比</td>
+<td>三项缺一不可</td>
+</tr>
+</tbody></table>
+<p><strong>为什么不能直接覆盖</strong>：事故后业务可能已经写入了「补偿数据」或「手工修正」，直接覆盖会把它们冲掉。</p>
+<h2 id="4-备份策略：把-RTO-压下来"><a href="#4-备份策略：把-RTO-压下来" class="headerlink" title="4. 备份策略：把 RTO 压下来"></a>4. 备份策略：把 RTO 压下来</h2><h3 id="4-1-目标与手段"><a href="#4-1-目标与手段" class="headerlink" title="4.1 目标与手段"></a>4.1 目标与手段</h3><pre class="mermaid">flowchart TD
+    Q{"How big is the data?"} -->|"under 10GB"| A["mysqldump daily&lt;br/>RTO: minutes"]
+    Q -->|"10GB to 200GB"| B["xtrabackup full&lt;br/>plus incremental&lt;br/>RTO: 10+ min"]
+    Q -->|"over 200GB"| C["weekly full plus daily incremental&lt;br/>plus storage snapshot&lt;br/>RTO: tens of min"]
+    A --> V["Verify: restore in a temp instance"]
+    B --> V
+    C --> V</pre>
+
+<table>
+<thead>
+<tr>
+<th>数据规模</th>
+<th>全备频率</th>
+<th>binlog 保留</th>
+<th>理论 RTO</th>
+<th>手段</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>&lt; 10 GB</td>
+<td>每天 1 次</td>
+<td>7 天</td>
+<td>分钟级</td>
+<td>mysqldump</td>
+</tr>
+<tr>
+<td>10~200 GB</td>
+<td>每天 1 次 + 增量</td>
+<td>7~14 天</td>
+<td>十几分钟</td>
+<td>xtrabackup 增量</td>
+</tr>
+<tr>
+<td>&gt; 200 GB</td>
+<td>每周全备 + 每天增量</td>
+<td>14 天</td>
+<td>几十分钟</td>
+<td>xtrabackup &#x2F; 快照 &#x2F; 从库备份</td>
+</tr>
+</tbody></table>
+<h3 id="4-2-从库备份，但别把复制当备份"><a href="#4-2-从库备份，但别把复制当备份" class="headerlink" title="4.2 从库备份，但别把复制当备份"></a>4.2 从库备份，但别把复制当备份</h3><table>
+<thead>
+<tr>
+<th>做法</th>
+<th>优点</th>
+<th>陷阱</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>在从库上做备份</td>
+<td>不影响主库</td>
+<td>从库延迟 → 备份点是旧的</td>
+</tr>
+<tr>
+<td>用复制当备份</td>
+<td>实时</td>
+<td><strong>逻辑错误（误删、误更新）会同步到从库</strong>，一条 <code>DROP</code> 两边都没了</td>
+</tr>
+<tr>
+<td>定期快照</td>
+<td>快</td>
+<td>依赖存储层一致性</td>
+</tr>
+</tbody></table>
+<p><strong>结论</strong>：复制解决可用性，备份解决可恢复性，两者不能互相替代。误删表这个场景，复制帮不上忙，binlog + 全备才行。</p>
+<h3 id="4-3-备份必须做的三件事"><a href="#4-3-备份必须做的三件事" class="headerlink" title="4.3 备份必须做的三件事"></a>4.3 备份必须做的三件事</h3><table>
+<thead>
+<tr>
+<th>事项</th>
+<th>做法</th>
+<th>频率</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>校验备份可恢复</td>
+<td>在临时实例上真恢复一次</td>
+<td>每次备份后抽样，每月全量</td>
+</tr>
+<tr>
+<td>校验数据一致</td>
+<td>行数 + 关键聚合 + 抽样比对</td>
+<td>每次恢复</td>
+</tr>
+<tr>
+<td>记录 RTO</td>
+<td>每次演练记录耗时，趋势上升要查原因</td>
+<td>每季度</td>
+</tr>
+</tbody></table>
+<h3 id="4-4-工具对比"><a href="#4-4-工具对比" class="headerlink" title="4.4 工具对比"></a>4.4 工具对比</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>类型</th>
+<th>特点</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>mysqldump</code></td>
+<td>逻辑</td>
+<td>通用、可读、支持单表</td>
+<td>本文实测工具</td>
+</tr>
+<tr>
+<td><code>mysqlpump</code></td>
+<td>逻辑</td>
+<td>并行导出，8.0.34 起废弃</td>
+<td>新项目别用</td>
+</tr>
+<tr>
+<td><code>xtrabackup</code></td>
+<td>物理</td>
+<td>热备、增量、速度快</td>
+<td>需单独安装，本文未实测（镜像不自带）</td>
+</tr>
+<tr>
+<td>Clone Plugin</td>
+<td>物理</td>
+<td>8.0.17+ 内置，可从从库克隆</td>
+<td>适合快速搭新节点</td>
+</tr>
+</tbody></table>
+<blockquote>
+<p>诚实标注：本文只实测了 <code>mysqldump</code> 路径。<code>xtrabackup</code> 的命令与特性属于文档知识，生产选型时请在自己的环境里跑一次全备 + 恢复演练再定。</p>
+</blockquote>
+<h2 id="5-总结"><a href="#5-总结" class="headerlink" title="5. 总结"></a>5. 总结</h2><h3 id="5-1-面试速答表"><a href="#5-1-面试速答表" class="headerlink" title="5.1 面试速答表"></a>5.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>RPO 和 RTO 的区别</td>
+<td>RPO 是最多丢多少数据，RTO 是恢复要多久；前者靠备份频率与 binlog，后者靠演练</td>
+</tr>
+<tr>
+<td>逻辑备份和物理备份怎么选</td>
+<td>小库&#x2F;单表恢复&#x2F;跨版本用逻辑；大库&#x2F;极短 RTO 用物理</td>
+</tr>
+<tr>
+<td>mysqldump 怎么保证一致性</td>
+<td><code>--single-transaction</code> 起 RR 快照，不锁表，只对 InnoDB 有效</td>
+</tr>
+<tr>
+<td>PITR 需要什么</td>
+<td>一份全备 + 从全备位点开始的完整 binlog</td>
+</tr>
+<tr>
+<td>binlog 里 <code>--stop-position</code> 怎么定</td>
+<td>事故语句之前的位点，用 <code>SHOW MASTER STATUS</code> 或 binlog 里定位 DROP 事件</td>
+</tr>
+<tr>
+<td>为什么复制不能当备份</td>
+<td>逻辑错误会同步到从库，一条 DROP 两边都没</td>
+</tr>
+<tr>
+<td>误删 2 小时后怎么恢复</td>
+<td>临时实例恢复到删除前，只导出目标表，校验后切回，不要整库回滚</td>
+</tr>
+<tr>
+<td>自增 id 不连续说明丢数据吗</td>
+<td>不能说明；<code>INSERT ... SELECT</code> 会按 2 的幂预分配 id，校验要用行数与聚合值</td>
+</tr>
+<tr>
+<td>备份怎么验证有效</td>
+<td>在临时实例真恢复一次，比对行数与关键聚合</td>
+</tr>
+<tr>
+<td>8.0 备份有哪些内置能力</td>
+<td>Clone Plugin（8.0.17+）、<code>--source-data</code>、binlog 默认开启</td>
+</tr>
+</tbody></table>
+<h3 id="5-2-实战避坑表"><a href="#5-2-实战避坑表" class="headerlink" title="5.2 实战避坑表"></a>5.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>恢复后数据少一段</td>
+<td>binlog 保留不够，或重放起点错了</td>
+<td>检查 <code>--start-position</code> 与 binlog 保留天数</td>
+</tr>
+<tr>
+<td>重放报 <code>Duplicate entry</code></td>
+<td>起点早于全备位点，重复应用</td>
+<td>用 <code>--source-data</code> 记录的位点作起点</td>
+</tr>
+<tr>
+<td>恢复后其他表被回退</td>
+<td>整库回滚了</td>
+<td>改用「临时实例 + 只捞单表」</td>
+</tr>
+<tr>
+<td>备份文件无法恢复</td>
+<td>从没验证过</td>
+<td>立即做一次恢复演练，别等事故</td>
+</tr>
+<tr>
+<td>从库备份点比预期旧</td>
+<td>从库延迟</td>
+<td>备份前确认 <code>SBM</code>&#x2F;心跳延迟</td>
+</tr>
+<tr>
+<td>恢复很慢（小时级）</td>
+<td>全备太大或逻辑备份逐行插入</td>
+<td>换物理备份，或按表并行恢复</td>
+</tr>
+</tbody></table>
+<h3 id="5-3-工具速查表"><a href="#5-3-工具速查表" class="headerlink" title="5.3 工具速查表"></a>5.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>判定标准</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>mysqldump --source-data=2</code></td>
+<td>备份位点</td>
+<td>拿到 <code>binlog.xxx</code> + <code>pos</code> 才能做 PITR</td>
+</tr>
+<tr>
+<td><code>mysqlbinlog --start/stop-position</code></td>
+<td>重放区间</td>
+<td>区间必须落在「全备位点 → 事故前」之间</td>
+</tr>
+<tr>
+<td><code>SHOW MASTER STATUS</code></td>
+<td>当前位点</td>
+<td>事故前后各记一次</td>
+</tr>
+<tr>
+<td><code>SHOW BINARY LOGS</code></td>
+<td>binlog 列表与大小</td>
+<td>确认覆盖到目标时间点</td>
+</tr>
+<tr>
+<td><code>information_schema.tables</code></td>
+<td>恢复后行数估算</td>
+<td>精确校验用 <code>COUNT(*)</code> 与聚合</td>
+</tr>
+</tbody></table>
+<h3 id="5-4-实操建议"><a href="#5-4-实操建议" class="headerlink" title="5.4 实操建议"></a>5.4 实操建议</h3><ol>
+<li><strong>先算 RPO&#x2F;RTO，再选工具</strong>。目标不清就买工具，等于没定需求。</li>
+<li><strong>每次备份都记录位点</strong>，<code>--source-data=2</code> 一行注释就够，但必须进备份产物的元数据。</li>
+<li><strong>演练按季度做，并且真删一次表</strong>（在测试实例上）。本文这次 0.46 秒的 RTO，是数据量小 + 单表 + 本地盘的结果，生产上要按自己数据量重测。</li>
+<li><strong>只恢复单表时，绝不整库回滚</strong>。临时实例 + 导出 + 校验 + <code>RENAME</code> 是标准动作。</li>
+<li><strong>把「备份能不能恢复」写成检查项</strong>，和告警、监控一起纳入日常，而不是写在文档里。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告</strong>：⑩《在线 DDL：一次加索引如何堵死整张表》。本篇的「误删」是数据事故，下一篇是<strong>变更事故</strong>：<code>ALTER TABLE</code> 为什么要 MDL、8.0 的 instant DDL 到底能秒完成哪些操作、<code>gh-ost</code> 的双写迁移怎么做到不锁表——会用一次 2000 万行表的加索引，把「变更窗口」算成分钟数。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/MySQL/" rel="tag"># MySQL</a>
+              <a href="/tags/%E9%9D%A2%E8%AF%95/" rel="tag"># 面试</a>
+              <a href="/tags/%E5%A4%87%E4%BB%BD/" rel="tag"># 备份</a>
+              <a href="/tags/PITR/" rel="tag"># PITR</a>
+              <a href="/tags/mysqldump/" rel="tag"># mysqldump</a>
+              <a href="/tags/xtrabackup/" rel="tag"># xtrabackup</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/51687861.html" rel="prev" title="复制与高可用：延迟的量化与判定">
+                  <i class="fa fa-angle-left"></i> 复制与高可用：延迟的量化与判定
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/post/b5c3673.html" rel="next" title="在线 DDL：一次加索引如何堵死整张表">
+                  在线 DDL：一次加索引如何堵死整张表 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">740k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">44:51</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
+</html>

@@ -1,0 +1,1236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="「MySQL 撑不住了」这句话里，90% 的情况是索引或慢查询撑不住，不是 MySQL 撑不住。真正的单机上限有三个维度：连接数、单表数据量、写入吞吐。它们触顶的信号完全不同，处理手段也完全不同——用错了手段，就是「分了表之后发现还是慢」。 本文用 1000 万行表的实测数据回答三个问题：单机的天花板在哪、什么时候该往上加一层、真到了分片那一天怎么迁。收官部分给全系列 12 篇的总表。  系列地图">
+<meta property="og:type" content="article">
+<meta property="og:title" content="容量与扩展：什么时候才该分库分表">
+<meta property="og:url" content="http://timewait7.github.io/post/f8f36186.html">
+<meta property="og:site_name" content="知行栈">
+<meta property="og:description" content="「MySQL 撑不住了」这句话里，90% 的情况是索引或慢查询撑不住，不是 MySQL 撑不住。真正的单机上限有三个维度：连接数、单表数据量、写入吞吐。它们触顶的信号完全不同，处理手段也完全不同——用错了手段，就是「分了表之后发现还是慢」。 本文用 1000 万行表的实测数据回答三个问题：单机的天花板在哪、什么时候该往上加一层、真到了分片那一天怎么迁。收官部分给全系列 12 篇的总表。  系列地图">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-10-24T23:00:00.000Z">
+<meta property="article:modified_time" content="2026-10-24T13:36:16.670Z">
+<meta property="article:tag" content="MySQL">
+<meta property="article:tag" content="面试">
+<meta property="article:tag" content="容量规划">
+<meta property="article:tag" content="分库分表">
+<meta property="article:tag" content="一致性哈希">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/f8f36186.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/f8f36186.html","path":"post/f8f36186.html","title":"容量与扩展：什么时候才该分库分表"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>容量与扩展：什么时候才该分库分表 | 知行栈</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<!-- hexo injector head_end start --><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
+</style><style>
+/* 菜单链高亮：sub-menu 祖先（同主题 .menu-item-active 的 Pisces 规则） */
+.sub-menu .menu-item a.menu-chain-active {
+  border-bottom-color: #fc6423;
+  color: #fc6423;
+}
+.sub-menu .menu-item a.menu-chain-active:hover {
+  border-bottom-color: #fc6423;
+}
+/* 菜单链高亮：main-menu 祖先（同主题 hover/active 的背景规则） */
+.main-menu .menu-item a.menu-chain-active {
+  background: var(--menu-item-bg-color);
+}
+</style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">知行栈</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section" class="menu-chain-active"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>Categories</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-%E5%8D%95%E6%9C%BA%E4%B8%8A%E9%99%90%EF%BC%9A%E4%B8%89%E4%B8%AA%E7%BB%B4%E5%BA%A6%E5%88%86%E5%88%AB%E5%9C%A8%E5%93%AA%E9%A1%B6%E4%BD%8F"><span class="nav-text">1. 单机上限：三个维度分别在哪顶住</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-%E7%BB%B4%E5%BA%A6%E4%B8%80%EF%BC%9A%E8%BF%9E%E6%8E%A5%E6%95%B0"><span class="nav-text">1.1 维度一：连接数</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-2-%E7%BB%B4%E5%BA%A6%E4%BA%8C%EF%BC%9A%E5%8D%95%E8%A1%A8%E6%95%B0%E6%8D%AE%E9%87%8F"><span class="nav-text">1.2 维度二：单表数据量</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-3-%E7%BB%B4%E5%BA%A6%E4%B8%89%EF%BC%9A%E5%86%99%E5%85%A5%E5%90%9E%E5%90%90%E4%B8%8E-QPS-%E6%8B%90%E7%82%B9"><span class="nav-text">1.3 维度三：写入吞吐与 QPS 拐点</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E7%AE%97%E5%87%BA%E4%BD%A0%E8%87%AA%E5%B7%B1%E7%9A%84%E5%A4%A9%E8%8A%B1%E6%9D%BF"><span class="nav-text">1.4 动手验证：算出你自己的天花板</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E6%89%A9%E5%B1%95%E8%B7%AF%E5%BE%84%EF%BC%9A%E5%85%88%E5%8A%A0%E4%BB%80%E4%B9%88%EF%BC%8C%E5%90%8E%E5%8A%A0%E4%BB%80%E4%B9%88"><span class="nav-text">2. 扩展路径：先加什么，后加什么</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E5%9B%9B%E6%9D%A1%E8%B7%AF%EF%BC%8C%E4%BB%A3%E4%BB%B7%E9%80%92%E5%A2%9E"><span class="nav-text">2.1 四条路，代价递增</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E7%9C%9F%E7%9A%84%E8%AF%A5%E5%88%86%E7%89%87"><span class="nav-text">2.2 什么时候真的该分片</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E5%88%86%E7%89%87%E5%AE%9E%E6%93%8D%EF%BC%9A%E9%80%89%E9%94%AE%E3%80%81%E8%BF%81%E7%A7%BB%E3%80%81%E6%A0%A1%E9%AA%8C"><span class="nav-text">3. 分片实操：选键、迁移、校验</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E5%88%86%E7%89%87%E9%94%AE%E7%9A%84%E4%B8%89%E4%B8%AA%E5%88%A4%E6%8D%AE"><span class="nav-text">3.1 分片键的三个判据</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E5%8F%96%E6%A8%A1-vs-%E4%B8%80%E8%87%B4%E6%80%A7%E5%93%88%E5%B8%8C"><span class="nav-text">3.2 取模 vs 一致性哈希</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-%E5%8F%8C%E5%86%99%E8%BF%81%E7%A7%BB%E6%B5%81%E7%A8%8B"><span class="nav-text">3.3 双写迁移流程</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-4-%E5%AE%9E%E6%B5%8B%EF%BC%9A50-%E4%B8%87%E8%A1%8C%E8%BF%81-16-%E7%89%87-%E6%A0%A1%E9%AA%8C-%E6%95%85%E9%9A%9C%E6%B3%A8%E5%85%A5"><span class="nav-text">3.4 实测：50 万行迁 16 片 + 校验 + 故障注入</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-5-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%9C%A8%E4%BD%A0%E8%87%AA%E5%B7%B1%E7%9A%84%E8%A1%A8%E4%B8%8A%E5%81%9A%E4%B8%80%E6%AC%A1%E3%80%8C%E5%B0%8F%E8%A7%84%E6%A8%A1%E8%BF%81%E7%A7%BB%E3%80%8D"><span class="nav-text">3.5 动手验证：在你自己的表上做一次「小规模迁移」</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E5%88%86%E7%89%87%E5%90%8E%E7%9A%84%E4%B8%80%E8%87%B4%E6%80%A7%E4%BB%A3%E4%BB%B7"><span class="nav-text">4. 分片后的一致性代价</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E5%85%A8%E7%B3%BB%E5%88%97%E6%80%BB%E8%A1%A8%EF%BC%88%E6%94%B6%E5%AE%98%EF%BC%89"><span class="nav-text">5. 全系列总表（收官）</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E5%8D%81%E4%BA%8C%E7%AF%87%E6%80%BB%E8%A1%A8"><span class="nav-text">5.1 十二篇总表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E4%B8%89%E7%A7%8D%E8%83%BD%E5%8A%9B%E7%9A%84%E5%88%86%E5%B1%82"><span class="nav-text">5.2 三种能力的分层</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-%E8%87%AA%E6%A3%80%E6%B8%85%E5%8D%95%EF%BC%9A%E8%83%BD%E8%84%B1%E7%A8%BF%E5%9B%9E%E7%AD%94%E5%B0%B1%E7%AE%97%E8%BF%87%E5%85%B3"><span class="nav-text">5.3 自检清单：能脱稿回答就算过关</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-%E4%B8%89%E4%B8%AA%E6%9C%88%E7%9A%84%E5%AD%A6%E4%B9%A0%E8%B7%AF%E7%BA%BF"><span class="nav-text">5.4 三个月的学习路线</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">104</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">14</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">175</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+    <div class="sidebar-inner sidebar-blogroll">
+      <div class="links-of-blogroll animated">
+        <div class="links-of-blogroll-title"><i class="fa fa-globe fa-fw"></i>
+          Links
+        </div>
+        <ul class="links-of-blogroll-list">
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9wYXVsZ3JhaGFtLmNvbS9hcnRpY2xlcy5odG1s" title="https:&#x2F;&#x2F;paulgraham.com&#x2F;articles.html">paulgraham</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly93d3cuam9lbG9uc29mdHdhcmUuY29tLw==" title="https:&#x2F;&#x2F;www.joelonsoftware.com&#x2F;">Joel on Software</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9tYXJ0aW5mb3dsZXIuY29tLw==" title="https:&#x2F;&#x2F;martinfowler.com&#x2F;">Martin Flower</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly96aGFuZ3RpZWxlaS5jb20v" title="https:&#x2F;&#x2F;zhangtielei.com&#x2F;">zhangtielei</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhLWRlc2lnbi1wYXR0ZXJucy5jb20vemgv" title="https:&#x2F;&#x2F;java-design-patterns.com&#x2F;zh&#x2F;">Java Design Patterns</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9taWNyb3NlcnZpY2VzLmlvLw==" title="https:&#x2F;&#x2F;microservices.io&#x2F;">Microservice Architecture</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhZ3VpZGUuY24v" title="https:&#x2F;&#x2F;javaguide.cn&#x2F;">JavaGuide</span>
+            </li>
+        </ul>
+      </div>
+    </div>
+        <div class="pjax">
+        
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-后端开发"><a href="/docs/nav/backend-dev-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-code fa-fw"></i>后端开发</a></li>
+
+
+      
+  <li class="menu-item menu-item-计算机基础"><a href="/docs/nav/cs-foundation-nav.html" rel="section"><i class="fa fa-desktop fa-fw"></i>计算机基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-ai-学习"><a href="/docs/nav/ai-learning-nav.html" rel="section"><i class="fa fa-robot fa-fw"></i>AI 学习</a></li>
+
+
+      
+  <li class="menu-item menu-item-项目实战"><a href="/docs/nav/5964f4da.html" rel="section"><i class="fa fa-flask fa-fw"></i>项目实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-misc"><a href="/docs/nav/misc-nav.html" rel="section"><i class="fa fa-box fa-fw"></i>Misc</a></li>
+
+
+      
+  <li class="menu-item menu-item-随笔·生活"><a href="/docs/nav/life-nav.html" rel="section"><i class="fa fa-feather fa-fw"></i>随笔·生活</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java"><a href="/docs/nav/java-nav.html" rel="section"><i class="fa fa-coffee fa-fw"></i>Java</a></li>
+
+
+      
+  <li class="menu-item menu-item-框架"><a href="/docs/nav/framework-nav.html" rel="section"><i class="fa fa-th-large fa-fw"></i>框架</a></li>
+
+
+      
+  <li class="menu-item menu-item-数据存储"><a href="/docs/nav/data-storage-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-hdd fa-fw"></i>数据存储</a></li>
+
+
+      
+  <li class="menu-item menu-item-中间件"><a href="/docs/nav/middleware-nav.html" rel="section"><i class="fa fa-cubes fa-fw"></i>中间件</a></li>
+
+
+      
+  <li class="menu-item menu-item-分布式与微服务"><a href="/docs/nav/distributed-nav.html" rel="section"><i class="fa fa-sitemap fa-fw"></i>分布式与微服务</a></li>
+
+
+      
+  <li class="menu-item menu-item-系统设计"><a href="/docs/nav/system-design-nav.html" rel="section"><i class="fa fa-pencil-ruler fa-fw"></i>系统设计</a></li>
+
+
+      
+  <li class="menu-item menu-item-部署运维"><a href="/docs/nav/devops-nav.html" rel="section"><i class="fa fa-terminal fa-fw"></i>部署运维</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-mysql"><a href="/docs/nav/mysql-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-database fa-fw"></i>MySQL</a></li>
+
+
+      
+  <li class="menu-item menu-item-redis"><a href="/docs/nav/redis-nav.html" rel="section"><i class="fa fa-bolt fa-fw"></i>Redis</a></li>
+
+
+      
+  <li class="menu-item menu-item-elasticsearch"><a href="/docs/nav/es-nav.html" rel="section"><i class="fa fa-search fa-fw"></i>ElasticSearch</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-mysql-深度解析：从原理到高可用与分库分表实战"><a href="/post/32511a71.html" rel="section"><i class="fa fa-file-text fa-fw"></i>MySQL 深度解析：从原理到高可用与分库分表实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-①-从这里开始：把-mysql-变成你的实验台"><a href="/post/60f95c16.html" rel="section"><i class="fa fa-file-text fa-fw"></i>① 从这里开始：把 MySQL 变成你的实验台</a></li>
+
+
+      
+  <li class="menu-item menu-item-②-一条-sql-的六层成本账：架构不是画流程图"><a href="/post/ffd9df8b.html" rel="section"><i class="fa fa-file-text fa-fw"></i>② 一条 SQL 的六层成本账：架构不是画流程图</a></li>
+
+
+      
+  <li class="menu-item menu-item-③-schema-与索引：把逻辑读降下来"><a href="/post/e1724727.html" rel="section"><i class="fa fa-file-text fa-fw"></i>③ Schema 与索引：把逻辑读降下来</a></li>
+
+
+      
+  <li class="menu-item menu-item-④-查询优化：优化器为什么会选错索引"><a href="/post/d65d7254.html" rel="section"><i class="fa fa-file-text fa-fw"></i>④ 查询优化：优化器为什么会选错索引</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑤-事务与-mvcc：把「不可重复读」亲手复现出来"><a href="/post/88fb6d0c.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑤ 事务与 MVCC：把「不可重复读」亲手复现出来</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑥-锁、死锁与-mdl：一次变更如何堵死整张表"><a href="/post/d090a538.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑥ 锁、死锁与 MDL：一次变更如何堵死整张表</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑦-innodb-内存与刷盘：物理-io-的钱花在哪"><a href="/post/8e8e95b7.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑦ InnoDB 内存与刷盘：物理 IO 的钱花在哪</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑧-复制与高可用：延迟的量化与判定"><a href="/post/51687861.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑧ 复制与高可用：延迟的量化与判定</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑨-备份与恢复：删库之后-30-分钟救回来"><a href="/post/f375ea2a.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑨ 备份与恢复：删库之后 30 分钟救回来</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑩-在线-ddl：一次加索引如何堵死整张表"><a href="/post/b5c3673.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑩ 在线 DDL：一次加索引如何堵死整张表</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑪-java-侧：连接池打满与-@transactional-失效的真相"><a href="/post/4d87a909.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑪ Java 侧：连接池打满与 @Transactional 失效的真相</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑫-容量与扩展：什么时候才该分库分表"><a href="/post/f8f36186.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑫ 容量与扩展：什么时候才该分库分表</a></li>
+
+
+    </ul>
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/f8f36186.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="容量与扩展：什么时候才该分库分表 | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          容量与扩展：什么时候才该分库分表
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-10-25 07:00:00" itemprop="dateCreated datePublished" datetime="2026-10-25T07:00:00+08:00">2026-10-25</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/" itemprop="url" rel="index"><span itemprop="name">数据存储</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>4k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>15 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><p><strong>「MySQL 撑不住了」这句话里，90% 的情况是索引或慢查询撑不住，不是 MySQL 撑不住</strong>。真正的单机上限有三个维度：连接数、单表数据量、写入吞吐。它们触顶的信号完全不同，处理手段也完全不同——用错了手段，就是「分了表之后发现还是慢」。</p>
+<p>本文用 1000 万行表的实测数据回答三个问题：单机的天花板在哪、什么时候该往上加一层、真到了分片那一天怎么迁。收官部分给全系列 12 篇的总表。</p>
+<blockquote>
+<p><strong>系列地图（高性能 MySQL 实战路线，12 篇）</strong></p>
+<p>① 实验台与基线 → ② 六层成本账 → ③ 索引与 Schema → ④ 优化器与慢查询 → ⑤ 事务与 MVCC → ⑥ 锁与死锁 → ⑦ 内存与刷盘 → ⑧ 复制与高可用 → ⑨ 备份与恢复 → ⑩ 在线 DDL → ⑪ Java 侧连接池与事务 → ⑫ <strong>容量与扩展（本文·收官）</strong></p>
+<p>与前后篇的关系：① 的基线、③ 的索引、⑦ 的刷盘共同决定了本文的「天花板」；⑧ 的复制是第一条扩展路径；本文的分片是最后一条。</p>
+</blockquote>
+<h2 id="1-单机上限：三个维度分别在哪顶住"><a href="#1-单机上限：三个维度分别在哪顶住" class="headerlink" title="1. 单机上限：三个维度分别在哪顶住"></a>1. 单机上限：三个维度分别在哪顶住</h2><h3 id="1-1-维度一：连接数"><a href="#1-1-维度一：连接数" class="headerlink" title="1.1 维度一：连接数"></a>1.1 维度一：连接数</h3><p>实测 <code>max_connections = 151</code>（8.0 默认）。每个连接是一个线程，占栈内存与调度时间。</p>
+<table>
+<thead>
+<tr>
+<th>信号</th>
+<th>数值</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>Threads_connected</code> 接近 151</td>
+<td>连接耗尽</td>
+<td>新请求直接被拒（<code>Too many connections</code>）</td>
+</tr>
+<tr>
+<td><code>Threads_running</code> 持续 &gt; CPU 核数</td>
+<td>排队</td>
+<td>加连接只会加重排队（⑪ 的实测：池越大 p99 越小，但吞吐受 CPU 限）</td>
+</tr>
+<tr>
+<td>连接池 max 总和 &gt; 151</td>
+<td>多应用抢连接</td>
+<td>要按应用配额分配，别都设成 20</td>
+</tr>
+</tbody></table>
+<p><strong>先算一笔账</strong>：3 个应用 × 每应用 20 个连接 &#x3D; 60，加上备份、监控、DBA 连接，离 151 不远。所以「加连接数」的天花板比想象中低得多。</p>
+<h3 id="1-2-维度二：单表数据量"><a href="#1-2-维度二：单表数据量" class="headerlink" title="1.2 维度二：单表数据量"></a>1.2 维度二：单表数据量</h3><p>这是最容易被误解的维度。实测两张表（同一实例、1GB Buffer Pool）：</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>100 万行</th>
+<th>1000 万行</th>
+<th>倍数</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>数据大小</td>
+<td>54 MB</td>
+<td><strong>428 MB</strong></td>
+<td>8×</td>
+</tr>
+<tr>
+<td>数据页数</td>
+<td>3,430</td>
+<td><strong>27,391</strong></td>
+<td>8×</td>
+</tr>
+<tr>
+<td><strong>主键点查页请求</strong></td>
+<td>4</td>
+<td><strong>4</strong></td>
+<td><strong>1×</strong></td>
+</tr>
+<tr>
+<td>二级索引范围扫（100 行）</td>
+<td>~0.2 ms</td>
+<td><strong>0.214 ms</strong></td>
+<td>1×</td>
+</tr>
+<tr>
+<td>全表扫描耗时</td>
+<td>61 ms</td>
+<td><strong>540 ms</strong></td>
+<td>~9×</td>
+</tr>
+</tbody></table>
+<p><strong>核心结论：点查几乎不随数据量变慢，全表扫是线性变慢的。</strong> B+ 树的意义就在这里——1000 万行的树高仍然是 3~4 层，所以「按主键查」永远不会因为数据多而变慢。</p>
+<p>那为什么大表会「感觉慢」？因为：</p>
+<table>
+<thead>
+<tr>
+<th>变慢的东西</th>
+<th>原因</th>
+<th>对应篇目</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>全表扫描 &#x2F; 无索引查询</td>
+<td>线性扫描 27,391 页</td>
+<td>③④</td>
+</tr>
+<tr>
+<td>加索引 &#x2F; 改表结构</td>
+<td>要读全表</td>
+<td>⑩</td>
+</tr>
+<tr>
+<td>备份与恢复</td>
+<td>数据量大</td>
+<td>⑨</td>
+</tr>
+<tr>
+<td>冷数据物理读</td>
+<td>Buffer Pool 装不下</td>
+<td>⑦</td>
+</tr>
+<tr>
+<td>深分页</td>
+<td>offset 前全部要读</td>
+<td>④</td>
+</tr>
+</tbody></table>
+<p><strong>所以「单表 2000 万行就要分表」是个伪命题</strong>。真正该看的是：你的查询有没有全部走索引、Buffer Pool 能不能装下热数据、DDL 与备份的窗口够不够。数据量本身不是红线。</p>
+<h3 id="1-3-维度三：写入吞吐与-QPS-拐点"><a href="#1-3-维度三：写入吞吐与-QPS-拐点" class="headerlink" title="1.3 维度三：写入吞吐与 QPS 拐点"></a>1.3 维度三：写入吞吐与 QPS 拐点</h3><pre class="mermaid">flowchart LR
+    A["4 threads&lt;br/>21924 qps"] --> B["8 threads&lt;br/>29088"]
+    B --> C["16 threads&lt;br/>37506"]
+    C --> D["32 threads&lt;br/>50682"]
+    D --> E["64 threads&lt;br/>53676"]
+    E -.->|"plateau: adding threads&lt;br/>buys only 6%"| F["Knee of this machine"]</pre>
+
+<p>用 Java 压测（64 连接池）对 1000 万行表做<strong>主键点查</strong>，逐步加线程：</p>
+<table>
+<thead>
+<tr>
+<th>线程数</th>
+<th>QPS</th>
+<th>相比上一档</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>4</td>
+<td>21,924</td>
+<td>—</td>
+</tr>
+<tr>
+<td>8</td>
+<td>29,088</td>
+<td>+33%</td>
+</tr>
+<tr>
+<td>16</td>
+<td>37,506</td>
+<td>+29%</td>
+</tr>
+<tr>
+<td>32</td>
+<td>50,682</td>
+<td>+35%</td>
+</tr>
+<tr>
+<td>64</td>
+<td>53,676</td>
+<td><strong>+6%</strong></td>
+</tr>
+</tbody></table>
+<p><strong>拐点在 32~64 线程之间</strong>：从 32 加到 64，QPS 只涨 6%，但并发压力翻倍。这就是「加机器&#x2F;加线程」的收益边界——超过拐点，多出来的并发只会变成排队和上下文切换。</p>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>拐点信号</th>
+<th>该做什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>点查型</td>
+<td>QPS 平台化、CPU 到 80%</td>
+<td>加只读副本（读扩展）</td>
+</tr>
+<tr>
+<td>写入型</td>
+<td>TPS 平台化、<code>innodb_buffer_pool_wait_free &gt; 0</code></td>
+<td>分库（写扩展）</td>
+</tr>
+<tr>
+<td>混合型</td>
+<td>读写互相拖累</td>
+<td>先读写分离，再评估分片</td>
+</tr>
+</tbody></table>
+<h3 id="1-4-动手验证：算出你自己的天花板"><a href="#1-4-动手验证：算出你自己的天花板" class="headerlink" title="1.4 动手验证：算出你自己的天花板"></a>1.4 动手验证：算出你自己的天花板</h3><figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 1) 连接维度</span></span><br><span class="line"><span class="keyword">SELECT</span> @<span class="variable">@max_connections</span>, (<span class="keyword">SELECT</span> <span class="built_in">COUNT</span>(<span class="operator">*</span>) <span class="keyword">FROM</span> information_schema.processlist) <span class="keyword">AS</span> current_conns;</span><br><span class="line"></span><br><span class="line"><span class="comment">-- 2) 数据维度：点查页请求 vs 全表扫页请求</span></span><br><span class="line"><span class="keyword">SET</span> <span class="variable">@r0</span> :<span class="operator">=</span> (<span class="keyword">SELECT</span> VARIABLE_VALUE <span class="keyword">FROM</span> performance_schema.global_status</span><br><span class="line">            <span class="keyword">WHERE</span> VARIABLE_NAME<span class="operator">=</span><span class="string">&#x27;Innodb_buffer_pool_read_requests&#x27;</span>);</span><br><span class="line"><span class="keyword">SELECT</span> amount <span class="keyword">FROM</span> big10m <span class="keyword">WHERE</span> id <span class="operator">=</span> <span class="number">5000000</span>;</span><br><span class="line"><span class="keyword">SET</span> <span class="variable">@r1</span> :<span class="operator">=</span> (<span class="keyword">SELECT</span> VARIABLE_VALUE <span class="keyword">FROM</span> performance_schema.global_status</span><br><span class="line">            <span class="keyword">WHERE</span> VARIABLE_NAME<span class="operator">=</span><span class="string">&#x27;Innodb_buffer_pool_read_requests&#x27;</span>);</span><br><span class="line"><span class="keyword">SELECT</span> <span class="variable">@r1</span><span class="operator">-</span><span class="variable">@r0</span> <span class="keyword">AS</span> point_lookup_pages;</span><br><span class="line"></span><br><span class="line"><span class="keyword">SET</span> <span class="variable">@r0</span> :<span class="operator">=</span> <span class="variable">@r1</span>;</span><br><span class="line"><span class="keyword">SELECT</span> <span class="built_in">COUNT</span>(<span class="operator">*</span>) <span class="keyword">FROM</span> big10m <span class="keyword">WHERE</span> status <span class="operator">=</span> <span class="number">3</span>;</span><br><span class="line"><span class="keyword">SET</span> <span class="variable">@r1</span> :<span class="operator">=</span> (<span class="keyword">SELECT</span> VARIABLE_VALUE <span class="keyword">FROM</span> performance_schema.global_status</span><br><span class="line">            <span class="keyword">WHERE</span> VARIABLE_NAME<span class="operator">=</span><span class="string">&#x27;Innodb_buffer_pool_read_requests&#x27;</span>);</span><br><span class="line"><span class="keyword">SELECT</span> <span class="variable">@r1</span><span class="operator">-</span><span class="variable">@r0</span> <span class="keyword">AS</span> full_scan_pages;</span><br><span class="line"></span><br><span class="line"><span class="comment">-- 3) 吞吐维度：`SHOW GLOBAL STATUS LIKE &#x27;Threads_running&#x27;` 在压测中采样</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：<code>point_lookup_pages</code> 是 3~4（与表多大无关）；<code>full_scan_pages</code> 约等于表的总页数。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>点查页数随数据量增长 → 你的主键设计有问题（比如用了 UUID 或字符主键）；</li>
+<li>全表扫页数 ≈ 表页数，且这类查询占慢日志的大头 → 先加索引（③），别急着分表。</li>
+</ul>
+<h2 id="2-扩展路径：先加什么，后加什么"><a href="#2-扩展路径：先加什么，后加什么" class="headerlink" title="2. 扩展路径：先加什么，后加什么"></a>2. 扩展路径：先加什么，后加什么</h2><h3 id="2-1-四条路，代价递增"><a href="#2-1-四条路，代价递增" class="headerlink" title="2.1 四条路，代价递增"></a>2.1 四条路，代价递增</h3><pre class="mermaid">flowchart TD
+    A["Single node hits the limit"] --> B{"Read-bound&lt;br/>or write-bound?"}
+    B -- "read-bound" --> C["1. Index &amp; query fix"]
+    C --> D["2. Cache"]
+    D --> E["3. Read replicas"]
+    B -- "write-bound" --> F["4. Vertical scaling&lt;br/>(bigger box)"]
+    F --> G["5. Sharding&lt;br/>(split by key)"]
+    E --> H{"Still not enough?"}
+    H -- yes --> F
+    H -- no --> Z["Stop, you are done"]
+    G --> I["Rebalance &amp; migrate&lt;br/>with dual write"]</pre>
+
+<table>
+<thead>
+<tr>
+<th>层级</th>
+<th>手段</th>
+<th>收益</th>
+<th>代价</th>
+<th>触发信号</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>索引&#x2F;查询优化</td>
+<td>10~1000×</td>
+<td>几乎为零</td>
+<td>慢日志里有全表扫</td>
+</tr>
+<tr>
+<td>2</td>
+<td>缓存（Redis）</td>
+<td>10× 读</td>
+<td>一致性变复杂</td>
+<td>热点读占 80%</td>
+</tr>
+<tr>
+<td>3</td>
+<td>读写分离</td>
+<td>读线性扩展</td>
+<td>延迟与一致性（⑧）</td>
+<td>读 QPS 到拐点</td>
+</tr>
+<tr>
+<td>4</td>
+<td>垂直扩容</td>
+<td>2~4×</td>
+<td>花钱、有上限</td>
+<td>CPU&#x2F;内存打满</td>
+</tr>
+<tr>
+<td>5</td>
+<td>分库分表</td>
+<td>近似线性</td>
+<td>跨片查询、分布式事务、运维复杂</td>
+<td>写入到拐点</td>
+</tr>
+</tbody></table>
+<p><strong>顺序铁律</strong>：1 → 2 → 3 → 4 → 5。跳过任何一步，都会在分片后重新遇到同一个问题。</p>
+<h3 id="2-2-什么时候真的该分片"><a href="#2-2-什么时候真的该分片" class="headerlink" title="2.2 什么时候真的该分片"></a>2.2 什么时候真的该分片</h3><table>
+<thead>
+<tr>
+<th>信号</th>
+<th>阈值（经验）</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>单表数据量</td>
+<td>&gt; 5000 万行且无法归档</td>
+<td>备份、DDL 窗口不可接受</td>
+</tr>
+<tr>
+<td>写入 TPS</td>
+<td>超过单机拐点</td>
+<td>加从库没用，写只有主库扛</td>
+</tr>
+<tr>
+<td>单库磁盘</td>
+<td>&gt; 2 TB</td>
+<td>备份&#x2F;恢复时间不可控</td>
+</tr>
+<tr>
+<td>业务隔离需求</td>
+<td>多租户、跨地域</td>
+<td>分片是顺带的</td>
+</tr>
+</tbody></table>
+<p><strong>注意「且」</strong>：单表 5000 万行但查询全走索引、备份窗口 10 分钟、DDL 用 gh-ost——这种情况完全可以不分。分片是「运维成本」与「业务增长」的交易，不是技术炫耀。</p>
+<h2 id="3-分片实操：选键、迁移、校验"><a href="#3-分片实操：选键、迁移、校验" class="headerlink" title="3. 分片实操：选键、迁移、校验"></a>3. 分片实操：选键、迁移、校验</h2><h3 id="3-1-分片键的三个判据"><a href="#3-1-分片键的三个判据" class="headerlink" title="3.1 分片键的三个判据"></a>3.1 分片键的三个判据</h3><table>
+<thead>
+<tr>
+<th>判据</th>
+<th>好的分片键</th>
+<th>坏的分片键</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>均匀</td>
+<td>用户 ID、订单 ID 的哈希</td>
+<td>状态、地区（倾斜严重）</td>
+</tr>
+<tr>
+<td>高频查询能定位到单片</td>
+<td><code>WHERE user_id = ?</code></td>
+<td>只有 <code>WHERE create_time &gt; ?</code></td>
+</tr>
+<tr>
+<td>不跨片</td>
+<td>订单按 <code>user_id</code> 分，查订单带 <code>user_id</code></td>
+<td>按 <code>order_id</code> 分，却常按 <code>user_id</code> 查</td>
+</tr>
+</tbody></table>
+<p><strong>口诀</strong>：分片键要选「查询里必带、且分布均匀」的那一列。</p>
+<h3 id="3-2-取模-vs-一致性哈希"><a href="#3-2-取模-vs-一致性哈希" class="headerlink" title="3.2 取模 vs 一致性哈希"></a>3.2 取模 vs 一致性哈希</h3><pre class="mermaid">flowchart LR
+    subgraph Mod["mod 4 -> mod 8"]
+        M1["key 7: 7%4=3 -> shard3"] --> M2["扩容后 7%8=7 -> shard7&lt;br/>几乎全量搬迁"]
+    end
+    subgraph Ring["consistent hashing"]
+        R1["key 7 -> hash 落在 node C"] --> R2["加节点 D 只迁移&lt;br/>相邻一段"]
+    end</pre>
+
+<table>
+<thead>
+<tr>
+<th>方案</th>
+<th>扩容影响</th>
+<th>实现复杂度</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>取模（mod N）</td>
+<td>换 N 就全量迁移</td>
+<td>低</td>
+<td>分片数确定不变</td>
+</tr>
+<tr>
+<td>取模 + 成倍扩容（4→8）</td>
+<td>一半数据迁移</td>
+<td>低</td>
+<td>早期扩展</td>
+</tr>
+<tr>
+<td>一致性哈希 + 虚拟节点</td>
+<td>只迁 1&#x2F;N</td>
+<td>中</td>
+<td>频繁扩容</td>
+</tr>
+<tr>
+<td>预分片（一开始就 1024 片，映射到少量实例）</td>
+<td>迁移时只改映射</td>
+<td>中</td>
+<td><strong>推荐</strong>：未来扩容不动数据</td>
+</tr>
+</tbody></table>
+<p><strong>推荐做法</strong>：逻辑分片数一次给够（如 1024），物理库先少（如 4 个），扩容只是把逻辑分片搬到新库——不需要重算路由，这是大型系统最常见的折中。</p>
+<h3 id="3-3-双写迁移流程"><a href="#3-3-双写迁移流程" class="headerlink" title="3.3 双写迁移流程"></a>3.3 双写迁移流程</h3><pre class="mermaid">sequenceDiagram
+    participant App
+    participant Old as old table
+    participant New as 16 shards
+    Note over Old,New: phase 1: full copy (chunked)
+    App->>Old: normal read/write
+    Old->>New: copy where id &lt;= cutoff
+    Note over Old,New: phase 2: dual write
+    App->>Old: write
+    App->>New: write (same tx or async)
+    Old->>New: sync delta by id > cutoff
+    Note over Old,New: phase 3: verify + switch reads
+    Note over Old,New: phase 4: stop dual write, keep old as backup</pre>
+
+<table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>动作</th>
+<th>风险控制</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>全量拷贝</td>
+<td>按主键区间分批（每批 1000~5000 行）</td>
+<td>不锁表，可暂停</td>
+</tr>
+<tr>
+<td>双写</td>
+<td>新老同时写</td>
+<td>新写失败要回滚老写，或落补偿队列</td>
+</tr>
+<tr>
+<td>增量追平</td>
+<td>按 id 水位同步 delta</td>
+<td>记录 cutoff，避免漏行</td>
+</tr>
+<tr>
+<td>校验</td>
+<td>行数 + 金额&#x2F;数量聚合 + 抽样</td>
+<td><strong>必须能发现 1 行的差异</strong></td>
+</tr>
+<tr>
+<td>切换</td>
+<td>读切新表，观察 N 天</td>
+<td>老表保留可回滚</td>
+</tr>
+<tr>
+<td>清理</td>
+<td>停双写、归档老表</td>
+<td>至少保留一个备份周期</td>
+</tr>
+</tbody></table>
+<h3 id="3-4-实测：50-万行迁-16-片-校验-故障注入"><a href="#3-4-实测：50-万行迁-16-片-校验-故障注入" class="headerlink" title="3.4 实测：50 万行迁 16 片 + 校验 + 故障注入"></a>3.4 实测：50 万行迁 16 片 + 校验 + 故障注入</h3><p>本文用 1000 万行的源表做了一次真实迁移（只迁前 50 万行以控制时间）：</p>
+<table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>实测</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>建 16 个分片表</td>
+<td>即时</td>
+</tr>
+<tr>
+<td>全量拷贝 50 万行（16 条 <code>INSERT ... SELECT</code>，按 <code>user_id % 16</code> 路由）</td>
+<td><strong>2.88 s</strong></td>
+</tr>
+<tr>
+<td>迁移期间新增 1001 行</td>
+<td>—</td>
+</tr>
+<tr>
+<td>增量同步（<code>id &gt; 10000000</code>）</td>
+<td><strong>0.54 s</strong></td>
+</tr>
+<tr>
+<td><strong>校验：源 501,001 行 &#x2F; 88,130,684.99</strong></td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>校验：16 片合计 501,001 行 &#x2F; 88,130,684.99</strong></td>
+<td>✅ 完全一致</td>
+</tr>
+<tr>
+<td>故障注入：删掉分片里 1 行再校验</td>
+<td>501,000 行 &#x2F; <strong>88,130,673.88</strong> → 差 1 行 &#x2F; 11.11 ✅ 能抓到</td>
+</tr>
+</tbody></table>
+<p><strong>这一组数据最有价值的地方不是速度，而是最后一行的「校验能发现 1 行差异」</strong>。迁移事故的典型形态不是慢，是「看起来迁完了，其实少了 37 行」——没有校验就没有迁移。</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 校验模板：行数 + 聚合值，两边分别算</span></span><br><span class="line"><span class="keyword">SELECT</span> <span class="string">&#x27;source&#x27;</span> <span class="keyword">AS</span> side, <span class="built_in">COUNT</span>(<span class="operator">*</span>) cnt, ROUND(<span class="built_in">SUM</span>(amount), <span class="number">2</span>) amt</span><br><span class="line"><span class="keyword">FROM</span> big10m <span class="keyword">WHERE</span> id <span class="operator">&lt;=</span> <span class="number">500000</span> <span class="keyword">OR</span> id <span class="operator">&gt;</span> <span class="number">10000000</span></span><br><span class="line"><span class="keyword">UNION</span> <span class="keyword">ALL</span></span><br><span class="line"><span class="keyword">SELECT</span> <span class="string">&#x27;shards&#x27;</span>, <span class="built_in">SUM</span>(c), ROUND(<span class="built_in">SUM</span>(a), <span class="number">2</span>) <span class="keyword">FROM</span> (</span><br><span class="line">  <span class="keyword">SELECT</span> <span class="built_in">COUNT</span>(<span class="operator">*</span>) c, <span class="built_in">SUM</span>(amount) a <span class="keyword">FROM</span> s0</span><br><span class="line">  <span class="keyword">UNION</span> <span class="keyword">ALL</span> <span class="keyword">SELECT</span> <span class="built_in">COUNT</span>(<span class="operator">*</span>), <span class="built_in">SUM</span>(amount) <span class="keyword">FROM</span> s1</span><br><span class="line">  <span class="comment">-- ... 省略 s2~s15</span></span><br><span class="line">) x;</span><br></pre></td></tr></table></figure>
+
+<h3 id="3-5-动手验证：在你自己的表上做一次「小规模迁移」"><a href="#3-5-动手验证：在你自己的表上做一次「小规模迁移」" class="headerlink" title="3.5 动手验证：在你自己的表上做一次「小规模迁移」"></a>3.5 动手验证：在你自己的表上做一次「小规模迁移」</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1) 建 4 个分片表（够验证流程即可）</span></span><br><span class="line"><span class="keyword">for</span> k <span class="keyword">in</span> 0 1 2 3; <span class="keyword">do</span></span><br><span class="line">  docker <span class="built_in">exec</span> -i mysql-lab mysql -uroot -plab123 shop -e <span class="string">&quot;</span></span><br><span class="line"><span class="string">    CREATE TABLE IF NOT EXISTS s<span class="variable">$k</span> (id BIGINT PRIMARY KEY, user_id INT, amount DECIMAL(10,2));&quot;</span></span><br><span class="line"><span class="keyword">done</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 2) 全量拷贝一片数据（截取 10 万行）</span></span><br><span class="line"><span class="keyword">for</span> k <span class="keyword">in</span> 0 1 2 3; <span class="keyword">do</span></span><br><span class="line">  docker <span class="built_in">exec</span> -i mysql-lab mysql -uroot -plab123 shop -e <span class="string">&quot;</span></span><br><span class="line"><span class="string">    INSERT INTO s<span class="variable">$k</span> SELECT id, user_id, amount FROM big WHERE id &lt;= 100000 AND user_id % 4 = <span class="variable">$k</span>;&quot;</span></span><br><span class="line"><span class="keyword">done</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 3) 校验：行数与金额必须一致</span></span><br><span class="line">docker <span class="built_in">exec</span> -i mysql-lab mysql -uroot -plab123 shop -e <span class="string">&quot;</span></span><br><span class="line"><span class="string">SELECT COUNT(*), SUM(amount) FROM big WHERE id &lt;= 100000;</span></span><br><span class="line"><span class="string">SELECT SUM(c), SUM(a) FROM (</span></span><br><span class="line"><span class="string">  SELECT COUNT(*) c, SUM(amount) a FROM s0 UNION ALL</span></span><br><span class="line"><span class="string">  SELECT COUNT(*), SUM(amount) FROM s1 UNION ALL</span></span><br><span class="line"><span class="string">  SELECT COUNT(*), SUM(amount) FROM s2 UNION ALL</span></span><br><span class="line"><span class="string">  SELECT COUNT(*), SUM(amount) FROM s3) x;&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：两条查询的行数与金额完全相同。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>行数一致但金额不一致 → 有行被改了没同步（检查双写逻辑）；</li>
+<li>差值是整数倍的单行金额 → 漏了某个批次；</li>
+<li>校验耗时远大于拷数据 → 校验本身要优化（先按主键区间分片算）。</li>
+</ul>
+<h2 id="4-分片后的一致性代价"><a href="#4-分片后的一致性代价" class="headerlink" title="4. 分片后的一致性代价"></a>4. 分片后的一致性代价</h2><table>
+<thead>
+<tr>
+<th>能力</th>
+<th>单库</th>
+<th>分片后</th>
+<th>代价</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>跨片 JOIN</td>
+<td>直接写</td>
+<td>几乎不可用</td>
+<td>冗余字段或内存拼装</td>
+</tr>
+<tr>
+<td>全局排序 + 分页</td>
+<td><code>ORDER BY ... LIMIT</code></td>
+<td>各片取 N 条再归并</td>
+<td>深分页更难</td>
+</tr>
+<tr>
+<td>全局唯一 ID</td>
+<td>自增</td>
+<td>雪花&#x2F;号段&#x2F;UUID</td>
+<td>⑫ 的分布式 ID 问题</td>
+</tr>
+<tr>
+<td>跨片事务</td>
+<td>单机事务</td>
+<td>2PC&#x2F;TCC&#x2F;Saga</td>
+<td>分布式事务（站内另有一篇）</td>
+</tr>
+<tr>
+<td>聚合统计</td>
+<td><code>SUM/GROUP BY</code></td>
+<td>各片聚合再合并</td>
+<td>实时性下降，常走离线</td>
+</tr>
+</tbody></table>
+<p><strong>所以分片的顺序是</strong>：先把单库优化到极致（③④⑦），再做读写分离（⑧），最后才分片。反过来说，如果分片后你发现「跨片查询太多」，那不是分片技术不行，是<strong>分片键选错了</strong>。</p>
+<h2 id="5-全系列总表（收官）"><a href="#5-全系列总表（收官）" class="headerlink" title="5. 全系列总表（收官）"></a>5. 全系列总表（收官）</h2><h3 id="5-1-十二篇总表"><a href="#5-1-十二篇总表" class="headerlink" title="5.1 十二篇总表"></a>5.1 十二篇总表</h3><table>
+<thead>
+<tr>
+<th>#</th>
+<th>篇目</th>
+<th>一句话核心</th>
+<th>给你的能力</th>
+<th>关键实测</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>①</td>
+<td>从这里开始：把 MySQL 变成你的实验台</td>
+<td>性能是量出来的，不是读出来的</td>
+<td>能搭环境、跑基线、看懂逻辑读&#x2F;物理读</td>
+<td>主键 4 页 &#x2F; 全表 3430 页</td>
+</tr>
+<tr>
+<td>②</td>
+<td>一条 SQL 的六层成本账</td>
+<td>每层成本量级差三个数量级</td>
+<td>能判断慢在哪一层</td>
+<td><code>SELECT 1</code> 10.8 µs，回表放大 589 倍</td>
+</tr>
+<tr>
+<td>③</td>
+<td>Schema 与索引：把逻辑读降下来</td>
+<td>列序由查询形态决定</td>
+<td>能设计复合索引、算写放大</td>
+<td>7 方案 × 2 查询矩阵；5 索引写入慢 4.17 倍</td>
+</tr>
+<tr>
+<td>④</td>
+<td>查询优化：优化器为什么会选错索引</td>
+<td>它只算成本，看不到数据分布</td>
+<td>能识别五类选错模式</td>
+<td><code>filtered</code> 10.00 → 0.10；隐式转换慢 1 万倍</td>
+</tr>
+<tr>
+<td>⑤</td>
+<td>事务与 MVCC</td>
+<td>快照读不加锁，当前读加锁</td>
+<td>能复现三种异常、判断长事务</td>
+<td>RC 读到 1100 &#x2F; RR 读到 1000；幻读 2 vs 3</td>
+</tr>
+<tr>
+<td>⑥</td>
+<td>锁、死锁与 MDL</td>
+<td>锁的是索引记录，不是行</td>
+<td>能预测加锁范围、读死锁日志</td>
+<td>唯一索引命中只锁 1 条；MDL 堵 3 秒</td>
+</tr>
+<tr>
+<td>⑦</td>
+<td>InnoDB 内存与刷盘</td>
+<td>每次 commit 两次 fsync</td>
+<td>能算持久性&#x2F;性能兑换率</td>
+<td>TPS 734 → 151,035；<code>flush=0</code> 丢 2000&#x2F;2000</td>
+</tr>
+<tr>
+<td>⑧</td>
+<td>复制与高可用</td>
+<td><code>SBM</code> 有两个盲区</td>
+<td>能测真延迟、做主从切换</td>
+<td>停住时 <code>SBM=NULL</code>，心跳 21.7 s</td>
+</tr>
+<tr>
+<td>⑨</td>
+<td>备份与恢复</td>
+<td>没演练过的备份等于没有</td>
+<td>能做 PITR、只捞单表</td>
+<td>全备 0.09 s，恢复 0.46 s</td>
+</tr>
+<tr>
+<td>⑩</td>
+<td>在线 DDL</td>
+<td>危险在排队不在执行</td>
+<td>能判断算法、估算变更窗口</td>
+<td>加列 0.035 s；COPY 锁写 3.62 s</td>
+</tr>
+<tr>
+<td>⑪</td>
+<td>Java 侧连接池与事务</td>
+<td>池大小决定并发上限</td>
+<td>能定位打满、识别注解失效</td>
+<td>池 2 → 37.9 rps &#x2F; p99 6.2 s；4&#x2F;6 事务失效</td>
+</tr>
+<tr>
+<td>⑫</td>
+<td>容量与扩展（本文）</td>
+<td>点查不随数据量变慢</td>
+<td>能算天花板、做迁移校验</td>
+<td>10M 行点查仍 4 页；500k 迁移 2.88 s</td>
+</tr>
+</tbody></table>
+<h3 id="5-2-三种能力的分层"><a href="#5-2-三种能力的分层" class="headerlink" title="5.2 三种能力的分层"></a>5.2 三种能力的分层</h3><table>
+<thead>
+<tr>
+<th>层级</th>
+<th>能力</th>
+<th>对应篇目</th>
+<th>判断标准</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>L1 知识</td>
+<td>知道机制、参数、现象</td>
+<td>全部</td>
+<td>能画出来、能解释为什么</td>
+</tr>
+<tr>
+<td>L2 判断</td>
+<td>知道在什么数据量&#x2F;并发下成立</td>
+<td>③④⑦⑧⑫</td>
+<td>能给出量化阈值与对照数据</td>
+</tr>
+<tr>
+<td>L3 责任</td>
+<td>独立处理过故障与变更</td>
+<td>⑨⑩⑪</td>
+<td>能签字、能复盘、能定预案</td>
+</tr>
+</tbody></table>
+<p><strong>这三层不能跳</strong>。看完 12 篇只到 L1~L2；L3 只能靠在真实系统里负责过故障、变更、恢复来获得。</p>
+<h3 id="5-3-自检清单：能脱稿回答就算过关"><a href="#5-3-自检清单：能脱稿回答就算过关" class="headerlink" title="5.3 自检清单：能脱稿回答就算过关"></a>5.3 自检清单：能脱稿回答就算过关</h3><ol>
+<li>一条 SQL 从连接到返回经过哪六层，各层成本量级？</li>
+<li>为什么 <code>WHERE user_id = ?</code> 建了索引还是全表扫？列出至少 5 种原因。</li>
+<li>复合索引 <code>(a, b, c)</code> 在什么条件下能吃掉 <code>ORDER BY c</code>？</li>
+<li><code>filtered = 10.00</code> 意味着什么，怎么修？</li>
+<li>RC 与 RR 的差别只有一句话，是哪句？</li>
+<li><code>WHERE id = 5 FOR UPDATE</code> 锁几行？<code>WHERE c = 5</code>（非唯一索引）呢？</li>
+<li><code>lock_wait_timeout</code> 与 <code>innodb_lock_wait_timeout</code> 分别管什么，默认值多少？</li>
+<li>一次 commit 落几次盘？<code>flush=2</code> 在什么场景下会丢数据？</li>
+<li><code>SBM</code> 的两个盲区是什么？怎么测真延迟？</li>
+<li>误删表 2 小时后才发现，恢复步骤是什么？</li>
+<li><code>ALTER TABLE ... ADD COLUMN</code> 为什么能秒完成？什么操作必须 COPY？</li>
+<li>单表 3000 万行，你怎么判断该不该分片？</li>
+</ol>
+<h3 id="5-4-三个月的学习路线"><a href="#5-4-三个月的学习路线" class="headerlink" title="5.4 三个月的学习路线"></a>5.4 三个月的学习路线</h3><table>
+<thead>
+<tr>
+<th>周次</th>
+<th>内容</th>
+<th>产出</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1~2</td>
+<td>① ②</td>
+<td>自己的环境 + 基线档案</td>
+</tr>
+<tr>
+<td>3~4</td>
+<td>③ ④</td>
+<td>6 套索引方案对比 + 直方图实验</td>
+</tr>
+<tr>
+<td>5~6</td>
+<td>⑤ ⑥</td>
+<td>三种异常复现 + 死锁日志解读</td>
+</tr>
+<tr>
+<td>7~8</td>
+<td>⑦ ⑧</td>
+<td>三档刷盘 TPS + 主从延迟观测</td>
+</tr>
+<tr>
+<td>9~10</td>
+<td>⑨ ⑩</td>
+<td>一次真删表恢复 + 一次 DDL 演练</td>
+</tr>
+<tr>
+<td>11~12</td>
+<td>⑪ ⑫</td>
+<td>池大小压测 + 一次小规模迁移校验</td>
+</tr>
+</tbody></table>
+<p><strong>唯一的硬要求</strong>：每个实验都要把数字记进 <code>mysql-lab.md</code>。三个月后那份文件比这 12 篇文章值钱——文章是别人的结论，那份文件是你自己的判断依据。</p>
+<hr>
+<p><strong>系列完结</strong>。十二篇的因果链是一条：<strong>先能量（①）→ 再算账（②）→ 降读（③④）→ 懂并发（⑤⑥）→ 管写（⑦）→ 扩读（⑧）→ 保命（⑨）→ 改得动（⑩）→ 应用侧不拖后腿（⑪）→ 最后才谈扩展（⑫）</strong>。</p>
+<p>如果你的下一步是面试，按 5.3 的 12 个问题自测；如果是实战，从 ① 的环境和 ③ 的索引对比开始动手。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/MySQL/" rel="tag"># MySQL</a>
+              <a href="/tags/%E9%9D%A2%E8%AF%95/" rel="tag"># 面试</a>
+              <a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/" rel="tag"># 容量规划</a>
+              <a href="/tags/%E5%88%86%E5%BA%93%E5%88%86%E8%A1%A8/" rel="tag"># 分库分表</a>
+              <a href="/tags/%E4%B8%80%E8%87%B4%E6%80%A7%E5%93%88%E5%B8%8C/" rel="tag"># 一致性哈希</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/4d87a909.html" rel="prev" title="Java 侧：连接池打满与 @Transactional 失效的真相">
+                  <i class="fa fa-angle-left"></i> Java 侧：连接池打满与 @Transactional 失效的真相
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/post/fb7bfeea.html" rel="next" title="从这里开始：把 Redis 变成你的实验台">
+                  从这里开始：把 Redis 变成你的实验台 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">740k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">44:51</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
+</html>

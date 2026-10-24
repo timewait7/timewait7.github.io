@@ -1,0 +1,1126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="SET NX 只能保证「同一时刻只有一个客户端能写进去」，它不保证「这把锁一直属于你」。本文实测了三种锁失效：用 DEL 释放会把别人的锁删掉；任务执行时间超过 TTL 会出现两个持有者；主库宕机 + 旧主未隔离（脑裂）时，两个节点上会各有一把同名锁，两个客户端同时认为自己独占。 后半篇换到限流：固定窗口在边界上能放行 2 倍的请求（实测 100&#x2F;s 的限制放行了 200 个），滑动窗口">
+<meta property="og:type" content="article">
+<meta property="og:title" content="分布式锁与限流：从 SET NX 到 Redisson">
+<meta property="og:url" content="http://timewait7.github.io/post/cb07eb8d.html">
+<meta property="og:site_name" content="知行栈">
+<meta property="og:description" content="SET NX 只能保证「同一时刻只有一个客户端能写进去」，它不保证「这把锁一直属于你」。本文实测了三种锁失效：用 DEL 释放会把别人的锁删掉；任务执行时间超过 TTL 会出现两个持有者；主库宕机 + 旧主未隔离（脑裂）时，两个节点上会各有一把同名锁，两个客户端同时认为自己独占。 后半篇换到限流：固定窗口在边界上能放行 2 倍的请求（实测 100&#x2F;s 的限制放行了 200 个），滑动窗口">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-10-25T11:00:00.000Z">
+<meta property="article:modified_time" content="2026-10-24T14:40:51.281Z">
+<meta property="article:tag" content="面试">
+<meta property="article:tag" content="Redis">
+<meta property="article:tag" content="分布式锁">
+<meta property="article:tag" content="Redisson">
+<meta property="article:tag" content="RedLock">
+<meta property="article:tag" content="限流">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/cb07eb8d.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/cb07eb8d.html","path":"post/cb07eb8d.html","title":"分布式锁与限流：从 SET NX 到 Redisson"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>分布式锁与限流：从 SET NX 到 Redisson | 知行栈</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<!-- hexo injector head_end start --><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
+</style><style>
+/* 菜单链高亮：sub-menu 祖先（同主题 .menu-item-active 的 Pisces 规则） */
+.sub-menu .menu-item a.menu-chain-active {
+  border-bottom-color: #fc6423;
+  color: #fc6423;
+}
+.sub-menu .menu-item a.menu-chain-active:hover {
+  border-bottom-color: #fc6423;
+}
+/* 菜单链高亮：main-menu 祖先（同主题 hover/active 的背景规则） */
+.main-menu .menu-item a.menu-chain-active {
+  background: var(--menu-item-bg-color);
+}
+</style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">知行栈</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section" class="menu-chain-active"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>Categories</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-%E4%B8%80%E6%8A%8A%E5%90%88%E6%A0%BC%E7%9A%84%E9%94%81%E9%9C%80%E8%A6%81%E5%9B%9B%E4%B8%AA%E5%B1%9E%E6%80%A7"><span class="nav-text">1. 一把合格的锁需要四个属性</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E4%B8%89%E4%B8%AA%E5%BF%85%E8%B8%A9%E7%9A%84%E5%9D%91"><span class="nav-text">2. 三个必踩的坑</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E7%94%A8-DEL-%E9%87%8A%E6%94%BE%EF%BC%8C%E4%BC%9A%E5%88%A0%E6%8E%89%E5%88%AB%E4%BA%BA%E7%9A%84%E9%94%81"><span class="nav-text">2.1 用 DEL 释放，会删掉别人的锁</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E4%BB%BB%E5%8A%A1%E8%B6%85%E6%97%B6%EF%BC%9A%E9%94%81%E8%87%AA%E5%8A%A8%E8%BF%87%E6%9C%9F%EF%BC%8C%E5%87%BA%E7%8E%B0%E4%B8%A4%E4%B8%AA%E6%8C%81%E6%9C%89%E8%80%85"><span class="nav-text">2.2 任务超时：锁自动过期，出现两个持有者</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-%E4%B8%BB%E4%BB%8E%E5%88%87%E6%8D%A2%EF%BC%9A%E4%B8%A4%E4%B8%AA%E8%8A%82%E7%82%B9%E5%90%84%E6%9C%89%E4%B8%80%E6%8A%8A%E5%90%8C%E5%90%8D%E9%94%81%EF%BC%88%E5%AE%9E%E6%B5%8B%EF%BC%89"><span class="nav-text">2.3 主从切换：两个节点各有一把同名锁（实测）</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E4%BB%8E-SET-NX-%E5%88%B0-Redisson"><span class="nav-text">3. 从 SET NX 到 Redisson</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-RedLock-%E7%9A%84%E4%BA%89%E8%AE%AE%E5%9C%A8%E4%BA%89%E4%BB%80%E4%B9%88"><span class="nav-text">4. RedLock 的争议在争什么</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E9%99%90%E6%B5%81%EF%BC%9A%E4%B8%89%E7%A7%8D%E7%AE%97%E6%B3%95%E7%9A%84%E5%AE%9E%E6%B5%8B"><span class="nav-text">5. 限流：三种算法的实测</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E5%9B%BA%E5%AE%9A%E7%AA%97%E5%8F%A3%EF%BC%9A%E8%BE%B9%E7%95%8C%E4%B8%8A%E8%83%BD%E6%94%BE%E8%A1%8C-2-%E5%80%8D"><span class="nav-text">5.1 固定窗口：边界上能放行 2 倍</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E6%BB%91%E5%8A%A8%E7%AA%97%E5%8F%A3%EF%BC%9A%E7%B2%BE%E7%A1%AE%E4%BD%86%E5%8D%A0%E5%86%85%E5%AD%98"><span class="nav-text">5.2 滑动窗口：精确但占内存</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-%E4%BB%A4%E7%89%8C%E6%A1%B6%EF%BC%9A%E5%85%81%E8%AE%B8%E7%AA%81%E5%8F%91"><span class="nav-text">5.3 令牌桶：允许突发</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-%E4%B8%89%E7%A7%8D%E7%AE%97%E6%B3%95%E5%AF%B9%E6%AF%94"><span class="nav-text">5.4 三种算法对比</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-5-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E8%BE%B9%E7%95%8C%E7%AA%81%E5%8F%91"><span class="nav-text">5.5 动手验证：边界突发</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#7-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%9B%9B%E4%B8%AA%E5%8F%AF%E5%A4%8D%E7%8E%B0%E5%AE%9E%E9%AA%8C"><span class="nav-text">7. 动手验证：四个可复现实验</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#7-1-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%AF%B9%E6%AF%94-DEL-%E4%B8%8E-Lua-%E9%87%8A%E6%94%BE"><span class="nav-text">7.1 动手验证：对比 DEL 与 Lua 释放</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-2-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%A4%8D%E7%8E%B0%E9%94%81%E8%BF%87%E6%9C%9F%E5%90%8E%E7%9A%84%E5%8F%8C%E6%8C%81%E6%9C%89"><span class="nav-text">7.2 动手验证：复现锁过期后的双持有</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-3-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E9%AA%8C%E8%AF%81%E9%99%90%E6%B5%81%E8%BE%B9%E7%95%8C%E8%B6%85%E5%8F%91"><span class="nav-text">7.3 动手验证：验证限流边界超发</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E9%87%8F%E4%B8%80%E6%AC%A1%E9%99%90%E6%B5%81%E8%84%9A%E6%9C%AC%E7%9A%84%E5%BC%80%E9%94%80"><span class="nav-text">7.4 动手验证：量一次限流脚本的开销</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#6-%E6%80%BB%E7%BB%93"><span class="nav-text">6. 总结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#6-1-%E9%9D%A2%E8%AF%95%E9%80%9F%E7%AD%94%E8%A1%A8"><span class="nav-text">6.1 面试速答表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-2-%E5%AE%9E%E6%88%98%E9%81%BF%E5%9D%91%E8%A1%A8"><span class="nav-text">6.2 实战避坑表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-3-%E5%B7%A5%E5%85%B7%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">6.3 工具速查表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-4-%E5%AE%9E%E6%93%8D%E5%BB%BA%E8%AE%AE"><span class="nav-text">6.4 实操建议</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">104</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">14</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">175</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+    <div class="sidebar-inner sidebar-blogroll">
+      <div class="links-of-blogroll animated">
+        <div class="links-of-blogroll-title"><i class="fa fa-globe fa-fw"></i>
+          Links
+        </div>
+        <ul class="links-of-blogroll-list">
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9wYXVsZ3JhaGFtLmNvbS9hcnRpY2xlcy5odG1s" title="https:&#x2F;&#x2F;paulgraham.com&#x2F;articles.html">paulgraham</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly93d3cuam9lbG9uc29mdHdhcmUuY29tLw==" title="https:&#x2F;&#x2F;www.joelonsoftware.com&#x2F;">Joel on Software</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9tYXJ0aW5mb3dsZXIuY29tLw==" title="https:&#x2F;&#x2F;martinfowler.com&#x2F;">Martin Flower</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly96aGFuZ3RpZWxlaS5jb20v" title="https:&#x2F;&#x2F;zhangtielei.com&#x2F;">zhangtielei</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhLWRlc2lnbi1wYXR0ZXJucy5jb20vemgv" title="https:&#x2F;&#x2F;java-design-patterns.com&#x2F;zh&#x2F;">Java Design Patterns</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9taWNyb3NlcnZpY2VzLmlvLw==" title="https:&#x2F;&#x2F;microservices.io&#x2F;">Microservice Architecture</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhZ3VpZGUuY24v" title="https:&#x2F;&#x2F;javaguide.cn&#x2F;">JavaGuide</span>
+            </li>
+        </ul>
+      </div>
+    </div>
+        <div class="pjax">
+        
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-后端开发"><a href="/docs/nav/backend-dev-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-code fa-fw"></i>后端开发</a></li>
+
+
+      
+  <li class="menu-item menu-item-计算机基础"><a href="/docs/nav/cs-foundation-nav.html" rel="section"><i class="fa fa-desktop fa-fw"></i>计算机基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-ai-学习"><a href="/docs/nav/ai-learning-nav.html" rel="section"><i class="fa fa-robot fa-fw"></i>AI 学习</a></li>
+
+
+      
+  <li class="menu-item menu-item-项目实战"><a href="/docs/nav/5964f4da.html" rel="section"><i class="fa fa-flask fa-fw"></i>项目实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-misc"><a href="/docs/nav/misc-nav.html" rel="section"><i class="fa fa-box fa-fw"></i>Misc</a></li>
+
+
+      
+  <li class="menu-item menu-item-随笔·生活"><a href="/docs/nav/life-nav.html" rel="section"><i class="fa fa-feather fa-fw"></i>随笔·生活</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java"><a href="/docs/nav/java-nav.html" rel="section"><i class="fa fa-coffee fa-fw"></i>Java</a></li>
+
+
+      
+  <li class="menu-item menu-item-框架"><a href="/docs/nav/framework-nav.html" rel="section"><i class="fa fa-th-large fa-fw"></i>框架</a></li>
+
+
+      
+  <li class="menu-item menu-item-数据存储"><a href="/docs/nav/data-storage-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-hdd fa-fw"></i>数据存储</a></li>
+
+
+      
+  <li class="menu-item menu-item-中间件"><a href="/docs/nav/middleware-nav.html" rel="section"><i class="fa fa-cubes fa-fw"></i>中间件</a></li>
+
+
+      
+  <li class="menu-item menu-item-分布式与微服务"><a href="/docs/nav/distributed-nav.html" rel="section"><i class="fa fa-sitemap fa-fw"></i>分布式与微服务</a></li>
+
+
+      
+  <li class="menu-item menu-item-系统设计"><a href="/docs/nav/system-design-nav.html" rel="section"><i class="fa fa-pencil-ruler fa-fw"></i>系统设计</a></li>
+
+
+      
+  <li class="menu-item menu-item-部署运维"><a href="/docs/nav/devops-nav.html" rel="section"><i class="fa fa-terminal fa-fw"></i>部署运维</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-mysql"><a href="/docs/nav/mysql-nav.html" rel="section"><i class="fa fa-database fa-fw"></i>MySQL</a></li>
+
+
+      
+  <li class="menu-item menu-item-redis"><a href="/docs/nav/redis-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-bolt fa-fw"></i>Redis</a></li>
+
+
+      
+  <li class="menu-item menu-item-elasticsearch"><a href="/docs/nav/es-nav.html" rel="section"><i class="fa fa-search fa-fw"></i>ElasticSearch</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-redis-深度解析：从原理到精通"><a href="/post/bae4ff13.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Redis 深度解析：从原理到精通</a></li>
+
+
+      
+  <li class="menu-item menu-item-①-从这里开始：把-redis-变成你的实验台"><a href="/post/fb7bfeea.html" rel="section"><i class="fa fa-file-text fa-fw"></i>① 从这里开始：把 Redis 变成你的实验台</a></li>
+
+
+      
+  <li class="menu-item menu-item-②-一次请求的成本账：rtt、事件循环与命令执行"><a href="/post/d0aa1ba2.html" rel="section"><i class="fa fa-file-text fa-fw"></i>② 一次请求的成本账：RTT、事件循环与命令执行</a></li>
+
+
+      
+  <li class="menu-item menu-item-③-数据结构：编码阈值与复杂度的真实代价"><a href="/post/342c4932.html" rel="section"><i class="fa fa-file-text fa-fw"></i>③ 数据结构：编码阈值与复杂度的真实代价</a></li>
+
+
+      
+  <li class="menu-item menu-item-④-内存、淘汰与碎片：maxmemory-设了为什么还会-oom"><a href="/post/b28e7721.html" rel="section"><i class="fa fa-file-text fa-fw"></i>④ 内存、淘汰与碎片：maxmemory 设了为什么还会 OOM</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑤-单线程：为什么快，什么时候会卡"><a href="/post/d9138e00.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑤ 单线程：为什么快，什么时候会卡</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑥-pipeline、事务与-lua：原子性和-rtt-怎么兼得"><a href="/post/884c75a8.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑥ Pipeline、事务与 Lua：原子性和 RTT 怎么兼得</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑦-持久化：rdb、aof-与丢失窗口"><a href="/post/6a7a58b3.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑦ 持久化：RDB、AOF 与丢失窗口</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑧-复制、哨兵与-cluster：切一次主要多久"><a href="/post/63c21b5b.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑧ 复制、哨兵与 Cluster：切一次主要多久</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑨-缓存三大问题：穿透、击穿、雪崩的量化与解法"><a href="/post/1d7a96da.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑨ 缓存三大问题：穿透、击穿、雪崩的量化与解法</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑩-缓存与数据库一致性：更新顺序与不一致窗口"><a href="/post/35ae94a8.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑩ 缓存与数据库一致性：更新顺序与不一致窗口</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑪-分布式锁与限流：从-set-nx-到-redisson"><a href="/post/cb07eb8d.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑪ 分布式锁与限流：从 SET NX 到 Redisson</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑫-容量规划与分片：什么时候才该上-cluster"><a href="/post/b815463e.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑫ 容量规划与分片：什么时候才该上 Cluster</a></li>
+
+
+    </ul>
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/cb07eb8d.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="分布式锁与限流：从 SET NX 到 Redisson | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          分布式锁与限流：从 SET NX 到 Redisson
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-10-25 19:00:00" itemprop="dateCreated datePublished" datetime="2026-10-25T19:00:00+08:00">2026-10-25</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/" itemprop="url" rel="index"><span itemprop="name">数据存储</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>3.5k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>13 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><p><strong><code>SET NX</code> 只能保证「同一时刻只有一个客户端能写进去」，它不保证「这把锁一直属于你」</strong>。本文实测了三种锁失效：用 <code>DEL</code> 释放会把别人的锁删掉；任务执行时间超过 TTL 会出现两个持有者；主库宕机 + 旧主未隔离（脑裂）时，两个节点上会各有一把同名锁，两个客户端同时认为自己独占。</p>
+<p>后半篇换到限流：固定窗口在边界上能放行 <strong>2 倍</strong>的请求（实测 100&#x2F;s 的限制放行了 200 个），滑动窗口与令牌桶分别是 100 和 117。</p>
+<blockquote>
+<p><strong>系列地图（Redis 实战路线，12 篇）</strong></p>
+<p>① 实验台与基线 → ② 一次请求的成本账 → ③ 数据结构与编码 → ④ 内存、淘汰与碎片 → ⑤ 单线程与阻塞 → ⑥ Pipeline、事务与 Lua → ⑦ 持久化与丢失窗口 → ⑧ 复制、哨兵与 Cluster → ⑨ 缓存三大问题 → ⑩ 缓存与数据库一致性 → ⑪ <strong>分布式锁与限流（本文）</strong> → ⑫ 容量规划与分片</p>
+<p>与前后篇的关系：锁的释放用 ⑥ 的 Lua 原子性；「切换丢锁」是 ⑧ 异步复制的必然结果；限流器是 ⑨ 雪崩的兜底手段。</p>
+</blockquote>
+<h2 id="1-一把合格的锁需要四个属性"><a href="#1-一把合格的锁需要四个属性" class="headerlink" title="1. 一把合格的锁需要四个属性"></a>1. 一把合格的锁需要四个属性</h2><table>
+<thead>
+<tr>
+<th>属性</th>
+<th>含义</th>
+<th>不做会怎样</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>互斥</td>
+<td>同一时刻只有一个持有者</td>
+<td><code>SET NX</code> 保证</td>
+</tr>
+<tr>
+<td>超时</td>
+<td>持锁者崩溃后能自动释放</td>
+<td>死锁，谁也别想拿</td>
+</tr>
+<tr>
+<td>持有者标识</td>
+<td>释放时能确认「是我的锁」</td>
+<td>误删别人的锁（2.1）</td>
+</tr>
+<tr>
+<td>可重入（可选）</td>
+<td>同一线程可重复获取</td>
+<td>自己把自己锁死</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">stateDiagram-v2
+    [*] --> Free: 无锁
+    Free --> Held: SET NX PX ok
+    Held --> Held: 续期（watchdog）
+    Held --> Free: Lua 校验后 DEL
+    Held --> Free: TTL 到期（持有者崩了）
+    Held --> HeldByOther: TTL 到期但业务还在跑
+    HeldByOther --> [*]: 双持有者（危险）</pre>
+
+<h2 id="2-三个必踩的坑"><a href="#2-三个必踩的坑" class="headerlink" title="2. 三个必踩的坑"></a>2. 三个必踩的坑</h2><h3 id="2-1-用-DEL-释放，会删掉别人的锁"><a href="#2-1-用-DEL-释放，会删掉别人的锁" class="headerlink" title="2.1 用 DEL 释放，会删掉别人的锁"></a>2.1 用 <code>DEL</code> 释放，会删掉别人的锁</h3><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># c1 加锁成功</span></span><br><span class="line">c1: SET lock:order &lt;uuid1&gt; NX PX <span class="number">5000</span>   -&gt; <span class="literal">True</span></span><br><span class="line"><span class="comment"># c2 尝试加锁失败</span></span><br><span class="line">c2: SET lock:order &lt;uuid2&gt; NX PX <span class="number">5000</span>   -&gt; <span class="literal">None</span></span><br><span class="line"><span class="comment"># c2 的代码「释放锁」时直接 DEL</span></span><br><span class="line">c2: DEL lock:order                       -&gt; <span class="number">1</span></span><br><span class="line"><span class="comment"># 结果</span></span><br><span class="line">c2: SET lock:order &lt;uuid2&gt; NX PX <span class="number">5000</span>   -&gt; <span class="literal">True</span>   <span class="comment"># c2 拿到了</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>问题</strong>：c1 以为自己还持有锁，实际上锁已经被 c2 删掉并抢走。</p>
+<p><strong>正确释放</strong>：用 Lua 校验 value 再删（原子）：</p>
+<figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">if</span> redis.call(<span class="string">&#x27;GET&#x27;</span>, KEYS[<span class="number">1</span>]) == ARGV[<span class="number">1</span>] <span class="keyword">then</span></span><br><span class="line">  <span class="keyword">return</span> redis.call(<span class="string">&#x27;DEL&#x27;</span>, KEYS[<span class="number">1</span>])</span><br><span class="line"><span class="keyword">else</span></span><br><span class="line">  <span class="keyword">return</span> <span class="number">0</span></span><br><span class="line"><span class="keyword">end</span></span><br></pre></td></tr></table></figure>
+
+<p>实测：</p>
+<table>
+<thead>
+<tr>
+<th>操作</th>
+<th>返回</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>用别人的 value 释放</td>
+<td><strong>0</strong></td>
+<td>拒绝，锁没被删</td>
+</tr>
+<tr>
+<td>用自己的 value 释放</td>
+<td><strong>1</strong></td>
+<td>成功删除</td>
+</tr>
+</tbody></table>
+<h3 id="2-2-任务超时：锁自动过期，出现两个持有者"><a href="#2-2-任务超时：锁自动过期，出现两个持有者" class="headerlink" title="2.2 任务超时：锁自动过期，出现两个持有者"></a>2.2 任务超时：锁自动过期，出现两个持有者</h3><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">c1: SET lock:job &lt;uuid1&gt; NX PX <span class="number">300</span>    <span class="comment"># TTL 300ms</span></span><br><span class="line"><span class="comment"># c1 的任务需要 500ms</span></span><br><span class="line">time.sleep(<span class="number">0.5</span>)</span><br><span class="line">c2: SET lock:job &lt;uuid2&gt; NX PX <span class="number">5000</span>   <span class="comment"># -&gt; True，锁已过期</span></span><br></pre></td></tr></table></figure>
+
+<p>实测结果：</p>
+<table>
+<thead>
+<tr>
+<th>观察点</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>c1 任务还在跑（已 500ms）</td>
+<td>是</td>
+</tr>
+<tr>
+<td>c2 是否拿到锁</td>
+<td><strong>是</strong></td>
+</tr>
+<tr>
+<td>当前锁的持有者</td>
+<td>c2</td>
+</tr>
+<tr>
+<td>c1 尝试释放（Lua 校验）</td>
+<td><strong>0（拒绝）</strong></td>
+</tr>
+</tbody></table>
+<p><strong>这是最危险的场景</strong>：两个客户端同时在执行「只允许一个人做」的操作（扣库存、重复下单）。Lua 校验至少避免了 c1 误删 c2 的锁，但<strong>无法阻止两个业务同时在跑</strong>。</p>
+<table>
+<thead>
+<tr>
+<th>解法</th>
+<th>做法</th>
+<th>代价</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>watchdog 自动续期</td>
+<td>后台线程每 1&#x2F;3 TTL 续一次</td>
+<td>续期线程崩了照样失效（Redisson 方案）</td>
+</tr>
+<tr>
+<td>任务幂等 + 状态机</td>
+<td>业务自己防重复</td>
+<td>需要业务改造</td>
+</tr>
+<tr>
+<td>长 TTL + 业务超时</td>
+<td>TTL 远大于任务时间</td>
+<td>TTL 过长会拖慢故障恢复</td>
+</tr>
+</tbody></table>
+<h3 id="2-3-主从切换：两个节点各有一把同名锁（实测）"><a href="#2-3-主从切换：两个节点各有一把同名锁（实测）" class="headerlink" title="2.3 主从切换：两个节点各有一把同名锁（实测）"></a>2.3 主从切换：两个节点各有一把同名锁（实测）</h3><p>先说我<strong>没复现出来</strong>的那个实验：在 loopback 上，<code>SET</code> 之后立刻断链、立刻杀主，从库<strong>已经同步了</strong>这把锁（复制延迟 &lt;1ms），所以哨兵提升后 B 拿不到锁。</p>
+<p>但这不代表安全——一旦网络有延迟或从库在阻塞，这个窗口就会打开。而下面这个场景<strong>一定能复现</strong>：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">1. A 在旧主上加锁 lock:job = A-owner        -&gt; OK</span><br><span class="line">2. 旧主宕机，从库被提升为新主（REPLICAOF NO ONE）</span><br><span class="line">3. B 在新主上加锁 lock:job = B-owner        -&gt; OK</span><br><span class="line">4. 旧主重启（没有任何 fencing）</span><br><span class="line">5. 旧主角色仍是 master，仍可写入</span><br><span class="line">6. A 的锁仍在旧主上                        -&gt; A-owner</span><br></pre></td></tr></table></figure>
+
+<p>实测输出：</p>
+<table>
+<thead>
+<tr>
+<th>检查点</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>新主上的锁</td>
+<td><code>B-owner</code></td>
+</tr>
+<tr>
+<td>旧主重启后的角色</td>
+<td><strong><code>master</code></strong></td>
+</tr>
+<tr>
+<td>旧主是否还能加锁</td>
+<td><strong>OK</strong></td>
+</tr>
+<tr>
+<td>旧主上的锁</td>
+<td><code>A-owner</code></td>
+</tr>
+</tbody></table>
+<p><strong>两个节点各持一把同名锁，两个客户端同时认为自己独占</strong>。这不是 Redis 的 bug，是「没有被隔离的旧主」+「异步复制」的必然结果。</p>
+<pre class="mermaid">flowchart LR
+    A["Client A&lt;br/>lock:job = A-owner"] --> M1["Old master&lt;br/>(not fenced)"]
+    B["Client B&lt;br/>lock:job = B-owner"] --> M2["New master&lt;br/>(promoted replica)"]
+    M1 -.->|"no replication"| M2
+    M1 --> D1["Both believe exclusive"]
+    M2 --> D1</pre>
+
+<p><strong>工程上的解法只有两个方向</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>方向</th>
+<th>做法</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>隔离旧主（fencing）</td>
+<td>切换时强制旧主 <code>readonly</code>、或直接断电&#x2F;销毁；应用侧只认 VIP</td>
+</tr>
+<tr>
+<td>放弃「绝对互斥」的假设</td>
+<td>业务幂等 + 唯一约束兜底（数据库唯一索引是最后防线）</td>
+</tr>
+</tbody></table>
+<h2 id="3-从-SET-NX-到-Redisson"><a href="#3-从-SET-NX-到-Redisson" class="headerlink" title="3. 从 SET NX 到 Redisson"></a>3. 从 <code>SET NX</code> 到 Redisson</h2><table>
+<thead>
+<tr>
+<th>能力</th>
+<th>原生 <code>SET NX</code></th>
+<th>Redisson</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>互斥</td>
+<td>✅</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>超时</td>
+<td>手动设 PX</td>
+<td>✅</td>
+</tr>
+<tr>
+<td>安全释放</td>
+<td>自己写 Lua</td>
+<td>✅ 内置</td>
+</tr>
+<tr>
+<td>自动续期</td>
+<td>❌ 自己写线程</td>
+<td>✅ watchdog（默认 30s TTL，每 10s 续）</td>
+</tr>
+<tr>
+<td>可重入</td>
+<td>❌</td>
+<td>✅ 用 Hash 记录重入次数</td>
+</tr>
+<tr>
+<td>等待&#x2F;公平</td>
+<td>❌ 自己轮询</td>
+<td>✅ 提供 <code>tryLock(waitTime)</code> 与公平锁</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">sequenceDiagram
+    participant T as Business thread
+    participant W as watchdog
+    participant R as Redis
+    T->>R: SET lock NX PX 30000
+    W->>W: schedule at TTL/3 (10s)
+    W->>R: PEXPIRE lock 30000（续期）
+    T->>R: Lua 校验+DEL（业务结束）
+    Note over W: 业务线程结束后取消续期</pre>
+
+<p><strong>watchdog 的边界</strong>：它靠 JVM 里的定时线程续期。如果进程被 <code>kill -9</code> 或长时间 GC，续期停止，锁到期自动释放——这是设计意图（防止死锁），但也意味着<strong>业务必须幂等</strong>。</p>
+<h2 id="4-RedLock-的争议在争什么"><a href="#4-RedLock-的争议在争什么" class="headerlink" title="4. RedLock 的争议在争什么"></a>4. RedLock 的争议在争什么</h2><table>
+<thead>
+<tr>
+<th>观点</th>
+<th>主张</th>
+<th>核心论据</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>antirez（RedLock）</td>
+<td>向 N 个独立 Redis 加锁，多数成功即视为持有</td>
+<td>单点故障下仍能互斥</td>
+</tr>
+<tr>
+<td>Kleppmann</td>
+<td>RedLock 不能保证「锁的持有者一定是执行者」</td>
+<td>依赖时钟假设；GC 停顿会让持有者失去锁而不自知</td>
+</tr>
+</tbody></table>
+<p><strong>争论的本质不是「RedLock 实现得好不好」，而是「你到底需不需要一把绝对安全的锁」</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>你的需求</th>
+<th>建议</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>防止重复执行（可幂等）</td>
+<td>单实例 <code>SET NX</code> + 幂等 + 唯一索引兜底</td>
+</tr>
+<tr>
+<td>互斥访问共享资源（不可幂等）</td>
+<td>需要 fencing token（每次加锁递增的版本号，下游校验）</td>
+</tr>
+<tr>
+<td>强一致（金融扣减）</td>
+<td>别用 Redis 锁，用数据库行锁&#x2F;事务（MySQL 系列 ⑤⑥）</td>
+</tr>
+</tbody></table>
+<p><strong>一句话</strong>：Redis 锁适合「防重复」，不适合「防并发写」。后者要靠数据库约束或 fencing。</p>
+<h2 id="5-限流：三种算法的实测"><a href="#5-限流：三种算法的实测" class="headerlink" title="5. 限流：三种算法的实测"></a>5. 限流：三种算法的实测</h2><h3 id="5-1-固定窗口：边界上能放行-2-倍"><a href="#5-1-固定窗口：边界上能放行-2-倍" class="headerlink" title="5.1 固定窗口：边界上能放行 2 倍"></a>5.1 固定窗口：边界上能放行 2 倍</h3><p>按秒取整计数（<code>key = prefix .. floor(now/1000)</code>），在「秒边界前后」各打 100 个请求：</p>
+<table>
+<thead>
+<tr>
+<th>算法</th>
+<th>边界前放行</th>
+<th>边界后放行</th>
+<th>合计（limit&#x3D;100&#x2F;s）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>固定窗口（按秒取整）</td>
+<td>100</td>
+<td><strong>100</strong></td>
+<td><strong>200（2 倍超发）</strong></td>
+</tr>
+<tr>
+<td>滑动窗口（ZSET）</td>
+<td>100</td>
+<td>0</td>
+<td><strong>100</strong></td>
+</tr>
+</tbody></table>
+<p><strong>固定窗口的问题</strong>：跨边界的那一瞬间，两个窗口各自独立计数，实际速率可以是限制值的 2 倍。</p>
+<h3 id="5-2-滑动窗口：精确但占内存"><a href="#5-2-滑动窗口：精确但占内存" class="headerlink" title="5.2 滑动窗口：精确但占内存"></a>5.2 滑动窗口：精确但占内存</h3><figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 每个请求记录一个时间戳，统计最近 window 内的数量</span></span><br><span class="line">redis.call(<span class="string">&#x27;ZREMRANGEBYSCORE&#x27;</span>, key, <span class="number">0</span>, now - window)</span><br><span class="line"><span class="keyword">if</span> redis.call(<span class="string">&#x27;ZCARD&#x27;</span>, key) &lt; limit <span class="keyword">then</span></span><br><span class="line">  redis.call(<span class="string">&#x27;ZADD&#x27;</span>, key, now, now .. <span class="string">&#x27;-&#x27;</span> .. <span class="built_in">math</span>.<span class="built_in">random</span>(<span class="number">1000000</span>))</span><br><span class="line">  <span class="keyword">return</span> <span class="number">1</span></span><br><span class="line"><span class="keyword">end</span></span><br><span class="line"><span class="keyword">return</span> <span class="number">0</span></span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>表现</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>精度</td>
+<td>高（严格 ≤ limit&#x2F;window）</td>
+</tr>
+<tr>
+<td>内存</td>
+<td>每个请求一条 ZSET 成员（限流值 × 窗口内请求数）</td>
+</tr>
+<tr>
+<td>适用</td>
+<td>中小流量、要精确控制</td>
+</tr>
+</tbody></table>
+<h3 id="5-3-令牌桶：允许突发"><a href="#5-3-令牌桶：允许突发" class="headerlink" title="5.3 令牌桶：允许突发"></a>5.3 令牌桶：允许突发</h3><figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 桶容量 capacity，每秒补 rate 个</span></span><br><span class="line">tokens = <span class="built_in">min</span>(capacity, tokens + delta * rate)</span><br><span class="line"><span class="keyword">if</span> tokens &gt;= <span class="number">1</span> <span class="keyword">then</span> tokens = tokens - <span class="number">1</span>; <span class="keyword">return</span> <span class="number">1</span> <span class="keyword">end</span></span><br><span class="line"><span class="keyword">return</span> <span class="number">0</span></span><br></pre></td></tr></table></figure>
+
+<p>实测（capacity&#x3D;100、rate&#x3D;100&#x2F;s，150ms 内两批共 200 个请求）：</p>
+<table>
+<thead>
+<tr>
+<th>算法</th>
+<th>放行</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>令牌桶</td>
+<td><strong>117</strong></td>
+<td>100 个初始令牌 + 150ms 补的 ~15 个</td>
+</tr>
+<tr>
+<td>固定窗口</td>
+<td>100（同窗口内）</td>
+<td>首批用完后同一窗口内全拒</td>
+</tr>
+</tbody></table>
+<p><strong>令牌桶的价值是「允许突发」</strong>：只要桶里有令牌，瞬时就能通过。适合「平时低流量、偶发峰值」的接口。</p>
+<pre class="mermaid">flowchart LR
+    subgraph FW["Fixed window"]
+        F1["counter per second"] --> F2["boundary: 200 allowed&lt;br/>for limit 100"]
+    end
+    subgraph SW["Sliding window"]
+        S1["ZSET of timestamps"] --> S2["strictly 100 allowed"]
+    end
+    subgraph TB["Token bucket"]
+        T1["tokens + refill rate"] --> T2["burst allowed: 117"]
+    end</pre>
+
+<h3 id="5-4-三种算法对比"><a href="#5-4-三种算法对比" class="headerlink" title="5.4 三种算法对比"></a>5.4 三种算法对比</h3><table>
+<thead>
+<tr>
+<th>算法</th>
+<th>精度</th>
+<th>内存</th>
+<th>突发能力</th>
+<th>实现复杂度</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>固定窗口</td>
+<td>低（边界 2 倍）</td>
+<td>一个计数器</td>
+<td>无</td>
+<td>最低</td>
+<td>粗粒度限制</td>
+</tr>
+<tr>
+<td>滑动窗口</td>
+<td>高</td>
+<td>O(limit)</td>
+<td>无</td>
+<td>中</td>
+<td>精确限流</td>
+</tr>
+<tr>
+<td>令牌桶</td>
+<td>中（允许突发）</td>
+<td>两个字段</td>
+<td><strong>有</strong></td>
+<td>中</td>
+<td>允许峰值的场景</td>
+</tr>
+<tr>
+<td>漏桶</td>
+<td>高（匀速）</td>
+<td>队列</td>
+<td>无（削峰）</td>
+<td>中</td>
+<td>需要平滑输出</td>
+</tr>
+</tbody></table>
+<h3 id="5-5-动手验证：边界突发"><a href="#5-5-动手验证：边界突发" class="headerlink" title="5.5 动手验证：边界突发"></a>5.5 动手验证：边界突发</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 固定窗口（按秒取整）</span></span><br><span class="line"><span class="comment"># 1) 等到「秒边界前 100ms」，打满 100 个请求</span></span><br><span class="line"><span class="comment"># 2) 跨过边界，再打 100 个</span></span><br><span class="line"><span class="comment"># 预期：200 个全部放行（2 倍超发）</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 滑动窗口</span></span><br><span class="line"><span class="comment"># 同样操作，预期只有 100 个放行</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：固定窗口的放行数是滑动窗口的 2 倍。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>固定窗口放行 ≈ 2×limit → 边界问题成立，换滑动窗口或令牌桶；</li>
+<li>两者都只放行 100 → 你的窗口是「首次请求开始计时」，不是「按秒取整」，问题被掩盖了；</li>
+<li>令牌桶放行 ≈ limit + rate×间隔 → 正常（突发能力）。</li>
+</ul>
+<h2 id="7-动手验证：四个可复现实验"><a href="#7-动手验证：四个可复现实验" class="headerlink" title="7. 动手验证：四个可复现实验"></a>7. 动手验证：四个可复现实验</h2><h3 id="7-1-动手验证：对比-DEL-与-Lua-释放"><a href="#7-1-动手验证：对比-DEL-与-Lua-释放" class="headerlink" title="7.1 动手验证：对比 DEL 与 Lua 释放"></a>7.1 动手验证：对比 DEL 与 Lua 释放</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli SET lock:order owner-A NX PX 5000</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli DEL lock:order</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli SET lock:order owner-A NX PX 5000</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli EVAL <span class="string">&quot;if redis.call(&#x27;GET&#x27;,KEYS[1])==ARGV[1] then return redis.call(&#x27;DEL&#x27;,KEYS[1]) else return 0 end&quot;</span> 1 lock:order owner-B</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli TTL lock:order</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：<code>DEL</code> 直接把锁删掉；Lua 用别人的 value 返回 0，<code>TTL</code> 仍大于 0。</p>
+<p><strong>判定标准</strong>：Lua 返回 1 → 你的 value 比较写错了（比如没传对 ARGV）。</p>
+<h3 id="7-2-动手验证：复现锁过期后的双持有"><a href="#7-2-动手验证：复现锁过期后的双持有" class="headerlink" title="7.2 动手验证：复现锁过期后的双持有"></a>7.2 动手验证：复现锁过期后的双持有</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli SET lock:job owner-A NX PX 300</span><br><span class="line"><span class="built_in">sleep</span> 0.5</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli SET lock:job owner-B NX PX 5000</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli GET lock:job</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：第二次 <code>SET NX</code> 成功，<code>GET</code> 返回 owner-B——A 的任务还在跑但锁已易主。</p>
+<p><strong>判定标准</strong>：第二次失败 → TTL 还没到，把 sleep 加长。</p>
+<h3 id="7-3-动手验证：验证限流边界超发"><a href="#7-3-动手验证：验证限流边界超发" class="headerlink" title="7.3 动手验证：验证限流边界超发"></a>7.3 动手验证：验证限流边界超发</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 固定窗口：key = prefix:floor(now/1000)</span></span><br><span class="line"><span class="comment"># 在秒边界前打 100 个请求，跨过边界再打 100 个</span></span><br><span class="line"><span class="comment"># 滑动窗口：ZSET 存时间戳，同样操作</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：固定窗口放行 200（2 倍），滑动窗口只放行 100（本文）。</p>
+<p><strong>判定标准</strong>：固定窗口也只放行 100 → 你的窗口是「首次请求开始计时」，不是按秒取整，边界问题被掩盖。</p>
+<h3 id="7-4-动手验证：量一次限流脚本的开销"><a href="#7-4-动手验证：量一次限流脚本的开销" class="headerlink" title="7.4 动手验证：量一次限流脚本的开销"></a>7.4 动手验证：量一次限流脚本的开销</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli CONFIG RESETSTAT</span><br><span class="line"><span class="comment"># 打 1 万次限流请求（EVAL）</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli INFO commandstats | grep cmdstat_eval</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：<code>usec_per_call</code> 应在几十微秒内；本文 Lua 单次约 119 µs（含网络）。</p>
+<p><strong>判定标准</strong>：超过 1 ms → 脚本里有 O(N) 操作（比如遍历 ZSET 全量），需要改结构。</p>
+<h2 id="6-总结"><a href="#6-总结" class="headerlink" title="6. 总结"></a>6. 总结</h2><h3 id="6-1-面试速答表"><a href="#6-1-面试速答表" class="headerlink" title="6.1 面试速答表"></a>6.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Redis 分布式锁怎么实现</td>
+<td><code>SET key value NX PX ttl</code> 加锁，Lua 校验 value 后删除</td>
+</tr>
+<tr>
+<td>为什么释放要用 Lua</td>
+<td><code>DEL</code> 会误删别人的锁；Lua 校验持有者，实测用别人的 value 返回 0</td>
+</tr>
+<tr>
+<td>锁的 value 用什么</td>
+<td>唯一标识（UUID + 线程 id），用于校验持有者</td>
+</tr>
+<tr>
+<td>锁超时了怎么办</td>
+<td>watchdog 自动续期（Redisson 每 TTL&#x2F;3 续一次）</td>
+</tr>
+<tr>
+<td>任务超过 TTL 会怎样</td>
+<td>两个客户端同时持锁（实测），必须业务幂等</td>
+</tr>
+<tr>
+<td>主从切换会丢锁吗</td>
+<td>会。脑裂时旧主未隔离，两节点各有一把同名锁（实测）</td>
+</tr>
+<tr>
+<td>RedLock 安全吗</td>
+<td>争议在于时钟假设与 GC 停顿；强一致场景别用 Redis 锁</td>
+</tr>
+<tr>
+<td>分布式锁的最佳兜底</td>
+<td>数据库唯一索引&#x2F;行锁 + 业务幂等</td>
+</tr>
+<tr>
+<td>固定窗口的问题</td>
+<td>边界处可放行 2 倍（实测 100&#x2F;s 放行 200）</td>
+</tr>
+<tr>
+<td>滑动窗口怎么实现</td>
+<td>ZSET 存时间戳，<code>ZREMRANGEBYSCORE</code> + <code>ZCARD</code></td>
+</tr>
+<tr>
+<td>令牌桶和滑动窗口的区别</td>
+<td>令牌桶允许突发（实测 117&#x2F;100ms），滑动窗口严格匀速</td>
+</tr>
+<tr>
+<td>限流器放在哪一层</td>
+<td>网关（全局限流）+ 服务（精细化），Redis 做集中计数</td>
+</tr>
+</tbody></table>
+<h3 id="6-2-实战避坑表"><a href="#6-2-实战避坑表" class="headerlink" title="6.2 实战避坑表"></a>6.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>同一任务被重复执行</td>
+<td>锁 TTL 短于任务时长</td>
+<td>watchdog 续期 + 业务幂等</td>
+</tr>
+<tr>
+<td>锁永远释放不了</td>
+<td>持有者崩溃且没设 TTL</td>
+<td>必须设 <code>PX</code></td>
+</tr>
+<tr>
+<td>误删别人的锁</td>
+<td>用 <code>DEL</code> 释放</td>
+<td>改 Lua 校验 value</td>
+</tr>
+<tr>
+<td>切换后两个客户端同时持锁</td>
+<td>脑裂 &#x2F; 旧主未隔离</td>
+<td>fencing + 只认 VIP + 数据库兜底</td>
+</tr>
+<tr>
+<td>限流在整点被突破</td>
+<td>固定窗口边界</td>
+<td>换滑动窗口&#x2F;令牌桶</td>
+</tr>
+<tr>
+<td>限流后正常请求被拒</td>
+<td>桶容量太小或速率太低</td>
+<td>调 <code>capacity</code> 与 <code>rate</code>，区分突发与持续</td>
+</tr>
+</tbody></table>
+<h3 id="6-3-工具速查表"><a href="#6-3-工具速查表" class="headerlink" title="6.3 工具速查表"></a>6.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>判定标准</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>SET NX PX</code> 返回值</td>
+<td>是否加锁成功</td>
+<td><code>nil</code> &#x3D; 已被占用</td>
+</tr>
+<tr>
+<td>Lua 释放脚本返回值</td>
+<td>是否自己的锁</td>
+<td>0 &#x3D; 不是自己的</td>
+</tr>
+<tr>
+<td><code>TTL lock:key</code></td>
+<td>剩余时间</td>
+<td>接近 0 说明快过期</td>
+</tr>
+<tr>
+<td>Redisson 的 <code>isLocked()</code></td>
+<td>锁状态</td>
+<td>排查残留锁</td>
+</tr>
+<tr>
+<td>Redis <code>INFO commandstats</code></td>
+<td>EVAL 耗时</td>
+<td>限流脚本要轻（&lt;100µs）</td>
+</tr>
+</tbody></table>
+<h3 id="6-4-实操建议"><a href="#6-4-实操建议" class="headerlink" title="6.4 实操建议"></a>6.4 实操建议</h3><ol>
+<li>**锁一定带 <code>PX</code>**，并且用 Lua 校验 value 再释放，这两条是底线。</li>
+<li><strong>锁的 TTL 要小于业务超时</strong>，配合 watchdog；业务必须幂等。</li>
+<li><strong>别指望 Redis 锁解决强一致</strong>，关键资源用数据库约束 + fencing token。</li>
+<li><strong>限流优先用令牌桶或滑动窗口</strong>，固定窗口的 2 倍超发在秒杀场景是致命的。</li>
+<li><strong>限流要分层</strong>：网关做粗粒度、服务做细粒度，并用 Redis 做集中计数。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告</strong>：⑫《容量规划与分片：什么时候才该上 Cluster》（收官篇）。十一篇讲完了「怎么用对」，最后一篇回答「要多少台」：单个 Redis 实例能扛多少 QPS、内存怎么按 key 数估算、什么信号说明该分片，以及全系列 12 篇的总表。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/%E9%9D%A2%E8%AF%95/" rel="tag"># 面试</a>
+              <a href="/tags/Redis/" rel="tag"># Redis</a>
+              <a href="/tags/%E5%88%86%E5%B8%83%E5%BC%8F%E9%94%81/" rel="tag"># 分布式锁</a>
+              <a href="/tags/Redisson/" rel="tag"># Redisson</a>
+              <a href="/tags/RedLock/" rel="tag"># RedLock</a>
+              <a href="/tags/%E9%99%90%E6%B5%81/" rel="tag"># 限流</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/35ae94a8.html" rel="prev" title="缓存与数据库一致性：更新顺序与不一致窗口">
+                  <i class="fa fa-angle-left"></i> 缓存与数据库一致性：更新顺序与不一致窗口
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/post/b815463e.html" rel="next" title="容量规划与分片：什么时候才该上 Cluster">
+                  容量规划与分片：什么时候才该上 Cluster <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">740k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">44:51</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
+</html>

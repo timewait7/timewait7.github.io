@@ -1,0 +1,1118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="架构图的价值不在于「分了几层」，而在于每层各花多少时间。一条看起来朴素的 SELECT，从建立连接到把字节吐回客户端要过六道关，这六道的量级差着三个数量级：连接是毫秒级，解析是微秒级，页访问是百纳秒级，落盘是几十微秒级。搞不清钱花在哪一层，所有优化都是蒙。 本文用一条线索把六层串起来：先看清每层的成本量级，再判断你的慢查询卡在第几层，最后只改那一层。文中所有数字都在 MySQL 8.0.46 容器">
+<meta property="og:type" content="article">
+<meta property="og:title" content="一条 SQL 的六层成本账：架构不是画流程图">
+<meta property="og:url" content="http://timewait7.github.io/post/ffd9df8b.html">
+<meta property="og:site_name" content="知行栈">
+<meta property="og:description" content="架构图的价值不在于「分了几层」，而在于每层各花多少时间。一条看起来朴素的 SELECT，从建立连接到把字节吐回客户端要过六道关，这六道的量级差着三个数量级：连接是毫秒级，解析是微秒级，页访问是百纳秒级，落盘是几十微秒级。搞不清钱花在哪一层，所有优化都是蒙。 本文用一条线索把六层串起来：先看清每层的成本量级，再判断你的慢查询卡在第几层，最后只改那一层。文中所有数字都在 MySQL 8.0.46 容器">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-10-24T14:05:00.000Z">
+<meta property="article:modified_time" content="2026-10-24T13:36:16.667Z">
+<meta property="article:tag" content="MySQL">
+<meta property="article:tag" content="面试">
+<meta property="article:tag" content="性能优化">
+<meta property="article:tag" content="执行流程">
+<meta property="article:tag" content="优化器">
+<meta property="article:tag" content="performance_schema">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/ffd9df8b.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/ffd9df8b.html","path":"post/ffd9df8b.html","title":"一条 SQL 的六层成本账：架构不是画流程图"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>一条 SQL 的六层成本账：架构不是画流程图 | 知行栈</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<!-- hexo injector head_end start --><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
+</style><style>
+/* 菜单链高亮：sub-menu 祖先（同主题 .menu-item-active 的 Pisces 规则） */
+.sub-menu .menu-item a.menu-chain-active {
+  border-bottom-color: #fc6423;
+  color: #fc6423;
+}
+.sub-menu .menu-item a.menu-chain-active:hover {
+  border-bottom-color: #fc6423;
+}
+/* 菜单链高亮：main-menu 祖先（同主题 hover/active 的背景规则） */
+.main-menu .menu-item a.menu-chain-active {
+  background: var(--menu-item-bg-color);
+}
+</style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">知行栈</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section" class="menu-chain-active"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>Categories</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-%E5%85%AD%E5%B1%82%E6%88%90%E6%9C%AC%EF%BC%9A%E9%87%8F%E7%BA%A7%E5%B7%AE%E4%B8%89%E4%B8%AA%E6%95%B0%E9%87%8F%E7%BA%A7"><span class="nav-text">1. 六层成本：量级差三个数量级</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-%E5%85%A8%E6%99%AF%EF%BC%9A%E4%B8%80%E6%9D%A1-SQL-%E7%9A%84%E5%85%AD%E9%81%93%E5%85%B3"><span class="nav-text">1.1 全景：一条 SQL 的六道关</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-2-%E5%AE%9E%E6%B5%8B%EF%BC%9A%E6%8A%8A%E5%85%AD%E5%B1%82%E7%9A%84%E6%95%B0%E5%AD%97%E9%92%89%E5%9C%A8%E5%A2%99%E4%B8%8A"><span class="nav-text">1.2 实测：把六层的数字钉在墙上</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-3-%E6%B7%B1%E6%8C%96%EF%BC%9A%E4%B8%BA%E4%BB%80%E4%B9%88%E8%BF%9E%E6%8E%A5%E5%B1%82%E8%B4%B5%E5%BE%97%E4%B8%8D%E6%88%90%E6%AF%94%E4%BE%8B"><span class="nav-text">1.3 深挖：为什么连接层贵得不成比例</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E9%87%8F%E5%87%BA%E4%BD%A0%E7%9A%84%E5%85%AD%E5%B1%82"><span class="nav-text">1.4 动手验证：量出你的六层</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-Server-%E5%B1%82%EF%BC%9A%E8%A7%A3%E6%9E%90%E3%80%81%E4%BC%98%E5%8C%96%E3%80%81%E6%89%A7%E8%A1%8C"><span class="nav-text">2. Server 层：解析、优化、执行</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E8%A7%A3%E6%9E%90%E5%99%A8%EF%BC%9A%E5%8F%AA%E5%81%9A%E3%80%8C%E8%BF%99%E5%8F%A5%E8%AF%9D%E5%90%88%E6%B3%95%E5%90%97%E3%80%8D"><span class="nav-text">2.1 解析器：只做「这句话合法吗」</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E4%BC%98%E5%8C%96%E5%99%A8%EF%BC%9A%E5%85%AD%E5%B1%82%E9%87%8C%E5%94%AF%E4%B8%80%E3%80%8C%E5%81%9A%E5%86%B3%E7%AD%96%E3%80%8D%E7%9A%84%E5%9C%B0%E6%96%B9"><span class="nav-text">2.2 优化器：六层里唯一「做决策」的地方</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-%E6%89%A7%E8%A1%8C%E5%99%A8%EF%BC%9A%E6%8C%89%E8%AE%A1%E5%88%92%E8%B5%B0%EF%BC%8C%E4%B8%8D%E5%8A%A8%E8%84%91"><span class="nav-text">2.3 执行器：按计划走，不动脑</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E7%9C%8B%E7%A9%BF%E4%BC%98%E5%8C%96%E5%99%A8%E7%9A%84%E4%BC%B0%E7%AE%97"><span class="nav-text">2.4 动手验证：看穿优化器的估算</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E5%AD%98%E5%82%A8%E5%BC%95%E6%93%8E%E5%B1%82%EF%BC%9ABuffer-Pool-%E4%B8%8E%E7%A3%81%E7%9B%98"><span class="nav-text">3. 存储引擎层：Buffer Pool 与磁盘</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E4%B8%80%E6%AC%A1%E8%AF%BB%E7%9A%84%E4%B8%89%E7%A7%8D%E7%BB%93%E5%B1%80"><span class="nav-text">3.1 一次读的三种结局</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E5%9B%9E%E8%A1%A8%EF%BC%9A%E9%80%BB%E8%BE%91%E8%AF%BB%E7%9A%84%E6%94%BE%E5%A4%A7%E5%99%A8"><span class="nav-text">3.2 回表：逻辑读的放大器</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-%E6%B7%B1%E6%8C%96%EF%BC%9A%E4%B8%BA%E4%BB%80%E4%B9%88%E9%80%BB%E8%BE%91%E8%AF%BB%E6%B6%A8-589-%E5%80%8D%EF%BC%8C%E6%97%B6%E9%97%B4%E5%8F%AA%E6%B6%A8-2-8-%E5%80%8D"><span class="nav-text">3.3 深挖：为什么逻辑读涨 589 倍，时间只涨 2.8 倍</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E6%8A%8A%E5%9B%9E%E8%A1%A8%E7%9A%84%E8%B4%A6%E7%AE%97%E5%9C%A8%E8%87%AA%E5%B7%B1%E6%9C%BA%E5%99%A8%E4%B8%8A"><span class="nav-text">3.4 动手验证：把回表的账算在自己机器上</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E6%88%90%E6%9C%AC%E8%B4%A6%E7%9A%84%E5%AE%9E%E6%88%98%E7%94%A8%E6%B3%95"><span class="nav-text">4. 成本账的实战用法</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-%E5%90%8C%E4%B8%80-SQL%EF%BC%8C%E6%95%B0%E6%8D%AE%E9%87%8F%E4%B8%8D%E5%90%8C%EF%BC%8C%E9%92%B1%E8%8A%B1%E5%9C%A8%E4%B8%8D%E5%90%8C%E5%B1%82"><span class="nav-text">4.1 同一 SQL，数据量不同，钱花在不同层</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-%E5%88%A4%E5%AE%9A%E8%A1%A8%EF%BC%9A%E7%97%87%E7%8A%B6-%E2%86%92-%E5%B1%82-%E2%86%92-%E6%89%8B%E6%AE%B5"><span class="nav-text">4.2 判定表：症状 → 层 → 手段</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%AE%9A%E4%BD%8D%E3%80%8C%E5%93%AA%E5%B1%82%E5%90%83%E6%8E%89-80-%E3%80%8D"><span class="nav-text">4.3 动手验证：定位「哪层吃掉 80%」</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E6%80%BB%E7%BB%93"><span class="nav-text">5. 总结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E9%9D%A2%E8%AF%95%E9%80%9F%E7%AD%94%E8%A1%A8"><span class="nav-text">5.1 面试速答表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E5%AE%9E%E6%88%98%E9%81%BF%E5%9D%91%E8%A1%A8"><span class="nav-text">5.2 实战避坑表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-%E5%B7%A5%E5%85%B7%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">5.3 工具速查表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-%E5%AE%9E%E6%93%8D%E5%BB%BA%E8%AE%AE"><span class="nav-text">5.4 实操建议</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">104</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">14</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">175</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+    <div class="sidebar-inner sidebar-blogroll">
+      <div class="links-of-blogroll animated">
+        <div class="links-of-blogroll-title"><i class="fa fa-globe fa-fw"></i>
+          Links
+        </div>
+        <ul class="links-of-blogroll-list">
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9wYXVsZ3JhaGFtLmNvbS9hcnRpY2xlcy5odG1s" title="https:&#x2F;&#x2F;paulgraham.com&#x2F;articles.html">paulgraham</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly93d3cuam9lbG9uc29mdHdhcmUuY29tLw==" title="https:&#x2F;&#x2F;www.joelonsoftware.com&#x2F;">Joel on Software</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9tYXJ0aW5mb3dsZXIuY29tLw==" title="https:&#x2F;&#x2F;martinfowler.com&#x2F;">Martin Flower</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly96aGFuZ3RpZWxlaS5jb20v" title="https:&#x2F;&#x2F;zhangtielei.com&#x2F;">zhangtielei</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhLWRlc2lnbi1wYXR0ZXJucy5jb20vemgv" title="https:&#x2F;&#x2F;java-design-patterns.com&#x2F;zh&#x2F;">Java Design Patterns</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9taWNyb3NlcnZpY2VzLmlvLw==" title="https:&#x2F;&#x2F;microservices.io&#x2F;">Microservice Architecture</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhZ3VpZGUuY24v" title="https:&#x2F;&#x2F;javaguide.cn&#x2F;">JavaGuide</span>
+            </li>
+        </ul>
+      </div>
+    </div>
+        <div class="pjax">
+        
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-后端开发"><a href="/docs/nav/backend-dev-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-code fa-fw"></i>后端开发</a></li>
+
+
+      
+  <li class="menu-item menu-item-计算机基础"><a href="/docs/nav/cs-foundation-nav.html" rel="section"><i class="fa fa-desktop fa-fw"></i>计算机基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-ai-学习"><a href="/docs/nav/ai-learning-nav.html" rel="section"><i class="fa fa-robot fa-fw"></i>AI 学习</a></li>
+
+
+      
+  <li class="menu-item menu-item-项目实战"><a href="/docs/nav/5964f4da.html" rel="section"><i class="fa fa-flask fa-fw"></i>项目实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-misc"><a href="/docs/nav/misc-nav.html" rel="section"><i class="fa fa-box fa-fw"></i>Misc</a></li>
+
+
+      
+  <li class="menu-item menu-item-随笔·生活"><a href="/docs/nav/life-nav.html" rel="section"><i class="fa fa-feather fa-fw"></i>随笔·生活</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java"><a href="/docs/nav/java-nav.html" rel="section"><i class="fa fa-coffee fa-fw"></i>Java</a></li>
+
+
+      
+  <li class="menu-item menu-item-框架"><a href="/docs/nav/framework-nav.html" rel="section"><i class="fa fa-th-large fa-fw"></i>框架</a></li>
+
+
+      
+  <li class="menu-item menu-item-数据存储"><a href="/docs/nav/data-storage-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-hdd fa-fw"></i>数据存储</a></li>
+
+
+      
+  <li class="menu-item menu-item-中间件"><a href="/docs/nav/middleware-nav.html" rel="section"><i class="fa fa-cubes fa-fw"></i>中间件</a></li>
+
+
+      
+  <li class="menu-item menu-item-分布式与微服务"><a href="/docs/nav/distributed-nav.html" rel="section"><i class="fa fa-sitemap fa-fw"></i>分布式与微服务</a></li>
+
+
+      
+  <li class="menu-item menu-item-系统设计"><a href="/docs/nav/system-design-nav.html" rel="section"><i class="fa fa-pencil-ruler fa-fw"></i>系统设计</a></li>
+
+
+      
+  <li class="menu-item menu-item-部署运维"><a href="/docs/nav/devops-nav.html" rel="section"><i class="fa fa-terminal fa-fw"></i>部署运维</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-mysql"><a href="/docs/nav/mysql-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-database fa-fw"></i>MySQL</a></li>
+
+
+      
+  <li class="menu-item menu-item-redis"><a href="/docs/nav/redis-nav.html" rel="section"><i class="fa fa-bolt fa-fw"></i>Redis</a></li>
+
+
+      
+  <li class="menu-item menu-item-elasticsearch"><a href="/docs/nav/es-nav.html" rel="section"><i class="fa fa-search fa-fw"></i>ElasticSearch</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-mysql-深度解析：从原理到高可用与分库分表实战"><a href="/post/32511a71.html" rel="section"><i class="fa fa-file-text fa-fw"></i>MySQL 深度解析：从原理到高可用与分库分表实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-①-从这里开始：把-mysql-变成你的实验台"><a href="/post/60f95c16.html" rel="section"><i class="fa fa-file-text fa-fw"></i>① 从这里开始：把 MySQL 变成你的实验台</a></li>
+
+
+      
+  <li class="menu-item menu-item-②-一条-sql-的六层成本账：架构不是画流程图"><a href="/post/ffd9df8b.html" rel="section"><i class="fa fa-file-text fa-fw"></i>② 一条 SQL 的六层成本账：架构不是画流程图</a></li>
+
+
+      
+  <li class="menu-item menu-item-③-schema-与索引：把逻辑读降下来"><a href="/post/e1724727.html" rel="section"><i class="fa fa-file-text fa-fw"></i>③ Schema 与索引：把逻辑读降下来</a></li>
+
+
+      
+  <li class="menu-item menu-item-④-查询优化：优化器为什么会选错索引"><a href="/post/d65d7254.html" rel="section"><i class="fa fa-file-text fa-fw"></i>④ 查询优化：优化器为什么会选错索引</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑤-事务与-mvcc：把「不可重复读」亲手复现出来"><a href="/post/88fb6d0c.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑤ 事务与 MVCC：把「不可重复读」亲手复现出来</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑥-锁、死锁与-mdl：一次变更如何堵死整张表"><a href="/post/d090a538.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑥ 锁、死锁与 MDL：一次变更如何堵死整张表</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑦-innodb-内存与刷盘：物理-io-的钱花在哪"><a href="/post/8e8e95b7.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑦ InnoDB 内存与刷盘：物理 IO 的钱花在哪</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑧-复制与高可用：延迟的量化与判定"><a href="/post/51687861.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑧ 复制与高可用：延迟的量化与判定</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑨-备份与恢复：删库之后-30-分钟救回来"><a href="/post/f375ea2a.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑨ 备份与恢复：删库之后 30 分钟救回来</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑩-在线-ddl：一次加索引如何堵死整张表"><a href="/post/b5c3673.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑩ 在线 DDL：一次加索引如何堵死整张表</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑪-java-侧：连接池打满与-@transactional-失效的真相"><a href="/post/4d87a909.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑪ Java 侧：连接池打满与 @Transactional 失效的真相</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑫-容量与扩展：什么时候才该分库分表"><a href="/post/f8f36186.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑫ 容量与扩展：什么时候才该分库分表</a></li>
+
+
+    </ul>
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/ffd9df8b.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="一条 SQL 的六层成本账：架构不是画流程图 | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          一条 SQL 的六层成本账：架构不是画流程图
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-10-24 22:05:00" itemprop="dateCreated datePublished" datetime="2026-10-24T22:05:00+08:00">2026-10-24</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/" itemprop="url" rel="index"><span itemprop="name">数据存储</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>5.7k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>21 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><p><strong>架构图的价值不在于「分了几层」，而在于每层各花多少时间</strong>。一条看起来朴素的 <code>SELECT</code>，从建立连接到把字节吐回客户端要过六道关，这六道的量级差着三个数量级：连接是毫秒级，解析是微秒级，页访问是百纳秒级，落盘是几十微秒级。搞不清钱花在哪一层，所有优化都是蒙。</p>
+<p>本文用一条线索把六层串起来：<strong>先看清每层的成本量级，再判断你的慢查询卡在第几层，最后只改那一层</strong>。文中所有数字都在 MySQL 8.0.46 容器里实测，表是上一篇那张 100 万行的 <code>t1</code>。</p>
+<blockquote>
+<p><strong>系列地图（高性能 MySQL 实战路线，12 篇）</strong></p>
+<p>① 实验台与基线 → ② <strong>六层成本账（本文）</strong> → ③ 索引与 Schema → ④ 优化器与慢查询 → ⑤ 事务与 MVCC → ⑥ 锁与死锁 → ⑦ 内存与刷盘 → ⑧ 复制与高可用 → ⑨ 备份与恢复 → ⑩ 在线 DDL → ⑪ Java 侧连接池 → ⑫ 容量与分库分表</p>
+<p>与前后篇的关系：① 给了你「页」这把尺子，本文用它给每一层上秤；本文测出的「优化器把等值条件默认当 10%」，正是 ④ 里直方图要修的那个估算偏差。原理的完整推导回指站内《MySQL 深度解析》第 1 章，本文只关心成本。</p>
+</blockquote>
+<h2 id="1-六层成本：量级差三个数量级"><a href="#1-六层成本：量级差三个数量级" class="headerlink" title="1. 六层成本：量级差三个数量级"></a>1. 六层成本：量级差三个数量级</h2><h3 id="1-1-全景：一条-SQL-的六道关"><a href="#1-1-全景：一条-SQL-的六道关" class="headerlink" title="1.1 全景：一条 SQL 的六道关"></a>1.1 全景：一条 SQL 的六道关</h3><pre class="mermaid">flowchart LR
+    C["1 Connection&lt;br/>TCP + auth&lt;br/>~ms"] --> P["2 Parser&lt;br/>lex + syntax&lt;br/>~us"]
+    P --> O["3 Optimizer&lt;br/>pick access path&lt;br/>~us"]
+    O --> E["4 Executor&lt;br/>call handler API&lt;br/>~us"]
+    E --> B["5 Buffer Pool&lt;br/>16KB page&lt;br/>~100ns per page"]
+    B --> D["6 Disk&lt;br/>random read&lt;br/>~50-100us"]</pre>
+
+<table>
+<thead>
+<tr>
+<th>层</th>
+<th>干什么</th>
+<th>成本量级</th>
+<th>你能改什么</th>
+<th>详见</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>连接</td>
+<td>TCP 握手、认证、会话初始化、权限装载</td>
+<td>毫秒级</td>
+<td>连接池、长连接、减少 TLS 往返</td>
+<td>⑪</td>
+</tr>
+<tr>
+<td>解析</td>
+<td>词法、语法、预处理（表&#x2F;列是否存在、权限）</td>
+<td>微秒级</td>
+<td>基本改不了，只能减少语句数</td>
+<td>—</td>
+</tr>
+<tr>
+<td>优化</td>
+<td>选索引、定 JOIN 顺序、估算成本</td>
+<td>微秒级</td>
+<td>统计信息、SQL 写法、索引结构</td>
+<td>④</td>
+</tr>
+<tr>
+<td>执行</td>
+<td>按执行计划逐行调用存储引擎</td>
+<td>微秒级</td>
+<td>减少返回行数与调用次数</td>
+<td>③</td>
+</tr>
+<tr>
+<td>Buffer Pool</td>
+<td>找到页、加锁、读记录</td>
+<td>百纳秒级&#x2F;页</td>
+<td>索引、减少回表、覆盖索引</td>
+<td>③</td>
+</tr>
+<tr>
+<td>磁盘</td>
+<td>真正读一次页</td>
+<td>几十微秒&#x2F;次</td>
+<td>加内存、冷热分离、刷盘策略</td>
+<td>⑦</td>
+</tr>
+</tbody></table>
+<p>这张表的用法很直接：<strong>你的慢查询卡在哪一行，就只优化那一行</strong>。一个 40ms 的查询，如果 35ms 花在磁盘上，你加索引是没用的；如果 35ms 花在 Buffer Pool 上（逻辑读太多），你加内存也没用。</p>
+<h3 id="1-2-实测：把六层的数字钉在墙上"><a href="#1-2-实测：把六层的数字钉在墙上" class="headerlink" title="1.2 实测：把六层的数字钉在墙上"></a>1.2 实测：把六层的数字钉在墙上</h3><p>同一个容器、同一张表（100 万行、3430 页、默认 128MB 池），把不同「深度」的语句各跑 200 次，取服务端 <code>performance_schema</code> 的平均耗时：</p>
+<table>
+<thead>
+<tr>
+<th>语句</th>
+<th>经过哪几层</th>
+<th>实测平均耗时</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>SELECT 1</code></td>
+<td>连接（已复用）+ 解析 + 优化 + 执行</td>
+<td><strong>10.8 µs</strong></td>
+<td>不碰任何表的纯开销</td>
+</tr>
+<tr>
+<td><code>SELECT id FROM t1 WHERE id = ?</code></td>
+<td>上面全部 + Buffer Pool 3~4 页</td>
+<td><strong>21.3 µs</strong></td>
+<td>主键等值</td>
+</tr>
+<tr>
+<td><code>SELECT SUM(user_id) … user_id BETWEEN 1 AND 1000</code></td>
+<td>+ 索引范围扫 1 万行（覆盖）</td>
+<td><strong>1.17 ms</strong></td>
+<td>53 次逻辑读</td>
+</tr>
+<tr>
+<td>同上但 <code>SELECT SUM(LENGTH(c))</code></td>
+<td>+ 回表 1 万次</td>
+<td><strong>3.33 ms</strong></td>
+<td>31223 次逻辑读</td>
+</tr>
+<tr>
+<td><code>SELECT COUNT(*) FROM t1 WHERE c = ?</code></td>
+<td>+ 全表扫 100 万行</td>
+<td><strong>61.3 ms</strong>（Table scan 部分）</td>
+<td>3430 页</td>
+</tr>
+</tbody></table>
+<p>把这张表竖着看，能读出三个结论：</p>
+<ol>
+<li><strong>固定开销约 11 微秒</strong>。这是 MySQL 处理任何一条语句的地板价（解析 + 优化 + 派发），它跟你查什么无关。所以「一条 SQL 发一次」的循环写法天生亏，批量接口省的不是索引，是这 11 微秒 × N。</li>
+<li><strong>从 21 µs 到 61 ms，差 2900 倍</strong>，而这一段的差别全部是「逻辑读多少个页」。索引能做的，就是把 3430 页压到 4 页。</li>
+<li><strong>同一份数据、同一批结果，<code>SUM(user_id)</code> 和 <code>SUM(LENGTH(c))</code> 差 2.8 倍</strong>，只因为后者需要回表。这一条是第 3 节的主角。</li>
+</ol>
+<h3 id="1-3-深挖：为什么连接层贵得不成比例"><a href="#1-3-深挖：为什么连接层贵得不成比例" class="headerlink" title="1.3 深挖：为什么连接层贵得不成比例"></a>1.3 深挖：为什么连接层贵得不成比例</h3><p>在一个已复用的连接上执行 <code>SELECT 1</code> 是 10.8 微秒，而新建一个连接要付：三次 TCP 握手、认证往返（<code>caching_sha2_password</code> 要额外一轮）、会话变量初始化、权限表装载、线程创建。这一串在服务端是<strong>几毫秒</strong>，而它换来的是 11 微秒的执行——连接成本比执行成本高两个数量级。</p>
+<p>实测对比（macOS + Docker Desktop，注意这个数字包含容器与客户端进程启动）：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">30 次短连接（每次 mysql -e &quot;SELECT 1&quot;）：920 ms，单次 30.7 ms</span><br><span class="line">1 个连接连跑 30 条：                    46 ms，单条 1.5 ms</span><br></pre></td></tr></table></figure>
+
+<p>单次 30.7 ms 里绝大部分是 <code>docker exec</code> 与 mysql 客户端进程启动，服务端只占几毫秒——<strong>这个比例本身才是重点</strong>：真正的业务代码里没有 <code>docker exec</code>，但同样要付客户端到服务端的网络 RTT × 2~3 次。所以「短连接」在任何网络有延迟的环境里都是灾难。</p>
+<p>这也是连接池存在的原因，而且能解释一个常见误判：<strong>连接池打满时，接口耗时会突然从毫秒跳到秒级</strong>，因为请求在等一个「贵两个数量级」的资源。⑪ 会专门算这笔账，这里只需记住：连接是六层里唯一「用不起就别用」的一层。</p>
+<p>再往下一层，是站内《进程与线程：从模型到调度》里算过的账：在 MySQL 里每个连接对应一个服务端线程，线程一多，上下文切换的成本就开始吃掉 CPU。<strong>线程数不是越多越好，连接池不是越大越好</strong>，两个结论来自同一个机制。</p>
+<h3 id="1-4-动手验证：量出你的六层"><a href="#1-4-动手验证：量出你的六层" class="headerlink" title="1.4 动手验证：量出你的六层"></a>1.4 动手验证：量出你的六层</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1) 纯开销：不碰表</span></span><br><span class="line"><span class="keyword">for</span> i <span class="keyword">in</span> $(<span class="built_in">seq</span> 200); <span class="keyword">do</span> <span class="built_in">echo</span> <span class="string">&quot;SELECT 1;&quot;</span>; <span class="keyword">done</span> &gt; /tmp/q1.sql</span><br><span class="line">docker <span class="built_in">exec</span> -i mysql-lab mysql -uroot -plab123 lab &lt; /tmp/q1.sql &gt; /dev/null</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2) 主键等值</span></span><br><span class="line"><span class="keyword">for</span> i <span class="keyword">in</span> $(<span class="built_in">seq</span> 200); <span class="keyword">do</span> <span class="built_in">echo</span> <span class="string">&quot;SELECT id FROM t1 WHERE id = 500000;&quot;</span>; <span class="keyword">done</span> &gt; /tmp/q2.sql</span><br><span class="line">docker <span class="built_in">exec</span> -i mysql-lab mysql -uroot -plab123 lab &lt; /tmp/q2.sql &gt; /dev/null</span><br><span class="line"></span><br><span class="line"><span class="comment"># 3) 读服务端的语句级平均耗时（不是你客户端看到的墙钟时间）</span></span><br><span class="line">docker <span class="built_in">exec</span> -i mysql-lab mysql -uroot -plab123 -t -e <span class="string">&quot;</span></span><br><span class="line"><span class="string">SELECT COUNT_STAR AS n,</span></span><br><span class="line"><span class="string">       ROUND(SUM_TIMER_WAIT / COUNT_STAR / 1000000000, 4) AS avg_ms,</span></span><br><span class="line"><span class="string">       LEFT(DIGEST_TEXT, 50) AS digest</span></span><br><span class="line"><span class="string">FROM performance_schema.events_statements_summary_by_digest</span></span><br><span class="line"><span class="string">WHERE SCHEMA_NAME = &#x27;lab&#x27;</span></span><br><span class="line"><span class="string">ORDER BY COUNT_STAR DESC LIMIT 5;&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：<code>SELECT 1</code> 的平均值落在 10<del>30 µs（取决于机器与是否开 <code>performance_schema</code> 全部消费者），主键等值比它高 50%</del>100%。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>两者差值在微秒级 → 你的瓶颈不在这层，往 ③ 走；</li>
+<li><code>SELECT 1</code> 就超过 1 ms → 先查网络 RTT 和连接池（⑪），不要碰 SQL；</li>
+<li>平均值与 P99 差 10 倍以上 → 有排队或锁等待，去 ⑥。</li>
+</ul>
+<h2 id="2-Server-层：解析、优化、执行"><a href="#2-Server-层：解析、优化、执行" class="headerlink" title="2. Server 层：解析、优化、执行"></a>2. Server 层：解析、优化、执行</h2><h3 id="2-1-解析器：只做「这句话合法吗」"><a href="#2-1-解析器：只做「这句话合法吗」" class="headerlink" title="2.1 解析器：只做「这句话合法吗」"></a>2.1 解析器：只做「这句话合法吗」</h3><table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>做什么</th>
+<th>典型的失败</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>词法分析</td>
+<td>把字符串切成 token（关键字、标识符、常量）</td>
+<td>引号 &#x2F; 反引号混用</td>
+</tr>
+<tr>
+<td>语法分析</td>
+<td>按语法规则建出语法树</td>
+<td><code>GROUP BY</code> 少列、<code>ON</code> 写错位置</td>
+</tr>
+<tr>
+<td>预处理</td>
+<td>检查表、列、别名是否存在，检查权限</td>
+<td><code>Unknown column</code>、权限不足</td>
+</tr>
+</tbody></table>
+<p>这三步是纯 CPU 操作，成本在微秒级，<strong>没有优化空间</strong>——除非你减少语句数量。一个常见的反例是在循环里拼 SQL 逐条执行，等于把 11 微秒的地板价乘以 N。</p>
+<p>顺带说一个 8.0 的变化：查询缓存在 8.0 已被整体移除（上一篇实测 <code>query_cache%</code> 变量为空集），所以「同样的 SQL 第二次会变快」这句话在 8.0 上只可能来自 Buffer Pool 或操作系统缓存，不可能是 SQL 文本缓存。</p>
+<h3 id="2-2-优化器：六层里唯一「做决策」的地方"><a href="#2-2-优化器：六层里唯一「做决策」的地方" class="headerlink" title="2.2 优化器：六层里唯一「做决策」的地方"></a>2.2 优化器：六层里唯一「做决策」的地方</h3><p>优化器不执行查询，它只做一件事：<strong>在若干候选执行计划里挑成本最低的那个</strong>。成本由三部分构成——读页的 IO 成本、评估条件的 CPU 成本、以及行数估算。</p>
+<p>实测一条没走索引的等值查询，<code>EXPLAIN FORMAT=JSON</code> 输出如下（关键字段已标注意义）：</p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="punctuation">&#123;</span></span><br><span class="line">  <span class="attr">&quot;query_block&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">    <span class="attr">&quot;cost_info&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;query_cost&quot;</span><span class="punctuation">:</span> <span class="string">&quot;100520.60&quot;</span> <span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">    <span class="attr">&quot;table&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">      <span class="attr">&quot;table_name&quot;</span><span class="punctuation">:</span> <span class="string">&quot;t1&quot;</span><span class="punctuation">,</span></span><br><span class="line">      <span class="attr">&quot;access_type&quot;</span><span class="punctuation">:</span> <span class="string">&quot;ALL&quot;</span><span class="punctuation">,</span></span><br><span class="line">      <span class="attr">&quot;rows_examined_per_scan&quot;</span><span class="punctuation">:</span> <span class="number">996631</span><span class="punctuation">,</span></span><br><span class="line">      <span class="attr">&quot;rows_produced_per_join&quot;</span><span class="punctuation">:</span> <span class="number">99663</span><span class="punctuation">,</span></span><br><span class="line">      <span class="attr">&quot;filtered&quot;</span><span class="punctuation">:</span> <span class="string">&quot;10.00&quot;</span><span class="punctuation">,</span></span><br><span class="line">      <span class="attr">&quot;cost_info&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span></span><br><span class="line">        <span class="attr">&quot;read_cost&quot;</span><span class="punctuation">:</span> <span class="string">&quot;90554.29&quot;</span><span class="punctuation">,</span></span><br><span class="line">        <span class="attr">&quot;eval_cost&quot;</span><span class="punctuation">:</span> <span class="string">&quot;9966.31&quot;</span><span class="punctuation">,</span></span><br><span class="line">        <span class="attr">&quot;prefix_cost&quot;</span><span class="punctuation">:</span> <span class="string">&quot;100520.60&quot;</span></span><br><span class="line">      <span class="punctuation">&#125;</span><span class="punctuation">,</span></span><br><span class="line">      <span class="attr">&quot;attached_condition&quot;</span><span class="punctuation">:</span> <span class="string">&quot;(`lab`.`t1`.`c` = &#x27;payload-999999&#x27;)&quot;</span></span><br><span class="line">    <span class="punctuation">&#125;</span></span><br><span class="line">  <span class="punctuation">&#125;</span></span><br><span class="line"><span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+
+<p>三个数字要读懂：</p>
+<ul>
+<li><code>query_cost = 100520.60</code>：<strong>不是毫秒，是内部成本单位</strong>。它只在自己和自己比的时候有意义。</li>
+<li><code>filtered = 10.00</code>：优化器认为这个等值条件能筛掉 90% 的行——因为它对 <code>c</code> 列<strong>没有任何统计信息</strong>（没索引、没直方图），只能用内置先验：等值条件的选择性按 10% 估。</li>
+<li><code>rows_produced_per_join = 99663</code>：996631 × 10%。而这条 SQL 的真实返回是 <strong>1 行</strong>——估算偏了 10 万倍。</li>
+</ul>
+<pre class="mermaid">flowchart TD
+    A["SQL parsed, tree ready"] --> B["Enumerate candidate plans&lt;br/>index scan / range / full scan"]
+    B --> C["Estimate rows per plan&lt;br/>stats or default 10%"]
+    C --> D["Estimate cost&lt;br/>read_cost + eval_cost"]
+    D --> E["Pick lowest cost plan"]
+    E --> F["Hand plan to executor"]
+    C -.->|"no stats: filtered = 10%"| G["Estimate can be off&lt;br/>by 100000x"]</pre>
+
+<p>这个 <code>10.00</code> 是理解「优化器为什么会选错索引」的钥匙：不是优化器笨，是<strong>它拿到的先验有多粗糙</strong>。④ 会用它自己的数据证明——同一张表加上 100 个桶的直方图后，<code>filtered</code> 从 10.00 变成接近真实的比例，执行计划随之改变。</p>
+<p>优化器还有几个固定的成本常数（读一页的成本、评估一行的成本、比对一次的成本），这套常数源自早期硬件假设（随机 IO 昂贵、CPU 单核），而不是你机器上的真实延迟。你的 NVMe 盘随机读比 HDD 快一到两个数量级，但在优化器眼里两者一视同仁——这是<strong>成本模型落后于硬件</strong>的经典案例，也是为什么生产上偶尔要 <code>FORCE INDEX</code>，那是在用人的判断纠正模型的先验。</p>
+<h3 id="2-3-执行器：按计划走，不动脑"><a href="#2-3-执行器：按计划走，不动脑" class="headerlink" title="2.3 执行器：按计划走，不动脑"></a>2.3 执行器：按计划走，不动脑</h3><p>执行器拿到执行计划后，逐行调用存储引擎的 handler 接口（<code>index_read</code>、<code>rnd_next</code>、<code>index_next</code> 等），每调用一次至少涉及一次页访问。</p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>优化器</th>
+<th>执行器</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>职责</td>
+<td>决定「怎么查」</td>
+<td>负责「照着查」</td>
+</tr>
+<tr>
+<td>消耗</td>
+<td>CPU（估算）</td>
+<td>CPU + Buffer Pool 访问</td>
+</tr>
+<tr>
+<td>出错表现</td>
+<td>走错索引、JOIN 顺序差</td>
+<td>回表太多、函数调用过多</td>
+</tr>
+<tr>
+<td>优化手段</td>
+<td>统计信息、SQL 改写、<code>FORCE INDEX</code></td>
+<td>覆盖索引、减少行数、减少列</td>
+</tr>
+</tbody></table>
+<p>一个实用的判据：<code>EXPLAIN</code> 里的 <code>rows</code> 是<strong>优化器的估算</strong>，<code>EXPLAIN ANALYZE</code> 里的 <code>actual rows</code> 是<strong>执行器的实际</strong>。两者差 10 倍以上，问题在优化器（统计信息）；两者接近但都很大，问题在执行路径（索引没覆盖住）。</p>
+<h3 id="2-4-动手验证：看穿优化器的估算"><a href="#2-4-动手验证：看穿优化器的估算" class="headerlink" title="2.4 动手验证：看穿优化器的估算"></a>2.4 动手验证：看穿优化器的估算</h3><figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 1) 估算 vs 实际：filtered 会把 1000000 行估成 99663 行产出</span></span><br><span class="line">EXPLAIN ANALYZE <span class="keyword">SELECT</span> <span class="built_in">COUNT</span>(<span class="operator">*</span>) <span class="keyword">FROM</span> t1 <span class="keyword">WHERE</span> c <span class="operator">=</span> <span class="string">&#x27;payload-999999&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="comment">-- 2) 打开 JSON 看成本构成</span></span><br><span class="line">EXPLAIN FORMAT<span class="operator">=</span>JSON <span class="keyword">SELECT</span> <span class="built_in">COUNT</span>(<span class="operator">*</span>) <span class="keyword">FROM</span> t1 <span class="keyword">WHERE</span> c <span class="operator">=</span> <span class="string">&#x27;payload-999999&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="comment">-- 3) 同一列建索引后，估算方式立刻变了</span></span><br><span class="line"><span class="keyword">CREATE</span> INDEX idx_c <span class="keyword">ON</span> t1 (c);</span><br><span class="line">EXPLAIN FORMAT<span class="operator">=</span>JSON <span class="keyword">SELECT</span> <span class="built_in">COUNT</span>(<span class="operator">*</span>) <span class="keyword">FROM</span> t1 <span class="keyword">WHERE</span> c <span class="operator">=</span> <span class="string">&#x27;payload-999999&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="comment">-- 4) 收尾：删掉，别影响后面的实验</span></span><br><span class="line"><span class="keyword">DROP</span> INDEX idx_c <span class="keyword">ON</span> t1;</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：第 1 步会显示 <code>Table scan ... rows=1e+6</code> 且 Filter 估算 <code>rows=100000</code>，实际只返回 1 行；第 2 步的 <code>filtered</code> 是 <code>10.00</code>；第 3 步建索引后 <code>access_type</code> 变成 <code>ref</code>，<code>rows_examined_per_scan</code> 变成个位数。</p>
+<p><strong>判定标准</strong>：<code>filtered</code> 恰好等于 10.00、25.00、50.00 这类整数 → 说明这个条件<strong>完全没有统计信息</strong>，纯靠先验；这是 ④ 里加直方图的第一个信号。</p>
+<h2 id="3-存储引擎层：Buffer-Pool-与磁盘"><a href="#3-存储引擎层：Buffer-Pool-与磁盘" class="headerlink" title="3. 存储引擎层：Buffer Pool 与磁盘"></a>3. 存储引擎层：Buffer Pool 与磁盘</h2><h3 id="3-1-一次读的三种结局"><a href="#3-1-一次读的三种结局" class="headerlink" title="3.1 一次读的三种结局"></a>3.1 一次读的三种结局</h3><pre class="mermaid">flowchart TD
+    R["Executor asks for page #42"] --> H1{"In Buffer Pool?"}
+    H1 -- yes --> M["Read record from memory&lt;br/>~100ns"]
+    H1 -- no --> H2{"In OS page cache?"}
+    H2 -- yes --> CP["Copy page into pool&lt;br/>memory to memory"]
+    H2 -- no --> IO["Disk read&lt;br/>~50-100us"]
+    IO --> CP --> M</pre>
+
+<p>三种结局在监控里<strong>都表现为一次逻辑读</strong>，区别只在 <code>Innodb_buffer_pool_reads</code> 是否增加。这解释了上一篇那个反直觉的结论：命中率 99.9% 只说明第三种结局很少发生，不说明第一种结局次数少。</p>
+<table>
+<thead>
+<tr>
+<th>结局</th>
+<th>逻辑读 +1</th>
+<th>物理读 +1</th>
+<th>典型耗时</th>
+<th>谁负责</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Buffer Pool 命中</td>
+<td>是</td>
+<td>否</td>
+<td>~100 ns</td>
+<td>索引设计</td>
+</tr>
+<tr>
+<td>Page cache 命中</td>
+<td>是</td>
+<td>是（InnoDB 算一次读，但没落到盘）</td>
+<td>~1 µs</td>
+<td>内存与 <code>O_DIRECT</code></td>
+</tr>
+<tr>
+<td>真落盘</td>
+<td>是</td>
+<td>是</td>
+<td>50~100 µs</td>
+<td>硬件 + 缓存策略</td>
+</tr>
+</tbody></table>
+<h3 id="3-2-回表：逻辑读的放大器"><a href="#3-2-回表：逻辑读的放大器" class="headerlink" title="3.2 回表：逻辑读的放大器"></a>3.2 回表：逻辑读的放大器</h3><p>二级索引只存索引列 + 主键值。当查询需要索引里没有的列时，必须拿主键回聚簇索引再查一次——这就是回表。它的代价不是「多一次查找」，而是<strong>把一次顺序的索引扫描变成一万次分散的页访问</strong>。</p>
+<p>实测（1 万行结果集，同一张表，只改 SELECT 的列）：</p>
+<table>
+<thead>
+<tr>
+<th>写法</th>
+<th>是否回表</th>
+<th>逻辑读</th>
+<th>实际耗时</th>
+<th>扫描行数</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>SELECT SUM(user_id) WHERE user_id BETWEEN 1 AND 1000</code></td>
+<td>否（覆盖索引）</td>
+<td><strong>53</strong></td>
+<td>1.17 ms</td>
+<td>10,000</td>
+</tr>
+<tr>
+<td><code>SELECT SUM(LENGTH(c)) WHERE user_id BETWEEN 1 AND 1000</code></td>
+<td>是</td>
+<td><strong>31,223</strong></td>
+<td>3.33 ms</td>
+<td>10,000</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart LR
+    subgraph Covering["Covering index scan"]
+        I1["idx_user_id leaf pages&lt;br/>53 pages"] --> R1["Answer"]
+    end
+    subgraph BackTable["Index scan + back to table"]
+        I2["idx_user_id leaf pages"] --> P2["clustered index&lt;br/>10000 random page visits"]
+        P2 --> R2["Answer"]
+    end</pre>
+
+<p>同一批 1 万行，逻辑读差 <strong>589 倍</strong>，耗时却只差 <strong>2.8 倍</strong>。这个不对称是本文最值得记住的一课。</p>
+<h3 id="3-3-深挖：为什么逻辑读涨-589-倍，时间只涨-2-8-倍"><a href="#3-3-深挖：为什么逻辑读涨-589-倍，时间只涨-2-8-倍" class="headerlink" title="3.3 深挖：为什么逻辑读涨 589 倍，时间只涨 2.8 倍"></a>3.3 深挖：为什么逻辑读涨 589 倍，时间只涨 2.8 倍</h3><p>因为这张表<strong>整表都在内存里</strong>（3430 页 vs 8192 页的池）。回表增加的 3 万次页访问全部命中 Buffer Pool，每次约 <strong>100 纳秒</strong>（3.33 ms ÷ 31223 ≈ 0.107 µs，其中还含排序等其他开销），所以放大了 589 倍只换来 2.8 倍耗时。</p>
+<p>换算一下两者的单价：</p>
+<table>
+<thead>
+<tr>
+<th>操作</th>
+<th>单价（量级）</th>
+<th>换算</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>逻辑读（命中 Buffer Pool）</td>
+<td>~100 ns</td>
+<td>1 倍</td>
+</tr>
+<tr>
+<td>物理读（NVMe SSD 随机）</td>
+<td>50~100 µs</td>
+<td>500~1000 倍</td>
+</tr>
+</tbody></table>
+<p>这就是「回表很慢」这句话的真实含义：<strong>只有在页不在内存时，回表的逻辑读放大才会等比例变成时间</strong>。生产库几百万行、Buffer Pool 装不下时，那 3 万次访问里有相当一部分要落盘，3.33 ms 会变成几十毫秒——同一份 SQL，本地测 3 ms，线上 80 ms，差的就是这一层。</p>
+<p>所以「加索引 &#x2F; 改覆盖索引」的收益是<strong>条件性的</strong>：数据全在内存时，它省的是 CPU 和锁竞争；数据装不下时，它省的是磁盘 IO。判断属于哪种，看 <code>Innodb_buffer_pool_reads</code> 有没有涨——这是上一篇那把尺子的第二次使用。</p>
+<p>站内《文件系统与磁盘 IO》讲过 page cache 与 <code>fsync</code> 的成本结构，放在这里就是第 6 层的账：<strong>物理读的钱一次几十微秒，而每次 <code>fsync</code> 还要再付一遍</strong>。一次事务提交至少一次日志落盘，2 万 TPS 就是每秒 2 万次 <code>fsync</code>——⑦ 会算这笔账，并解释为什么 <code>innodb_flush_log_at_trx_commit=1</code> 换来的性能损失是「必需的成本」而不是「可以调的参数」。</p>
+<h3 id="3-4-动手验证：把回表的账算在自己机器上"><a href="#3-4-动手验证：把回表的账算在自己机器上" class="headerlink" title="3.4 动手验证：把回表的账算在自己机器上"></a>3.4 动手验证：把回表的账算在自己机器上</h3><figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 准备：只有 user_id 索引</span></span><br><span class="line"><span class="keyword">CREATE</span> INDEX idx_user_id <span class="keyword">ON</span> t1 (user_id);</span><br><span class="line">ANALYZE <span class="keyword">TABLE</span> t1;</span><br><span class="line"></span><br><span class="line"><span class="comment">-- A) 覆盖索引：只取 user_id</span></span><br><span class="line"><span class="keyword">SET</span> <span class="variable">@r0</span> :<span class="operator">=</span> (<span class="keyword">SELECT</span> VARIABLE_VALUE <span class="keyword">FROM</span> performance_schema.global_status</span><br><span class="line">            <span class="keyword">WHERE</span> VARIABLE_NAME<span class="operator">=</span><span class="string">&#x27;Innodb_buffer_pool_read_requests&#x27;</span>);</span><br><span class="line">EXPLAIN ANALYZE <span class="keyword">SELECT</span> <span class="built_in">SUM</span>(user_id) <span class="keyword">FROM</span> t1 <span class="keyword">WHERE</span> user_id <span class="keyword">BETWEEN</span> <span class="number">1</span> <span class="keyword">AND</span> <span class="number">1000</span>;</span><br><span class="line"><span class="keyword">SET</span> <span class="variable">@r1</span> :<span class="operator">=</span> (<span class="keyword">SELECT</span> VARIABLE_VALUE <span class="keyword">FROM</span> performance_schema.global_status</span><br><span class="line">            <span class="keyword">WHERE</span> VARIABLE_NAME<span class="operator">=</span><span class="string">&#x27;Innodb_buffer_pool_read_requests&#x27;</span>);</span><br><span class="line"><span class="keyword">SELECT</span> <span class="string">&#x27;covering&#x27;</span> <span class="keyword">AS</span> kind, <span class="variable">@r1</span> <span class="operator">-</span> <span class="variable">@r0</span> <span class="keyword">AS</span> logical_reads;</span><br><span class="line"></span><br><span class="line"><span class="comment">-- B) 回表：取 c，索引里没有</span></span><br><span class="line"><span class="keyword">SET</span> <span class="variable">@r0</span> :<span class="operator">=</span> <span class="variable">@r1</span>;</span><br><span class="line">EXPLAIN ANALYZE <span class="keyword">SELECT</span> <span class="built_in">SUM</span>(LENGTH(c)) <span class="keyword">FROM</span> t1 <span class="keyword">WHERE</span> user_id <span class="keyword">BETWEEN</span> <span class="number">1</span> <span class="keyword">AND</span> <span class="number">1000</span>;</span><br><span class="line"><span class="keyword">SET</span> <span class="variable">@r1</span> :<span class="operator">=</span> (<span class="keyword">SELECT</span> VARIABLE_VALUE <span class="keyword">FROM</span> performance_schema.global_status</span><br><span class="line">            <span class="keyword">WHERE</span> VARIABLE_NAME<span class="operator">=</span><span class="string">&#x27;Innodb_buffer_pool_read_requests&#x27;</span>);</span><br><span class="line"><span class="keyword">SELECT</span> <span class="string">&#x27;back_to_table&#x27;</span> <span class="keyword">AS</span> kind, <span class="variable">@r1</span> <span class="operator">-</span> <span class="variable">@r0</span> <span class="keyword">AS</span> logical_reads;</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：A 的逻辑读在两位数到三位数，B 跳到四位数甚至五位数（本篇 53 → 31223），而 B 的 <code>actual time</code> 只涨两三倍。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>B&#x2F;A 的逻辑读比 &gt; 10 → 这张表上回表很贵，优先考虑覆盖索引（③）；</li>
+<li>若 B 的 <code>actual time</code> 涨幅接近逻辑读的涨幅 → 说明有物理读参与，池不够（⑦）；</li>
+<li>若两者耗时都很大但逻辑读很小 → 你在等锁，去 ⑥。</li>
+</ul>
+<p>再补一个「把缓存拿掉」的对照，体会第 6 层的真实价格：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 把池临时调到 128MB（如果你的实例更大），或直接重启 MySQL 清空池</span></span><br><span class="line"><span class="keyword">SET</span> <span class="keyword">GLOBAL</span> innodb_buffer_pool_size <span class="operator">=</span> <span class="number">134217728</span>;</span><br><span class="line"><span class="comment">-- 重新跑 B，同时看物理读</span></span><br><span class="line"><span class="keyword">SHOW</span> <span class="keyword">GLOBAL</span> STATUS <span class="keyword">LIKE</span> <span class="string">&#x27;Innodb_buffer_pool_reads&#x27;</span>;</span><br></pre></td></tr></table></figure>
+
+<p><strong>判定标准</strong>：物理读开始随查询增长 → 你测到的是「线上同款」成本；物理读恒为 0 → 本地结论只能解释 CPU 与逻辑读，别拿它推生产。</p>
+<h2 id="4-成本账的实战用法"><a href="#4-成本账的实战用法" class="headerlink" title="4. 成本账的实战用法"></a>4. 成本账的实战用法</h2><h3 id="4-1-同一-SQL，数据量不同，钱花在不同层"><a href="#4-1-同一-SQL，数据量不同，钱花在不同层" class="headerlink" title="4.1 同一 SQL，数据量不同，钱花在不同层"></a>4.1 同一 SQL，数据量不同，钱花在不同层</h3><p>以「按用户查订单列表」为例，<code>WHERE user_id = ? ORDER BY create_time LIMIT 20</code>，三种数据规模下的成本分布完全不同：</p>
+<table>
+<thead>
+<tr>
+<th>数据量</th>
+<th>索引情况</th>
+<th>逻辑读</th>
+<th>物理读</th>
+<th>主要成本在</th>
+<th>该做什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>10 万行</td>
+<td>有 <code>user_id</code> 索引</td>
+<td>个位数</td>
+<td>0</td>
+<td>Server 层（解析 + 优化）</td>
+<td>别优化 SQL，优化调用次数</td>
+</tr>
+<tr>
+<td>100 万行</td>
+<td>有索引但需排序</td>
+<td>几十 ~ 几百</td>
+<td>0~少量</td>
+<td>排序 &#x2F; 临时表</td>
+<td>让索引顺序覆盖 <code>ORDER BY</code>（③）</td>
+</tr>
+<tr>
+<td>1000 万行</td>
+<td>无合适索引</td>
+<td>数万</td>
+<td>数千</td>
+<td>磁盘</td>
+<td>建复合索引，把排序也吃掉（③④）</td>
+</tr>
+</tbody></table>
+<p>同一个接口，三套优化方案。这也是为什么「照着别人的 my.cnf 抄」必然失败：他调的是他那一层的钱。</p>
+<h3 id="4-2-判定表：症状-→-层-→-手段"><a href="#4-2-判定表：症状-→-层-→-手段" class="headerlink" title="4.2 判定表：症状 → 层 → 手段"></a>4.2 判定表：症状 → 层 → 手段</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>大概率在哪层</th>
+<th>第一件事</th>
+<th>别做什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>简单查询也要几十毫秒</td>
+<td>连接 &#x2F; 网络</td>
+<td>查 RTT、连接池等待（⑪）</td>
+<td>别加索引</td>
+</tr>
+<tr>
+<td><code>SELECT 1</code> 就慢</td>
+<td>连接 &#x2F; Server 层</td>
+<td>看 <code>Threads_running</code>、CPU</td>
+<td>别改 SQL</td>
+</tr>
+<tr>
+<td>行数少但耗时高</td>
+<td>优化器选错 &#x2F; 锁</td>
+<td><code>EXPLAIN ANALYZE</code> 看 actual rows</td>
+<td>别加内存</td>
+</tr>
+<tr>
+<td>扫行数远超返回行数</td>
+<td>索引 &#x2F; 执行器</td>
+<td>看 <code>filtered</code>、回表</td>
+<td>别调参数</td>
+</tr>
+<tr>
+<td>逻辑读高、物理读也高</td>
+<td>Buffer Pool</td>
+<td>查命中率、池大小（⑦）</td>
+<td>别先改刷盘参数</td>
+</tr>
+<tr>
+<td>逻辑读高、物理读为 0</td>
+<td>索引设计</td>
+<td>覆盖索引、减少回表（③）</td>
+<td>别加内存</td>
+</tr>
+</tbody></table>
+<h3 id="4-3-动手验证：定位「哪层吃掉-80-」"><a href="#4-3-动手验证：定位「哪层吃掉-80-」" class="headerlink" title="4.3 动手验证：定位「哪层吃掉 80%」"></a>4.3 动手验证：定位「哪层吃掉 80%」</h3><figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 1) 先确认是这条 SQL：按总耗时找</span></span><br><span class="line"><span class="keyword">SELECT</span> DIGEST_TEXT, COUNT_STAR,</span><br><span class="line">       ROUND(SUM_TIMER_WAIT<span class="operator">/</span>COUNT_STAR<span class="operator">/</span><span class="number">1000000000</span>, <span class="number">3</span>) <span class="keyword">AS</span> avg_ms,</span><br><span class="line">       ROUND(SUM_ROWS_EXAMINED<span class="operator">/</span>COUNT_STAR) <span class="keyword">AS</span> avg_rows_examined,</span><br><span class="line">       ROUND(SUM_ROWS_SENT<span class="operator">/</span>COUNT_STAR) <span class="keyword">AS</span> avg_rows_sent</span><br><span class="line"><span class="keyword">FROM</span> performance_schema.events_statements_summary_by_digest</span><br><span class="line"><span class="keyword">WHERE</span> SCHEMA_NAME <span class="operator">=</span> <span class="string">&#x27;lab&#x27;</span></span><br><span class="line"><span class="keyword">ORDER</span> <span class="keyword">BY</span> SUM_TIMER_WAIT <span class="keyword">DESC</span> LIMIT <span class="number">3</span>;</span><br><span class="line"></span><br><span class="line"><span class="comment">-- 2) 再看它扫了多少行、返回多少行：比值就是回表/全表的放大倍数</span></span><br><span class="line"><span class="comment">-- 3) 最后用 EXPLAIN ANALYZE 看每个迭代器的 actual time，找最大的一段</span></span><br><span class="line">EXPLAIN ANALYZE <span class="keyword">SELECT</span> <span class="built_in">SUM</span>(LENGTH(c)) <span class="keyword">FROM</span> t1 <span class="keyword">WHERE</span> user_id <span class="keyword">BETWEEN</span> <span class="number">1</span> <span class="keyword">AND</span> <span class="number">1000</span>;</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：第 1 步的 <code>avg_rows_examined / avg_rows_sent</code> 如果大于 100，说明读了大量用不上的行；第 3 步的输出是<strong>树形</strong>的，每一行末尾的 <code>actual time=a..b</code> 是累计时间，<strong>父节点的总时间一定不小于子节点</strong>，找 <code>b</code> 增量最大的那一层。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>最大耗时在 <code>Table scan</code> &#x2F; <code>Index scan</code> 节点 → 逻辑读问题（③）；</li>
+<li>最大耗时在 <code>Sort</code> &#x2F; <code>Temporary table</code> 节点 → 排序没吃到索引（③④）；</li>
+<li>各节点都很快但总耗时很高 → 时间花在节点之外：锁（⑥）、网络、或客户端（⑪）。</li>
+</ul>
+<h2 id="5-总结"><a href="#5-总结" class="headerlink" title="5. 总结"></a>5. 总结</h2><h3 id="5-1-面试速答表"><a href="#5-1-面试速答表" class="headerlink" title="5.1 面试速答表"></a>5.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>一条 SQL 从客户端到返回经过哪些阶段</td>
+<td>连接 → 解析（词法&#x2F;语法&#x2F;预处理）→ 优化（选执行计划）→ 执行（调 handler）→ Buffer Pool → 磁盘</td>
+</tr>
+<tr>
+<td>MySQL 里哪一层最贵</td>
+<td>看情况：短连接时连接层是毫秒级，比执行贵两个数量级；大表查询时磁盘是几十微秒一次，最贵</td>
+</tr>
+<tr>
+<td><code>EXPLAIN</code> 的 rows 准确吗</td>
+<td>是优化器的估算，依据统计信息；没有统计时用内置先验（等值条件按 10% 估），可能偏 10 万倍</td>
+</tr>
+<tr>
+<td>优化器的成本单位是毫秒吗</td>
+<td>不是，是内部成本单位，只在计划之间比较有意义</td>
+</tr>
+<tr>
+<td><code>EXPLAIN</code> 和 <code>EXPLAIN ANALYZE</code> 的区别</td>
+<td>前者给估算（rows、cost），后者给实际（actual time、actual rows）</td>
+</tr>
+<tr>
+<td>回表为什么慢</td>
+<td>把一次索引扫描变成 N 次分散的聚簇索引页访问；N 次里有多少物理读，才决定它有多慢</td>
+</tr>
+<tr>
+<td>为什么本地测 3ms、线上 80ms</td>
+<td>本地页全在 Buffer Pool，逻辑读单价 <del>100ns；线上要落盘，物理读单价 50</del>100µs</td>
+</tr>
+<tr>
+<td>覆盖索引一定更快吗</td>
+<td>数据全在内存时省的是 CPU 与锁；装不下时省的是磁盘 IO；两种收益量级不同</td>
+</tr>
+</tbody></table>
+<h3 id="5-2-实战避坑表"><a href="#5-2-实战避坑表" class="headerlink" title="5.2 实战避坑表"></a>5.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>给 40ms 的查询加索引没用</td>
+<td>时间花在连接或锁，不在页访问</td>
+<td>先看 <code>SELECT 1</code> 的耗时与 <code>Threads_running</code></td>
+</tr>
+<tr>
+<td><code>filtered</code> 永远是 10.00</td>
+<td>该列没有统计信息，优化器用先验</td>
+<td>建索引或加直方图（④）</td>
+</tr>
+<tr>
+<td>优化器明显选错索引</td>
+<td>成本模型常数落后于 SSD，或统计过期</td>
+<td><code>ANALYZE TABLE</code>，必要时 <code>FORCE INDEX</code> 并记录原因</td>
+</tr>
+<tr>
+<td>加了覆盖索引性能没变</td>
+<td>瓶颈在排序 &#x2F; 临时表 &#x2F; 锁</td>
+<td>看 <code>EXPLAIN ANALYZE</code> 里最重的节点</td>
+</tr>
+<tr>
+<td>本地压测完美，上线抖动</td>
+<td>本地全命中，线上有物理读</td>
+<td>按生产数据量造数，或把池调到装不下</td>
+</tr>
+<tr>
+<td>盲目相信 <code>query_cost</code> 绝对值</td>
+<td>它只是内部单位</td>
+<td>只用于同一实例内比较计划</td>
+</tr>
+</tbody></table>
+<h3 id="5-3-工具速查表"><a href="#5-3-工具速查表" class="headerlink" title="5.3 工具速查表"></a>5.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>判定标准</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>performance_schema.events_statements_summary_by_digest</code></td>
+<td>服务端每条语句的平均耗时、扫行数</td>
+<td>平均耗时与客户端墙钟差 10 倍 → 网络或排队</td>
+</tr>
+<tr>
+<td><code>EXPLAIN FORMAT=JSON</code></td>
+<td><code>filtered</code>、<code>rows_examined_per_scan</code>、<code>read_cost/eval_cost</code></td>
+<td><code>filtered</code> 是 10.00 这类整数 → 无统计信息</td>
+</tr>
+<tr>
+<td><code>EXPLAIN ANALYZE</code></td>
+<td>每个迭代器的 <code>actual time</code> 与 <code>actual rows</code></td>
+<td>估算与实际差 10 倍 → 优化器问题；都大 → 索引问题</td>
+</tr>
+<tr>
+<td><code>Innodb_buffer_pool_read_requests</code> &#x2F; <code>_reads</code></td>
+<td>逻辑读 &#x2F; 物理读</td>
+<td>物理读占比 &gt; 5% → 池不够</td>
+</tr>
+<tr>
+<td><code>events_waits_summary_global_by_event_name</code></td>
+<td>各类等待的总耗时</td>
+<td>锁等待 &#x2F; IO 等待占比 → 定位到层</td>
+</tr>
+<tr>
+<td><code>Threads_running</code></td>
+<td>并发执行中的线程</td>
+<td>持续 &gt; CPU 核数 → 在排队，不是算力不足</td>
+</tr>
+</tbody></table>
+<h3 id="5-4-实操建议"><a href="#5-4-实操建议" class="headerlink" title="5.4 实操建议"></a>5.4 实操建议</h3><ol>
+<li>**先量 <code>SELECT 1</code>**。这个数字代表你这套环境的地板价，任何低于它的优化目标都是幻想。</li>
+<li><strong>把「六层」当成排查清单</strong>，每次慢查询按顺序排除：连接 → 解析 → 优化 → 执行 → 池 → 磁盘，一次只排除一层。</li>
+<li><strong>记住三个单价</strong>：逻辑读 <del>100 ns、物理读 ~50</del>100 µs、连接 ~几毫秒。三者差两个数量级，你的优化收益上限由它们决定。</li>
+<li><strong>遇到「估算与实际差 10 倍」，先怀疑统计信息，再怀疑索引</strong>——<code>filtered</code> 是整数就是证据。</li>
+<li><strong>每次改完，回到上一篇的基线表加一行</strong>：逻辑读、物理读、耗时。没有这三列，你无法证明自己改对了。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告</strong>：③《Schema 与索引：把逻辑读降下来》。本文说了「索引能把 3430 页压到 4 页」，下一篇回答怎么压——B+ 树到底怎么排的、复合索引的列序为什么不能拍脑袋、覆盖索引与回表的分界线在哪，以及<strong>索引越多写越慢</strong>这件事能实测出多少。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/MySQL/" rel="tag"># MySQL</a>
+              <a href="/tags/%E9%9D%A2%E8%AF%95/" rel="tag"># 面试</a>
+              <a href="/tags/%E6%80%A7%E8%83%BD%E4%BC%98%E5%8C%96/" rel="tag"># 性能优化</a>
+              <a href="/tags/%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B/" rel="tag"># 执行流程</a>
+              <a href="/tags/%E4%BC%98%E5%8C%96%E5%99%A8/" rel="tag"># 优化器</a>
+              <a href="/tags/performance-schema/" rel="tag"># performance_schema</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/60f95c16.html" rel="prev" title="从这里开始：把 MySQL 变成你的实验台">
+                  <i class="fa fa-angle-left"></i> 从这里开始：把 MySQL 变成你的实验台
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/post/e1724727.html" rel="next" title="Schema 与索引：把逻辑读降下来">
+                  Schema 与索引：把逻辑读降下来 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">740k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">44:51</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
+</html>

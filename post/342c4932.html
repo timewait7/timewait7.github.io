@@ -1,0 +1,1298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="Redis 的一个 hash 从 512 个 field 涨到 513 个，内存从 6.2 KB 跳到 28.8 KB——多了 1 个 field，多了 4.6 倍内存。这不是 bug，是编码切换：小对象用紧凑的 listpack 连续存储，一旦越过阈值就换成 hashtable，每个 field 都带上哈希表的开销。 本文把三种编码阈值和四种复杂度都量成数字：hash&#x2F;zset&amp;#x2">
+<meta property="og:type" content="article">
+<meta property="og:title" content="数据结构：编码阈值与复杂度的真实代价">
+<meta property="og:url" content="http://timewait7.github.io/post/342c4932.html">
+<meta property="og:site_name" content="知行栈">
+<meta property="og:description" content="Redis 的一个 hash 从 512 个 field 涨到 513 个，内存从 6.2 KB 跳到 28.8 KB——多了 1 个 field，多了 4.6 倍内存。这不是 bug，是编码切换：小对象用紧凑的 listpack 连续存储，一旦越过阈值就换成 hashtable，每个 field 都带上哈希表的开销。 本文把三种编码阈值和四种复杂度都量成数字：hash&#x2F;zset&amp;#x2">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-10-25T03:00:00.000Z">
+<meta property="article:modified_time" content="2026-10-24T13:55:22.357Z">
+<meta property="article:tag" content="面试">
+<meta property="article:tag" content="Redis">
+<meta property="article:tag" content="数据结构">
+<meta property="article:tag" content="listpack">
+<meta property="article:tag" content="skiplist">
+<meta property="article:tag" content="内存优化">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/342c4932.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/342c4932.html","path":"post/342c4932.html","title":"数据结构：编码阈值与复杂度的真实代价"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>数据结构：编码阈值与复杂度的真实代价 | 知行栈</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<!-- hexo injector head_end start --><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
+</style><style>
+/* 菜单链高亮：sub-menu 祖先（同主题 .menu-item-active 的 Pisces 规则） */
+.sub-menu .menu-item a.menu-chain-active {
+  border-bottom-color: #fc6423;
+  color: #fc6423;
+}
+.sub-menu .menu-item a.menu-chain-active:hover {
+  border-bottom-color: #fc6423;
+}
+/* 菜单链高亮：main-menu 祖先（同主题 hover/active 的背景规则） */
+.main-menu .menu-item a.menu-chain-active {
+  background: var(--menu-item-bg-color);
+}
+</style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">知行栈</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section" class="menu-chain-active"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>Categories</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-%E7%BC%96%E7%A0%81%EF%BC%9A%E5%86%85%E5%AD%98%E7%9A%84%E7%AC%AC%E4%B8%80%E5%86%B3%E5%AE%9A%E5%9B%A0%E7%B4%A0"><span class="nav-text">1. 编码：内存的第一决定因素</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-%E4%B8%80%E5%8F%A5%E8%AF%9D%E5%AE%9A%E4%B9%89"><span class="nav-text">1.1 一句话定义</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-2-%E5%AE%9E%E6%B5%8B%EF%BC%9A%E4%B8%89%E6%9D%A1%E6%96%AD%E5%B4%96"><span class="nav-text">1.2 实测：三条断崖</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-3-%E6%B7%B1%E6%8C%96%EF%BC%9A%E4%B8%BA%E4%BB%80%E4%B9%88-sds-quicklist-listpack-%E8%83%BD%E8%BF%99%E4%B9%88%E7%9C%81"><span class="nav-text">1.3 深挖：为什么 sds&#x2F;quicklist&#x2F;listpack 能这么省</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E6%8E%A2%E6%B5%8B%E4%BB%BB%E6%84%8F-key-%E7%9A%84%E7%BC%96%E7%A0%81"><span class="nav-text">1.4 动手验证：探测任意 key 的编码</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E5%86%85%E5%AD%98%E5%AE%9E%E6%B5%8B%EF%BC%9A%E5%90%8C%E6%A0%B7%E6%95%B0%E6%8D%AE%EF%BC%8C%E5%87%A0%E7%A7%8D%E5%AD%98%E6%B3%95"><span class="nav-text">2. 内存实测：同样数据，几种存法</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-1000-%E4%B8%AA%E5%AD%97%E6%AE%B5%EF%BC%9A1000-%E4%B8%AA-string-vs-1-%E4%B8%AA-hash"><span class="nav-text">2.1 1000 个字段：1000 个 string vs 1 个 hash</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E6%AF%8F%E5%85%83%E7%B4%A0%E5%86%85%E5%AD%98%E6%88%90%E6%9C%AC%E6%A8%AA%E8%AF%84"><span class="nav-text">2.2 每元素内存成本横评</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-%E6%B7%B1%E6%8C%96%EF%BC%9A%E4%B8%BA%E4%BB%80%E4%B9%88-list-%E8%BF%99%E4%B9%88%E4%BE%BF%E5%AE%9C"><span class="nav-text">2.3 深挖：为什么 list 这么便宜</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-4-%E6%B7%B1%E6%8C%96%EF%BC%9A%E4%B8%BA%E4%BB%80%E4%B9%88%E4%B8%8D%E8%83%BD%E7%94%A8-INFO-memory-%E5%B7%AE%E5%80%BC%E9%87%8F%E7%BB%93%E6%9E%84%E5%A4%A7%E5%B0%8F"><span class="nav-text">2.4 深挖：为什么不能用 INFO memory 差值量结构大小</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-5-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E9%87%8F%E5%87%BA%E4%BD%A0%E8%87%AA%E5%B7%B1%E7%9A%84%E3%80%8C%E6%AF%8F-key-%E6%88%90%E6%9C%AC%E3%80%8D"><span class="nav-text">2.5 动手验证：量出你自己的「每 key 成本」</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E5%A4%8D%E6%9D%82%E5%BA%A6%EF%BC%9AO-N-%E5%91%BD%E4%BB%A4%E6%89%8D%E6%98%AF%E7%9C%9F%E5%87%B6"><span class="nav-text">3. 复杂度：O(N) 命令才是真凶</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E5%AE%9E%E6%B5%8B%EF%BC%9A%E6%AF%8F%E6%9D%A1%E5%91%BD%E4%BB%A4%E5%AE%9E%E9%99%85%E8%8A%B1%E4%BA%86%E5%A4%9A%E4%B9%85"><span class="nav-text">3.1 实测：每条命令实际花了多久</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E4%B8%89%E4%B8%AA%E5%BF%85%E9%A1%BB%E8%AE%B0%E4%BD%8F%E7%9A%84%E9%87%8F%E7%BA%A7"><span class="nav-text">3.2 三个必须记住的量级</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-%E6%B7%B1%E6%8C%96%EF%BC%9A%E5%8D%95%E7%BA%BF%E7%A8%8B%E4%B8%8B-1-4-%E6%AF%AB%E7%A7%92%E6%84%8F%E5%91%B3%E7%9D%80%E4%BB%80%E4%B9%88"><span class="nav-text">3.3 深挖：单线程下 1.4 毫秒意味着什么</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E7%BB%99%E4%BD%A0%E8%87%AA%E5%B7%B1%E7%9A%84%E5%91%BD%E4%BB%A4%E8%AE%A1%E6%97%B6"><span class="nav-text">3.4 动手验证：给你自己的命令计时</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E9%80%89%E5%9E%8B%E4%B8%8E%E9%98%88%E5%80%BC%E8%B0%83%E6%95%B4"><span class="nav-text">4. 选型与阈值调整</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-%E4%BA%94%E7%A7%8D%E7%B1%BB%E5%9E%8B%E7%9A%84%E9%80%89%E6%8B%A9%E8%A1%A8"><span class="nav-text">4.1 五种类型的选择表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-%E9%98%88%E5%80%BC%E8%AF%A5%E4%B8%8D%E8%AF%A5%E8%B0%83"><span class="nav-text">4.2 阈值该不该调</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-%E4%B8%80%E4%B8%AA%E7%9C%9F%E5%AE%9E%E7%9A%84%E5%8F%96%E8%88%8D%EF%BC%9A%E6%8A%8A%E7%BC%93%E5%AD%98%E5%AF%B9%E8%B1%A1%E6%8B%86%E6%88%90-hash"><span class="nav-text">4.3 一个真实的取舍：把缓存对象拆成 hash</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E9%98%88%E5%80%BC%E8%B0%83%E6%95%B4%E7%9A%84-A-B"><span class="nav-text">4.4 动手验证：阈值调整的 A&#x2F;B</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E6%80%BB%E7%BB%93"><span class="nav-text">5. 总结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E9%9D%A2%E8%AF%95%E9%80%9F%E7%AD%94%E8%A1%A8"><span class="nav-text">5.1 面试速答表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E5%AE%9E%E6%88%98%E9%81%BF%E5%9D%91%E8%A1%A8"><span class="nav-text">5.2 实战避坑表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-%E5%B7%A5%E5%85%B7%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">5.3 工具速查表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-%E5%AE%9E%E6%93%8D%E5%BB%BA%E8%AE%AE"><span class="nav-text">5.4 实操建议</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">104</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">14</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">175</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+    <div class="sidebar-inner sidebar-blogroll">
+      <div class="links-of-blogroll animated">
+        <div class="links-of-blogroll-title"><i class="fa fa-globe fa-fw"></i>
+          Links
+        </div>
+        <ul class="links-of-blogroll-list">
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9wYXVsZ3JhaGFtLmNvbS9hcnRpY2xlcy5odG1s" title="https:&#x2F;&#x2F;paulgraham.com&#x2F;articles.html">paulgraham</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly93d3cuam9lbG9uc29mdHdhcmUuY29tLw==" title="https:&#x2F;&#x2F;www.joelonsoftware.com&#x2F;">Joel on Software</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9tYXJ0aW5mb3dsZXIuY29tLw==" title="https:&#x2F;&#x2F;martinfowler.com&#x2F;">Martin Flower</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly96aGFuZ3RpZWxlaS5jb20v" title="https:&#x2F;&#x2F;zhangtielei.com&#x2F;">zhangtielei</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhLWRlc2lnbi1wYXR0ZXJucy5jb20vemgv" title="https:&#x2F;&#x2F;java-design-patterns.com&#x2F;zh&#x2F;">Java Design Patterns</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9taWNyb3NlcnZpY2VzLmlvLw==" title="https:&#x2F;&#x2F;microservices.io&#x2F;">Microservice Architecture</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhZ3VpZGUuY24v" title="https:&#x2F;&#x2F;javaguide.cn&#x2F;">JavaGuide</span>
+            </li>
+        </ul>
+      </div>
+    </div>
+        <div class="pjax">
+        
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-后端开发"><a href="/docs/nav/backend-dev-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-code fa-fw"></i>后端开发</a></li>
+
+
+      
+  <li class="menu-item menu-item-计算机基础"><a href="/docs/nav/cs-foundation-nav.html" rel="section"><i class="fa fa-desktop fa-fw"></i>计算机基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-ai-学习"><a href="/docs/nav/ai-learning-nav.html" rel="section"><i class="fa fa-robot fa-fw"></i>AI 学习</a></li>
+
+
+      
+  <li class="menu-item menu-item-项目实战"><a href="/docs/nav/5964f4da.html" rel="section"><i class="fa fa-flask fa-fw"></i>项目实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-misc"><a href="/docs/nav/misc-nav.html" rel="section"><i class="fa fa-box fa-fw"></i>Misc</a></li>
+
+
+      
+  <li class="menu-item menu-item-随笔·生活"><a href="/docs/nav/life-nav.html" rel="section"><i class="fa fa-feather fa-fw"></i>随笔·生活</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java"><a href="/docs/nav/java-nav.html" rel="section"><i class="fa fa-coffee fa-fw"></i>Java</a></li>
+
+
+      
+  <li class="menu-item menu-item-框架"><a href="/docs/nav/framework-nav.html" rel="section"><i class="fa fa-th-large fa-fw"></i>框架</a></li>
+
+
+      
+  <li class="menu-item menu-item-数据存储"><a href="/docs/nav/data-storage-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-hdd fa-fw"></i>数据存储</a></li>
+
+
+      
+  <li class="menu-item menu-item-中间件"><a href="/docs/nav/middleware-nav.html" rel="section"><i class="fa fa-cubes fa-fw"></i>中间件</a></li>
+
+
+      
+  <li class="menu-item menu-item-分布式与微服务"><a href="/docs/nav/distributed-nav.html" rel="section"><i class="fa fa-sitemap fa-fw"></i>分布式与微服务</a></li>
+
+
+      
+  <li class="menu-item menu-item-系统设计"><a href="/docs/nav/system-design-nav.html" rel="section"><i class="fa fa-pencil-ruler fa-fw"></i>系统设计</a></li>
+
+
+      
+  <li class="menu-item menu-item-部署运维"><a href="/docs/nav/devops-nav.html" rel="section"><i class="fa fa-terminal fa-fw"></i>部署运维</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-mysql"><a href="/docs/nav/mysql-nav.html" rel="section"><i class="fa fa-database fa-fw"></i>MySQL</a></li>
+
+
+      
+  <li class="menu-item menu-item-redis"><a href="/docs/nav/redis-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-bolt fa-fw"></i>Redis</a></li>
+
+
+      
+  <li class="menu-item menu-item-elasticsearch"><a href="/docs/nav/es-nav.html" rel="section"><i class="fa fa-search fa-fw"></i>ElasticSearch</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-redis-深度解析：从原理到精通"><a href="/post/bae4ff13.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Redis 深度解析：从原理到精通</a></li>
+
+
+      
+  <li class="menu-item menu-item-①-从这里开始：把-redis-变成你的实验台"><a href="/post/fb7bfeea.html" rel="section"><i class="fa fa-file-text fa-fw"></i>① 从这里开始：把 Redis 变成你的实验台</a></li>
+
+
+      
+  <li class="menu-item menu-item-②-一次请求的成本账：rtt、事件循环与命令执行"><a href="/post/d0aa1ba2.html" rel="section"><i class="fa fa-file-text fa-fw"></i>② 一次请求的成本账：RTT、事件循环与命令执行</a></li>
+
+
+      
+  <li class="menu-item menu-item-③-数据结构：编码阈值与复杂度的真实代价"><a href="/post/342c4932.html" rel="section"><i class="fa fa-file-text fa-fw"></i>③ 数据结构：编码阈值与复杂度的真实代价</a></li>
+
+
+      
+  <li class="menu-item menu-item-④-内存、淘汰与碎片：maxmemory-设了为什么还会-oom"><a href="/post/b28e7721.html" rel="section"><i class="fa fa-file-text fa-fw"></i>④ 内存、淘汰与碎片：maxmemory 设了为什么还会 OOM</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑤-单线程：为什么快，什么时候会卡"><a href="/post/d9138e00.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑤ 单线程：为什么快，什么时候会卡</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑥-pipeline、事务与-lua：原子性和-rtt-怎么兼得"><a href="/post/884c75a8.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑥ Pipeline、事务与 Lua：原子性和 RTT 怎么兼得</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑦-持久化：rdb、aof-与丢失窗口"><a href="/post/6a7a58b3.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑦ 持久化：RDB、AOF 与丢失窗口</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑧-复制、哨兵与-cluster：切一次主要多久"><a href="/post/63c21b5b.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑧ 复制、哨兵与 Cluster：切一次主要多久</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑨-缓存三大问题：穿透、击穿、雪崩的量化与解法"><a href="/post/1d7a96da.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑨ 缓存三大问题：穿透、击穿、雪崩的量化与解法</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑩-缓存与数据库一致性：更新顺序与不一致窗口"><a href="/post/35ae94a8.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑩ 缓存与数据库一致性：更新顺序与不一致窗口</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑪-分布式锁与限流：从-set-nx-到-redisson"><a href="/post/cb07eb8d.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑪ 分布式锁与限流：从 SET NX 到 Redisson</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑫-容量规划与分片：什么时候才该上-cluster"><a href="/post/b815463e.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑫ 容量规划与分片：什么时候才该上 Cluster</a></li>
+
+
+    </ul>
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/342c4932.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="数据结构：编码阈值与复杂度的真实代价 | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          数据结构：编码阈值与复杂度的真实代价
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-10-25 11:00:00" itemprop="dateCreated datePublished" datetime="2026-10-25T11:00:00+08:00">2026-10-25</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/" itemprop="url" rel="index"><span itemprop="name">数据存储</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>4.2k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>15 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><p><strong>Redis 的一个 hash 从 512 个 field 涨到 513 个，内存从 6.2 KB 跳到 28.8 KB——多了 1 个 field，多了 4.6 倍内存</strong>。这不是 bug，是编码切换：小对象用紧凑的 listpack 连续存储，一旦越过阈值就换成 hashtable，每个 field 都带上哈希表的开销。</p>
+<p>本文把三种编码阈值和四种复杂度都量成数字：hash&#x2F;zset&#x2F;set 的三条断崖、1000 个 string 与 1 个 hash 的内存对比、以及 <code>ZRANGE 0 -1</code> 为什么能用 1.4 毫秒阻塞整个 Redis。全部在 Redis 7.4.11 实测。</p>
+<blockquote>
+<p><strong>系列地图（Redis 实战路线，12 篇）</strong></p>
+<p>① 实验台与基线 → ② 一次请求的成本账 → ③ <strong>数据结构与编码（本文）</strong> → ④ 内存、淘汰与碎片 → ⑤ 单线程与阻塞 → ⑥ Pipeline、事务与 Lua → ⑦ 持久化与丢失窗口 → ⑧ 复制、哨兵与 Cluster → ⑨ 缓存三大问题 → ⑩ 缓存与数据库一致性 → ⑪ 分布式锁与限流 → ⑫ 容量规划与分片</p>
+<p>与前后篇的关系：① 算出「每 key 139 字节」，本文解释这 139 字节里哪些是编码开销；④ 会接着讲淘汰与碎片，⑤ 会把本文的 O(N) 命令换算成「阻塞多少其他请求」。</p>
+</blockquote>
+<h2 id="1-编码：内存的第一决定因素"><a href="#1-编码：内存的第一决定因素" class="headerlink" title="1. 编码：内存的第一决定因素"></a>1. 编码：内存的第一决定因素</h2><h3 id="1-1-一句话定义"><a href="#1-1-一句话定义" class="headerlink" title="1.1 一句话定义"></a>1.1 一句话定义</h3><p>Redis 的每种类型都有<strong>两套编码</strong>：元素少、值小时用<strong>紧凑结构</strong>（连续内存、无指针开销），超过阈值后自动转成<strong>通用结构</strong>（哈希表 &#x2F; 跳表，查询快但每个元素都有额外开销）。</p>
+<pre class="mermaid">flowchart TD
+    H["HASH"] --> H1{"fields > 512&lt;br/>or value > 64B?"}
+    H1 -- no --> HL["listpack&lt;br/>~12 B/field"]
+    H1 -- yes --> HH["hashtable&lt;br/>~48 B/field"]
+    Z["ZSET"] --> Z1{"members > 128?"}
+    Z1 -- no --> ZL["listpack&lt;br/>~8 B/member"]
+    Z1 -- yes --> ZS["skiplist + dict&lt;br/>~82 B/member"]
+    S["SET (all ints)"] --> S1{"members > 512?"}
+    S1 -- no --> SI["intset&lt;br/>~2.6 B/member"]
+    S1 -- yes --> SH["hashtable&lt;br/>~48 B/member"]</pre>
+
+<p><strong>先记住一件事</strong>：这些阈值是参数，不是常量。本文实例的实测值：</p>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>本文实测</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>hash-max-listpack-entries</code></td>
+<td><strong>512</strong></td>
+<td>hash 的 field 数上限</td>
+</tr>
+<tr>
+<td><code>hash-max-listpack-value</code></td>
+<td>64</td>
+<td>单个 field value 的字节上限</td>
+</tr>
+<tr>
+<td><code>zset-max-listpack-entries</code></td>
+<td>128</td>
+<td>zset 成员数上限</td>
+</tr>
+<tr>
+<td><code>zset-max-listpack-value</code></td>
+<td>64</td>
+<td>zset 成员字节上限</td>
+</tr>
+<tr>
+<td><code>set-max-intset-entries</code></td>
+<td>512</td>
+<td>整数集合上限</td>
+</tr>
+<tr>
+<td><code>list-max-listpack-size</code></td>
+<td>-2</td>
+<td>quicklist 单节点 8KB（负数表示按大小）</td>
+</tr>
+</tbody></table>
+<blockquote>
+<p>注意：<code>hash-max-listpack-entries</code> 在本文的 7.4.11 上是 <strong>512</strong>，而不少资料写 128。<strong>默认值随版本变，一律用 <code>CONFIG GET</code> 现查</strong>。</p>
+</blockquote>
+<h3 id="1-2-实测：三条断崖"><a href="#1-2-实测：三条断崖" class="headerlink" title="1.2 实测：三条断崖"></a>1.2 实测：三条断崖</h3><p><strong>hash（field 数量）</strong>：</p>
+<table>
+<thead>
+<tr>
+<th align="right">fields</th>
+<th>编码</th>
+<th>内存</th>
+<th>每 field</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="right">100</td>
+<td>listpack</td>
+<td>1,072 B</td>
+<td>10.7 B</td>
+</tr>
+<tr>
+<td align="right">128</td>
+<td>listpack</td>
+<td>1,584 B</td>
+<td>12.4 B</td>
+</tr>
+<tr>
+<td align="right">511</td>
+<td>listpack</td>
+<td>6,192 B</td>
+<td>12.1 B</td>
+</tr>
+<tr>
+<td align="right">512</td>
+<td>listpack</td>
+<td>6,192 B</td>
+<td>12.1 B</td>
+</tr>
+<tr>
+<td align="right"><strong>513</strong></td>
+<td><strong>hashtable</strong></td>
+<td><strong>28,816 B</strong></td>
+<td><strong>56.2 B</strong></td>
+</tr>
+<tr>
+<td align="right">1000</td>
+<td>hashtable</td>
+<td>48,296 B</td>
+<td>48.3 B</td>
+</tr>
+</tbody></table>
+<p>512 → 513，内存 <strong>4.65 倍</strong>。注意 511 和 512 的内存相同——jemalloc 按 size class 分配，不是按字节精确切分。</p>
+<p><strong>hash（value 长度，字段数固定 100）</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>value 长度</th>
+<th>编码</th>
+<th>内存</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>63 B</td>
+<td>listpack</td>
+<td>7,216 B</td>
+</tr>
+<tr>
+<td>64 B</td>
+<td>listpack</td>
+<td>8,240 B</td>
+</tr>
+<tr>
+<td><strong>65 B</strong></td>
+<td><strong>hashtable</strong></td>
+<td><strong>12,840 B</strong></td>
+</tr>
+</tbody></table>
+<p>只多了 1 个字节，编码就换了。</p>
+<p><strong>zset（成员数量）</strong>：</p>
+<table>
+<thead>
+<tr>
+<th align="right">members</th>
+<th>编码</th>
+<th>内存</th>
+<th>每 member</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="right">128</td>
+<td>listpack</td>
+<td>1,072 B</td>
+<td>8.4 B</td>
+</tr>
+<tr>
+<td align="right"><strong>129</strong></td>
+<td><strong>skiplist</strong></td>
+<td><strong>12,128 B</strong></td>
+<td><strong>94 B</strong></td>
+</tr>
+</tbody></table>
+<p><strong>11.3 倍</strong>。</p>
+<p><strong>set（整数成员）</strong>：</p>
+<table>
+<thead>
+<tr>
+<th align="right">members</th>
+<th>编码</th>
+<th>内存</th>
+<th>每 member</th>
+</tr>
+</thead>
+<tbody><tr>
+<td align="right">512</td>
+<td>intset</td>
+<td>1,328 B</td>
+<td>2.6 B</td>
+</tr>
+<tr>
+<td align="right"><strong>513</strong></td>
+<td><strong>hashtable</strong></td>
+<td><strong>24,712 B</strong></td>
+<td><strong>48 B</strong></td>
+</tr>
+</tbody></table>
+<p><strong>18.6 倍</strong>——最狠的一条。</p>
+<h3 id="1-3-深挖：为什么-sds-quicklist-listpack-能这么省"><a href="#1-3-深挖：为什么-sds-quicklist-listpack-能这么省" class="headerlink" title="1.3 深挖：为什么 sds&#x2F;quicklist&#x2F;listpack 能这么省"></a>1.3 深挖：为什么 sds&#x2F;quicklist&#x2F;listpack 能这么省</h3><table>
+<thead>
+<tr>
+<th>编码</th>
+<th>内存布局</th>
+<th>省在哪</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>listpack</td>
+<td>一块连续内存，元素紧凑排列，长度用变长整数</td>
+<td>没有指针、没有哈希桶</td>
+</tr>
+<tr>
+<td>intset</td>
+<td>有序整数数组</td>
+<td>每个元素 2&#x2F;4&#x2F;8 字节，无任何额外结构</td>
+</tr>
+<tr>
+<td>quicklist</td>
+<td>双向链表，每个节点是一个 listpack</td>
+<td>链表只在大粒度上有指针开销</td>
+</tr>
+<tr>
+<td>hashtable</td>
+<td>桶数组 + 链表&#x2F;红黑树</td>
+<td>每个元素有 dictEntry、指针、对齐开销</td>
+</tr>
+<tr>
+<td>skiplist + dict</td>
+<td>跳表 + 哈希表双结构</td>
+<td>同一元素存两份，内存翻倍</td>
+</tr>
+</tbody></table>
+<p><strong>skiplist 为什么最贵</strong>：<code>zset</code> 同时维护 skiplist（排序、范围查询）和 dict（O(1) 查分数），同一个成员存两遍。这就是 82 B&#x2F;member 的来源。</p>
+<h3 id="1-4-动手验证：探测任意-key-的编码"><a href="#1-4-动手验证：探测任意-key-的编码" class="headerlink" title="1.4 动手验证：探测任意 key 的编码"></a>1.4 动手验证：探测任意 key 的编码</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1) 造三种规模的 hash，看编码在哪一步切换</span></span><br><span class="line"><span class="keyword">for</span> N <span class="keyword">in</span> 512 513; <span class="keyword">do</span></span><br><span class="line">  docker <span class="built_in">exec</span> redis-lab redis-cli DEL h &gt;/dev/null</span><br><span class="line">  docker <span class="built_in">exec</span> redis-lab redis-cli EVAL <span class="string">&quot;for i=1,tonumber(ARGV[1]) do redis.call(&#x27;hset&#x27;,KEYS[1],&#x27;f&#x27;..i,&#x27;v&#x27;..i) end return 1&quot;</span> 1 h <span class="variable">$N</span> &gt;/dev/null</span><br><span class="line">  <span class="built_in">echo</span> <span class="string">&quot;fields=<span class="variable">$N</span> encoding=<span class="subst">$(docker exec redis-lab redis-cli OBJECT ENCODING h)</span> memory=<span class="subst">$(docker exec redis-lab redis-cli MEMORY USAGE h)</span> B&quot;</span></span><br><span class="line"><span class="keyword">done</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 2) 确认你的实例阈值</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli CONFIG GET hash-max-listpack-entries hash-max-listpack-value zset-max-listpack-entries set-max-intset-entries</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：<code>fields=512</code> 是 listpack、<code>fields=513</code> 是 hashtable；内存从 6 KB 级跳到 28 KB 级。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>你的实例 <code>hash-max-listpack-entries</code> 不是 512 → 以你的 <code>CONFIG GET</code> 为准，断崖点在别处；</li>
+<li><code>OBJECT ENCODING</code> 报 <code>ziplist</code> → 你的版本是 6.x，命名不同（7.0 起统一为 listpack）。</li>
+</ul>
+<h2 id="2-内存实测：同样数据，几种存法"><a href="#2-内存实测：同样数据，几种存法" class="headerlink" title="2. 内存实测：同样数据，几种存法"></a>2. 内存实测：同样数据，几种存法</h2><h3 id="2-1-1000-个字段：1000-个-string-vs-1-个-hash"><a href="#2-1-1000-个字段：1000-个-string-vs-1-个-hash" class="headerlink" title="2.1 1000 个字段：1000 个 string vs 1 个 hash"></a>2.1 1000 个字段：1000 个 string vs 1 个 hash</h3><p>用 <code>MEMORY USAGE</code> 精确测量（不用 <code>INFO memory</code> 的差值，原因见 2.4）：</p>
+<table>
+<thead>
+<tr>
+<th>N</th>
+<th>hash 编码</th>
+<th>N 个 string</th>
+<th>1 个 hash</th>
+<th>结论</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>10</td>
+<td>listpack</td>
+<td>640 B</td>
+<td>208 B</td>
+<td>hash 省 <strong>68%</strong></td>
+</tr>
+<tr>
+<td>100</td>
+<td>listpack</td>
+<td>6,408 B</td>
+<td>1,584 B</td>
+<td>hash 省 <strong>75%</strong></td>
+</tr>
+<tr>
+<td>500</td>
+<td>listpack</td>
+<td>35,208 B</td>
+<td>10,288 B</td>
+<td>hash 省 <strong>71%</strong></td>
+</tr>
+<tr>
+<td>1000</td>
+<td><strong>hashtable</strong></td>
+<td>71,208 B</td>
+<td>56,296 B</td>
+<td>hash 只省 <strong>21%</strong></td>
+</tr>
+</tbody></table>
+<p><strong>结论有两层</strong>：hash 存对象确实省内存（小对象能省 70%+），但一旦编码切换，优势从 70% 掉到 20%。<strong>「用 hash 存对象更省」这句话有前提：别越过阈值。</strong></p>
+<h3 id="2-2-每元素内存成本横评"><a href="#2-2-每元素内存成本横评" class="headerlink" title="2.2 每元素内存成本横评"></a>2.2 每元素内存成本横评</h3><p>同一批 10 万量级的数据，四种结构：</p>
+<table>
+<thead>
+<tr>
+<th>结构</th>
+<th>编码</th>
+<th>10 万条内存</th>
+<th>每条约</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>list</td>
+<td>quicklist</td>
+<td>798,592 B</td>
+<td><strong>8.0 B</strong></td>
+</tr>
+<tr>
+<td>hash（1000 field，按比例）</td>
+<td>hashtable</td>
+<td>48,296 B &#x2F; 1000</td>
+<td>48.3 B</td>
+</tr>
+<tr>
+<td>set（10 万整数）</td>
+<td>hashtable</td>
+<td>4,772,968 B</td>
+<td>47.7 B</td>
+</tr>
+<tr>
+<td>zset（10 万成员）</td>
+<td>skiplist</td>
+<td>8,249,440 B</td>
+<td><strong>82.5 B</strong></td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart LR
+    L["list&lt;br/>8 B/item"] --> H["hash&lt;br/>48 B/item"]
+    H --> S["set&lt;br/>48 B/item"]
+    S --> Z["zset&lt;br/>82 B/item"]</pre>
+
+<p><strong>zset 是 list 的 10 倍</strong>。所以「用 list 还是 zset」不只是功能选择，也是内存选择。</p>
+<h3 id="2-3-深挖：为什么-list-这么便宜"><a href="#2-3-深挖：为什么-list-这么便宜" class="headerlink" title="2.3 深挖：为什么 list 这么便宜"></a>2.3 深挖：为什么 list 这么便宜</h3><p><code>quicklist</code> 是「双向链表 + 每个节点一个 listpack」。10 万条数据只产生几百个节点，链表指针开销被摊薄，真实数据紧凑地存在 listpack 里——所以每条只花 8 字节（纯数据 + 长度信息）。</p>
+<p>反过来说，<strong>list 的代价是随机访问</strong>：<code>LINDEX 50000</code> 要遍历节点，是 O(N)。list 适合「两端进出」的队列，不适合「按下标随机取」。</p>
+<h3 id="2-4-深挖：为什么不能用-INFO-memory-差值量结构大小"><a href="#2-4-深挖：为什么不能用-INFO-memory-差值量结构大小" class="headerlink" title="2.4 深挖：为什么不能用 INFO memory 差值量结构大小"></a>2.4 深挖：为什么不能用 <code>INFO memory</code> 差值量结构大小</h3><p>我第一版实验是「FLUSHALL → 记 used_memory → 建结构 → 再记 used_memory，差值即大小」，结果算出来 <strong>hash 比 1000 个 string 更费内存</strong>——和结论相反。</p>
+<p>原因是两个：<code>FLUSHALL</code> 的内存是<strong>惰性释放</strong>（<code>lazyfree-lazy-user-flush</code>），且 jemalloc 会把释放的内存留在自己的 arena 里复用。差值里混了上一次实验的残留，符号都可能反。</p>
+<table>
+<thead>
+<tr>
+<th>方法</th>
+<th>结果可靠性</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>INFO memory</code> 差值</td>
+<td>低（受惰性释放、allocator 复用影响）</td>
+<td>只看大趋势（几百 MB 级）</td>
+</tr>
+<tr>
+<td><code>MEMORY USAGE key</code></td>
+<td>高（Redis 自己计算）</td>
+<td>单 key 精确开销</td>
+</tr>
+<tr>
+<td><code>MEMORY USAGE</code> 循环求和</td>
+<td>高（本文做法）</td>
+<td>多种存法对比</td>
+</tr>
+</tbody></table>
+<p><strong>这条方法学比结论更重要</strong>：量 Redis 内存，优先用 <code>MEMORY USAGE</code>。</p>
+<h3 id="2-5-动手验证：量出你自己的「每-key-成本」"><a href="#2-5-动手验证：量出你自己的「每-key-成本」" class="headerlink" title="2.5 动手验证：量出你自己的「每 key 成本」"></a>2.5 动手验证：量出你自己的「每 key 成本」</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1000 个 string 的总内存</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli EVAL <span class="string">&quot;</span></span><br><span class="line"><span class="string">  local t=0</span></span><br><span class="line"><span class="string">  for i=1,1000 do t=t+redis.call(&#x27;memory&#x27;,&#x27;usage&#x27;,&#x27;obj:&#x27;..i) end</span></span><br><span class="line"><span class="string">  return t&quot;</span> 0</span><br><span class="line"></span><br><span class="line"><span class="comment"># 一个 1000 field 的 hash</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli MEMORY USAGE obj</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：1000 个 string 约 71 KB（71 B&#x2F;key），hash 约 56 KB（56 B&#x2F;field）。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>单 key 开销超过 value 大小的 3 倍 → 检查是否 value 太小、key 名太长（长 key 名的开销不可忽略）；</li>
+<li>同类 key 开销差异大 → 有编码混用（部分在 listpack、部分已转 hashtable）。</li>
+</ul>
+<h2 id="3-复杂度：O-N-命令才是真凶"><a href="#3-复杂度：O-N-命令才是真凶" class="headerlink" title="3. 复杂度：O(N) 命令才是真凶"></a>3. 复杂度：O(N) 命令才是真凶</h2><h3 id="3-1-实测：每条命令实际花了多久"><a href="#3-1-实测：每条命令实际花了多久" class="headerlink" title="3.1 实测：每条命令实际花了多久"></a>3.1 实测：每条命令实际花了多久</h3><p>用「慢日志阈值调到 0」的方式抓单条命令耗时（这是给单条命令计时的实用技巧）：</p>
+<table>
+<thead>
+<tr>
+<th>命令</th>
+<th>数据规模</th>
+<th>实测耗时</th>
+<th>复杂度</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>HGETALL</code></td>
+<td>100 field（listpack）</td>
+<td><strong>11 µs</strong></td>
+<td>O(N)</td>
+</tr>
+<tr>
+<td><code>HGETALL</code></td>
+<td>1000 field（hashtable）</td>
+<td><strong>46 µs</strong></td>
+<td>O(N)</td>
+</tr>
+<tr>
+<td><code>ZRANGE 0 99</code></td>
+<td>10 万成员</td>
+<td><strong>7 µs</strong></td>
+<td>O(log N + M)</td>
+</tr>
+<tr>
+<td><code>ZRANGE 0 9999</code></td>
+<td>10 万成员</td>
+<td><strong>127 µs</strong></td>
+<td>O(log N + M)</td>
+</tr>
+<tr>
+<td><code>ZRANGE 0 -1</code></td>
+<td>10 万成员</td>
+<td><strong>1,447 µs</strong></td>
+<td>O(log N + M)，M&#x3D;10 万</td>
+</tr>
+<tr>
+<td><code>ZSCORE</code></td>
+<td>10 万成员</td>
+<td><strong>2 µs</strong></td>
+<td>O(1)</td>
+</tr>
+<tr>
+<td><code>ZRANK</code></td>
+<td>10 万成员</td>
+<td><strong>12 µs</strong></td>
+<td>O(log N)</td>
+</tr>
+<tr>
+<td><code>ZADD</code> 单条</td>
+<td>10 万成员</td>
+<td><strong>18 µs</strong></td>
+<td>O(log N)</td>
+</tr>
+<tr>
+<td><code>LRANGE 0 99</code></td>
+<td>10 万条</td>
+<td><strong>6 µs</strong></td>
+<td>O(S+N)</td>
+</tr>
+<tr>
+<td><code>LRANGE 0 -1</code></td>
+<td>10 万条</td>
+<td><strong>1,700 µs</strong></td>
+<td>O(S+N)</td>
+</tr>
+<tr>
+<td><code>SMEMBERS</code></td>
+<td>10 万成员</td>
+<td><strong>2,813 µs</strong></td>
+<td>O(N)</td>
+</tr>
+</tbody></table>
+<h3 id="3-2-三个必须记住的量级"><a href="#3-2-三个必须记住的量级" class="headerlink" title="3.2 三个必须记住的量级"></a>3.2 三个必须记住的量级</h3><pre class="mermaid">flowchart TD
+    A["O(1): ZSCORE 2us"] --> B["O(logN): ZRANK 12us, ZADD 18us"]
+    B --> C["O(N) small: ZRANGE 100 7us, LRANGE 100 6us"]
+    C --> D["O(N) large: SMEMBERS 2.8ms, ZRANGE all 1.4ms"]
+    D --> E["Single thread blocked:&lt;br/>everyone waits"]</pre>
+
+<table>
+<thead>
+<tr>
+<th>量级</th>
+<th>耗时</th>
+<th>危险程度</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>&lt; 10 µs</code></td>
+<td>O(1)、O(log N)、小范围 O(N)</td>
+<td>安全</td>
+</tr>
+<tr>
+<td><code>10~100 µs</code></td>
+<td>中等 O(N)</td>
+<td>可接受，别高频</td>
+</tr>
+<tr>
+<td><code>0.1~1 ms</code></td>
+<td>大 O(N)</td>
+<td>危险，会拉高 P99</td>
+</tr>
+<tr>
+<td><code>&gt; 1 ms</code></td>
+<td>全量遍历</td>
+<td><strong>禁止在线使用</strong></td>
+</tr>
+</tbody></table>
+<h3 id="3-3-深挖：单线程下-1-4-毫秒意味着什么"><a href="#3-3-深挖：单线程下-1-4-毫秒意味着什么" class="headerlink" title="3.3 深挖：单线程下 1.4 毫秒意味着什么"></a>3.3 深挖：单线程下 1.4 毫秒意味着什么</h3><p>Redis 是单线程执行命令。<code>ZRANGE 0 -1</code> 花 1.4 ms，这 1.4 ms 里<strong>所有其他客户端的命令都在排队</strong>。如果这个命令每秒执行 10 次，就有 14 ms&#x2F;秒 被完全占用——看起来只有 1.4% 的 CPU，但 P99 已经被它拉到毫秒级。</p>
+<p>换算成一个更有用的公式：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">对 P99 的影响 ≈ 命令耗时 × 每秒执行次数</span><br></pre></td></tr></table></figure>
+
+<p><code>SMEMBERS</code>（2.8 ms）每秒 5 次 &#x3D; 14 ms&#x2F;秒的「全体停顿」，足以让一个 QPS 3000 的服务出现明显毛刺。</p>
+<h3 id="3-4-动手验证：给你自己的命令计时"><a href="#3-4-动手验证：给你自己的命令计时" class="headerlink" title="3.4 动手验证：给你自己的命令计时"></a>3.4 动手验证：给你自己的命令计时</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 把慢日志阈值降到 0，抓所有命令</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli CONFIG SET slowlog-log-slower-than 0</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli SLOWLOG RESET</span><br><span class="line"></span><br><span class="line"><span class="comment"># 执行你要测的命令</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli ZRANGE z 0 -1 &gt; /dev/null</span><br><span class="line"></span><br><span class="line"><span class="comment"># 读最近一条：第 3 个字段就是耗时（微秒）</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli SLOWLOG GET 1</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：<code>SLOWLOG GET</code> 的第三个元素是微秒数；<code>ZRANGE 0 -1</code> 在 10 万成员上应该接近 1.5 ms。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>单条命令 &gt; 1 ms → 不能出现在在线链路（换 <code>ZRANGE</code> 分页 &#x2F; <code>SSCAN</code> 分批）；</li>
+<li>单条命令 100 µs~1 ms → 限制频率，或改成 HSCAN&#x2F;SSCAN 游标；</li>
+<li>单条 &lt; 10 µs → 随便用。</li>
+</ul>
+<blockquote>
+<p>记得把阈值改回去：<code>CONFIG SET slowlog-log-slower-than 10000</code>。</p>
+</blockquote>
+<h2 id="4-选型与阈值调整"><a href="#4-选型与阈值调整" class="headerlink" title="4. 选型与阈值调整"></a>4. 选型与阈值调整</h2><h3 id="4-1-五种类型的选择表"><a href="#4-1-五种类型的选择表" class="headerlink" title="4.1 五种类型的选择表"></a>4.1 五种类型的选择表</h3><table>
+<thead>
+<tr>
+<th>需求</th>
+<th>首选</th>
+<th>反模式</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>缓存单值</td>
+<td>string</td>
+<td>用 hash 存单字段（多一层开销）</td>
+</tr>
+<tr>
+<td>存对象（字段少）</td>
+<td>hash（保持 listpack）</td>
+<td>每个字段一个 key（内存翻 3~4 倍）</td>
+</tr>
+<tr>
+<td>队列 &#x2F; 时间线</td>
+<td>list（两端操作）</td>
+<td>用 list 做随机下标访问</td>
+</tr>
+<tr>
+<td>排行榜 &#x2F; 延迟队列</td>
+<td>zset</td>
+<td>用 zset 当 set（只存 member）浪费 40+ B</td>
+</tr>
+<tr>
+<td>去重 &#x2F; 标签</td>
+<td>set（整数用 intset）</td>
+<td>大 set 做 <code>SMEMBERS</code> 全量取</td>
+</tr>
+<tr>
+<td>计数 &#x2F; 去重（大基数）</td>
+<td>HyperLogLog</td>
+<td>用 set 存千万 UV（内存爆）</td>
+</tr>
+</tbody></table>
+<h3 id="4-2-阈值该不该调"><a href="#4-2-阈值该不该调" class="headerlink" title="4.2 阈值该不该调"></a>4.2 阈值该不该调</h3><pre class="mermaid">flowchart LR
+    A["Raise listpack threshold"] --> B["Less memory&lt;br/>compact layout"]
+    B --> C["Slower per command&lt;br/>O(N) scan inside listpack"]
+    C --> D{"P99 budget left?"}
+    D -- yes --> E["Keep it"]
+    D -- no --> F["Lower threshold&lt;br/>or change data model"]</pre>
+
+<table>
+<thead>
+<tr>
+<th>调整</th>
+<th>收益</th>
+<th>代价</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>调大 <code>hash-max-listpack-entries</code></td>
+<td>更多 hash 保持紧凑，省内存</td>
+<td>单条命令变慢（listpack 是 O(N) 查找）；极端情况阻塞</td>
+</tr>
+<tr>
+<td>调小</td>
+<td>查找更快</td>
+<td>内存翻几倍</td>
+</tr>
+<tr>
+<td>调大 <code>zset-max-listpack-entries</code></td>
+<td>小 zset 省内存</td>
+<td><code>ZADD</code>&#x2F;<code>ZSCORE</code> 从 O(log N) 退化成 O(N)</td>
+</tr>
+<tr>
+<td>不改</td>
+<td>默认值在「内存」与「单命令延迟」之间折中</td>
+<td>—</td>
+</tr>
+</tbody></table>
+<p><strong>判断依据</strong>：如果你的 hash 是「读多、字段多、单次只取几个 field」，保持 listpack 值得（省内存）；如果是「每次都要遍历全部 field」，那早就该转 hashtable，甚至该改数据结构。</p>
+<h3 id="4-3-一个真实的取舍：把缓存对象拆成-hash"><a href="#4-3-一个真实的取舍：把缓存对象拆成-hash" class="headerlink" title="4.3 一个真实的取舍：把缓存对象拆成 hash"></a>4.3 一个真实的取舍：把缓存对象拆成 hash</h3><table>
+<thead>
+<tr>
+<th>方案</th>
+<th>100 万对象的预估内存</th>
+<th>单对象更新</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>100 万个 string（每对象一个 JSON）</td>
+<td>~139 B × 100 万 ≈ 133 MB</td>
+<td>全量重写</td>
+</tr>
+<tr>
+<td>100 万个 hash（各 10 field，listpack）</td>
+<td>~208 B × 100 万 ≈ 200 MB</td>
+<td>只改 1 个 field</td>
+</tr>
+</tbody></table>
+<p>注意第二行：<strong>小 hash 的绝对值并不比 string 小</strong>，因为它多了「一个 key 一个 dictEntry」的固定开销。真正省内存的是「1 个大 hash 装 1000 个字段」这种聚合存储，但那样又会碰到阈值和并发写冲突。</p>
+<h3 id="4-4-动手验证：阈值调整的-A-B"><a href="#4-4-动手验证：阈值调整的-A-B" class="headerlink" title="4.4 动手验证：阈值调整的 A&#x2F;B"></a>4.4 动手验证：阈值调整的 A&#x2F;B</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># A：默认阈值（本文 512），1000 个 field 的 hash 会转 hashtable</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli CONFIG SET hash-max-listpack-entries 512</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli DEL h; docker <span class="built_in">exec</span> redis-lab redis-cli EVAL \</span><br><span class="line">  <span class="string">&quot;for i=1,1000 do redis.call(&#x27;hset&#x27;,&#x27;h&#x27;,&#x27;f&#x27;..i,&#x27;v&#x27;..i) end return 1&quot;</span> 0 &gt;/dev/null</span><br><span class="line"><span class="built_in">echo</span> <span class="string">&quot;512:  enc=<span class="subst">$(docker exec redis-lab redis-cli OBJECT ENCODING h)</span> mem=<span class="subst">$(docker exec redis-lab redis-cli MEMORY USAGE h)</span>&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># B：调大到 2048，同样的数据保持 listpack</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli CONFIG SET hash-max-listpack-entries 2048</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli DEL h; docker <span class="built_in">exec</span> redis-lab redis-cli EVAL \</span><br><span class="line">  <span class="string">&quot;for i=1,1000 do redis.call(&#x27;hset&#x27;,&#x27;h&#x27;,&#x27;f&#x27;..i,&#x27;v&#x27;..i) end return 1&quot;</span> 0 &gt;/dev/null</span><br><span class="line"><span class="built_in">echo</span> <span class="string">&quot;2048: enc=<span class="subst">$(docker exec redis-lab redis-cli OBJECT ENCODING h)</span> mem=<span class="subst">$(docker exec redis-lab redis-cli MEMORY USAGE h)</span>&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：A 是 hashtable（约 48 KB），B 是 listpack（约 12 KB）；再用 <code>HGET f999</code> 对比单次查找耗时。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>内存降了但 <code>HGET</code> 变慢 → 典型的「用 CPU 换内存」，看你缺哪个；</li>
+<li>调整后编码没变 → 已有 key 不会自动重新编码，必须重建（<code>DEL</code> 后重写）。</li>
+</ul>
+<h2 id="5-总结"><a href="#5-总结" class="headerlink" title="5. 总结"></a>5. 总结</h2><h3 id="5-1-面试速答表"><a href="#5-1-面试速答表" class="headerlink" title="5.1 面试速答表"></a>5.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Redis 五种类型各有哪些编码</td>
+<td>string: int&#x2F;embstr&#x2F;raw；hash: listpack&#x2F;hashtable；list: quicklist；set: intset&#x2F;listpack&#x2F;hashtable；zset: listpack&#x2F;skiplist</td>
+</tr>
+<tr>
+<td>为什么小对象用 listpack</td>
+<td>连续内存、无指针与哈希桶开销，每元素约 8~12 字节</td>
+</tr>
+<tr>
+<td>hash 的编码切换条件</td>
+<td>field 数 &gt; <code>hash-max-listpack-entries</code> 或单 value &gt; <code>hash-max-listpack-value</code>（本文实测 512 &#x2F; 64B）</td>
+</tr>
+<tr>
+<td>越过阈值内存涨多少</td>
+<td>本文实测 hash 4.65 倍、zset 11.3 倍、set 18.6 倍</td>
+</tr>
+<tr>
+<td>为什么 zset 内存最贵</td>
+<td>skiplist 与 dict 双结构，同一成员存两遍，实测 82.5 B&#x2F;member</td>
+</tr>
+<tr>
+<td>为什么 list 最省</td>
+<td>quicklist 节点内是 listpack，指针开销被摊薄，实测 8 B&#x2F;item</td>
+</tr>
+<tr>
+<td>用 hash 存对象一定省内存吗</td>
+<td>小对象省 70%+；越过阈值后只省 20%（本文实测）</td>
+</tr>
+<tr>
+<td><code>HGETALL</code> 1000 field 要多久</td>
+<td>实测 46 µs，是 O(N)，别在高频链路用</td>
+</tr>
+<tr>
+<td><code>ZRANGE 0 -1</code> 为什么危险</td>
+<td>返回 10 万成员实测 1.4 ms，单线程期间所有请求排队</td>
+</tr>
+<tr>
+<td>怎么给单条命令计时</td>
+<td><code>CONFIG SET slowlog-log-slower-than 0</code> 后看 <code>SLOWLOG GET</code> 的第 3 个字段</td>
+</tr>
+<tr>
+<td>怎么精确量 key 的内存</td>
+<td><code>MEMORY USAGE key</code>，不要用 <code>INFO memory</code> 差值</td>
+</tr>
+<tr>
+<td>调大 listpack 阈值有什么代价</td>
+<td>省内存但单条命令变慢（O(N) 查找），且已有 key 不会自动重编码</td>
+</tr>
+</tbody></table>
+<h3 id="5-2-实战避坑表"><a href="#5-2-实战避坑表" class="headerlink" title="5.2 实战避坑表"></a>5.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>内存突然涨几倍</td>
+<td>某个 hash&#x2F;zset 越过了编码阈值</td>
+<td><code>OBJECT ENCODING</code> 查，必要时重建或调阈值</td>
+</tr>
+<tr>
+<td>用 <code>INFO memory</code> 算结构大小对不上</td>
+<td>惰性释放 + allocator 复用</td>
+<td>改用 <code>MEMORY USAGE</code></td>
+</tr>
+<tr>
+<td>改了阈值但没生效</td>
+<td>已有 key 不会重新编码</td>
+<td><code>DEL</code> 后重写，或用 <code>RESTORE</code> 迁移</td>
+</tr>
+<tr>
+<td>P99 偶发毫秒级毛刺</td>
+<td>有 O(N) 大命令</td>
+<td>慢日志阈值调 0 抓出来</td>
+</tr>
+<tr>
+<td><code>HGETALL</code> 慢</td>
+<td>大 hash 且必须全量取</td>
+<td>改 <code>HMGET</code> 指定字段，或拆分</td>
+</tr>
+<tr>
+<td>排行榜内存爆炸</td>
+<td>zset 存了百万成员</td>
+<td>分桶&#x2F;分页，或改用其他结构</td>
+</tr>
+<tr>
+<td>长时间运行后内存不降</td>
+<td>碎片 + 惰性释放</td>
+<td>④ 讲（<code>activedefrag</code>、重启&#x2F;迁移）</td>
+</tr>
+</tbody></table>
+<h3 id="5-3-工具速查表"><a href="#5-3-工具速查表" class="headerlink" title="5.3 工具速查表"></a>5.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>判定标准</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>OBJECT ENCODING</code></td>
+<td>当前编码</td>
+<td>listpack&#x2F;intset &#x3D; 紧凑；hashtable&#x2F;skiplist &#x3D; 通用</td>
+</tr>
+<tr>
+<td><code>MEMORY USAGE</code></td>
+<td>单 key 精确内存</td>
+<td>超过 value 大小 3 倍要查原因</td>
+</tr>
+<tr>
+<td><code>CONFIG GET *-max-*</code></td>
+<td>阈值</td>
+<td>以实例为准，别抄文档</td>
+</tr>
+<tr>
+<td><code>SLOWLOG</code>（阈值 0）</td>
+<td>单条命令耗时</td>
+<td>&gt; 1 ms 禁止在线使用</td>
+</tr>
+<tr>
+<td><code>redis-cli --bigkeys</code></td>
+<td>大 key 分布</td>
+<td>找出即将越阈值的 key</td>
+</tr>
+<tr>
+<td><code>INFO commandstats</code></td>
+<td>每命令平均耗时</td>
+<td>找高频重命令</td>
+</tr>
+</tbody></table>
+<h3 id="5-4-实操建议"><a href="#5-4-实操建议" class="headerlink" title="5.4 实操建议"></a>5.4 实操建议</h3><ol>
+<li><strong>上线前先 <code>OBJECT ENCODING</code> 抽样</strong>，确认核心结构在期望的编码上——尤其是「刚好卡在阈值附近」的 hash&#x2F;zset。</li>
+<li>**量内存只用 <code>MEMORY USAGE</code>**，别用 <code>INFO memory</code> 的差值，后者会被惰性释放与 allocator 复用误导。</li>
+<li><strong><code>ZRANGE 0 -1</code>、<code>SMEMBERS</code>、<code>HGETALL</code> 一律不放在在线链路</strong>，它们都是 O(N) 且实测毫秒级。</li>
+<li><strong>阈值调整前先算清你缺内存还是缺延迟</strong>，调大 listpack 阈值是拿单命令延迟换内存。</li>
+<li>**每季度跑一次 <code>--bigkeys</code>**，把「即将突破阈值」的 key 提前处理掉。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告</strong>：④《内存、淘汰与碎片》。本文只讲了「一个 key 占多少」，下一篇讲「整个实例怎么被撑爆」：<code>maxmemory</code> 设了但淘汰不生效是为什么、<code>allkeys-lru</code> 与 <code>allkeys-lfu</code> 的命中率差多少、碎片率高到 1.5 时该不该开 <code>activedefrag</code>、以及那个著名的「空实例碎片率 13.94」到底要不要管。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/%E9%9D%A2%E8%AF%95/" rel="tag"># 面试</a>
+              <a href="/tags/Redis/" rel="tag"># Redis</a>
+              <a href="/tags/%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84/" rel="tag"># 数据结构</a>
+              <a href="/tags/listpack/" rel="tag"># listpack</a>
+              <a href="/tags/skiplist/" rel="tag"># skiplist</a>
+              <a href="/tags/%E5%86%85%E5%AD%98%E4%BC%98%E5%8C%96/" rel="tag"># 内存优化</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/d0aa1ba2.html" rel="prev" title="一次请求的成本账：RTT、事件循环与命令执行">
+                  <i class="fa fa-angle-left"></i> 一次请求的成本账：RTT、事件循环与命令执行
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/post/b28e7721.html" rel="next" title="内存、淘汰与碎片：maxmemory 设了为什么还会 OOM">
+                  内存、淘汰与碎片：maxmemory 设了为什么还会 OOM <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">740k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">44:51</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
+</html>

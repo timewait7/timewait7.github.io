@@ -1,0 +1,1210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="一条 KEYS * 让 Redis 卡了 117 毫秒，而这段时间里所有客户端的 PING 最大延迟正好也是 117 毫秒。这不是巧合，是单线程的物理事实：Redis 执行一条命令时，其他所有请求排队。 本文把「阻塞」从形容词变成数字：用探针客户端每 100 微秒发一次 PING，另一边执行 KEYS *、DEL 大 key、重 Lua、BGSAVE，测出每种操作的阻塞时长——从 156 毫秒到">
+<meta property="og:type" content="article">
+<meta property="og:title" content="单线程：为什么快，什么时候会卡">
+<meta property="og:url" content="http://timewait7.github.io/post/d9138e00.html">
+<meta property="og:site_name" content="知行栈">
+<meta property="og:description" content="一条 KEYS * 让 Redis 卡了 117 毫秒，而这段时间里所有客户端的 PING 最大延迟正好也是 117 毫秒。这不是巧合，是单线程的物理事实：Redis 执行一条命令时，其他所有请求排队。 本文把「阻塞」从形容词变成数字：用探针客户端每 100 微秒发一次 PING，另一边执行 KEYS *、DEL 大 key、重 Lua、BGSAVE，测出每种操作的阻塞时长——从 156 毫秒到">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-10-25T05:00:00.000Z">
+<meta property="article:modified_time" content="2026-10-24T14:40:51.281Z">
+<meta property="article:tag" content="面试">
+<meta property="article:tag" content="性能排查">
+<meta property="article:tag" content="Redis">
+<meta property="article:tag" content="单线程">
+<meta property="article:tag" content="阻塞">
+<meta property="article:tag" content="大key">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/d9138e00.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/d9138e00.html","path":"post/d9138e00.html","title":"单线程：为什么快，什么时候会卡"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>单线程：为什么快，什么时候会卡 | 知行栈</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<!-- hexo injector head_end start --><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
+</style><style>
+/* 菜单链高亮：sub-menu 祖先（同主题 .menu-item-active 的 Pisces 规则） */
+.sub-menu .menu-item a.menu-chain-active {
+  border-bottom-color: #fc6423;
+  color: #fc6423;
+}
+.sub-menu .menu-item a.menu-chain-active:hover {
+  border-bottom-color: #fc6423;
+}
+/* 菜单链高亮：main-menu 祖先（同主题 hover/active 的背景规则） */
+.main-menu .menu-item a.menu-chain-active {
+  background: var(--menu-item-bg-color);
+}
+</style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">知行栈</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section" class="menu-chain-active"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>Categories</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-%E5%8D%95%E7%BA%BF%E7%A8%8B%E7%9A%84%E6%9C%AC%E8%B4%A8"><span class="nav-text">1. 单线程的本质</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-%E4%B8%80%E4%B8%AA%E5%BE%AA%E7%8E%AF%EF%BC%8C%E4%B8%80%E6%AC%A1%E4%B8%80%E6%9D%A1%E5%91%BD%E4%BB%A4"><span class="nav-text">1.1 一个循环，一次一条命令</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-2-%E4%B8%BA%E4%BB%80%E4%B9%88%E8%BF%99%E6%A0%B7%E8%BF%98%E8%83%BD%E5%BF%AB"><span class="nav-text">1.2 为什么这样还能快</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-3-%E9%98%BB%E5%A1%9E%E7%9A%84%E5%AE%9A%E4%B9%89"><span class="nav-text">1.3 阻塞的定义</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E5%85%AD%E7%A7%8D%E9%98%BB%E5%A1%9E%E6%BA%90%EF%BC%8C%E5%85%AD%E4%B8%AA%E6%95%B0%E5%AD%97"><span class="nav-text">2. 六种阻塞源，六个数字</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E6%80%BB%E8%A1%A8"><span class="nav-text">2.1 总表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-KEYS-%EF%BC%9A116-%E6%AF%AB%E7%A7%92%EF%BC%8C%E8%80%8C%E4%B8%94%E6%98%AF-O-N-%E5%85%A8%E9%87%8F"><span class="nav-text">2.2 KEYS *：116 毫秒，而且是 O(N) 全量</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-DEL-%E5%A4%A7-key%EF%BC%9A156-%E6%AF%AB%E7%A7%92-vs-UNLINK-%E7%9A%84-7-%E5%BE%AE%E7%A7%92"><span class="nav-text">2.3 DEL 大 key：156 毫秒 vs UNLINK 的 7 微秒</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-4-%E9%87%8D-Lua%EF%BC%9A4-%E6%AF%AB%E7%A7%92%EF%BC%8C%E4%BD%86%E4%BC%9A%E5%8F%A0%E5%8A%A0"><span class="nav-text">2.4 重 Lua：4 毫秒，但会叠加</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-5-fork%EF%BC%9A%E6%9C%AC%E6%96%87-1-8-%E6%AF%AB%E7%A7%92%EF%BC%8C%E7%94%9F%E4%BA%A7%E5%8F%AF%E8%83%BD%E6%98%AF%E5%87%A0%E5%8D%81%E6%AF%AB%E7%A7%92"><span class="nav-text">2.5 fork：本文 1.8 毫秒，生产可能是几十毫秒</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-6-%E6%B2%A1%E5%AE%9E%E6%B5%8B%E4%BD%86%E5%BF%85%E9%A1%BB%E7%9F%A5%E9%81%93%E7%9A%84%E4%B8%89%E7%A7%8D"><span class="nav-text">2.6 没实测但必须知道的三种</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E6%80%8E%E4%B9%88%E5%8F%91%E7%8E%B0%E9%98%BB%E5%A1%9E"><span class="nav-text">3. 怎么发现阻塞</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E4%B8%89%E4%B8%AA%E5%B7%A5%E5%85%B7%EF%BC%8C%E4%B8%89%E7%A7%8D%E8%A7%86%E8%A7%92"><span class="nav-text">3.1 三个工具，三种视角</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E5%AE%9E%E6%B5%8B%EF%BC%9A%E8%AE%A9-LATENCY-MONITOR-%E6%8A%93%E4%BD%8F-KEYS"><span class="nav-text">3.2 实测：让 LATENCY MONITOR 抓住 KEYS</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-%E6%B7%B1%E6%8C%96%EF%BC%9ASLOWLOG-%E4%B8%BA%E4%BB%80%E4%B9%88%E4%BC%9A%E6%BC%8F"><span class="nav-text">3.3 深挖：SLOWLOG 为什么会漏</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%86%99%E4%B8%80%E4%B8%AA%E6%8E%A2%E9%92%88%EF%BC%8C%E6%B5%8B%E4%BD%A0%E8%87%AA%E5%B7%B1%E7%9A%84%E9%98%BB%E5%A1%9E"><span class="nav-text">3.4 动手验证：写一个探针，测你自己的阻塞</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E6%B2%BB%E7%90%86%EF%BC%9A%E6%8A%8A-O-N-%E4%BB%8E%E4%B8%BB%E7%BA%BF%E7%A8%8B%E6%8C%AA%E8%B5%B0"><span class="nav-text">4. 治理：把 O(N) 从主线程挪走</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-%E5%91%BD%E4%BB%A4%E6%9B%BF%E6%8D%A2%E8%A1%A8"><span class="nav-text">4.1 命令替换表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-%E5%A4%A7-key-%E6%98%AF%E4%B8%87%E6%81%B6%E4%B9%8B%E6%BA%90"><span class="nav-text">4.2 大 key 是万恶之源</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-fork-%E4%B8%8E%E6%8C%81%E4%B9%85%E5%8C%96%E7%9A%84%E4%BC%98%E5%8C%96"><span class="nav-text">4.3 fork 与持久化的优化</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-4-%E6%9E%B6%E6%9E%84%E5%B1%82%EF%BC%9A%E6%8C%89%E4%B8%9A%E5%8A%A1%E9%9A%94%E7%A6%BB"><span class="nav-text">4.4 架构层：按业务隔离</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-5-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E9%AA%8C%E8%AF%81-UNLINK-%E7%9C%9F%E7%9A%84%E4%B8%8D%E9%98%BB%E5%A1%9E"><span class="nav-text">4.5 动手验证：验证 UNLINK 真的不阻塞</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#6-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%9B%9B%E4%B8%AA%E5%8F%AF%E5%A4%8D%E7%8E%B0%E5%AE%9E%E9%AA%8C"><span class="nav-text">6. 动手验证：四个可复现实验</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#6-1-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E7%94%A8%E6%8E%A2%E9%92%88%E6%B5%8B%E5%9F%BA%E7%BA%BF%E5%BB%B6%E8%BF%9F"><span class="nav-text">6.1 动手验证：用探针测基线延迟</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-2-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%A4%8D%E7%8E%B0-KEYS-%E7%9A%84%E9%98%BB%E5%A1%9E"><span class="nav-text">6.2 动手验证：复现 KEYS * 的阻塞</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-3-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%AF%B9%E6%AF%94-DEL-%E4%B8%8E-UNLINK"><span class="nav-text">6.3 动手验证：对比 DEL 与 UNLINK</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E8%AE%A9-LATENCY-MONITOR-%E6%8A%93%E4%BD%8F%E9%98%BB%E5%A1%9E"><span class="nav-text">6.4 动手验证：让 LATENCY MONITOR 抓住阻塞</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E6%80%BB%E7%BB%93"><span class="nav-text">5. 总结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E9%9D%A2%E8%AF%95%E9%80%9F%E7%AD%94%E8%A1%A8"><span class="nav-text">5.1 面试速答表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E5%AE%9E%E6%88%98%E9%81%BF%E5%9D%91%E8%A1%A8"><span class="nav-text">5.2 实战避坑表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-%E5%B7%A5%E5%85%B7%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">5.3 工具速查表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-%E5%AE%9E%E6%93%8D%E5%BB%BA%E8%AE%AE"><span class="nav-text">5.4 实操建议</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">104</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">14</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">175</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+    <div class="sidebar-inner sidebar-blogroll">
+      <div class="links-of-blogroll animated">
+        <div class="links-of-blogroll-title"><i class="fa fa-globe fa-fw"></i>
+          Links
+        </div>
+        <ul class="links-of-blogroll-list">
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9wYXVsZ3JhaGFtLmNvbS9hcnRpY2xlcy5odG1s" title="https:&#x2F;&#x2F;paulgraham.com&#x2F;articles.html">paulgraham</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly93d3cuam9lbG9uc29mdHdhcmUuY29tLw==" title="https:&#x2F;&#x2F;www.joelonsoftware.com&#x2F;">Joel on Software</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9tYXJ0aW5mb3dsZXIuY29tLw==" title="https:&#x2F;&#x2F;martinfowler.com&#x2F;">Martin Flower</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly96aGFuZ3RpZWxlaS5jb20v" title="https:&#x2F;&#x2F;zhangtielei.com&#x2F;">zhangtielei</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhLWRlc2lnbi1wYXR0ZXJucy5jb20vemgv" title="https:&#x2F;&#x2F;java-design-patterns.com&#x2F;zh&#x2F;">Java Design Patterns</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9taWNyb3NlcnZpY2VzLmlvLw==" title="https:&#x2F;&#x2F;microservices.io&#x2F;">Microservice Architecture</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhZ3VpZGUuY24v" title="https:&#x2F;&#x2F;javaguide.cn&#x2F;">JavaGuide</span>
+            </li>
+        </ul>
+      </div>
+    </div>
+        <div class="pjax">
+        
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-后端开发"><a href="/docs/nav/backend-dev-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-code fa-fw"></i>后端开发</a></li>
+
+
+      
+  <li class="menu-item menu-item-计算机基础"><a href="/docs/nav/cs-foundation-nav.html" rel="section"><i class="fa fa-desktop fa-fw"></i>计算机基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-ai-学习"><a href="/docs/nav/ai-learning-nav.html" rel="section"><i class="fa fa-robot fa-fw"></i>AI 学习</a></li>
+
+
+      
+  <li class="menu-item menu-item-项目实战"><a href="/docs/nav/5964f4da.html" rel="section"><i class="fa fa-flask fa-fw"></i>项目实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-misc"><a href="/docs/nav/misc-nav.html" rel="section"><i class="fa fa-box fa-fw"></i>Misc</a></li>
+
+
+      
+  <li class="menu-item menu-item-随笔·生活"><a href="/docs/nav/life-nav.html" rel="section"><i class="fa fa-feather fa-fw"></i>随笔·生活</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java"><a href="/docs/nav/java-nav.html" rel="section"><i class="fa fa-coffee fa-fw"></i>Java</a></li>
+
+
+      
+  <li class="menu-item menu-item-框架"><a href="/docs/nav/framework-nav.html" rel="section"><i class="fa fa-th-large fa-fw"></i>框架</a></li>
+
+
+      
+  <li class="menu-item menu-item-数据存储"><a href="/docs/nav/data-storage-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-hdd fa-fw"></i>数据存储</a></li>
+
+
+      
+  <li class="menu-item menu-item-中间件"><a href="/docs/nav/middleware-nav.html" rel="section"><i class="fa fa-cubes fa-fw"></i>中间件</a></li>
+
+
+      
+  <li class="menu-item menu-item-分布式与微服务"><a href="/docs/nav/distributed-nav.html" rel="section"><i class="fa fa-sitemap fa-fw"></i>分布式与微服务</a></li>
+
+
+      
+  <li class="menu-item menu-item-系统设计"><a href="/docs/nav/system-design-nav.html" rel="section"><i class="fa fa-pencil-ruler fa-fw"></i>系统设计</a></li>
+
+
+      
+  <li class="menu-item menu-item-部署运维"><a href="/docs/nav/devops-nav.html" rel="section"><i class="fa fa-terminal fa-fw"></i>部署运维</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-mysql"><a href="/docs/nav/mysql-nav.html" rel="section"><i class="fa fa-database fa-fw"></i>MySQL</a></li>
+
+
+      
+  <li class="menu-item menu-item-redis"><a href="/docs/nav/redis-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-bolt fa-fw"></i>Redis</a></li>
+
+
+      
+  <li class="menu-item menu-item-elasticsearch"><a href="/docs/nav/es-nav.html" rel="section"><i class="fa fa-search fa-fw"></i>ElasticSearch</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-redis-深度解析：从原理到精通"><a href="/post/bae4ff13.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Redis 深度解析：从原理到精通</a></li>
+
+
+      
+  <li class="menu-item menu-item-①-从这里开始：把-redis-变成你的实验台"><a href="/post/fb7bfeea.html" rel="section"><i class="fa fa-file-text fa-fw"></i>① 从这里开始：把 Redis 变成你的实验台</a></li>
+
+
+      
+  <li class="menu-item menu-item-②-一次请求的成本账：rtt、事件循环与命令执行"><a href="/post/d0aa1ba2.html" rel="section"><i class="fa fa-file-text fa-fw"></i>② 一次请求的成本账：RTT、事件循环与命令执行</a></li>
+
+
+      
+  <li class="menu-item menu-item-③-数据结构：编码阈值与复杂度的真实代价"><a href="/post/342c4932.html" rel="section"><i class="fa fa-file-text fa-fw"></i>③ 数据结构：编码阈值与复杂度的真实代价</a></li>
+
+
+      
+  <li class="menu-item menu-item-④-内存、淘汰与碎片：maxmemory-设了为什么还会-oom"><a href="/post/b28e7721.html" rel="section"><i class="fa fa-file-text fa-fw"></i>④ 内存、淘汰与碎片：maxmemory 设了为什么还会 OOM</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑤-单线程：为什么快，什么时候会卡"><a href="/post/d9138e00.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑤ 单线程：为什么快，什么时候会卡</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑥-pipeline、事务与-lua：原子性和-rtt-怎么兼得"><a href="/post/884c75a8.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑥ Pipeline、事务与 Lua：原子性和 RTT 怎么兼得</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑦-持久化：rdb、aof-与丢失窗口"><a href="/post/6a7a58b3.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑦ 持久化：RDB、AOF 与丢失窗口</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑧-复制、哨兵与-cluster：切一次主要多久"><a href="/post/63c21b5b.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑧ 复制、哨兵与 Cluster：切一次主要多久</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑨-缓存三大问题：穿透、击穿、雪崩的量化与解法"><a href="/post/1d7a96da.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑨ 缓存三大问题：穿透、击穿、雪崩的量化与解法</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑩-缓存与数据库一致性：更新顺序与不一致窗口"><a href="/post/35ae94a8.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑩ 缓存与数据库一致性：更新顺序与不一致窗口</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑪-分布式锁与限流：从-set-nx-到-redisson"><a href="/post/cb07eb8d.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑪ 分布式锁与限流：从 SET NX 到 Redisson</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑫-容量规划与分片：什么时候才该上-cluster"><a href="/post/b815463e.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑫ 容量规划与分片：什么时候才该上 Cluster</a></li>
+
+
+    </ul>
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/d9138e00.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="单线程：为什么快，什么时候会卡 | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          单线程：为什么快，什么时候会卡
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-10-25 13:00:00" itemprop="dateCreated datePublished" datetime="2026-10-25T13:00:00+08:00">2026-10-25</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/" itemprop="url" rel="index"><span itemprop="name">数据存储</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>4k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>15 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><p><strong>一条 <code>KEYS *</code> 让 Redis 卡了 117 毫秒，而这段时间里所有客户端的 <code>PING</code> 最大延迟正好也是 117 毫秒</strong>。这不是巧合，是单线程的物理事实：Redis 执行一条命令时，其他所有请求排队。</p>
+<p>本文把「阻塞」从形容词变成数字：用探针客户端每 100 微秒发一次 <code>PING</code>，另一边执行 <code>KEYS *</code>、<code>DEL</code> 大 key、重 Lua、<code>BGSAVE</code>，测出每种操作的阻塞时长——从 <strong>156 毫秒</strong>到 <strong>7 微秒</strong>，差四个数量级。</p>
+<blockquote>
+<p><strong>系列地图（Redis 实战路线，12 篇）</strong></p>
+<p>① 实验台与基线 → ② 一次请求的成本账 → ③ 数据结构与编码 → ④ 内存、淘汰与碎片 → ⑤ <strong>单线程与阻塞（本文）</strong> → ⑥ Pipeline、事务与 Lua → ⑦ 持久化与丢失窗口 → ⑧ 复制、哨兵与 Cluster → ⑨ 缓存三大问题 → ⑩ 缓存与数据库一致性 → ⑪ 分布式锁与限流 → ⑫ 容量规划与分片</p>
+<p>与前后篇的关系：③ 算出「<code>DEL</code> 100 万 field 的 hash 会读多少内存」，本文把它换算成「阻塞 156 毫秒」；④ 的「Lua 绕过 maxmemory」在本文变成「Lua 阻塞主线程」。</p>
+</blockquote>
+<h2 id="1-单线程的本质"><a href="#1-单线程的本质" class="headerlink" title="1. 单线程的本质"></a>1. 单线程的本质</h2><h3 id="1-1-一个循环，一次一条命令"><a href="#1-1-一个循环，一次一条命令" class="headerlink" title="1.1 一个循环，一次一条命令"></a>1.1 一个循环，一次一条命令</h3><pre class="mermaid">flowchart LR
+    E["epoll_wait&lt;br/>等待就绪 fd"] --> R["read 请求"]
+    R --> P["解析协议"]
+    P --> X["执行命令&lt;br/>（单线程，不可打断）"]
+    X --> W["写回复"]
+    W --> E
+    X -.->|"执行期间&lt;br/>其他请求全部排队"| Q["其他客户端"]</pre>
+
+<table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>谁在做</th>
+<th>能否并行</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>等待连接就绪</td>
+<td>epoll（主线程）</td>
+<td>是（内核）</td>
+</tr>
+<tr>
+<td>读 socket &#x2F; 解析协议</td>
+<td>主线程（可用 <code>io-threads</code> 分担）</td>
+<td>是（可选）</td>
+</tr>
+<tr>
+<td><strong>执行命令</strong></td>
+<td><strong>主线程</strong></td>
+<td><strong>否</strong></td>
+</tr>
+<tr>
+<td>写回复</td>
+<td>主线程（可用 <code>io-threads</code>）</td>
+<td>是（可选）</td>
+</tr>
+</tbody></table>
+<p><strong>关键</strong>：<code>io-threads</code> 能分担读写，但<strong>命令执行永远只有一个线程</strong>（② 的实测也证明了小 value 场景开 io-threads 没有收益）。</p>
+<h3 id="1-2-为什么这样还能快"><a href="#1-2-为什么这样还能快" class="headerlink" title="1.2 为什么这样还能快"></a>1.2 为什么这样还能快</h3><table>
+<thead>
+<tr>
+<th>原因</th>
+<th>数字</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>纯内存</td>
+<td><code>GET</code> 服务端执行 0.07 µs（② 实测）</td>
+</tr>
+<tr>
+<td>无锁无切换</td>
+<td>单线程，没有上下文切换与锁竞争</td>
+</tr>
+<tr>
+<td>命令短</td>
+<td>一条命令几十纳秒到几十微秒</td>
+</tr>
+</tbody></table>
+<p>代价也很明确：<strong>没有「抢占」，谁在执行谁就独占</strong>。你的 <code>KEYS</code> 跑了 117 ms，其他 1000 个客户端就等 117 ms。</p>
+<h3 id="1-3-阻塞的定义"><a href="#1-3-阻塞的定义" class="headerlink" title="1.3 阻塞的定义"></a>1.3 阻塞的定义</h3><p>一次阻塞，对所有客户端的效果是：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">某客户端观察到的 PING 延迟 ≈ 正在执行的命令的服务端耗时</span><br></pre></td></tr></table></figure>
+
+<p>本文的实测反复验证了这一点（<code>KEYS</code> 服务端 116.7 ms ↔ PING 最大 117.1 ms；<code>DEL</code> 156 ms ↔ PING 最大 164.7 ms）。<strong>所以「Redis 变慢了」可以用一句话诊断：找到那条正在执行的慢命令。</strong></p>
+<h2 id="2-六种阻塞源，六个数字"><a href="#2-六种阻塞源，六个数字" class="headerlink" title="2. 六种阻塞源，六个数字"></a>2. 六种阻塞源，六个数字</h2><h3 id="2-1-总表"><a href="#2-1-总表" class="headerlink" title="2.1 总表"></a>2.1 总表</h3><p>测试方法：一个 Python 探针客户端每约 100 µs 发一次 <code>PING</code>（单连接，loopback），另一个连接执行被测命令。</p>
+<table>
+<thead>
+<tr>
+<th>阻塞源</th>
+<th>规模</th>
+<th>服务端耗时</th>
+<th>探针观测的 PING max</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>基线（无阻塞）</td>
+<td>—</td>
+<td>—</td>
+<td>5.4 ms（p99 213 µs）</td>
+</tr>
+<tr>
+<td><code>KEYS *</code></td>
+<td>100 万 key</td>
+<td><strong>116.7 ms</strong></td>
+<td><strong>117.1 ms</strong></td>
+</tr>
+<tr>
+<td><code>DEL</code> 大 hash</td>
+<td>100 万 field &#x2F; 53 MB</td>
+<td><strong>156.0 ms</strong></td>
+<td><strong>164.7 ms</strong></td>
+</tr>
+<tr>
+<td><code>UNLINK</code> 同一个 key</td>
+<td>同上</td>
+<td><strong>0.007 ms</strong></td>
+<td>无尖刺</td>
+</tr>
+<tr>
+<td>重 Lua 脚本</td>
+<td>300 万次空循环</td>
+<td><strong>4.0 ms</strong></td>
+<td>4.26 ms</td>
+</tr>
+<tr>
+<td><code>BGSAVE</code>（fork）</td>
+<td>140 MB 数据集</td>
+<td>fork 停顿为主</td>
+<td>1.78 ms</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart TD
+    B["Blocking sources"] --> K["KEYS *&lt;br/>117 ms"]
+    B --> D["DEL big key&lt;br/>156 ms"]
+    B --> L["Heavy Lua&lt;br/>4 ms"]
+    B --> F["fork / BGSAVE&lt;br/>1.8 ms @140MB"]
+    B --> S["Swap / AOF rewrite / THP&lt;br/>not measured here"]
+    D -.->|"UNLINK same key"| U["0.007 ms"]</pre>
+
+<h3 id="2-2-KEYS-：116-毫秒，而且是-O-N-全量"><a href="#2-2-KEYS-：116-毫秒，而且是-O-N-全量" class="headerlink" title="2.2 KEYS *：116 毫秒，而且是 O(N) 全量"></a>2.2 <code>KEYS *</code>：116 毫秒，而且是 O(N) 全量</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli KEYS <span class="string">&#x27;*&#x27;</span> | <span class="built_in">wc</span> -l   <span class="comment"># 1000000</span></span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>实测</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>返回条数</td>
+<td>1,000,000</td>
+</tr>
+<tr>
+<td>服务端耗时（<code>SLOWLOG</code>）</td>
+<td><strong>116,663 µs</strong></td>
+</tr>
+<tr>
+<td>探针 PING max</td>
+<td><strong>117,114 µs</strong></td>
+</tr>
+</tbody></table>
+<p><strong>它的问题不只是慢，而是「一次返回全部」</strong>：100 万个 key 的名称要一次性拼进回复缓冲区，内存与带宽同时被吃掉。生产上应该用 <code>SCAN</code>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># SCAN 是游标式，每次只返回一批，单次耗时可控</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli SCAN 0 COUNT 1000</span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th>方式</th>
+<th>单次耗时</th>
+<th>对主线程的影响</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>KEYS *</code></td>
+<td>116.7 ms（100 万 key）</td>
+<td>一次阻塞 117 ms</td>
+</tr>
+<tr>
+<td><code>SCAN 0 COUNT 1000</code></td>
+<td>微秒级</td>
+<td>分 N 次，每次几乎无感</td>
+</tr>
+</tbody></table>
+<h3 id="2-3-DEL-大-key：156-毫秒-vs-UNLINK-的-7-微秒"><a href="#2-3-DEL-大-key：156-毫秒-vs-UNLINK-的-7-微秒" class="headerlink" title="2.3 DEL 大 key：156 毫秒 vs UNLINK 的 7 微秒"></a>2.3 <code>DEL</code> 大 key：156 毫秒 vs <code>UNLINK</code> 的 7 微秒</h3><p>同一个 100 万 field 的 hash（53 MB）：</p>
+<table>
+<thead>
+<tr>
+<th>命令</th>
+<th>服务端耗时</th>
+<th>机制</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>DEL bighash</code></td>
+<td><strong>155,975 µs（156 ms）</strong></td>
+<td>同步释放所有 field，主线程全程参与</td>
+</tr>
+<tr>
+<td><code>UNLINK bighash</code></td>
+<td><strong>7 µs</strong></td>
+<td>只从 keyspace 摘除，内存在后台线程释放</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart LR
+    subgraph DEL["DEL (sync free)"]
+        D1["remove ref"] --> D2["free every field&lt;br/>in main thread"] --> D3["156 ms block"]
+    end
+    subgraph UNL["UNLINK (async free)"]
+        U1["remove ref"] --> U2["hand list to&lt;br/>background thread"] --> U3["7 us, no block"]
+    end</pre>
+
+<p><strong>两万倍的差距</strong>。而且 <code>UNLINK</code> 之后内存也会还回来（本文实测 1 秒内 <code>used_memory</code> 回到 1.47 MB），只是「还」的动作不在主线程。</p>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>用哪个</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>删除大 key（hash&#x2F;list&#x2F;zset&#x2F;set 元素多）</td>
+<td><strong><code>UNLINK</code></strong></td>
+</tr>
+<tr>
+<td>删除普通小 key</td>
+<td>都行，<code>DEL</code> 更直观</td>
+</tr>
+<tr>
+<td>Redis 6.0 之前</td>
+<td>只能 <code>DEL</code>，所以要避开大 key</td>
+</tr>
+</tbody></table>
+<h3 id="2-4-重-Lua：4-毫秒，但会叠加"><a href="#2-4-重-Lua：4-毫秒，但会叠加" class="headerlink" title="2.4 重 Lua：4 毫秒，但会叠加"></a>2.4 重 Lua：4 毫秒，但会叠加</h3><p>300 万次空循环的 Lua 脚本：服务端 <strong>4,032 µs</strong>，探针 max 4,260 µs。</p>
+<p>单看 4 ms 不吓人，但要知道两件事：</p>
+<ol>
+<li><strong>脚本内不能被打断</strong>，脚本里做 1 万次 <code>GET</code> 就是 1 万次串行操作；</li>
+<li><strong>脚本会随访问量叠加</strong>：每秒 100 次这样的脚本 &#x3D; 每秒 400 ms 被占用（40% 的 CPU 时间），P99 必然劣化。</li>
+</ol>
+<p>⑥ 会专门讲「Lua 什么时候安全、什么时候危险」。</p>
+<h3 id="2-5-fork：本文-1-8-毫秒，生产可能是几十毫秒"><a href="#2-5-fork：本文-1-8-毫秒，生产可能是几十毫秒" class="headerlink" title="2.5 fork：本文 1.8 毫秒，生产可能是几十毫秒"></a>2.5 fork：本文 1.8 毫秒，生产可能是几十毫秒</h3><p><code>BGSAVE</code>（140 MB 数据集、100 万 key）实测：</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>实测</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>rdb_last_cow_size</code></td>
+<td>909,312 B（约 0.9 MB）</td>
+</tr>
+<tr>
+<td><code>rdb_last_bgsave_time_sec</code></td>
+<td>&lt; 1 s</td>
+</tr>
+<tr>
+<td>探针 PING max</td>
+<td>1.78 ms</td>
+</tr>
+</tbody></table>
+<p><strong>fork 的停顿与数据集大小成正比</strong>（要复制页表），本文 140 MB 只能体现 1.8 ms；生产上 10 GB 数据集 fork 常见几十毫秒。这也是「Redis 内存不要超过物理内存 60%~70%」的原因之一（④ 提过）。</p>
+<h3 id="2-6-没实测但必须知道的三种"><a href="#2-6-没实测但必须知道的三种" class="headerlink" title="2.6 没实测但必须知道的三种"></a>2.6 没实测但必须知道的三种</h3><table>
+<thead>
+<tr>
+<th>阻塞源</th>
+<th>机制</th>
+<th>怎么发现</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Swap</td>
+<td>内存被换到磁盘，访问延迟从纳秒变毫秒</td>
+<td><code>used_memory</code> vs 机器内存；<code>vmstat</code> 的 si&#x2F;so</td>
+</tr>
+<tr>
+<td>AOF rewrite</td>
+<td>fork + 大量写盘</td>
+<td><code>INFO persistence</code> 的 <code>aof_rewrite_in_progress</code></td>
+</tr>
+<tr>
+<td>透明大页（THP）</td>
+<td>fork 与内存分配延迟抖动</td>
+<td><code>cat /sys/kernel/mm/transparent_hugepage/enabled</code></td>
+</tr>
+</tbody></table>
+<h2 id="3-怎么发现阻塞"><a href="#3-怎么发现阻塞" class="headerlink" title="3. 怎么发现阻塞"></a>3. 怎么发现阻塞</h2><h3 id="3-1-三个工具，三种视角"><a href="#3-1-三个工具，三种视角" class="headerlink" title="3.1 三个工具，三种视角"></a>3.1 三个工具，三种视角</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>记录什么</th>
+<th>本文实测</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>SLOWLOG</code></td>
+<td>单条命令耗时 &gt; 阈值（默认 10 ms）</td>
+<td>捕获 <code>KEYS</code> 116,663 µs</td>
+</tr>
+<tr>
+<td><code>LATENCY MONITOR</code></td>
+<td>事件循环被阻塞的尖刺</td>
+<td>捕获 <code>command</code> 事件 <strong>110 ms</strong></td>
+</tr>
+<tr>
+<td>探针客户端</td>
+<td>业务视角的 P99</td>
+<td>本文的 Python 探针</td>
+</tr>
+</tbody></table>
+<h3 id="3-2-实测：让-LATENCY-MONITOR-抓住-KEYS"><a href="#3-2-实测：让-LATENCY-MONITOR-抓住-KEYS" class="headerlink" title="3.2 实测：让 LATENCY MONITOR 抓住 KEYS"></a>3.2 实测：让 LATENCY MONITOR 抓住 <code>KEYS</code></h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli CONFIG SET latency-monitor-threshold 50</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli LATENCY RESET</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli KEYS <span class="string">&#x27;*&#x27;</span> &gt; /dev/null</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli LATENCY LATEST</span><br></pre></td></tr></table></figure>
+
+<p>实测输出：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">1) &quot;command&quot;</span><br><span class="line">2) (integer) 1792850483</span><br><span class="line">3) (integer) 110     # 最近一次事件的耗时（ms）</span><br><span class="line">4) (integer) 110     # 历史最大</span><br></pre></td></tr></table></figure>
+
+<p><strong>为什么它比 <code>SLOWLOG</code> 有用</strong>：<code>SLOWLOG</code> 只看「命令自己花了多久」，抓不到 fork 停顿、<code>expire</code> 批量、swap 抖动；<code>LATENCY MONITOR</code> 看的是「事件循环被卡了多久」，更接近用户体感。</p>
+<h3 id="3-3-深挖：SLOWLOG-为什么会漏"><a href="#3-3-深挖：SLOWLOG-为什么会漏" class="headerlink" title="3.3 深挖：SLOWLOG 为什么会漏"></a>3.3 深挖：<code>SLOWLOG</code> 为什么会漏</h3><table>
+<thead>
+<tr>
+<th>漏报原因</th>
+<th>说明</th>
+<th>对策</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>阈值 10 ms 太高</td>
+<td>5 ms 的命令不记，但足够让 P99 翻倍</td>
+<td>降到 1~2 ms</td>
+</tr>
+<tr>
+<td>只记命令本身</td>
+<td>fork 停顿、swap 不计入</td>
+<td>同时开 <code>LATENCY MONITOR</code></td>
+</tr>
+<tr>
+<td>只留 128 条</td>
+<td>高峰期被冲掉</td>
+<td><code>slowlog-max-len</code> 调到 512~1024</td>
+</tr>
+<tr>
+<td>Lua 脚本只记总时长</td>
+<td>脚本里的子命令不可见</td>
+<td>用 <code>SCRIPT</code> 拆分 + 监控</td>
+</tr>
+</tbody></table>
+<h3 id="3-4-动手验证：写一个探针，测你自己的阻塞"><a href="#3-4-动手验证：写一个探针，测你自己的阻塞" class="headerlink" title="3.4 动手验证：写一个探针，测你自己的阻塞"></a>3.4 动手验证：写一个探针，测你自己的阻塞</h3><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 每 ~100us 发一次 PING，记录 RTT；跑 10 秒</span></span><br><span class="line"><span class="keyword">import</span> socket, time, statistics</span><br><span class="line">s = socket.create_connection((<span class="string">&#x27;127.0.0.1&#x27;</span>, <span class="number">6380</span>))</span><br><span class="line">s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, <span class="number">1</span>)</span><br><span class="line">lat, end = [], time.time() + <span class="number">10</span></span><br><span class="line"><span class="keyword">while</span> time.time() &lt; end:</span><br><span class="line">    t0 = time.perf_counter()</span><br><span class="line">    s.sendall(<span class="string">b&#x27;*1\r\n$4\r\nPING\r\n&#x27;</span>); s.recv(<span class="number">16</span>)</span><br><span class="line">    lat.append((time.perf_counter() - t0) * <span class="number">1e6</span>)</span><br><span class="line">lat.sort(); n = <span class="built_in">len</span>(lat)</span><br><span class="line"><span class="built_in">print</span>(<span class="string">f&quot;n=<span class="subst">&#123;n&#125;</span> p50=<span class="subst">&#123;lat[n//<span class="number">2</span>]:<span class="number">.0</span>f&#125;</span>us p99=<span class="subst">&#123;lat[<span class="built_in">int</span>(n*<span class="number">0.99</span>)]:<span class="number">.0</span>f&#125;</span>us max=<span class="subst">&#123;lat[-<span class="number">1</span>]:<span class="number">.0</span>f&#125;</span>us&quot;</span>)</span><br></pre></td></tr></table></figure>
+
+<p>用它跑一次「基线」和一次「执行 <code>KEYS *</code>」，对比 <code>max</code>。</p>
+<p><strong>预期观察点</strong>：基线的 max 在几毫秒内（客户端自身抖动）；执行 <code>KEYS *</code> 时 max 跳到与服务端耗时同量级（本文 117 ms）。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>max 与某条命令的 <code>SLOWLOG</code> 时长吻合 → 就是它阻塞的；</li>
+<li>max 大但没有慢命令 → 查 fork、swap、THP；</li>
+<li>p99 高但 max 不高 → 不是单条阻塞，是持续的 CPU 压力（② 的排队）。</li>
+</ul>
+<h2 id="4-治理：把-O-N-从主线程挪走"><a href="#4-治理：把-O-N-从主线程挪走" class="headerlink" title="4. 治理：把 O(N) 从主线程挪走"></a>4. 治理：把 O(N) 从主线程挪走</h2><h3 id="4-1-命令替换表"><a href="#4-1-命令替换表" class="headerlink" title="4.1 命令替换表"></a>4.1 命令替换表</h3><table>
+<thead>
+<tr>
+<th>危险命令</th>
+<th>复杂度</th>
+<th>替代</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>KEYS *</code></td>
+<td>O(N)</td>
+<td><code>SCAN</code> 游标</td>
+<td>分批，单次可控</td>
+</tr>
+<tr>
+<td><code>HGETALL</code> 大 hash</td>
+<td>O(N)</td>
+<td><code>HSCAN</code> &#x2F; <code>HMGET</code> 指定字段</td>
+<td>见 ③ 实测 46 µs@1000 field</td>
+</tr>
+<tr>
+<td><code>SMEMBERS</code> 大 set</td>
+<td>O(N)</td>
+<td><code>SSCAN</code></td>
+<td>③ 实测 2.8 ms@10 万</td>
+</tr>
+<tr>
+<td><code>DEL</code> 大 key</td>
+<td>O(N)</td>
+<td><code>UNLINK</code></td>
+<td>本文 156 ms → 7 µs</td>
+</tr>
+<tr>
+<td><code>FLUSHALL</code> &#x2F; <code>FLUSHDB</code></td>
+<td>O(N)</td>
+<td><code>FLUSHALL ASYNC</code></td>
+<td>异步释放</td>
+</tr>
+<tr>
+<td><code>ZRANGE 0 -1</code></td>
+<td>O(N)</td>
+<td>分页 <code>ZRANGE start stop</code></td>
+<td>③ 实测 1.4 ms@10 万</td>
+</tr>
+<tr>
+<td>大 Lua 脚本</td>
+<td>不可打断</td>
+<td>拆分 + 分批</td>
+<td>⑥ 展开</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart TD
+    A["Suspect a slow operation"] --> B{"is it O(N)?"}
+    B -- yes --> C{"can it be batched?"}
+    C -- yes --> D["SCAN / HSCAN / SSCAN&lt;br/>or paginate"]
+    C -- no --> E["Move to replica&lt;br/>or offline job"]
+    B -- no --> F{"big key delete?"}
+    F -- yes --> G["UNLINK"]
+    F -- no --> H["check fork / swap / THP"]</pre>
+
+<h3 id="4-2-大-key-是万恶之源"><a href="#4-2-大-key-是万恶之源" class="headerlink" title="4.2 大 key 是万恶之源"></a>4.2 大 key 是万恶之源</h3><p>大 key 同时制造三种问题：阻塞（<code>DEL</code>&#x2F;<code>HGETALL</code>）、内存不均（Cluster 倾斜）、网络拥塞（一次返回太多）。</p>
+<table>
+<thead>
+<tr>
+<th>判定</th>
+<th>阈值（经验）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>string</td>
+<td>value &gt; 10 KB</td>
+</tr>
+<tr>
+<td>hash&#x2F;set&#x2F;zset</td>
+<td>元素 &gt; 5000</td>
+</tr>
+<tr>
+<td>list</td>
+<td>元素 &gt; 10000</td>
+</tr>
+<tr>
+<td>总大小</td>
+<td>&gt; 1 MB</td>
+</tr>
+</tbody></table>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli --bigkeys          <span class="comment"># 每种类型最大的 key</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli --memkeys          <span class="comment"># 按内存排序（7.0+，需要 MEMORY USAGE 权限）</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="4-3-fork-与持久化的优化"><a href="#4-3-fork-与持久化的优化" class="headerlink" title="4.3 fork 与持久化的优化"></a>4.3 fork 与持久化的优化</h3><table>
+<thead>
+<tr>
+<th>手段</th>
+<th>效果</th>
+<th>代价</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>在从库做 RDB&#x2F;AOF</td>
+<td>主库不 fork</td>
+<td>从库延迟（⑧）</td>
+</tr>
+<tr>
+<td>关 THP</td>
+<td>fork 更快、延迟更稳</td>
+<td>需要宿主权限</td>
+</tr>
+<tr>
+<td>控制 RDB 频率</td>
+<td>减少 fork 次数</td>
+<td>恢复点变旧（⑦）</td>
+</tr>
+<tr>
+<td>内存不超过 70%</td>
+<td>COW 有空间，fork 更快</td>
+<td>需要容量规划（⑫）</td>
+</tr>
+</tbody></table>
+<h3 id="4-4-架构层：按业务隔离"><a href="#4-4-架构层：按业务隔离" class="headerlink" title="4.4 架构层：按业务隔离"></a>4.4 架构层：按业务隔离</h3><table>
+<thead>
+<tr>
+<th>做法</th>
+<th>解决什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>缓存与队列分实例</td>
+<td>队列的 <code>LPUSH</code> 高峰不拖累缓存</td>
+</tr>
+<tr>
+<td>大 key 业务单独实例</td>
+<td>避免一个大 key 拖垮全站</td>
+</tr>
+<tr>
+<td>读多写少用副本</td>
+<td>阻塞只影响副本（注意一致性）</td>
+</tr>
+</tbody></table>
+<h3 id="4-5-动手验证：验证-UNLINK-真的不阻塞"><a href="#4-5-动手验证：验证-UNLINK-真的不阻塞" class="headerlink" title="4.5 动手验证：验证 UNLINK 真的不阻塞"></a>4.5 动手验证：验证 <code>UNLINK</code> 真的不阻塞</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 造一个 100 万 field 的 hash（约 53MB）</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli EVAL <span class="string">&quot;local a=&#123;&#125; for j=1,1000 do for i=1,1000 do a[#a+1]=&#x27;f&#x27;..(j*1000+i); a[#a+1]=&#x27;v&#x27;..i end redis.call(&#x27;hset&#x27;,KEYS[1],unpack(a)); a=&#123;&#125; end return redis.call(&#x27;hlen&#x27;,KEYS[1])&quot;</span> 1 bighash</span><br><span class="line"></span><br><span class="line"><span class="comment"># 一边探针，一边 UNLINK</span></span><br><span class="line">python3 /tmp/prober.py 8 &amp;</span><br><span class="line"><span class="built_in">sleep</span> 1</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli CONFIG RESETSTAT</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli UNLINK bighash</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli INFO commandstats | grep cmdstat_unlink</span><br><span class="line"><span class="built_in">wait</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：<code>cmdstat_unlink</code> 的 <code>usec</code> 是个位数（本文 7 µs），探针 max 与基线相当。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li><code>UNLINK</code> 的 usec &gt; 1000 → 你删的是「很多个小 key」（<code>UNLINK</code> 对多 key 仍是逐个摘除），改用管道分批；</li>
+<li>探针仍有尖刺 → 尖刺来自后台释放线程争抢，或另有阻塞源。</li>
+</ul>
+<h2 id="6-动手验证：四个可复现实验"><a href="#6-动手验证：四个可复现实验" class="headerlink" title="6. 动手验证：四个可复现实验"></a>6. 动手验证：四个可复现实验</h2><h3 id="6-1-动手验证：用探针测基线延迟"><a href="#6-1-动手验证：用探针测基线延迟" class="headerlink" title="6.1 动手验证：用探针测基线延迟"></a>6.1 动手验证：用探针测基线延迟</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cat</span> &gt; /tmp/prober.py &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line">import socket, <span class="keyword">time</span>, statistics</span><br><span class="line">s = socket.create_connection((&#x27;<span class="number">127.0</span>.<span class="number">0.1</span>&#x27;, <span class="number">6380</span>)); s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)</span><br><span class="line">lat, end = [], time.time() + 5</span><br><span class="line"><span class="keyword">while</span> time.time() &lt; end:</span><br><span class="line">    t0 = time.perf_counter(); s.sendall(b<span class="string">&#x27;*1\r\n$4\r\nPING\r\n&#x27;</span>); s.recv(16)</span><br><span class="line">    lat.append((time.perf_counter()-t0)*<span class="number">1</span>e6)</span><br><span class="line">lat.sort(); n=len(lat); print(f&quot;p50=&#123;lat[n//<span class="number">2</span>]:.<span class="number">0</span>f&#125;us p99=&#123;lat[int(n*<span class="number">0.99</span>)]:.<span class="number">0</span>f&#125;us max=&#123;lat[-<span class="number">1</span>]:.<span class="number">0</span>f&#125;us&quot;)</span><br><span class="line">EOF</span><br><span class="line">python3 /tmp/prober.py</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：基线 p50 约 100 µs、max 在几毫秒内（客户端自身抖动）。</p>
+<p><strong>判定标准</strong>：基线 max 就超过 10 ms → 先解决宿主&#x2F;客户端问题，再谈 Redis 阻塞。</p>
+<h3 id="6-2-动手验证：复现-KEYS-的阻塞"><a href="#6-2-动手验证：复现-KEYS-的阻塞" class="headerlink" title="6.2 动手验证：复现 KEYS * 的阻塞"></a>6.2 动手验证：复现 <code>KEYS *</code> 的阻塞</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli DEBUG POPULATE 1000000 k: 64</span><br><span class="line">python3 /tmp/prober.py &amp;</span><br><span class="line"><span class="built_in">sleep</span> 1</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli SLOWLOG RESET</span><br><span class="line"><span class="keyword">time</span> docker <span class="built_in">exec</span> redis-lab redis-cli KEYS <span class="string">&#x27;*&#x27;</span> &gt; /dev/null</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli SLOWLOG GET 1</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：<code>KEYS</code> 的服务端耗时约 116 ms，探针的 max 与它同量级（本文 117 ms）。</p>
+<p><strong>判定标准</strong>：探针 max 与命令耗时吻合 &#x3D; 单线程被这条命令占住；若 max 远小于命令耗时，说明请求没打到同一实例。</p>
+<h3 id="6-3-动手验证：对比-DEL-与-UNLINK"><a href="#6-3-动手验证：对比-DEL-与-UNLINK" class="headerlink" title="6.3 动手验证：对比 DEL 与 UNLINK"></a>6.3 动手验证：对比 <code>DEL</code> 与 <code>UNLINK</code></h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli FLUSHALL</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli EVAL <span class="string">&quot;local a=&#123;&#125; for j=1,1000 do for i=1,1000 do a[#a+1]=&#x27;f&#x27;..(j*1000+i); a[#a+1]=&#x27;v&#x27;..i end redis.call(&#x27;hset&#x27;,KEYS[1],unpack(a)); a=&#123;&#125; end return 1&quot;</span> 1 bighash</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli CONFIG RESETSTAT</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli DEL bighash</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli INFO commandstats | grep cmdstat_del</span><br><span class="line"><span class="comment"># 重建后测试 UNLINK</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli EVAL <span class="string">&quot;local a=&#123;&#125; for j=1,1000 do for i=1,1000 do a[#a+1]=&#x27;f&#x27;..(j*1000+i); a[#a+1]=&#x27;v&#x27;..i end redis.call(&#x27;hset&#x27;,KEYS[1],unpack(a)); a=&#123;&#125; end return 1&quot;</span> 1 bighash2</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli CONFIG RESETSTAT</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli UNLINK bighash2</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli INFO commandstats | grep cmdstat_unlink</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：<code>DEL</code> 的 <code>usec</code> 约 15 万（156 ms），<code>UNLINK</code> 是个位数（本文 7 µs）。</p>
+<p><strong>判定标准</strong>：<code>UNLINK</code> 也超过 1 ms → 你删的是「很多个小 key」，需要分批删而不是一次删一批。</p>
+<h3 id="6-4-动手验证：让-LATENCY-MONITOR-抓住阻塞"><a href="#6-4-动手验证：让-LATENCY-MONITOR-抓住阻塞" class="headerlink" title="6.4 动手验证：让 LATENCY MONITOR 抓住阻塞"></a>6.4 动手验证：让 LATENCY MONITOR 抓住阻塞</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli CONFIG SET latency-monitor-threshold 50</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli LATENCY RESET</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli KEYS <span class="string">&#x27;*&#x27;</span> &gt; /dev/null</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli LATENCY LATEST</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli LATENCY HISTORY <span class="built_in">command</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：<code>LATENCY LATEST</code> 返回 <code>command</code> 事件，耗时约 110 ms；<code>LATENCY HISTORY</code> 能看到历史峰值。</p>
+<p><strong>判定标准</strong>：返回空 → 阈值设得太高（事件没被记录）或监控没开启；把它调到 10~50 ms 再试。</p>
+<h2 id="5-总结"><a href="#5-总结" class="headerlink" title="5. 总结"></a>5. 总结</h2><h3 id="5-1-面试速答表"><a href="#5-1-面试速答表" class="headerlink" title="5.1 面试速答表"></a>5.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Redis 单线程为什么快</td>
+<td>纯内存 + epoll + 短命令，执行一条 <code>GET</code> 只要 0.07 µs</td>
+</tr>
+<tr>
+<td>单线程的代价是什么</td>
+<td>没有抢占，一条慢命令让所有客户端排队</td>
+</tr>
+<tr>
+<td><code>KEYS *</code> 有多慢</td>
+<td>100 万 key 实测服务端 116.7 ms，所有客户端同时卡住 117 ms</td>
+</tr>
+<tr>
+<td>为什么用 <code>SCAN</code> 不用 <code>KEYS</code></td>
+<td><code>SCAN</code> 游标分批，单次耗时可控；<code>KEYS</code> 一次返回全部</td>
+</tr>
+<tr>
+<td><code>DEL</code> 大 key 为什么危险</td>
+<td>同步释放，100 万 field 的 hash 实测 156 ms</td>
+</tr>
+<tr>
+<td><code>UNLINK</code> 为什么快</td>
+<td>只摘除引用，内存交给后台线程释放，实测 7 µs</td>
+</tr>
+<tr>
+<td>Lua 脚本会阻塞多久</td>
+<td>300 万次空循环实测 4 ms；脚本不可打断，且随 QPS 叠加</td>
+</tr>
+<tr>
+<td>fork 会阻塞吗</td>
+<td>会，阻塞时间与数据集大小成正比；本文 140MB 仅 1.8 ms</td>
+</tr>
+<tr>
+<td><code>SLOWLOG</code> 和 <code>LATENCY MONITOR</code> 区别</td>
+<td>前者记命令耗时，后者记事件循环尖刺；后者能抓到 fork&#x2F;swap</td>
+</tr>
+<tr>
+<td>怎么证明是某条命令阻塞的</td>
+<td>探针的 PING max 与那条命令的服务端耗时吻合</td>
+</tr>
+<tr>
+<td>大 key 的判定标准</td>
+<td>string &gt; 10KB、集合类 &gt; 5000 元素、总大小 &gt; 1MB</td>
+</tr>
+<tr>
+<td>生产上怎么避免阻塞</td>
+<td><code>SCAN</code>&#x2F;<code>UNLINK</code>&#x2F;分页&#x2F;拆大 key&#x2F;把重活挪到副本</td>
+</tr>
+</tbody></table>
+<h3 id="5-2-实战避坑表"><a href="#5-2-实战避坑表" class="headerlink" title="5.2 实战避坑表"></a>5.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>全站 P99 突然几百毫秒</td>
+<td>有人在跑 <code>KEYS</code> &#x2F; <code>HGETALL</code> 大 key</td>
+<td>慢日志 + <code>LATENCY MONITOR</code> 定位，禁用命令</td>
+</tr>
+<tr>
+<td>删除大 key 时接口超时</td>
+<td><code>DEL</code> 同步释放</td>
+<td>换 <code>UNLINK</code>，或分批删除</td>
+</tr>
+<tr>
+<td>定时任务跑完就抖</td>
+<td>任务是 O(N) 遍历</td>
+<td>改 <code>SCAN</code>，限速</td>
+</tr>
+<tr>
+<td><code>SLOWLOG</code> 里什么都没有</td>
+<td>阈值 10ms 太高，或阻塞来自 fork&#x2F;swap</td>
+<td>阈值降到 1~2ms，开延迟监控</td>
+</tr>
+<tr>
+<td>内存下降但 RSS 不降</td>
+<td>后台释放 + 碎片（④）</td>
+<td>正常现象，<code>activedefrag</code> 收尾</td>
+</tr>
+</tbody></table>
+<h3 id="5-3-工具速查表"><a href="#5-3-工具速查表" class="headerlink" title="5.3 工具速查表"></a>5.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>判定标准</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>SLOWLOG GET</code></td>
+<td>单命令耗时</td>
+<td>有 &gt; 10ms 的命令就要处理</td>
+</tr>
+<tr>
+<td><code>LATENCY LATEST</code></td>
+<td>事件尖刺</td>
+<td>有记录 &#x3D; 主线程被卡过</td>
+</tr>
+<tr>
+<td><code>INFO commandstats</code></td>
+<td>每命令总耗时与次数</td>
+<td>找高频 + 高耗时的组合</td>
+</tr>
+<tr>
+<td><code>--bigkeys</code></td>
+<td>大 key</td>
+<td>超过 1MB &#x2F; 5000 元素要拆</td>
+</tr>
+<tr>
+<td>探针客户端</td>
+<td>业务视角 P99&#x2F;max</td>
+<td>max 与某命令耗时吻合 &#x3D; 定位成功</td>
+</tr>
+<tr>
+<td><code>INFO persistence</code></td>
+<td><code>rdb_last_fork_usec</code></td>
+<td>fork 时间增长要关注</td>
+</tr>
+</tbody></table>
+<h3 id="5-4-实操建议"><a href="#5-4-实操建议" class="headerlink" title="5.4 实操建议"></a>5.4 实操建议</h3><ol>
+<li>**线上禁用 <code>KEYS</code>**，用 <code>SCAN</code>；能用 <code>rename-command</code> 禁掉最好。</li>
+<li>**删除一律用 <code>UNLINK</code>**，这是零成本的 2 万倍提升。</li>
+<li><strong>慢日志阈值调到 1~2 ms</strong>，并开 <code>latency-monitor-threshold</code>（10~50 ms）。</li>
+<li>**定期 <code>--bigkeys</code>**，大 key 是阻塞、倾斜、带宽三个问题的共同源头。</li>
+<li><strong>把重活挪到副本或离线</strong>：RDB 备份、大范围扫描、批量清理。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告</strong>：⑥《Pipeline、事务与 Lua：原子性与 RTT 怎么兼得》。本文说「Lua 不可打断」，下一篇讲清它的边界：<code>MULTI/EXEC</code> 到底是不是原子、<code>WATCH</code> 的乐观锁怎么用、Lua 在 Cluster 下为什么要求 key 同槽、以及 pipeline（② 测出 18 倍）与事务组合时的正确姿势。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/%E9%9D%A2%E8%AF%95/" rel="tag"># 面试</a>
+              <a href="/tags/%E6%80%A7%E8%83%BD%E6%8E%92%E6%9F%A5/" rel="tag"># 性能排查</a>
+              <a href="/tags/Redis/" rel="tag"># Redis</a>
+              <a href="/tags/%E5%8D%95%E7%BA%BF%E7%A8%8B/" rel="tag"># 单线程</a>
+              <a href="/tags/%E9%98%BB%E5%A1%9E/" rel="tag"># 阻塞</a>
+              <a href="/tags/%E5%A4%A7key/" rel="tag"># 大key</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/b28e7721.html" rel="prev" title="内存、淘汰与碎片：maxmemory 设了为什么还会 OOM">
+                  <i class="fa fa-angle-left"></i> 内存、淘汰与碎片：maxmemory 设了为什么还会 OOM
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/post/884c75a8.html" rel="next" title="Pipeline、事务与 Lua：原子性和 RTT 怎么兼得">
+                  Pipeline、事务与 Lua：原子性和 RTT 怎么兼得 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">740k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">44:51</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
+</html>

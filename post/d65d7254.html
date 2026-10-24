@@ -1,0 +1,1161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="优化器不是”笨”，它是在信息不全的情况下做了一道成本算术题。它只知道三件事：表有多少行、索引的基数（cardinality）、以及一套写死的成本常数。你对数据分布的所有直觉——“这个状态只有 0.1%”——它都看不见，除非你给它统计信息。 本文要纠正一个流传很广的说法：优化器并不是动不动就选错。实测下来，绝大多数情况下它的选择是对的；真正的偏差集中在五种可识别的模式里。掌握这五种模式，你不需要背「">
+<meta property="og:type" content="article">
+<meta property="og:title" content="查询优化：优化器为什么会选错索引">
+<meta property="og:url" content="http://timewait7.github.io/post/d65d7254.html">
+<meta property="og:site_name" content="知行栈">
+<meta property="og:description" content="优化器不是”笨”，它是在信息不全的情况下做了一道成本算术题。它只知道三件事：表有多少行、索引的基数（cardinality）、以及一套写死的成本常数。你对数据分布的所有直觉——“这个状态只有 0.1%”——它都看不见，除非你给它统计信息。 本文要纠正一个流传很广的说法：优化器并不是动不动就选错。实测下来，绝大多数情况下它的选择是对的；真正的偏差集中在五种可识别的模式里。掌握这五种模式，你不需要背「">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-10-24T15:20:00.000Z">
+<meta property="article:modified_time" content="2026-10-24T13:36:16.672Z">
+<meta property="article:tag" content="MySQL">
+<meta property="article:tag" content="面试">
+<meta property="article:tag" content="优化器">
+<meta property="article:tag" content="执行计划">
+<meta property="article:tag" content="直方图">
+<meta property="article:tag" content="慢查询">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/d65d7254.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/d65d7254.html","path":"post/d65d7254.html","title":"查询优化：优化器为什么会选错索引"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>查询优化：优化器为什么会选错索引 | 知行栈</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<!-- hexo injector head_end start --><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
+</style><style>
+/* 菜单链高亮：sub-menu 祖先（同主题 .menu-item-active 的 Pisces 规则） */
+.sub-menu .menu-item a.menu-chain-active {
+  border-bottom-color: #fc6423;
+  color: #fc6423;
+}
+.sub-menu .menu-item a.menu-chain-active:hover {
+  border-bottom-color: #fc6423;
+}
+/* 菜单链高亮：main-menu 祖先（同主题 hover/active 的背景规则） */
+.main-menu .menu-item a.menu-chain-active {
+  background: var(--menu-item-bg-color);
+}
+</style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">知行栈</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section" class="menu-chain-active"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>Categories</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-%E4%BC%98%E5%8C%96%E5%99%A8%E7%9A%84%E8%B4%A6%E6%9C%AC%EF%BC%9A%E4%B8%89%E4%B8%AA%E6%95%B0%E5%AD%97"><span class="nav-text">1. 优化器的账本：三个数字</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-%E5%AE%83%E5%8F%AA%E7%AE%97%E4%B8%89%E4%BB%B6%E4%BA%8B"><span class="nav-text">1.1 它只算三件事</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-2-%E7%BB%9F%E8%AE%A1%E4%BF%A1%E6%81%AF%E4%BB%8E%E5%93%AA%E6%9D%A5"><span class="nav-text">1.2 统计信息从哪来</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-3-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E8%AF%BB%E5%87%BA%E4%B8%80%E4%BB%BD%E8%B4%A6%E6%9C%AC"><span class="nav-text">1.3 动手验证：读出一份账本</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E7%9B%B4%E6%96%B9%E5%9B%BE%EF%BC%9A%E8%83%BD%E4%BF%AE%E4%BB%80%E4%B9%88%EF%BC%8C%E4%B8%8D%E8%83%BD%E4%BF%AE%E4%BB%80%E4%B9%88"><span class="nav-text">2. 直方图：能修什么，不能修什么</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E5%AE%9E%E6%B5%8B-A-B%EF%BC%9A%E4%B8%80%E4%B8%AA-0-1-%E7%9A%84%E7%8A%B6%E6%80%81%E5%88%97"><span class="nav-text">2.1 实测 A&#x2F;B：一个 0.1% 的状态列</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E4%B8%BA%E4%BB%80%E4%B9%88%E8%AE%A1%E5%88%92%E6%B2%A1%E5%8F%98%EF%BC%9A%E4%BC%B0%E7%AE%97%E5%87%86-%E2%89%A0-%E6%9C%89%E5%88%AB%E7%9A%84%E8%AE%A1%E5%88%92%E5%8F%AF%E9%80%89"><span class="nav-text">2.2 为什么计划没变：估算准 ≠ 有别的计划可选</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-%E6%9C%89%E7%B4%A2%E5%BC%95%E6%97%B6%EF%BC%8C%E7%9B%B4%E6%96%B9%E5%9B%BE%E6%B2%A1%E9%82%A3%E4%B9%88%E9%87%8D%E8%A6%81"><span class="nav-text">2.3 有索引时，直方图没那么重要</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-4-%E7%9B%B4%E6%96%B9%E5%9B%BE%E7%9A%84%E4%B8%A4%E4%B8%AA%E7%A1%AC%E5%9D%91"><span class="nav-text">2.4 直方图的两个硬坑</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-5-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E8%87%AA%E5%B7%B1%E9%80%A0%E4%B8%80%E6%AC%A1%E4%BC%B0%E7%AE%97%E4%BF%AE%E6%AD%A3"><span class="nav-text">2.5 动手验证：自己造一次估算修正</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E4%BA%94%E7%B1%BB%E7%9C%9F%E5%AE%9E%E7%9A%84%E9%80%89%E6%8B%A9%E5%81%8F%E5%B7%AE"><span class="nav-text">3. 五类真实的选择偏差</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E6%A8%A1%E5%BC%8F%E4%B8%80%EF%BC%9A%E4%B8%BA%E4%BA%86%E7%9C%81%E6%8E%92%E5%BA%8F%EF%BC%8C%E6%89%AB%E4%BA%86-33-%E4%B8%87%E4%B8%AA%E7%B4%A2%E5%BC%95%E9%A1%B9"><span class="nav-text">3.1 模式一：为了省排序，扫了 33 万个索引项</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E6%A8%A1%E5%BC%8F%E4%BA%8C%EF%BC%9A%E9%9A%90%E5%BC%8F%E7%B1%BB%E5%9E%8B%E8%BD%AC%E6%8D%A2%E8%AE%A9%E7%B4%A2%E5%BC%95%E5%A4%B1%E6%95%88"><span class="nav-text">3.2 模式二：隐式类型转换让索引失效</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-%E6%A8%A1%E5%BC%8F%E4%B8%89%EF%BC%9A%E5%87%BD%E6%95%B0%E5%8C%85%E8%A3%B9%E5%88%97"><span class="nav-text">3.3 模式三：函数包裹列</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-4-%E6%A8%A1%E5%BC%8F%E5%9B%9B%EF%BC%9A%E6%B7%B1%E5%88%86%E9%A1%B5%EF%BC%8Coffset-%E4%B9%8B%E5%89%8D%E5%85%A8%E6%98%AF%E7%99%BD%E8%AF%BB"><span class="nav-text">3.4 模式四：深分页，offset 之前全是白读</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-5-%E6%A8%A1%E5%BC%8F%E4%BA%94%EF%BC%9A%E7%BB%9F%E8%AE%A1%E4%BF%A1%E6%81%AF%E8%BF%87%E6%9C%9F"><span class="nav-text">3.5 模式五：统计信息过期</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-6-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E4%BA%94%E7%B1%BB%E5%90%84%E8%B7%91%E4%B8%80%E6%9D%A1"><span class="nav-text">3.6 动手验证：五类各跑一条</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E6%85%A2%E6%9F%A5%E8%AF%A2%E6%B2%BB%E7%90%86%E9%97%AD%E7%8E%AF"><span class="nav-text">4. 慢查询治理闭环</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-%E4%BA%94%E6%AD%A5%E9%97%AD%E7%8E%AF"><span class="nav-text">4.1 五步闭环</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-%E6%85%A2%E6%97%A5%E5%BF%97%E8%81%9A%E5%90%88%EF%BC%9Apt-query-digest"><span class="nav-text">4.2 慢日志聚合：pt-query-digest</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-%E8%B4%AF%E7%A9%BF%E6%A1%88%E4%BE%8B%EF%BC%9A%E8%AE%A2%E5%8D%95%E5%88%97%E8%A1%A8-P99-%E6%94%B6%E5%88%B0%E8%BF%99%E4%B8%80%E5%B1%82"><span class="nav-text">4.3 贯穿案例：订单列表 P99 收到这一层</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-4-FORCE-INDEX-%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E8%AF%A5%E7%94%A8"><span class="nav-text">4.4 FORCE INDEX 什么时候该用</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-5-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E8%B5%B0%E5%AE%8C%E4%B8%80%E6%AC%A1%E9%97%AD%E7%8E%AF"><span class="nav-text">4.5 动手验证：走完一次闭环</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E6%80%BB%E7%BB%93"><span class="nav-text">5. 总结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E9%9D%A2%E8%AF%95%E9%80%9F%E7%AD%94%E8%A1%A8"><span class="nav-text">5.1 面试速答表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E5%AE%9E%E6%88%98%E9%81%BF%E5%9D%91%E8%A1%A8"><span class="nav-text">5.2 实战避坑表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-%E5%B7%A5%E5%85%B7%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">5.3 工具速查表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-%E5%AE%9E%E6%93%8D%E5%BB%BA%E8%AE%AE"><span class="nav-text">5.4 实操建议</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">104</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">14</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">175</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+    <div class="sidebar-inner sidebar-blogroll">
+      <div class="links-of-blogroll animated">
+        <div class="links-of-blogroll-title"><i class="fa fa-globe fa-fw"></i>
+          Links
+        </div>
+        <ul class="links-of-blogroll-list">
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9wYXVsZ3JhaGFtLmNvbS9hcnRpY2xlcy5odG1s" title="https:&#x2F;&#x2F;paulgraham.com&#x2F;articles.html">paulgraham</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly93d3cuam9lbG9uc29mdHdhcmUuY29tLw==" title="https:&#x2F;&#x2F;www.joelonsoftware.com&#x2F;">Joel on Software</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9tYXJ0aW5mb3dsZXIuY29tLw==" title="https:&#x2F;&#x2F;martinfowler.com&#x2F;">Martin Flower</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly96aGFuZ3RpZWxlaS5jb20v" title="https:&#x2F;&#x2F;zhangtielei.com&#x2F;">zhangtielei</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhLWRlc2lnbi1wYXR0ZXJucy5jb20vemgv" title="https:&#x2F;&#x2F;java-design-patterns.com&#x2F;zh&#x2F;">Java Design Patterns</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9taWNyb3NlcnZpY2VzLmlvLw==" title="https:&#x2F;&#x2F;microservices.io&#x2F;">Microservice Architecture</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhZ3VpZGUuY24v" title="https:&#x2F;&#x2F;javaguide.cn&#x2F;">JavaGuide</span>
+            </li>
+        </ul>
+      </div>
+    </div>
+        <div class="pjax">
+        
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-后端开发"><a href="/docs/nav/backend-dev-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-code fa-fw"></i>后端开发</a></li>
+
+
+      
+  <li class="menu-item menu-item-计算机基础"><a href="/docs/nav/cs-foundation-nav.html" rel="section"><i class="fa fa-desktop fa-fw"></i>计算机基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-ai-学习"><a href="/docs/nav/ai-learning-nav.html" rel="section"><i class="fa fa-robot fa-fw"></i>AI 学习</a></li>
+
+
+      
+  <li class="menu-item menu-item-项目实战"><a href="/docs/nav/5964f4da.html" rel="section"><i class="fa fa-flask fa-fw"></i>项目实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-misc"><a href="/docs/nav/misc-nav.html" rel="section"><i class="fa fa-box fa-fw"></i>Misc</a></li>
+
+
+      
+  <li class="menu-item menu-item-随笔·生活"><a href="/docs/nav/life-nav.html" rel="section"><i class="fa fa-feather fa-fw"></i>随笔·生活</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java"><a href="/docs/nav/java-nav.html" rel="section"><i class="fa fa-coffee fa-fw"></i>Java</a></li>
+
+
+      
+  <li class="menu-item menu-item-框架"><a href="/docs/nav/framework-nav.html" rel="section"><i class="fa fa-th-large fa-fw"></i>框架</a></li>
+
+
+      
+  <li class="menu-item menu-item-数据存储"><a href="/docs/nav/data-storage-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-hdd fa-fw"></i>数据存储</a></li>
+
+
+      
+  <li class="menu-item menu-item-中间件"><a href="/docs/nav/middleware-nav.html" rel="section"><i class="fa fa-cubes fa-fw"></i>中间件</a></li>
+
+
+      
+  <li class="menu-item menu-item-分布式与微服务"><a href="/docs/nav/distributed-nav.html" rel="section"><i class="fa fa-sitemap fa-fw"></i>分布式与微服务</a></li>
+
+
+      
+  <li class="menu-item menu-item-系统设计"><a href="/docs/nav/system-design-nav.html" rel="section"><i class="fa fa-pencil-ruler fa-fw"></i>系统设计</a></li>
+
+
+      
+  <li class="menu-item menu-item-部署运维"><a href="/docs/nav/devops-nav.html" rel="section"><i class="fa fa-terminal fa-fw"></i>部署运维</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-mysql"><a href="/docs/nav/mysql-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-database fa-fw"></i>MySQL</a></li>
+
+
+      
+  <li class="menu-item menu-item-redis"><a href="/docs/nav/redis-nav.html" rel="section"><i class="fa fa-bolt fa-fw"></i>Redis</a></li>
+
+
+      
+  <li class="menu-item menu-item-elasticsearch"><a href="/docs/nav/es-nav.html" rel="section"><i class="fa fa-search fa-fw"></i>ElasticSearch</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-mysql-深度解析：从原理到高可用与分库分表实战"><a href="/post/32511a71.html" rel="section"><i class="fa fa-file-text fa-fw"></i>MySQL 深度解析：从原理到高可用与分库分表实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-①-从这里开始：把-mysql-变成你的实验台"><a href="/post/60f95c16.html" rel="section"><i class="fa fa-file-text fa-fw"></i>① 从这里开始：把 MySQL 变成你的实验台</a></li>
+
+
+      
+  <li class="menu-item menu-item-②-一条-sql-的六层成本账：架构不是画流程图"><a href="/post/ffd9df8b.html" rel="section"><i class="fa fa-file-text fa-fw"></i>② 一条 SQL 的六层成本账：架构不是画流程图</a></li>
+
+
+      
+  <li class="menu-item menu-item-③-schema-与索引：把逻辑读降下来"><a href="/post/e1724727.html" rel="section"><i class="fa fa-file-text fa-fw"></i>③ Schema 与索引：把逻辑读降下来</a></li>
+
+
+      
+  <li class="menu-item menu-item-④-查询优化：优化器为什么会选错索引"><a href="/post/d65d7254.html" rel="section"><i class="fa fa-file-text fa-fw"></i>④ 查询优化：优化器为什么会选错索引</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑤-事务与-mvcc：把「不可重复读」亲手复现出来"><a href="/post/88fb6d0c.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑤ 事务与 MVCC：把「不可重复读」亲手复现出来</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑥-锁、死锁与-mdl：一次变更如何堵死整张表"><a href="/post/d090a538.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑥ 锁、死锁与 MDL：一次变更如何堵死整张表</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑦-innodb-内存与刷盘：物理-io-的钱花在哪"><a href="/post/8e8e95b7.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑦ InnoDB 内存与刷盘：物理 IO 的钱花在哪</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑧-复制与高可用：延迟的量化与判定"><a href="/post/51687861.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑧ 复制与高可用：延迟的量化与判定</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑨-备份与恢复：删库之后-30-分钟救回来"><a href="/post/f375ea2a.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑨ 备份与恢复：删库之后 30 分钟救回来</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑩-在线-ddl：一次加索引如何堵死整张表"><a href="/post/b5c3673.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑩ 在线 DDL：一次加索引如何堵死整张表</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑪-java-侧：连接池打满与-@transactional-失效的真相"><a href="/post/4d87a909.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑪ Java 侧：连接池打满与 @Transactional 失效的真相</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑫-容量与扩展：什么时候才该分库分表"><a href="/post/f8f36186.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑫ 容量与扩展：什么时候才该分库分表</a></li>
+
+
+    </ul>
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/d65d7254.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="查询优化：优化器为什么会选错索引 | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          查询优化：优化器为什么会选错索引
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-10-24 23:20:00" itemprop="dateCreated datePublished" datetime="2026-10-24T23:20:00+08:00">2026-10-24</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/" itemprop="url" rel="index"><span itemprop="name">数据存储</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>5.5k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>20 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><p><strong>优化器不是”笨”，它是在信息不全的情况下做了一道成本算术题</strong>。它只知道三件事：表有多少行、索引的基数（cardinality）、以及一套写死的成本常数。你对数据分布的所有直觉——“这个状态只有 0.1%”——它都看不见，除非你给它统计信息。</p>
+<p>本文要纠正一个流传很广的说法：优化器<strong>并不是动不动就选错</strong>。实测下来，绝大多数情况下它的选择是对的；真正的偏差集中在五种可识别的模式里。掌握这五种模式，你不需要背「十条优化铁律」，也能在 <code>EXPLAIN</code> 输出的第一眼判断它是否在犯错。</p>
+<blockquote>
+<p><strong>系列地图（高性能 MySQL 实战路线，12 篇）</strong></p>
+<p>① 实验台与基线 → ② 六层成本账 → ③ 索引与 Schema → ④ <strong>优化器与慢查询（本文）</strong> → ⑤ 事务与 MVCC → ⑥ 锁与死锁 → ⑦ 内存与刷盘 → ⑧ 复制与高可用 → ⑨ 备份与恢复 → ⑩ 在线 DDL → ⑪ Java 侧连接池 → ⑫ 容量与分库分表</p>
+<p>与前后篇的关系：② 里 <code>filtered = 10.00</code> 那个谜，本文给出解法和它的边界；③ 里”G 索引扫了 33 万项还被选中”，本文解释那笔账怎么算的。本文只负责「选计划这一层」，物理读的成本账在 ⑦。</p>
+</blockquote>
+<h2 id="1-优化器的账本：三个数字"><a href="#1-优化器的账本：三个数字" class="headerlink" title="1. 优化器的账本：三个数字"></a>1. 优化器的账本：三个数字</h2><h3 id="1-1-它只算三件事"><a href="#1-1-它只算三件事" class="headerlink" title="1.1 它只算三件事"></a>1.1 它只算三件事</h3><pre class="mermaid">flowchart LR
+    P["Parse&lt;br/>conditions known"] --> R["Estimate rows&lt;br/>stats + dives + histograms"]
+    R --> C["Estimate cost&lt;br/>read_cost + eval_cost"]
+    C --> J["Compare candidate plans"]
+    J --> W["Pick lowest cost"]
+    R -.->|"no stats"| D["Default 10%&lt;br/>guess"]
+    D --> C</pre>
+
+<p>任何一份 <code>EXPLAIN FORMAT=JSON</code> 里，你只需要先看三个字段：</p>
+<table>
+<thead>
+<tr>
+<th>字段</th>
+<th>含义</th>
+<th>为什么重要</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>rows_examined_per_scan</code></td>
+<td>这个访问方式预计要扫多少行</td>
+<td>成本的主要来源</td>
+</tr>
+<tr>
+<td><code>filtered</code></td>
+<td>扫描后还剩百分之几（附加条件的选择性）</td>
+<td>决定「扫了很多但没几条」的严重程度</td>
+</tr>
+<tr>
+<td><code>rows_produced_per_join</code></td>
+<td><code>rows_examined × filtered%</code></td>
+<td>估算的最终产出行数，JOIN 顺序靠它</td>
+</tr>
+</tbody></table>
+<p>成本是这两个数字的加权和：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">read_cost = rows_examined × 每行读成本</span><br><span class="line">eval_cost = rows_produced × 每行评估成本</span><br><span class="line">query_cost = read_cost + eval_cost（多表则累加 prefix_cost）</span><br></pre></td></tr></table></figure>
+
+<p>实测一份真实输出（<code>status</code> 无统计信息时）：</p>
+<figure class="highlight json"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="attr">&quot;rows_examined_per_scan&quot;</span><span class="punctuation">:</span> <span class="number">498443</span><span class="punctuation">,</span></span><br><span class="line"><span class="attr">&quot;filtered&quot;</span><span class="punctuation">:</span> <span class="string">&quot;10.00&quot;</span><span class="punctuation">,</span></span><br><span class="line"><span class="attr">&quot;rows_produced_per_join&quot;</span><span class="punctuation">:</span> <span class="number">49844</span><span class="punctuation">,</span></span><br><span class="line"><span class="attr">&quot;cost_info&quot;</span><span class="punctuation">:</span> <span class="punctuation">&#123;</span> <span class="attr">&quot;read_cost&quot;</span><span class="punctuation">:</span> <span class="string">&quot;95513.52&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;eval_cost&quot;</span><span class="punctuation">:</span> <span class="string">&quot;4984.43&quot;</span><span class="punctuation">,</span> <span class="attr">&quot;query_cost&quot;</span><span class="punctuation">:</span> <span class="string">&quot;100497.95&quot;</span> <span class="punctuation">&#125;</span></span><br></pre></td></tr></table></figure>
+
+<p><code>filtered = 10.00</code> 就是那个「没信息时的默认先验」：<strong>等值条件一律按筛掉 90% 估</strong>。而这条 SQL 的真实匹配是 500 行左右——估算偏了 100 倍。</p>
+<h3 id="1-2-统计信息从哪来"><a href="#1-2-统计信息从哪来" class="headerlink" title="1.2 统计信息从哪来"></a>1.2 统计信息从哪来</h3><p>优化器不是瞎猜，它有四个信息来源，精度依次递减：</p>
+<table>
+<thead>
+<tr>
+<th>来源</th>
+<th>适用</th>
+<th>精度</th>
+<th>怎么刷新</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>索引基数（index dive）</td>
+<td>有索引的列做等值&#x2F;范围</td>
+<td>高：直接读索引页数行</td>
+<td><code>ANALYZE TABLE</code>，或自动（<code>innodb_stats_auto_recalc</code>）</td>
+</tr>
+<tr>
+<td>索引统计（采样）</td>
+<td><code>IN</code> 列表很长时替代 dive</td>
+<td>中</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>直方图（histogram）</td>
+<td><strong>没有索引</strong>的列</td>
+<td>高：等高分桶</td>
+<td>手动 <code>ANALYZE TABLE ... UPDATE HISTOGRAM</code>，<strong>不会自动更新</strong></td>
+</tr>
+<tr>
+<td>默认先验</td>
+<td>什么都没有</td>
+<td>低：等值 10%、范围 50%</td>
+<td>无</td>
+</tr>
+</tbody></table>
+<p>一个容易踩的边界：<code>eq_range_index_dive_limit</code> 默认 200。当 <code>IN (…)</code> 里的值超过 200 个，优化器会放弃逐个值做 index dive，改用索引统计——<strong>同一个查询在 <code>IN</code> 列表第 200 个和第 201 个值之间，可能换一个执行计划</strong>。这不是玄学，是这个参数。</p>
+<h3 id="1-3-动手验证：读出一份账本"><a href="#1-3-动手验证：读出一份账本" class="headerlink" title="1.3 动手验证：读出一份账本"></a>1.3 动手验证：读出一份账本</h3><figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 1) 关键字段一次看全</span></span><br><span class="line">EXPLAIN FORMAT<span class="operator">=</span>JSON</span><br><span class="line"><span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> tord</span><br><span class="line"> <span class="keyword">WHERE</span> status <span class="operator">=</span> <span class="number">1</span> <span class="keyword">AND</span> create_time <span class="operator">&gt;=</span> <span class="string">&#x27;2026-01-01&#x27;</span></span><br><span class="line"> <span class="keyword">ORDER</span> <span class="keyword">BY</span> create_time <span class="keyword">DESC</span> LIMIT <span class="number">20</span>;</span><br><span class="line"></span><br><span class="line"><span class="comment">-- 2) 自己动手验算：(rows_examined × filtered) 是否等于 rows_produced</span></span><br><span class="line"><span class="comment">-- 3) 看统计信息本身</span></span><br><span class="line"><span class="keyword">SELECT</span> index_name, column_name, <span class="keyword">cardinality</span></span><br><span class="line"><span class="keyword">FROM</span> information_schema.statistics</span><br><span class="line"><span class="keyword">WHERE</span> table_schema<span class="operator">=</span><span class="string">&#x27;lab&#x27;</span> <span class="keyword">AND</span> table_name<span class="operator">=</span><span class="string">&#x27;tord&#x27;</span>;</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：<code>filtered</code> 如果是 <code>10.00</code>、<code>50.00</code> 这类整数，多半说明这一列没有可用统计信息，走的是默认先验（等值 10%、范围 50%）；<code>cardinality</code> 会明显小于真实的不同值个数。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li><code>rows_examined_per_scan</code> 与真实扫描行数差 10 倍以上 → 统计信息问题（本文第 2 节）；</li>
+<li><code>filtered</code> 与实际选择性差 10 倍以上 → 需要直方图或索引；</li>
+<li><code>query_cost</code> 只能用于<strong>同一实例内比较计划</strong>，不要拿它当毫秒。</li>
+</ul>
+<h2 id="2-直方图：能修什么，不能修什么"><a href="#2-直方图：能修什么，不能修什么" class="headerlink" title="2. 直方图：能修什么，不能修什么"></a>2. 直方图：能修什么，不能修什么</h2><h3 id="2-1-实测-A-B：一个-0-1-的状态列"><a href="#2-1-实测-A-B：一个-0-1-的状态列" class="headerlink" title="2.1 实测 A&#x2F;B：一个 0.1% 的状态列"></a>2.1 实测 A&#x2F;B：一个 0.1% 的状态列</h3><p>造一张 100 万行的表，<code>status = 1</code> 只占 **0.1%**（1000 行），其余 99.9% 是 0。查询：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> tord</span><br><span class="line"> <span class="keyword">WHERE</span> status <span class="operator">=</span> <span class="number">1</span> <span class="keyword">AND</span> create_time <span class="operator">&gt;=</span> <span class="string">&#x27;2026-01-01&#x27;</span></span><br><span class="line"> <span class="keyword">ORDER</span> <span class="keyword">BY</span> create_time <span class="keyword">DESC</span> LIMIT <span class="number">20</span>;</span><br></pre></td></tr></table></figure>
+
+<p><code>status</code> 上<strong>没有索引</strong>，只有 <code>create_time</code> 上有。三种状态下优化器的估算：</p>
+<table>
+<thead>
+<tr>
+<th>状态</th>
+<th><code>filtered</code></th>
+<th>估算产出行</th>
+<th>真实匹配行</th>
+<th>选了哪个索引</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>无直方图</td>
+<td><strong>10.00</strong></td>
+<td>49,844</td>
+<td>~500</td>
+<td><code>idx_ct</code> 范围扫</td>
+</tr>
+<tr>
+<td>有直方图（100 桶）</td>
+<td><strong>0.10</strong></td>
+<td>498</td>
+<td>~500</td>
+<td><code>idx_ct</code> 范围扫（<strong>没变</strong>）</td>
+</tr>
+<tr>
+<td><code>status</code> 上有索引</td>
+<td>—（<code>rows</code> &#x3D; 1000）</td>
+<td>1,000</td>
+<td>1,000</td>
+<td><code>idx_status</code> 等值</td>
+</tr>
+</tbody></table>
+<p>估算从 49,844 修到 498，误差从 100 倍降到 1 倍以内——<strong>直方图确实把「估算」修准了</strong>。但注意第三列：计划没变。</p>
+<pre class="mermaid">flowchart TD
+    C["ANALYZE TABLE t UPDATE HISTOGRAM&lt;br/>ON status WITH 100 BUCKETS"] --> B["equi-height buckets:&lt;br/>each bucket ~ same row count"]
+    B --> E["optimizer reads bucket for value 1&lt;br/>-> 0.1% selectivity"]
+    E --> F["filtered: 10.00 -> 0.10"]
+    F --> G{"any alternative plan&lt;br/>to switch to?"}
+    G -- no --> H["estimate better,&lt;br/>plan unchanged"]
+    G -- yes --> I["join order / index choice&lt;br/>may flip"]</pre>
+
+<h3 id="2-2-为什么计划没变：估算准-≠-有别的计划可选"><a href="#2-2-为什么计划没变：估算准-≠-有别的计划可选" class="headerlink" title="2.2 为什么计划没变：估算准 ≠ 有别的计划可选"></a>2.2 为什么计划没变：估算准 ≠ 有别的计划可选</h3><p>这条 SQL 只有 <code>idx_ct</code> 一个索引能用，其他候选是「全表扫描 + filesort」。优化器把 <code>idx_ct</code> 的成本算得更准了，但另一个候选本来就贵得多，次序不变。</p>
+<p><strong>这是一个必须说清的边界：直方图修的是「估算」，不是「决策」。</strong> 估算准了但计划没变，不代表白做——它让优化器在<strong>有多个候选计划</strong>时能选对（主要是 JOIN 顺序、子查询物化、<code>IN</code> 与 <code>EXISTS</code> 的取舍），也让你的 <code>EXPLAIN</code> 读数更可信。</p>
+<h3 id="2-3-有索引时，直方图没那么重要"><a href="#2-3-有索引时，直方图没那么重要" class="headerlink" title="2.3 有索引时，直方图没那么重要"></a>2.3 有索引时，直方图没那么重要</h3><p>同一个查询，给 <code>status</code> 建索引之后再跑，<code>rows_examined_per_scan</code> 直接就是 <strong>1000</strong>——和真值一致。因为索引上有基数统计，等值查询可以走 index dive 精确数一遍，比直方图更准。</p>
+<p>所以加直方图的优先级是：</p>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>该做什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>列<strong>没有索引</strong>，但经常作为过滤条件</td>
+<td>加直方图（这是它的主战场）</td>
+</tr>
+<tr>
+<td>列有索引</td>
+<td>先 <code>ANALYZE TABLE</code> 刷新基数，直方图收益有限</td>
+</tr>
+<tr>
+<td>列有索引且分布极倾斜（99% &#x2F; 1%）</td>
+<td>直方图可能帮不上，考虑改写 SQL 或建针对性索引（见 3.1）</td>
+</tr>
+</tbody></table>
+<h3 id="2-4-直方图的两个硬坑"><a href="#2-4-直方图的两个硬坑" class="headerlink" title="2.4 直方图的两个硬坑"></a>2.4 直方图的两个硬坑</h3><ol>
+<li><strong>不会自动更新</strong>。<code>innodb_stats_auto_recalc</code> 只负责索引统计，直方图要手动 <code>ANALYZE TABLE ... UPDATE HISTOGRAM</code>。数据分布变了而你没刷新，估算就一直是旧的。</li>
+<li><strong>最多 1000 个桶，桶是等高的</strong>。100 个不同值的列用 100 个桶正好；100 万不同值的列用 1000 个桶，每个桶代表 1000 行，边界值附近还是估不准。它不是万能的。</li>
+</ol>
+<h3 id="2-5-动手验证：自己造一次估算修正"><a href="#2-5-动手验证：自己造一次估算修正" class="headerlink" title="2.5 动手验证：自己造一次估算修正"></a>2.5 动手验证：自己造一次估算修正</h3><figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 1) 造倾斜数据（如果还没有）</span></span><br><span class="line"><span class="comment">--    status: 0.1% 为 1，其余为 0</span></span><br><span class="line"><span class="keyword">SELECT</span> <span class="built_in">SUM</span>(status<span class="operator">=</span><span class="number">1</span>)<span class="operator">/</span><span class="built_in">COUNT</span>(<span class="operator">*</span>) <span class="keyword">AS</span> real_selectivity <span class="keyword">FROM</span> tord;</span><br><span class="line"></span><br><span class="line"><span class="comment">-- 2) 看没有直方图时的估算</span></span><br><span class="line">ANALYZE <span class="keyword">TABLE</span> tord <span class="keyword">DROP</span> HISTOGRAM <span class="keyword">ON</span> status;</span><br><span class="line">EXPLAIN FORMAT<span class="operator">=</span>JSON <span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> tord <span class="keyword">WHERE</span> status <span class="operator">=</span> <span class="number">1</span>\G</span><br><span class="line"></span><br><span class="line"><span class="comment">-- 3) 建直方图，再看</span></span><br><span class="line">ANALYZE <span class="keyword">TABLE</span> tord <span class="keyword">UPDATE</span> HISTOGRAM <span class="keyword">ON</span> status <span class="keyword">WITH</span> <span class="number">100</span> BUCKETS;</span><br><span class="line">EXPLAIN FORMAT<span class="operator">=</span>JSON <span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> tord <span class="keyword">WHERE</span> status <span class="operator">=</span> <span class="number">1</span>\G</span><br><span class="line"></span><br><span class="line"><span class="comment">-- 4) 确认直方图真的存在、几个桶</span></span><br><span class="line"><span class="keyword">SELECT</span> column_name, JSON_LENGTH(JSON_EXTRACT(histogram, <span class="string">&#x27;$.buckets&#x27;</span>)) <span class="keyword">AS</span> buckets,</span><br><span class="line">       JSON_EXTRACT(histogram, <span class="string">&#x27;$.number-of-buckets-specified&#x27;</span>) <span class="keyword">AS</span> specified</span><br><span class="line"><span class="keyword">FROM</span> information_schema.column_statistics <span class="keyword">WHERE</span> table_name <span class="operator">=</span> <span class="string">&#x27;tord&#x27;</span>;</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：第 2 步 <code>filtered</code> 是 <code>10.00</code>，第 3 步变成 <code>0.10</code>（或接近真实值的数字），<code>rows_produced_per_join</code> 从五位数掉到三位数。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li><code>filtered</code> 没变 → 检查列上是不是有索引（有索引时优先用索引统计），或者直方图没建成功；</li>
+<li><code>filtered</code> 变了但计划没变 → 正常，说明没有更优候选（2.2）；</li>
+<li>真实选择性与估算差 10 倍以上，且这列没索引 → 直方图值得加。</li>
+</ul>
+<h2 id="3-五类真实的选择偏差"><a href="#3-五类真实的选择偏差" class="headerlink" title="3. 五类真实的选择偏差"></a>3. 五类真实的选择偏差</h2><p>优化器大多是对的。真正值得记住的是下面五种模式——每一种都能用一条 SQL 复现。</p>
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>模式</th>
+<th>机制</th>
+<th>实测</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>为了省排序，选了一个扫描面极大的索引</td>
+<td>成本模型里排序很贵，<code>LIMIT</code> 的「提前停」收益估不准</td>
+<td>扫 33 万个索引项，102 ms</td>
+</tr>
+<tr>
+<td>2</td>
+<td>隐式类型转换</td>
+<td>字符串列与数字比较 → 列被 <code>CAST</code> 成数字，索引失效</td>
+<td>0.012 ms → 127 ms</td>
+</tr>
+<tr>
+<td>3</td>
+<td>函数包裹列</td>
+<td>列上做运算，索引无法定位</td>
+<td>0.18 ms → 92 ms</td>
+</tr>
+<tr>
+<td>4</td>
+<td>深分页 offset</td>
+<td>offset 之前的行必须真读真丢</td>
+<td>62.9 ms → 236 ms</td>
+</tr>
+<tr>
+<td>5</td>
+<td>统计信息过期</td>
+<td>大批量写入后基数没刷新</td>
+<td><code>cardinality</code> 偏小，选错索引</td>
+</tr>
+</tbody></table>
+<h3 id="3-1-模式一：为了省排序，扫了-33-万个索引项"><a href="#3-1-模式一：为了省排序，扫了-33-万个索引项" class="headerlink" title="3.1 模式一：为了省排序，扫了 33 万个索引项"></a>3.1 模式一：为了省排序，扫了 33 万个索引项</h3><p>上一篇那张订单表上，<code>(status, create_time)</code> 这个索引对「用户订单列表」本不该被用——但优化器选了它，因为能省掉 filesort：</p>
+<table>
+<thead>
+<tr>
+<th>方案</th>
+<th>首行时间</th>
+<th>全量时间</th>
+<th>逻辑读</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>(status, create_time)</code>（优化器选的）</td>
+<td>7.21 ms</td>
+<td>102 ms</td>
+<td>333,178</td>
+</tr>
+<tr>
+<td><code>(user_id, status, create_time)</code>（人脑选的）</td>
+<td>0.05 ms</td>
+<td>0.052 ms</td>
+<td>108</td>
+</tr>
+</tbody></table>
+<p><strong>机制</strong>：优化器只算「总量成本」，不知道用户体感的是「首行时间」。它认为「顺着 create_time 排好序扫，找到 20 行就停」比「扫 200 行再排序」便宜，但它把「要扫多少行才能凑够 20 行」估成了乐观值。</p>
+<p><strong>处理</strong>：这不靠调参数解决，靠<strong>索引设计</strong>（③ 的列序）或 <code>FORCE INDEX</code> 兜底。更重要的是识别信号：<code>EXPLAIN</code> 里出现「<code>key</code> 是一个低选择性列打头的索引」+「<code>rows_examined_per_scan</code> 远大于返回行数」，就是它。</p>
+<h3 id="3-2-模式二：隐式类型转换让索引失效"><a href="#3-2-模式二：隐式类型转换让索引失效" class="headerlink" title="3.2 模式二：隐式类型转换让索引失效"></a>3.2 模式二：隐式类型转换让索引失效</h3><p><code>code</code> 是 <code>VARCHAR(16)</code> 且有索引：</p>
+<table>
+<thead>
+<tr>
+<th>写法</th>
+<th>计划</th>
+<th>实测</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>WHERE code = &#39;12345&#39;</code></td>
+<td><code>Index lookup on tord using idx_code</code></td>
+<td><strong>0.0116 ms</strong></td>
+</tr>
+<tr>
+<td><code>WHERE code = 12345</code></td>
+<td><code>Table scan on tord</code> + <code>Filter: (code = 12345)</code></td>
+<td><strong>127 ms</strong></td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart LR
+    A["WHERE code = 12345"] --> B{"column type"}
+    B -- "VARCHAR" --> C["CAST(code AS DOUBLE) = 12345&lt;br/>expression on the column"]
+    C --> D["index unusable&lt;br/>full table scan"]
+    B -- "BIGINT" --> E["direct key compare&lt;br/>index lookup"]</pre>
+
+<p>差 <strong>一万倍</strong>。原因：MySQL 比较字符串列与数字时，把<strong>列</strong>转成数字再比（<code>CAST(code AS DOUBLE)</code>），列上做运算 → 索引无法定位。</p>
+<p>这个坑在 Java 侧极其常见：MyBatis 里 <code>#&#123;id&#125;</code> 传的是 <code>Long</code>，而库里那一列是 <code>VARCHAR</code>。类型对不上的后果，就是一条本该 10 微秒的查询变成 127 毫秒，QPS 一上来直接打满 CPU。</p>
+<p><strong>处理</strong>：让 Java 类型、JDBC 参数类型、列类型三者一致；<code>EXPLAIN</code> 的 <code>attached_condition</code> 里出现 <code>cast(...)</code> 就是证据。</p>
+<h3 id="3-3-模式三：函数包裹列"><a href="#3-3-模式三：函数包裹列" class="headerlink" title="3.3 模式三：函数包裹列"></a>3.3 模式三：函数包裹列</h3><figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 反例：列上做运算</span></span><br><span class="line"><span class="keyword">SELECT</span> <span class="built_in">COUNT</span>(<span class="operator">*</span>) <span class="keyword">FROM</span> tord <span class="keyword">WHERE</span> <span class="type">DATE</span>(create_time) <span class="operator">=</span> <span class="string">&#x27;2026-10-01&#x27;</span>;</span><br><span class="line"><span class="comment">-- 正例：改写成范围</span></span><br><span class="line"><span class="keyword">SELECT</span> <span class="built_in">COUNT</span>(<span class="operator">*</span>) <span class="keyword">FROM</span> tord <span class="keyword">WHERE</span> create_time <span class="operator">&gt;=</span> <span class="string">&#x27;2026-10-01&#x27;</span></span><br><span class="line">                           <span class="keyword">AND</span> create_time <span class="operator">&lt;</span>  <span class="string">&#x27;2026-10-02&#x27;</span>;</span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th>写法</th>
+<th>计划</th>
+<th>实测</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>DATE(create_time) = ?</code></td>
+<td>Covering index scan（<strong>全索引扫 100 万行</strong>） + <code>cast(...)</code></td>
+<td>92.3 ms</td>
+</tr>
+<tr>
+<td>范围改写</td>
+<td>Covering index range scan（1440 行）</td>
+<td>0.179 ms</td>
+</tr>
+</tbody></table>
+<p><strong>注意一个精度细节</strong>：函数包裹版并不是「完全不用索引」，它退化成<strong>全索引扫描</strong>（覆盖索引，只读索引不读数据），所以比全表扫快一点，但仍然是 100 万行的成本。很多人看到 <code>key</code> 有值就以为索引生效了，其实扫的是整棵树。</p>
+<p>同类问题：<code>WHERE YEAR(create_time) = 2026</code>、<code>WHERE amount + 0 &gt; 100</code>、<code>WHERE LEFT(name, 2) = &#39;张&#39;</code>。处理方式只有两种：改写成范围，或者建<strong>函数索引</strong>（8.0.13+）。</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 8.0 函数索引：把表达式物化进索引</span></span><br><span class="line"><span class="keyword">ALTER TABLE</span> tord <span class="keyword">ADD</span> INDEX idx_date ((<span class="type">DATE</span>(create_time)));</span><br></pre></td></tr></table></figure>
+
+<h3 id="3-4-模式四：深分页，offset-之前全是白读"><a href="#3-4-模式四：深分页，offset-之前全是白读" class="headerlink" title="3.4 模式四：深分页，offset 之前全是白读"></a>3.4 模式四：深分页，offset 之前全是白读</h3><table>
+<thead>
+<tr>
+<th>写法</th>
+<th>计划</th>
+<th>实测</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>SELECT * FROM tord ORDER BY create_time LIMIT 900000, 20</code></td>
+<td>全表扫 + filesort 100 万行</td>
+<td><strong>236 ms</strong></td>
+</tr>
+<tr>
+<td>延迟关联（先取 20 个主键再回表）</td>
+<td>覆盖索引扫 90 万项 + 20 次回表</td>
+<td><strong>62.9 ms</strong></td>
+</tr>
+<tr>
+<td><code>SELECT * FROM tord ORDER BY id LIMIT 900000, 20</code></td>
+<td>主键索引扫 90 万行</td>
+<td>98.9 ms</td>
+</tr>
+<tr>
+<td>主键 + 延迟关联</td>
+<td>覆盖扫 + 20 次回表</td>
+<td>61.4 ms</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart LR
+    subgraph Bad["LIMIT 900000, 20"]
+        R["read rows 1..900000"] --> X["discard all of them"] --> K["keep 20 rows"]
+    end
+    subgraph Good["cursor pagination"]
+        C1["WHERE create_time &lt; last_seen"] --> C2["read 20 rows and stop"]
+    end</pre>
+
+<p>延迟关联的写法：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">SELECT</span> t.<span class="operator">*</span> <span class="keyword">FROM</span> tord t</span><br><span class="line">  <span class="keyword">JOIN</span> (<span class="keyword">SELECT</span> id <span class="keyword">FROM</span> tord <span class="keyword">ORDER</span> <span class="keyword">BY</span> create_time LIMIT <span class="number">900000</span>, <span class="number">20</span>) x</span><br><span class="line">    <span class="keyword">ON</span> t.id <span class="operator">=</span> x.id;</span><br></pre></td></tr></table></figure>
+
+<p><strong>机制</strong>：<code>LIMIT 900000, 20</code> 必须先把前 90 万行读出来再丢掉，这一步无法跳过。延迟关联省掉的是「前 90 万行每行都要回表取全字段」，只保留索引扫描。所以收益取决于「每行回表成本」，实测 3.75 倍。</p>
+<p><strong>根治</strong>：翻页深到十万级，本身就说明接口设计有问题。用「上一页最后一条的排序键」做游标（seek method）才能做到 O(1)：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 游标翻页：从上一页最后一条的 create_time 继续</span></span><br><span class="line"><span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> tord <span class="keyword">WHERE</span> create_time <span class="operator">&lt;</span> <span class="string">&#x27;2026-10-20 10:00:00&#x27;</span></span><br><span class="line"> <span class="keyword">ORDER</span> <span class="keyword">BY</span> create_time <span class="keyword">DESC</span> LIMIT <span class="number">20</span>;</span><br></pre></td></tr></table></figure>
+
+<h3 id="3-5-模式五：统计信息过期"><a href="#3-5-模式五：统计信息过期" class="headerlink" title="3.5 模式五：统计信息过期"></a>3.5 模式五：统计信息过期</h3><p><code>innodb_stats_auto_recalc</code> 只在大约 10% 的行发生变化后才重新统计，突发大批量写入后，基数可能明显偏离。表现是：昨天还正常的查询，今天突然走了另一个索引。</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 看统计最后一次更新的时间</span></span><br><span class="line"><span class="keyword">SELECT</span> table_name, last_update <span class="keyword">FROM</span> mysql.innodb_table_stats <span class="keyword">WHERE</span> table_name<span class="operator">=</span><span class="string">&#x27;tord&#x27;</span>;</span><br><span class="line"><span class="comment">-- 立刻刷新</span></span><br><span class="line">ANALYZE <span class="keyword">TABLE</span> tord;</span><br></pre></td></tr></table></figure>
+
+<p><strong>判定标准</strong>：<code>last_update</code> 早于最近一次大批量写入 → 优先怀疑统计过期，再怀疑别的。</p>
+<h3 id="3-6-动手验证：五类各跑一条"><a href="#3-6-动手验证：五类各跑一条" class="headerlink" title="3.6 动手验证：五类各跑一条"></a>3.6 动手验证：五类各跑一条</h3><figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- ① 排序诱惑：看 rows_examined 与返回行数的比值</span></span><br><span class="line">EXPLAIN ANALYZE <span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> tord <span class="keyword">WHERE</span> status <span class="operator">=</span> <span class="number">1</span></span><br><span class="line"> <span class="keyword">ORDER</span> <span class="keyword">BY</span> create_time <span class="keyword">DESC</span> LIMIT <span class="number">20</span>;</span><br><span class="line"></span><br><span class="line"><span class="comment">-- ② 隐式转换：看 attached_condition 里有没有 cast</span></span><br><span class="line">EXPLAIN ANALYZE <span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> tord <span class="keyword">WHERE</span> code <span class="operator">=</span> <span class="number">12345</span>;</span><br><span class="line"></span><br><span class="line"><span class="comment">-- ③ 函数包裹：看是不是 Covering index scan（全扫）</span></span><br><span class="line">EXPLAIN ANALYZE <span class="keyword">SELECT</span> <span class="built_in">COUNT</span>(<span class="operator">*</span>) <span class="keyword">FROM</span> tord <span class="keyword">WHERE</span> <span class="type">DATE</span>(create_time) <span class="operator">=</span> <span class="string">&#x27;2026-10-01&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="comment">-- ④ 深分页：看 Limit/Offset 节点前的扫描行数</span></span><br><span class="line">EXPLAIN ANALYZE <span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> tord <span class="keyword">ORDER</span> <span class="keyword">BY</span> create_time LIMIT <span class="number">900000</span>, <span class="number">20</span>;</span><br><span class="line"></span><br><span class="line"><span class="comment">-- ⑤ 统计过期：看 last_update 与 cardinality</span></span><br><span class="line"><span class="keyword">SELECT</span> table_name, last_update <span class="keyword">FROM</span> mysql.innodb_table_stats <span class="keyword">WHERE</span> table_name<span class="operator">=</span><span class="string">&#x27;tord&#x27;</span>;</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：① 的 <code>Index range scan</code> 扫描行数会是返回行数的上千倍；② 会出现 <code>Table scan</code> + <code>cast</code>；③ 是 <code>Covering index scan</code> 而不是 <code>range scan</code>；④ 有 <code>Limit/Offset: 20/900000</code>；⑤ 的 <code>last_update</code> 可能是几天前。</p>
+<p><strong>判定标准</strong>：五条里有任意一条命中，就按对应模式处理；全都没命中，问题多半不在优化器（去 ⑥⑦）。</p>
+<h2 id="4-慢查询治理闭环"><a href="#4-慢查询治理闭环" class="headerlink" title="4. 慢查询治理闭环"></a>4. 慢查询治理闭环</h2><h3 id="4-1-五步闭环"><a href="#4-1-五步闭环" class="headerlink" title="4.1 五步闭环"></a>4.1 五步闭环</h3><pre class="mermaid">flowchart LR
+    A["Alert: P99 spike"] --> B["Find top SQL&lt;br/>digest by SUM_TIMER_WAIT"]
+    B --> C["EXPLAIN ANALYZE&lt;br/>estimate vs actual"]
+    C --> D{"Which pattern?&lt;br/>1-5"}
+    D --> E["Fix: index / rewrite /&lt;br/>histogram / ANALYZE"]
+    E --> F["Verify on baseline&lt;br/>logical reads + P99"]
+    F --> G["Gray release&lt;br/>watch error rate"]
+    G --> A</pre>
+
+<table>
+<thead>
+<tr>
+<th>步骤</th>
+<th>动作</th>
+<th>工具</th>
+<th>产出</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1 定位</td>
+<td>按总耗时排序找 Top SQL</td>
+<td><code>events_statements_summary_by_digest</code></td>
+<td>1~3 条待查 SQL</td>
+</tr>
+<tr>
+<td>2 归因</td>
+<td>估算 vs 实际行数、是否回表、是否排序</td>
+<td><code>EXPLAIN ANALYZE</code></td>
+<td>落在哪个模式</td>
+</tr>
+<tr>
+<td>3 修复</td>
+<td>加索引 &#x2F; 改写 &#x2F; 直方图 &#x2F; <code>ANALYZE</code></td>
+<td>DDL 与 SQL 改写</td>
+<td>一条候选改动</td>
+</tr>
+<tr>
+<td>4 验证</td>
+<td>逻辑读、P99 前后对比</td>
+<td>基线档案（① 那张表）</td>
+<td>收益量化</td>
+</tr>
+<tr>
+<td>5 灰度</td>
+<td>小流量观察，保留回滚手段</td>
+<td>应用灰度 + 索引 <code>INVISIBLE</code></td>
+<td>上线或回滚</td>
+</tr>
+</tbody></table>
+<h3 id="4-2-慢日志聚合：pt-query-digest"><a href="#4-2-慢日志聚合：pt-query-digest" class="headerlink" title="4.2 慢日志聚合：pt-query-digest"></a>4.2 慢日志聚合：pt-query-digest</h3><p><code>EXPLAIN</code> 只能看一条 SQL，而<strong>慢日志是批量看</strong>的入口：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1) 打开慢日志（生产建议 log_output=FILE，避免写入 mysql.slow_log 表）</span></span><br><span class="line">SET GLOBAL slow_query_log = ON;</span><br><span class="line">SET GLOBAL long_query_time = 0.5;</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2) 聚合分析（Percona Toolkit）</span></span><br><span class="line">pt-query-digest /var/lib/mysql/slow.log &gt; /tmp/slow-report.txt</span><br><span class="line"></span><br><span class="line"><span class="comment"># 3) 只看 Top 5 与它们的执行计划</span></span><br><span class="line">pt-query-digest --<span class="built_in">limit</span> 5 --explain /var/lib/mysql/slow.log</span><br></pre></td></tr></table></figure>
+
+<p>报告里最该看的三列：<code>Response time</code> 总占比、<code>Rows examine</code>（扫多少行）、<code>Rows sent</code>（返回多少行）。<strong>两者的比值就是「白读倍数」</strong>，比值大的基本都是索引问题。</p>
+<p>不装 Percona Toolkit 时，用 <code>performance_schema</code> 的 digest 表也能得到同样的视图（上一篇给过查询），差别只是拿不到完整 SQL 文本。</p>
+<h3 id="4-3-贯穿案例：订单列表-P99-收到这一层"><a href="#4-3-贯穿案例：订单列表-P99-收到这一层" class="headerlink" title="4.3 贯穿案例：订单列表 P99 收到这一层"></a>4.3 贯穿案例：订单列表 P99 收到这一层</h3><p>回到那条贯穿线索：订单列表 P99 从 200ms 涨到 3.2s。走到本篇，能确定的是：</p>
+<ul>
+<li>如果 <code>EXPLAIN</code> 显示走了「低选择性列打头的索引 + 大范围扫描」→ 模式一，回 ③ 改列序；</li>
+<li>如果出现 <code>cast</code> → 模式二，改类型；</li>
+<li>如果 <code>filtered</code> 与实际差 10 倍且列无索引 → 模式五 + 直方图；</li>
+<li>如果 <code>Limit/Offset</code> 很深 → 模式四，改游标翻页。</li>
+</ul>
+<p><strong>都排除了</strong>，说明慢不在「选计划」这一层——接着去 ⑤（长事务、undo 膨胀）、⑦（刷脏、物理读）、⑧（从库延迟）找。这就是六层成本账的正确用法：一层层排除，而不是一次改十个参数。</p>
+<h3 id="4-4-FORCE-INDEX-什么时候该用"><a href="#4-4-FORCE-INDEX-什么时候该用" class="headerlink" title="4.4 FORCE INDEX 什么时候该用"></a>4.4 <code>FORCE INDEX</code> 什么时候该用</h3><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>该用吗</th>
+<th>理由</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>已用前后对比证明优化器选错，且统计无法修正</td>
+<td>可以用</td>
+<td>人脑补足模型的先验</td>
+</tr>
+<tr>
+<td>只是「感觉」另一个索引更快</td>
+<td>不要</td>
+<td>没有量化的直觉通常是错的</td>
+</tr>
+<tr>
+<td>表数据量会大幅变化</td>
+<td>谨慎</td>
+<td>数据分布一变，强制索引可能变成灾难</td>
+</tr>
+<tr>
+<td>临时救火</td>
+<td>可以，但留 TODO</td>
+<td>必须记：为什么、复查时间、失效条件</td>
+</tr>
+</tbody></table>
+<p>用法与留痕：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> orders FORCE INDEX (idx_user_status_time)</span><br><span class="line"> <span class="keyword">WHERE</span> user_id <span class="operator">=</span> <span class="number">123</span> <span class="keyword">AND</span> status <span class="operator">=</span> <span class="number">0</span> <span class="keyword">ORDER</span> <span class="keyword">BY</span> create_time <span class="keyword">DESC</span> LIMIT <span class="number">20</span>;</span><br><span class="line"><span class="comment">-- 注释里写清：2026-10 优化器误选 idx_status（扫 33 万行），2027-01 复查</span></span><br></pre></td></tr></table></figure>
+
+<p>更温和的替代是 <code>USE INDEX</code>（给建议而非强制）和 8.0 的 <code>INVISIBLE</code> 索引（把错误选项直接藏起来，观察是否还选错）。</p>
+<h3 id="4-5-动手验证：走完一次闭环"><a href="#4-5-动手验证：走完一次闭环" class="headerlink" title="4.5 动手验证：走完一次闭环"></a>4.5 动手验证：走完一次闭环</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="meta">#!/usr/bin/env bash</span></span><br><span class="line"><span class="comment"># 1) 造一条慢 SQL，并记录基线</span></span><br><span class="line">docker <span class="built_in">exec</span> -i mysql-lab mysql -uroot -plab123 lab -e <span class="string">&quot;</span></span><br><span class="line"><span class="string">SET @r0 := (SELECT VARIABLE_VALUE FROM performance_schema.global_status</span></span><br><span class="line"><span class="string">            WHERE VARIABLE_NAME=&#x27;Innodb_buffer_pool_read_requests&#x27;);</span></span><br><span class="line"><span class="string">EXPLAIN ANALYZE SELECT * FROM tord WHERE DATE(create_time) = &#x27;2026-10-01&#x27;;</span></span><br><span class="line"><span class="string">SET @r1 := (SELECT VARIABLE_VALUE FROM performance_schema.global_status</span></span><br><span class="line"><span class="string">            WHERE VARIABLE_NAME=&#x27;Innodb_buffer_pool_read_requests&#x27;);</span></span><br><span class="line"><span class="string">SELECT @r1-@r0 AS logical_reads_before;&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 2) 改写后，用同一份数据再测一次</span></span><br><span class="line">docker <span class="built_in">exec</span> -i mysql-lab mysql -uroot -plab123 lab -e <span class="string">&quot;</span></span><br><span class="line"><span class="string">SET @r0 := (SELECT VARIABLE_VALUE FROM performance_schema.global_status</span></span><br><span class="line"><span class="string">            WHERE VARIABLE_NAME=&#x27;Innodb_buffer_pool_read_requests&#x27;);</span></span><br><span class="line"><span class="string">EXPLAIN ANALYZE SELECT COUNT(*) FROM tord</span></span><br><span class="line"><span class="string"> WHERE create_time &gt;= &#x27;2026-10-01&#x27; AND create_time &lt; &#x27;2026-10-02&#x27;;</span></span><br><span class="line"><span class="string">SET @r1 := (SELECT VARIABLE_VALUE FROM performance_schema.global_status</span></span><br><span class="line"><span class="string">            WHERE VARIABLE_NAME=&#x27;Innodb_buffer_pool_read_requests&#x27;);</span></span><br><span class="line"><span class="string">SELECT @r1-@r0 AS logical_reads_after;&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：改写后逻辑读从六位数掉到四位数以下，<code>actual time</code> 从几十毫秒掉到亚毫秒。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>逻辑读降了一个数量级 → 修复有效，进灰度；</li>
+<li>逻辑读没变但耗时降了 → 省的是 CPU（函数调用），也算收益；</li>
+<li>两者都没变 → 你的瓶颈不在这条 SQL，回到第 1 步重新排序。</li>
+</ul>
+<h2 id="5-总结"><a href="#5-总结" class="headerlink" title="5. 总结"></a>5. 总结</h2><h3 id="5-1-面试速答表"><a href="#5-1-面试速答表" class="headerlink" title="5.1 面试速答表"></a>5.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>优化器怎么选索引</td>
+<td>枚举候选访问路径，按 <code>rows_examined × 读成本 + rows_produced × 评估成本</code> 估总成本，取最低</td>
+</tr>
+<tr>
+<td><code>filtered</code> 是什么意思</td>
+<td>该访问方式扫描后，附加条件能筛出多少百分比；<code>10.00</code> 通常是没统计信息时的默认先验</td>
+</tr>
+<tr>
+<td><code>EXPLAIN</code> 的 rows 准吗</td>
+<td>是估算；有索引时靠 index dive 较准，无统计时用默认 10%，可能偏差百倍</td>
+</tr>
+<tr>
+<td>直方图解决什么问题</td>
+<td>修<strong>无索引列</strong>的选择性估算；有索引时优先用索引统计，收益有限</td>
+</tr>
+<tr>
+<td>直方图会自动更新吗</td>
+<td>不会，必须手动 <code>ANALYZE TABLE ... UPDATE HISTOGRAM</code></td>
+</tr>
+<tr>
+<td>为什么隐式类型转换会让索引失效</td>
+<td>比较时把列转成数字（<code>CAST(col AS DOUBLE)</code>），列上有运算就无法按索引定位</td>
+</tr>
+<tr>
+<td>为什么函数包裹列会让索引失效</td>
+<td>同上；注意它通常退化成「全索引扫描」而不是完全不用索引</td>
+</tr>
+<tr>
+<td>深分页为什么慢</td>
+<td>offset 之前的所有行必须真读真丢；延迟关联能省回表，根治要用游标翻页</td>
+</tr>
+<tr>
+<td>什么时候该 <code>FORCE INDEX</code></td>
+<td>有前后对比证据、统计无法修正、且愿意定期复查时才用；靠感觉用等于赌博</td>
+</tr>
+<tr>
+<td><code>eq_range_index_dive_limit</code> 是干什么的</td>
+<td><code>IN</code> 列表超过它（默认 200）就不逐个 index dive，改用索引统计，可能导致计划跳变</td>
+</tr>
+</tbody></table>
+<h3 id="5-2-实战避坑表"><a href="#5-2-实战避坑表" class="headerlink" title="5.2 实战避坑表"></a>5.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>同一条 SQL 昨天快今天慢</td>
+<td>统计信息过期或数据量跨过阈值</td>
+<td><code>ANALYZE TABLE</code>，看 <code>last_update</code></td>
+</tr>
+<tr>
+<td>加了直方图计划还是一样</td>
+<td>没有更优候选，估算准≠换计划</td>
+<td>别纠结，去看索引设计（③）</td>
+</tr>
+<tr>
+<td><code>IN</code> 列表加到 200 个以上计划变了</td>
+<td><code>eq_range_index_dive_limit</code> 生效</td>
+<td>减少 <code>IN</code> 值或建临时表 JOIN</td>
+</tr>
+<tr>
+<td><code>EXPLAIN</code> 有索引但依然慢</td>
+<td>函数&#x2F;转换导致退化成全索引扫描</td>
+<td>看 <code>attached_condition</code> 有无 <code>cast</code></td>
+</tr>
+<tr>
+<td>首行要等几秒，全量几秒</td>
+<td>排序诱惑型选错</td>
+<td><code>FORCE INDEX</code> 或改索引列序</td>
+</tr>
+<tr>
+<td>深分页拖垮库</td>
+<td>offset 太深</td>
+<td>延迟关联止血，游标翻页根治</td>
+</tr>
+</tbody></table>
+<h3 id="5-3-工具速查表"><a href="#5-3-工具速查表" class="headerlink" title="5.3 工具速查表"></a>5.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>判定标准</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>EXPLAIN FORMAT=JSON</code></td>
+<td><code>rows_examined</code> &#x2F; <code>filtered</code> &#x2F; <code>cost_info</code></td>
+<td><code>filtered</code> 是 10.00 &#x2F; 50.00 &#x3D; 疑似默认先验</td>
+</tr>
+<tr>
+<td><code>EXPLAIN ANALYZE</code></td>
+<td><code>actual time</code>、<code>actual rows</code></td>
+<td>估算与实际差 10 倍 &#x3D; 统计问题</td>
+</tr>
+<tr>
+<td><code>information_schema.column_statistics</code></td>
+<td>直方图的桶数与指定值</td>
+<td>无记录 &#x3D; 没建直方图</td>
+</tr>
+<tr>
+<td><code>information_schema.statistics</code></td>
+<td><code>cardinality</code></td>
+<td>远小于真实不同值 &#x3D; 统计过期</td>
+</tr>
+<tr>
+<td><code>mysql.innodb_table_stats</code></td>
+<td><code>last_update</code></td>
+<td>早于最近批量写入 &#x3D; 该 <code>ANALYZE</code></td>
+</tr>
+<tr>
+<td><code>optimizer_trace</code></td>
+<td>候选计划与淘汰原因</td>
+<td>需要看「为什么没选另一个」时用</td>
+</tr>
+<tr>
+<td><code>pt-query-digest</code></td>
+<td>总耗时占比、<code>Rows examine / Rows sent</code></td>
+<td>比值 &gt; 100 &#x3D; 白读严重</td>
+</tr>
+</tbody></table>
+<h3 id="5-4-实操建议"><a href="#5-4-实操建议" class="headerlink" title="5.4 实操建议"></a>5.4 实操建议</h3><ol>
+<li>**先看 <code>filtered</code> 是不是 <code>10.00</code> 或 <code>50.00</code>**。这是判断「有没有统计信息」最快的一眼，但它是嫌疑而非定罪，最终要用真实选择性对一下。</li>
+<li><strong>不要迷信直方图</strong>。它只修「无索引列的估算」，且不会自动更新；有索引时先 <code>ANALYZE</code>。</li>
+<li><strong>五种模式做成排查卡</strong>：排序诱惑、隐式转换、函数包裹、深分页、统计过期。命中一个就处理一个，不要同时改三处。</li>
+<li><strong><code>FORCE INDEX</code> 必须留注释</strong>：为什么、什么时候复查、什么条件下失效。没有注释的强制索引，半年后就是一颗地雷。</li>
+<li><strong>每次修复回到基线档案记一行</strong>：逻辑读、P99、扫描行数。这是你和「凭感觉优化」之间唯一的区别。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告</strong>：⑤《事务与 MVCC：把「不可重复读」亲手复现出来》。前四篇都在讲「读多少页」，下一篇换一个维度：<strong>为什么你的读不加锁，而别人同一行却能被阻塞</strong>。会用两个会话把脏读、不可重复读、幻读逐个复现，再解释 ReadView 到底怎么判断可见性，以及长事务为什么能把磁盘和从库一起拖垮。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/MySQL/" rel="tag"># MySQL</a>
+              <a href="/tags/%E9%9D%A2%E8%AF%95/" rel="tag"># 面试</a>
+              <a href="/tags/%E4%BC%98%E5%8C%96%E5%99%A8/" rel="tag"># 优化器</a>
+              <a href="/tags/%E6%89%A7%E8%A1%8C%E8%AE%A1%E5%88%92/" rel="tag"># 执行计划</a>
+              <a href="/tags/%E7%9B%B4%E6%96%B9%E5%9B%BE/" rel="tag"># 直方图</a>
+              <a href="/tags/%E6%85%A2%E6%9F%A5%E8%AF%A2/" rel="tag"># 慢查询</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/e1724727.html" rel="prev" title="Schema 与索引：把逻辑读降下来">
+                  <i class="fa fa-angle-left"></i> Schema 与索引：把逻辑读降下来
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/post/88fb6d0c.html" rel="next" title="事务与 MVCC：把「不可重复读」亲手复现出来">
+                  事务与 MVCC：把「不可重复读」亲手复现出来 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">740k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">44:51</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
+</html>

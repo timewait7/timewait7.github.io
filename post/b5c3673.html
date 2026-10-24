@@ -1,0 +1,1170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="DDL 的危险不在「执行慢」，而在「排队等」。一条 ALTER TABLE 本身可能只要 3 秒，但它会先在 MDL 队列里排一个 EXCLUSIVE 请求；后面的所有查询——包括普通 SELECT——都会排在它后面。于是「3 秒的变更」变成「3 分钟的故障」。 本文用 200 万行、106MB 的表把这件事量成数字：7 种 DDL 的耗时、哪些会让写入阻塞、阻塞多久。实测最有说服力的一组对比是：">
+<meta property="og:type" content="article">
+<meta property="og:title" content="在线 DDL：一次加索引如何堵死整张表">
+<meta property="og:url" content="http://timewait7.github.io/post/b5c3673.html">
+<meta property="og:site_name" content="知行栈">
+<meta property="og:description" content="DDL 的危险不在「执行慢」，而在「排队等」。一条 ALTER TABLE 本身可能只要 3 秒，但它会先在 MDL 队列里排一个 EXCLUSIVE 请求；后面的所有查询——包括普通 SELECT——都会排在它后面。于是「3 秒的变更」变成「3 分钟的故障」。 本文用 200 万行、106MB 的表把这件事量成数字：7 种 DDL 的耗时、哪些会让写入阻塞、阻塞多久。实测最有说服力的一组对比是：">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-10-24T21:00:00.000Z">
+<meta property="article:modified_time" content="2026-10-24T13:36:16.670Z">
+<meta property="article:tag" content="MySQL">
+<meta property="article:tag" content="面试">
+<meta property="article:tag" content="DDL">
+<meta property="article:tag" content="MDL">
+<meta property="article:tag" content="gh-ost">
+<meta property="article:tag" content="变更">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/b5c3673.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/b5c3673.html","path":"post/b5c3673.html","title":"在线 DDL：一次加索引如何堵死整张表"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>在线 DDL：一次加索引如何堵死整张表 | 知行栈</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<!-- hexo injector head_end start --><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
+</style><style>
+/* 菜单链高亮：sub-menu 祖先（同主题 .menu-item-active 的 Pisces 规则） */
+.sub-menu .menu-item a.menu-chain-active {
+  border-bottom-color: #fc6423;
+  color: #fc6423;
+}
+.sub-menu .menu-item a.menu-chain-active:hover {
+  border-bottom-color: #fc6423;
+}
+/* 菜单链高亮：main-menu 祖先（同主题 hover/active 的背景规则） */
+.main-menu .menu-item a.menu-chain-active {
+  background: var(--menu-item-bg-color);
+}
+</style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">知行栈</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section" class="menu-chain-active"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>Categories</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-DDL-%E7%9A%84%E4%B8%89%E7%A7%8D%E6%89%A7%E8%A1%8C%E6%96%B9%E5%BC%8F"><span class="nav-text">1. DDL 的三种执行方式</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-COPY-INPLACE-INSTANT"><span class="nav-text">1.1 COPY &#x2F; INPLACE &#x2F; INSTANT</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-2-%E5%AE%9E%E6%B5%8B%EF%BC%9A%E4%B8%83%E7%A7%8D-DDL-%E7%9A%84%E7%9C%9F%E5%AE%9E%E4%BB%A3%E4%BB%B7"><span class="nav-text">1.2 实测：七种 DDL 的真实代价</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-3-%E6%B7%B1%E6%8C%96%EF%BC%9A%E4%B8%BA%E4%BB%80%E4%B9%88%E6%9C%89%E4%BA%9B-MODIFY-%E6%98%AF-0-002-%E7%A7%92%EF%BC%8C%E6%9C%89%E4%BA%9B%E8%A6%81%E9%87%8D%E5%BB%BA"><span class="nav-text">1.3 深挖：为什么有些 MODIFY 是 0.002 秒，有些要重建</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-4-8-0-instant-DDL-%E7%9A%84%E8%BE%B9%E7%95%8C"><span class="nav-text">1.4 8.0 instant DDL 的边界</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-5-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%85%88%E6%8E%A2%E6%B5%8B%E7%AE%97%E6%B3%95%EF%BC%8C%E5%86%8D%E6%89%A7%E8%A1%8C"><span class="nav-text">1.5 动手验证：先探测算法，再执行</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-MDL%EF%BC%9A%E4%B8%80%E8%A1%8C-ALTER-%E5%A6%82%E4%BD%95%E5%A0%B5%E4%BD%8F%E6%95%B4%E5%BC%A0%E8%A1%A8"><span class="nav-text">2. MDL：一行 ALTER 如何堵住整张表</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E9%98%9F%E5%88%97%E6%98%AF-FIFO%EF%BC%8C%E4%B8%8D%E5%85%81%E8%AE%B8%E6%8F%92%E9%98%9F"><span class="nav-text">2.1 队列是 FIFO，不允许插队</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E5%AE%9E%E6%B5%8B%EF%BC%9A%E9%98%BB%E5%A1%9E%E9%93%BE%E9%95%BF%E4%BB%80%E4%B9%88%E6%A0%B7"><span class="nav-text">2.2 实测：阻塞链长什么样</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-%E6%B7%B1%E6%8C%96%EF%BC%9A%E4%B8%BA%E4%BB%80%E4%B9%88-innodb-lock-wait-timeout-2-%E6%B2%A1%E7%94%9F%E6%95%88"><span class="nav-text">2.3 深挖：为什么 innodb_lock_wait_timeout&#x3D;2 没生效</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-4-DDL-%E5%89%8D%E7%9A%84-Checklist%EF%BC%88%E7%85%A7%E7%9D%80%E8%B7%91%EF%BC%89"><span class="nav-text">2.4 DDL 前的 Checklist（照着跑）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-5-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%A4%8D%E7%8E%B0-MDL-%E9%98%BB%E5%A1%9E"><span class="nav-text">2.5 动手验证：复现 MDL 阻塞</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E5%A4%A7%E8%A1%A8%E5%8F%98%E6%9B%B4%E7%9A%84%E4%B8%89%E7%A7%8D%E6%96%B9%E6%A1%88"><span class="nav-text">3. 大表变更的三种方案</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E5%8E%9F%E7%94%9F-DDL-%E5%A4%9F%E7%94%A8%E5%90%97"><span class="nav-text">3.1 原生 DDL 够用吗</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-pt-online-schema-change%EF%BC%9A%E8%A7%A6%E5%8F%91%E5%99%A8-%E5%BD%B1%E5%AD%90%E8%A1%A8"><span class="nav-text">3.2 pt-online-schema-change：触发器 + 影子表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-gh-ost%EF%BC%9A%E8%AF%BB-binlog%EF%BC%8C%E4%B8%8D%E5%BB%BA%E8%A7%A6%E5%8F%91%E5%99%A8"><span class="nav-text">3.3 gh-ost：读 binlog，不建触发器</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-4-%E5%8F%98%E6%9B%B4%E7%AA%97%E5%8F%A3%E6%80%8E%E4%B9%88%E4%BC%B0"><span class="nav-text">3.4 变更窗口怎么估</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E4%B8%80%E6%AC%A1-P0-%E5%A4%8D%E7%9B%98%EF%BC%88%E7%94%A8%E6%9C%AC%E6%96%87%E5%AE%9E%E6%B5%8B%E6%95%B0%E6%8D%AE%E6%8B%BC%E5%90%88%EF%BC%89"><span class="nav-text">4. 一次 P0 复盘（用本文实测数据拼合）</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E6%80%BB%E7%BB%93"><span class="nav-text">5. 总结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E9%9D%A2%E8%AF%95%E9%80%9F%E7%AD%94%E8%A1%A8"><span class="nav-text">5.1 面试速答表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E5%AE%9E%E6%88%98%E9%81%BF%E5%9D%91%E8%A1%A8"><span class="nav-text">5.2 实战避坑表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-%E5%B7%A5%E5%85%B7%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">5.3 工具速查表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-%E5%AE%9E%E6%93%8D%E5%BB%BA%E8%AE%AE"><span class="nav-text">5.4 实操建议</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">104</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">14</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">175</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+    <div class="sidebar-inner sidebar-blogroll">
+      <div class="links-of-blogroll animated">
+        <div class="links-of-blogroll-title"><i class="fa fa-globe fa-fw"></i>
+          Links
+        </div>
+        <ul class="links-of-blogroll-list">
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9wYXVsZ3JhaGFtLmNvbS9hcnRpY2xlcy5odG1s" title="https:&#x2F;&#x2F;paulgraham.com&#x2F;articles.html">paulgraham</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly93d3cuam9lbG9uc29mdHdhcmUuY29tLw==" title="https:&#x2F;&#x2F;www.joelonsoftware.com&#x2F;">Joel on Software</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9tYXJ0aW5mb3dsZXIuY29tLw==" title="https:&#x2F;&#x2F;martinfowler.com&#x2F;">Martin Flower</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly96aGFuZ3RpZWxlaS5jb20v" title="https:&#x2F;&#x2F;zhangtielei.com&#x2F;">zhangtielei</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhLWRlc2lnbi1wYXR0ZXJucy5jb20vemgv" title="https:&#x2F;&#x2F;java-design-patterns.com&#x2F;zh&#x2F;">Java Design Patterns</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9taWNyb3NlcnZpY2VzLmlvLw==" title="https:&#x2F;&#x2F;microservices.io&#x2F;">Microservice Architecture</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhZ3VpZGUuY24v" title="https:&#x2F;&#x2F;javaguide.cn&#x2F;">JavaGuide</span>
+            </li>
+        </ul>
+      </div>
+    </div>
+        <div class="pjax">
+        
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-后端开发"><a href="/docs/nav/backend-dev-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-code fa-fw"></i>后端开发</a></li>
+
+
+      
+  <li class="menu-item menu-item-计算机基础"><a href="/docs/nav/cs-foundation-nav.html" rel="section"><i class="fa fa-desktop fa-fw"></i>计算机基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-ai-学习"><a href="/docs/nav/ai-learning-nav.html" rel="section"><i class="fa fa-robot fa-fw"></i>AI 学习</a></li>
+
+
+      
+  <li class="menu-item menu-item-项目实战"><a href="/docs/nav/5964f4da.html" rel="section"><i class="fa fa-flask fa-fw"></i>项目实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-misc"><a href="/docs/nav/misc-nav.html" rel="section"><i class="fa fa-box fa-fw"></i>Misc</a></li>
+
+
+      
+  <li class="menu-item menu-item-随笔·生活"><a href="/docs/nav/life-nav.html" rel="section"><i class="fa fa-feather fa-fw"></i>随笔·生活</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java"><a href="/docs/nav/java-nav.html" rel="section"><i class="fa fa-coffee fa-fw"></i>Java</a></li>
+
+
+      
+  <li class="menu-item menu-item-框架"><a href="/docs/nav/framework-nav.html" rel="section"><i class="fa fa-th-large fa-fw"></i>框架</a></li>
+
+
+      
+  <li class="menu-item menu-item-数据存储"><a href="/docs/nav/data-storage-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-hdd fa-fw"></i>数据存储</a></li>
+
+
+      
+  <li class="menu-item menu-item-中间件"><a href="/docs/nav/middleware-nav.html" rel="section"><i class="fa fa-cubes fa-fw"></i>中间件</a></li>
+
+
+      
+  <li class="menu-item menu-item-分布式与微服务"><a href="/docs/nav/distributed-nav.html" rel="section"><i class="fa fa-sitemap fa-fw"></i>分布式与微服务</a></li>
+
+
+      
+  <li class="menu-item menu-item-系统设计"><a href="/docs/nav/system-design-nav.html" rel="section"><i class="fa fa-pencil-ruler fa-fw"></i>系统设计</a></li>
+
+
+      
+  <li class="menu-item menu-item-部署运维"><a href="/docs/nav/devops-nav.html" rel="section"><i class="fa fa-terminal fa-fw"></i>部署运维</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-mysql"><a href="/docs/nav/mysql-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-database fa-fw"></i>MySQL</a></li>
+
+
+      
+  <li class="menu-item menu-item-redis"><a href="/docs/nav/redis-nav.html" rel="section"><i class="fa fa-bolt fa-fw"></i>Redis</a></li>
+
+
+      
+  <li class="menu-item menu-item-elasticsearch"><a href="/docs/nav/es-nav.html" rel="section"><i class="fa fa-search fa-fw"></i>ElasticSearch</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-mysql-深度解析：从原理到高可用与分库分表实战"><a href="/post/32511a71.html" rel="section"><i class="fa fa-file-text fa-fw"></i>MySQL 深度解析：从原理到高可用与分库分表实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-①-从这里开始：把-mysql-变成你的实验台"><a href="/post/60f95c16.html" rel="section"><i class="fa fa-file-text fa-fw"></i>① 从这里开始：把 MySQL 变成你的实验台</a></li>
+
+
+      
+  <li class="menu-item menu-item-②-一条-sql-的六层成本账：架构不是画流程图"><a href="/post/ffd9df8b.html" rel="section"><i class="fa fa-file-text fa-fw"></i>② 一条 SQL 的六层成本账：架构不是画流程图</a></li>
+
+
+      
+  <li class="menu-item menu-item-③-schema-与索引：把逻辑读降下来"><a href="/post/e1724727.html" rel="section"><i class="fa fa-file-text fa-fw"></i>③ Schema 与索引：把逻辑读降下来</a></li>
+
+
+      
+  <li class="menu-item menu-item-④-查询优化：优化器为什么会选错索引"><a href="/post/d65d7254.html" rel="section"><i class="fa fa-file-text fa-fw"></i>④ 查询优化：优化器为什么会选错索引</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑤-事务与-mvcc：把「不可重复读」亲手复现出来"><a href="/post/88fb6d0c.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑤ 事务与 MVCC：把「不可重复读」亲手复现出来</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑥-锁、死锁与-mdl：一次变更如何堵死整张表"><a href="/post/d090a538.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑥ 锁、死锁与 MDL：一次变更如何堵死整张表</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑦-innodb-内存与刷盘：物理-io-的钱花在哪"><a href="/post/8e8e95b7.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑦ InnoDB 内存与刷盘：物理 IO 的钱花在哪</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑧-复制与高可用：延迟的量化与判定"><a href="/post/51687861.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑧ 复制与高可用：延迟的量化与判定</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑨-备份与恢复：删库之后-30-分钟救回来"><a href="/post/f375ea2a.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑨ 备份与恢复：删库之后 30 分钟救回来</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑩-在线-ddl：一次加索引如何堵死整张表"><a href="/post/b5c3673.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑩ 在线 DDL：一次加索引如何堵死整张表</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑪-java-侧：连接池打满与-@transactional-失效的真相"><a href="/post/4d87a909.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑪ Java 侧：连接池打满与 @Transactional 失效的真相</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑫-容量与扩展：什么时候才该分库分表"><a href="/post/f8f36186.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑫ 容量与扩展：什么时候才该分库分表</a></li>
+
+
+    </ul>
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/b5c3673.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="在线 DDL：一次加索引如何堵死整张表 | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          在线 DDL：一次加索引如何堵死整张表
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-10-25 05:00:00" itemprop="dateCreated datePublished" datetime="2026-10-25T05:00:00+08:00">2026-10-25</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/" itemprop="url" rel="index"><span itemprop="name">数据存储</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>3.6k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>13 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><p><strong>DDL 的危险不在「执行慢」，而在「排队等」</strong>。一条 <code>ALTER TABLE</code> 本身可能只要 3 秒，但它会先在 MDL 队列里排一个 EXCLUSIVE 请求；后面的所有查询——包括普通 <code>SELECT</code>——都会排在它后面。于是「3 秒的变更」变成「3 分钟的故障」。</p>
+<p>本文用 200 万行、106MB 的表把这件事量成数字：<strong>7 种 DDL 的耗时、哪些会让写入阻塞、阻塞多久</strong>。实测最有说服力的一组对比是：<code>ADD INDEX</code> 期间插入 0.05 秒完成（在线），<code>MODIFY COLUMN</code> 触发的 COPY 重建期间插入<strong>等了 3.62 秒</strong>（锁表）。</p>
+<blockquote>
+<p><strong>系列地图（高性能 MySQL 实战路线，12 篇）</strong></p>
+<p>① 实验台与基线 → ② 六层成本账 → ③ 索引与 Schema → ④ 优化器与慢查询 → ⑤ 事务与 MVCC → ⑥ 锁与死锁 → ⑦ 内存与刷盘 → ⑧ 复制与高可用 → ⑨ 备份与恢复 → ⑩ <strong>在线 DDL（本文）</strong> → ⑪ Java 侧连接池 → ⑫ 容量与分库分表</p>
+<p>与前后篇的关系：⑥ 讲了 MDL 的加锁机制，本文把它落到「变更窗口怎么算」；⑨ 是数据事故，本文是变更事故——两者的预防手法都是「先把检查项写死」。</p>
+</blockquote>
+<h2 id="1-DDL-的三种执行方式"><a href="#1-DDL-的三种执行方式" class="headerlink" title="1. DDL 的三种执行方式"></a>1. DDL 的三种执行方式</h2><h3 id="1-1-COPY-INPLACE-INSTANT"><a href="#1-1-COPY-INPLACE-INSTANT" class="headerlink" title="1.1 COPY &#x2F; INPLACE &#x2F; INSTANT"></a>1.1 COPY &#x2F; INPLACE &#x2F; INSTANT</h3><pre class="mermaid">flowchart LR
+    subgraph COPY["COPY (rebuild + lock)"]
+        C1["create temp table"] --> C2["copy all rows"] --> C3["rename, drop old"]
+    end
+    subgraph INPLACE["INPLACE (rebuild, online)"]
+        I1["rebuild in place&lt;br/>concurrent DML allowed"] --> I2["apply online log"]
+    end
+    subgraph INSTANT["INSTANT (metadata only)"]
+        N1["change data dictionary"] --> N2["done in ms"]
+    end</pre>
+
+<table>
+<thead>
+<tr>
+<th>算法</th>
+<th>做什么</th>
+<th>并发 DML</th>
+<th>耗时量级</th>
+<th>典型操作</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>COPY</td>
+<td>建新表、全量拷贝、改名</td>
+<td><strong>不允许</strong>（默认锁写）</td>
+<td>与数据量成正比</td>
+<td>改列类型、改字符集、加主键</td>
+</tr>
+<tr>
+<td>INPLACE</td>
+<td>原地重建或仅改元数据</td>
+<td>允许（<code>LOCK=NONE</code>）</td>
+<td>与数据量成正比</td>
+<td>加&#x2F;删索引、调整列顺序</td>
+</tr>
+<tr>
+<td>INSTANT</td>
+<td>只改数据字典</td>
+<td>允许</td>
+<td><strong>毫秒级，与数据量无关</strong></td>
+<td>加列、删列（8.0.29+）、改默认值</td>
+</tr>
+</tbody></table>
+<h3 id="1-2-实测：七种-DDL-的真实代价"><a href="#1-2-实测：七种-DDL-的真实代价" class="headerlink" title="1.2 实测：七种 DDL 的真实代价"></a>1.2 实测：七种 DDL 的真实代价</h3><p>表：200 万行、106MB，Buffer Pool 1GB，本地 SSD。</p>
+<table>
+<thead>
+<tr>
+<th>DDL</th>
+<th>实际算法</th>
+<th>耗时</th>
+<th>期间写入</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>ADD COLUMN c1 INT</code>（末尾）</td>
+<td>INSTANT</td>
+<td><strong>0.035 s</strong></td>
+<td>不阻塞</td>
+</tr>
+<tr>
+<td><code>ADD COLUMN c2 INT AFTER id</code></td>
+<td>INSTANT</td>
+<td><strong>0.005 s</strong></td>
+<td>不阻塞</td>
+</tr>
+<tr>
+<td><code>DROP COLUMN c1</code></td>
+<td>INSTANT</td>
+<td><strong>0.051 s</strong></td>
+<td>不阻塞</td>
+</tr>
+<tr>
+<td><code>MODIFY remark VARCHAR(64) → VARCHAR(128)</code></td>
+<td>INPLACE（仅元数据）</td>
+<td><strong>0.002 s</strong></td>
+<td>不阻塞</td>
+</tr>
+<tr>
+<td><code>ADD INDEX idx_user (user_id)</code></td>
+<td>INPLACE LOCK&#x3D;NONE</td>
+<td><strong>1.557 s</strong></td>
+<td><strong>不阻塞</strong>（插入 0.05 s 完成）</td>
+</tr>
+<tr>
+<td><code>MODIFY status TINYINT → SMALLINT</code></td>
+<td><strong>COPY</strong>（INPLACE 不支持）</td>
+<td><strong>3.695 s</strong></td>
+<td><strong>阻塞 3.62 s</strong></td>
+</tr>
+<tr>
+<td>同上，加 <code>ALGORITHM=COPY</code> 显式</td>
+<td>COPY</td>
+<td>3.695 s</td>
+<td>阻塞</td>
+</tr>
+</tbody></table>
+<p>三条能直接拿走的知识：</p>
+<ol>
+<li><strong>加列&#x2F;删列在 8.0 是毫秒级</strong>，而且 8.0.29 之后连「插在中间」也支持 instant（实测 <code>AFTER id</code> 0.005 s）。</li>
+<li><strong>加索引要读全表</strong>（1.557 s &#x2F; 2M 行），但在线，不阻塞写入。</li>
+<li><strong>改列类型绝大多数要 COPY</strong>，会锁表——<code>TINYINT → SMALLINT</code> 实测直接报 <code>ALGORITHM=INPLACE is not supported</code>。</li>
+</ol>
+<h3 id="1-3-深挖：为什么有些-MODIFY-是-0-002-秒，有些要重建"><a href="#1-3-深挖：为什么有些-MODIFY-是-0-002-秒，有些要重建" class="headerlink" title="1.3 深挖：为什么有些 MODIFY 是 0.002 秒，有些要重建"></a>1.3 深挖：为什么有些 MODIFY 是 0.002 秒，有些要重建</h3><p>关键在于<strong>存储格式有没有变</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>变更</th>
+<th>存储格式</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>VARCHAR(64)</code> → <code>VARCHAR(128)</code>（utf8mb4）</td>
+<td>两者都是 2 字节长度前缀</td>
+<td>只改元数据，0.002 s</td>
+</tr>
+<tr>
+<td><code>VARCHAR(64)</code> → <code>VARCHAR(200)</code></td>
+<td>同上</td>
+<td>同上，元数据级</td>
+</tr>
+<tr>
+<td><code>TINYINT</code> → <code>SMALLINT</code></td>
+<td>1 字节 → 2 字节</td>
+<td><strong>必须重建</strong></td>
+</tr>
+<tr>
+<td><code>utf8mb4</code> → <code>latin1</code></td>
+<td>字符集变了</td>
+<td><strong>必须重建</strong></td>
+</tr>
+<tr>
+<td><code>INT</code> → <code>BIGINT</code></td>
+<td>4 字节 → 8 字节</td>
+<td><strong>必须重建</strong></td>
+</tr>
+</tbody></table>
+<p><strong>判据</strong>：字节宽度或编码变了就要重建；只是「上限放宽但宽度不变」可以只改元数据。所以「改字段长度」在线上是相对安全的，「改字段类型」基本等于重建。</p>
+<h3 id="1-4-8-0-instant-DDL-的边界"><a href="#1-4-8-0-instant-DDL-的边界" class="headerlink" title="1.4 8.0 instant DDL 的边界"></a>1.4 8.0 instant DDL 的边界</h3><table>
+<thead>
+<tr>
+<th>能 INSTANT</th>
+<th>不能 INSTANT</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>在末尾加列</td>
+<td>加&#x2F;删索引</td>
+</tr>
+<tr>
+<td>在中间加列（8.0.29+）</td>
+<td>改列类型</td>
+</tr>
+<tr>
+<td>删列（8.0.29+）</td>
+<td>改字符集</td>
+</tr>
+<tr>
+<td>改列默认值</td>
+<td>改 <code>ROW_FORMAT</code></td>
+</tr>
+<tr>
+<td>重命名列（8.0 起部分支持）</td>
+<td>加主键</td>
+</tr>
+</tbody></table>
+<p><strong>一个必须知道的限制</strong>：instant 加列有上限（每张表最多 64 次 instant 变更），超过之后需要一次重建来「整理」。所以频繁 instant 加列不是无限的。</p>
+<h3 id="1-5-动手验证：先探测算法，再执行"><a href="#1-5-动手验证：先探测算法，再执行" class="headerlink" title="1.5 动手验证：先探测算法，再执行"></a>1.5 动手验证：先探测算法，再执行</h3><figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 1) 探测：让 MySQL 告诉你某个变更支持什么算法（不真正执行）</span></span><br><span class="line"><span class="keyword">ALTER TABLE</span> big <span class="keyword">ADD</span> INDEX idx_ct (created_at), ALGORITHM<span class="operator">=</span>INPLACE, LOCK<span class="operator">=</span><span class="keyword">NONE</span>;</span><br><span class="line"><span class="comment">-- 想只探测不执行，可以故意用一个不支持的组合，看报错里的提示</span></span><br><span class="line"><span class="keyword">ALTER TABLE</span> big MODIFY <span class="keyword">COLUMN</span> status TINYINT <span class="keyword">NOT NULL</span>, ALGORITHM<span class="operator">=</span>INPLACE;</span><br><span class="line"><span class="comment">-- 预期：ERROR 1846 ... Cannot change column type INPLACE. Try ALGORITHM=COPY.</span></span><br><span class="line"></span><br><span class="line"><span class="comment">-- 2) 测量真实耗时</span></span><br><span class="line"><span class="keyword">SET</span> <span class="variable">@s</span> :<span class="operator">=</span> SYSDATE(<span class="number">6</span>);</span><br><span class="line"><span class="keyword">ALTER TABLE</span> big <span class="keyword">ADD</span> <span class="keyword">COLUMN</span> probe <span class="type">INT</span> <span class="keyword">NULL</span>, ALGORITHM<span class="operator">=</span>INSTANT;</span><br><span class="line"><span class="keyword">SET</span> <span class="variable">@e</span> :<span class="operator">=</span> SYSDATE(<span class="number">6</span>);</span><br><span class="line"><span class="keyword">SELECT</span> ROUND(TIMESTAMPDIFF(MICROSECOND,<span class="variable">@s</span>,<span class="variable">@e</span>)<span class="operator">/</span><span class="number">1000000</span>,<span class="number">3</span>) <span class="keyword">AS</span> seconds;</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：加列应在 0.1 秒内完成；<code>MODIFY</code> 类型变更会直接报 1846。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>加列超过 1 秒 → 你的实例可能不是 8.0 或表上有不支持 instant 的约束；</li>
+<li>报 1846 → 这个变更必须 COPY，按「锁表变更」处理（走 3.2&#x2F;3.3 的方案）。</li>
+</ul>
+<h2 id="2-MDL：一行-ALTER-如何堵住整张表"><a href="#2-MDL：一行-ALTER-如何堵住整张表" class="headerlink" title="2. MDL：一行 ALTER 如何堵住整张表"></a>2. MDL：一行 ALTER 如何堵住整张表</h2><h3 id="2-1-队列是-FIFO，不允许插队"><a href="#2-1-队列是-FIFO，不允许插队" class="headerlink" title="2.1 队列是 FIFO，不允许插队"></a>2.1 队列是 FIFO，不允许插队</h3><pre class="mermaid">flowchart LR
+    A["Trx A&lt;br/>SELECT in open transaction&lt;br/>MDL SHARED_READ GRANTED"] --> T["Table big"]
+    B["ALTER TABLE&lt;br/>MDL EXCLUSIVE PENDING"] -->|"queued behind A"| T
+    C["Session C&lt;br/>plain SELECT&lt;br/>MDL SHARED_READ"] -->|"queued behind B"| T
+    C -.->|"blocked, then 1205"| X["timeout"]</pre>
+
+<p>MDL 队列<strong>不允许后来的读绕过前面的写请求</strong>，这是为了防饥饿。代价就是：一个 DDL 在排队，后面所有的读一起排队。</p>
+<h3 id="2-2-实测：阻塞链长什么样"><a href="#2-2-实测：阻塞链长什么样" class="headerlink" title="2.2 实测：阻塞链长什么样"></a>2.2 实测：阻塞链长什么样</h3><p>会话 A 开事务只做一次 <code>SELECT</code>（持有 <code>SHARED_READ</code>），会话 B 执行 <code>ALTER TABLE big ADD COLUMN note3 ...</code>，然后查 <code>sys.schema_table_lock_waits</code>：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">waiting_pid  waiting_lock_type  waiting_query                                  blocking_pid  blocking_lock_type</span><br><span class="line">22           EXCLUSIVE          ALTER TABLE big ADD COLUMN note3 ...          21            SHARED_READ</span><br><span class="line">NULL         SHARED             NULL                                           22            SHARED_UPGRADABLE</span><br></pre></td></tr></table></figure>
+
+<p>读法：</p>
+<ul>
+<li><code>waiting_pid=22</code> 是 ALTER，它要 <code>EXCLUSIVE</code>，被 <code>blocking_pid=21</code>（那个没提交的事务）的 <code>SHARED_READ</code> 挡住；</li>
+<li><code>waiting_pid=NULL</code> 的行是<strong>还在排队、尚未分配线程 id</strong> 的查询（普通 SELECT），它们排在 ALTER 后面。</li>
+</ul>
+<p>第三个会话执行普通 <code>SELECT</code>（<code>lock_wait_timeout=2</code>）的实测结果：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">ERROR 1205 (HY000): Lock wait timeout exceeded; try restarting transaction</span><br><span class="line">real 0m2.049s</span><br></pre></td></tr></table></figure>
+
+<p><strong>一条 <code>SELECT</code> 被一条还没执行的 DDL 挡了 2 秒</strong>。如果这个 DDL 因为前面有长事务而排 10 分钟，后面的查询就排 10 分钟。</p>
+<h3 id="2-3-深挖：为什么-innodb-lock-wait-timeout-2-没生效"><a href="#2-3-深挖：为什么-innodb-lock-wait-timeout-2-没生效" class="headerlink" title="2.3 深挖：为什么 innodb_lock_wait_timeout=2 没生效"></a>2.3 深挖：为什么 <code>innodb_lock_wait_timeout=2</code> 没生效</h3><p>第一节的 COPY 实验里，我把 <code>innodb_lock_wait_timeout</code> 设成 2，插入却等了 <strong>3.62 秒</strong>才成功（DDL 结束时放行）。原因：</p>
+<table>
+<thead>
+<tr>
+<th>等待类型</th>
+<th>受哪个参数控制</th>
+<th>默认值</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>InnoDB 行锁等待</td>
+<td><code>innodb_lock_wait_timeout</code></td>
+<td>50 秒</td>
+</tr>
+<tr>
+<td><strong>MDL 等待</strong></td>
+<td><code>lock_wait_timeout</code></td>
+<td><strong>31536000 秒（一年）</strong></td>
+</tr>
+</tbody></table>
+<p>COPY 重建时持有表的 MDL EXCLUSIVE，插入要等的是 <strong>MDL</strong>，不是行锁。所以 <code>innodb_lock_wait_timeout=2</code> 完全不起作用——<strong>这就是为什么很多「我设了超时怎么还在卡」的问题找不到原因</strong>。</p>
+<h3 id="2-4-DDL-前的-Checklist（照着跑）"><a href="#2-4-DDL-前的-Checklist（照着跑）" class="headerlink" title="2.4 DDL 前的 Checklist（照着跑）"></a>2.4 DDL 前的 Checklist（照着跑）</h3><figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 1) 有没有长事务（会挡住 DDL）</span></span><br><span class="line"><span class="keyword">SELECT</span> trx_id, TIMESTAMPDIFF(<span class="keyword">SECOND</span>, trx_started, NOW()) <span class="keyword">AS</span> age_s,</span><br><span class="line">       trx_rows_modified, trx_mysql_thread_id, trx_query</span><br><span class="line"><span class="keyword">FROM</span> information_schema.innodb_trx</span><br><span class="line"><span class="keyword">WHERE</span> TIMESTAMPDIFF(<span class="keyword">SECOND</span>, trx_started, NOW()) <span class="operator">&gt;</span> <span class="number">5</span>;</span><br><span class="line"></span><br><span class="line"><span class="comment">-- 2) 有没有已经在排队的 MDL（有就绝对不能再发 DDL）</span></span><br><span class="line"><span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> performance_schema.metadata_locks</span><br><span class="line"><span class="keyword">WHERE</span> OBJECT_SCHEMA <span class="operator">=</span> DATABASE() <span class="keyword">AND</span> OBJECT_NAME <span class="operator">=</span> <span class="string">&#x27;big&#x27;</span> <span class="keyword">AND</span> LOCK_STATUS <span class="operator">=</span> <span class="string">&#x27;PENDING&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="comment">-- 3) 这个变更支持什么算法（先探测）</span></span><br><span class="line"><span class="comment">--    ALTER TABLE ... ALGORITHM=INSTANT; 报错就降级</span></span><br><span class="line"></span><br><span class="line"><span class="comment">-- 4) 显式设超时，避免无限等</span></span><br><span class="line"><span class="keyword">SET</span> SESSION lock_wait_timeout <span class="operator">=</span> <span class="number">5</span>;</span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th>检查项</th>
+<th>阈值</th>
+<th>不通过怎么办</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>长事务</td>
+<td><code>age_s &gt; 5</code></td>
+<td>等它结束或 <code>KILL</code>（注意大事务回滚耗时）</td>
+</tr>
+<tr>
+<td>MDL PENDING</td>
+<td>任意</td>
+<td>停止发新 DDL，等队列清空</td>
+</tr>
+<tr>
+<td>算法</td>
+<td>是否 INSTANT&#x2F;INPLACE</td>
+<td>COPY 必须走变更窗口或 gh-ost</td>
+</tr>
+<tr>
+<td>表大小</td>
+<td>CPU 估算时间</td>
+<td>2M 行约 1.5 s（加索引），按比例外推</td>
+</tr>
+</tbody></table>
+<h3 id="2-5-动手验证：复现-MDL-阻塞"><a href="#2-5-动手验证：复现-MDL-阻塞" class="headerlink" title="2.5 动手验证：复现 MDL 阻塞"></a>2.5 动手验证：复现 MDL 阻塞</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># A：事务里只查一次，挂住 12 秒</span></span><br><span class="line">docker <span class="built_in">exec</span> -i mysql-lab mysql -uroot -plab123 shop &lt;&lt;<span class="string">&#x27;SQL&#x27;</span> &amp;</span><br><span class="line">START TRANSACTION; SELECT COUNT(*) FROM big; DO SLEEP(12); ROLLBACK;</span><br><span class="line">SQL</span><br><span class="line"><span class="built_in">sleep</span> 2</span><br><span class="line"></span><br><span class="line"><span class="comment"># B：DDL 卡住</span></span><br><span class="line">docker <span class="built_in">exec</span> -i mysql-lab mysql -uroot -plab123 shop &lt;&lt;<span class="string">&#x27;SQL&#x27;</span> &amp;</span><br><span class="line">SET SESSION lock_wait_timeout = 20;</span><br><span class="line">ALTER TABLE big ADD COLUMN note_x VARCHAR(10) NULL;</span><br><span class="line">SQL</span><br><span class="line"><span class="built_in">sleep</span> 2</span><br><span class="line"></span><br><span class="line"><span class="comment"># C：普通查询排在 DDL 后面，2 秒超时</span></span><br><span class="line">docker <span class="built_in">exec</span> -i mysql-lab mysql -uroot -plab123 shop &lt;&lt;<span class="string">&#x27;SQL&#x27;</span></span><br><span class="line">SET SESSION lock_wait_timeout = 2;</span><br><span class="line">SELECT COUNT(*) FROM big;</span><br><span class="line">SQL</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：C 在 2 秒后返回 <code>ERROR 1205</code>；期间查 <code>sys.schema_table_lock_waits</code> 能看到 A→B→C 的三层排队。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>C 立即成功 → A 的事务已提交，或 A 用的是自动提交（<code>autocommit=1</code> 的 SELECT 不持有 MDL）；</li>
+<li>C 报 1205 且 B 一直 PENDING → 这就是线上雪崩的起点，立刻处理 A。</li>
+</ul>
+<h2 id="3-大表变更的三种方案"><a href="#3-大表变更的三种方案" class="headerlink" title="3. 大表变更的三种方案"></a>3. 大表变更的三种方案</h2><h3 id="3-1-原生-DDL-够用吗"><a href="#3-1-原生-DDL-够用吗" class="headerlink" title="3.1 原生 DDL 够用吗"></a>3.1 原生 DDL 够用吗</h3><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>原生 DDL</th>
+<th>判断</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>加列&#x2F;删列</td>
+<td>INSTANT，毫秒级</td>
+<td>直接用</td>
+</tr>
+<tr>
+<td>加索引（几百万行）</td>
+<td>INPLACE，秒级</td>
+<td>直接用，避开业务高峰</td>
+</tr>
+<tr>
+<td>加索引（上亿行）</td>
+<td>INPLACE，分钟~小时</td>
+<td>考虑 gh-ost + 低峰窗口</td>
+</tr>
+<tr>
+<td>改列类型</td>
+<td>COPY，锁表</td>
+<td><strong>必须</strong>用影子表方案</td>
+</tr>
+<tr>
+<td>改字符集</td>
+<td>COPY，锁表</td>
+<td><strong>必须</strong>用影子表方案</td>
+</tr>
+</tbody></table>
+<h3 id="3-2-pt-online-schema-change：触发器-影子表"><a href="#3-2-pt-online-schema-change：触发器-影子表" class="headerlink" title="3.2 pt-online-schema-change：触发器 + 影子表"></a>3.2 pt-online-schema-change：触发器 + 影子表</h3><pre class="mermaid">sequenceDiagram
+    participant App
+    participant Orig as orders (original)
+    participant Shadow as _orders_new (shadow)
+    App->>Orig: normal DML
+    Note over Orig,Shadow: step 1 create shadow table with new schema
+    Note over Orig,Shadow: step 2 create triggers INSERT/UPDATE/DELETE -> shadow
+    Note over Orig,Shadow: step 3 copy old rows in chunks
+    App->>Orig: DML also replayed to shadow by triggers
+    Note over Orig,Shadow: step 4 RENAME TABLE swap</pre>
+
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>原理</td>
+<td>建影子表 + 三个触发器 + 分批拷贝 + 原子 RENAME</td>
+</tr>
+<tr>
+<td>优点</td>
+<td>不锁表、支持所有变更类型</td>
+</tr>
+<tr>
+<td>风险</td>
+<td>触发器带来的额外写入开销；表必须有主键或唯一索引；外键需额外处理</td>
+</tr>
+<tr>
+<td>关键参数</td>
+<td><code>--chunk-time</code>、<code>--max-load</code>、<code>--critical-load</code></td>
+</tr>
+</tbody></table>
+<h3 id="3-3-gh-ost：读-binlog，不建触发器"><a href="#3-3-gh-ost：读-binlog，不建触发器" class="headerlink" title="3.3 gh-ost：读 binlog，不建触发器"></a>3.3 gh-ost：读 binlog，不建触发器</h3><pre class="mermaid">sequenceDiagram
+    participant App
+    participant Orig as orders
+    participant Ghost as _orders_gho
+    participant BL as binlog
+    App->>Orig: DML
+    Orig->>BL: row events
+    BL->>Ghost: apply changes (gh-ost reads binlog)
+    Note over Ghost: copy rows in chunks, throttled by load
+    Note over Orig,Ghost: atomic RENAME at cutover</pre>
+
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>gh-ost</th>
+<th>pt-osc</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>同步机制</td>
+<td>读 binlog 回放</td>
+<td>触发器</td>
+</tr>
+<tr>
+<td>对主库写压力</td>
+<td>小（无触发器）</td>
+<td>大（每行额外触发器写）</td>
+</tr>
+<tr>
+<td>可暂停&#x2F;限流</td>
+<td>支持（<code>throttle</code>）</td>
+<td>支持（<code>--max-load</code>）</td>
+</tr>
+<tr>
+<td>需要主键</td>
+<td>是</td>
+<td>是</td>
+</tr>
+<tr>
+<td>外键</td>
+<td>不支持</td>
+<td>需额外处理</td>
+</tr>
+<tr>
+<td>适用</td>
+<td>大表、写密集</td>
+<td>中小表、兼容性更好</td>
+</tr>
+</tbody></table>
+<blockquote>
+<p>诚实标注：本文实测的是<strong>原生 DDL</strong>（第 1、2 节）。<code>pt-osc</code> 与 <code>gh-ost</code> 未在本文环境实测（工具未安装），上面的对比属于原理与文档知识。上线前请在自己的环境跑一次演练，重点验证「触发器开销」与「cutover 瞬间的锁」。</p>
+</blockquote>
+<h3 id="3-4-变更窗口怎么估"><a href="#3-4-变更窗口怎么估" class="headerlink" title="3.4 变更窗口怎么估"></a>3.4 变更窗口怎么估</h3><table>
+<thead>
+<tr>
+<th>数据量</th>
+<th>原生 ADD INDEX</th>
+<th>建议窗口</th>
+<th>备注</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>100 万行</td>
+<td>~0.8 s（本文 2M 行 1.557 s 折算）</td>
+<td>任意</td>
+<td>直接执行</td>
+</tr>
+<tr>
+<td>1000 万行</td>
+<td>~8 s</td>
+<td>低峰</td>
+<td>仍建议低峰，避免 MDL 排到长事务后面</td>
+</tr>
+<tr>
+<td>1 亿行</td>
+<td>~80 s + IO 压力</td>
+<td>低峰 + 限流</td>
+<td>用 gh-ost，可暂停</td>
+</tr>
+<tr>
+<td>改列类型</td>
+<td>与数据量成正比，且锁表</td>
+<td><strong>必须</strong>影子表</td>
+<td>原生 COPY 会锁写</td>
+</tr>
+</tbody></table>
+<p><strong>估算公式</strong>：<code>耗时 ≈ 表大小 / 扫描速度</code>，扫描速度受 Buffer Pool、磁盘、并发写影响，实测值只能做数量级参考。</p>
+<h2 id="4-一次-P0-复盘（用本文实测数据拼合）"><a href="#4-一次-P0-复盘（用本文实测数据拼合）" class="headerlink" title="4. 一次 P0 复盘（用本文实测数据拼合）"></a>4. 一次 P0 复盘（用本文实测数据拼合）</h2><table>
+<thead>
+<tr>
+<th>时刻</th>
+<th>事件</th>
+<th>现象</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>T0</td>
+<td>运维发起 <code>ALTER TABLE orders ADD INDEX ...</code></td>
+<td>DDL 进入 MDL 队列</td>
+</tr>
+<tr>
+<td>T0</td>
+<td>队列前面有一个未提交的事务（报表导出）</td>
+<td>DDL 变成 PENDING</td>
+</tr>
+<tr>
+<td>T0+5s</td>
+<td>应用查询开始变慢</td>
+<td>所有 SELECT 排在 DDL 后面</td>
+</tr>
+<tr>
+<td>T0+30s</td>
+<td>连接池打满</td>
+<td>接口大面积超时（⑪ 的因果）</td>
+</tr>
+<tr>
+<td>T0+90s</td>
+<td>DBA 杀掉报表事务</td>
+<td>DDL 执行 1.5 秒后完成</td>
+</tr>
+<tr>
+<td>T0+95s</td>
+<td>业务恢复</td>
+<td>累计故障 95 秒</td>
+</tr>
+</tbody></table>
+<p><strong>根因</strong>：不是 DDL 慢，是「DDL 排在一个长事务后面」，而队列 FIFO 让所有读跟着排队。</p>
+<p><strong>处置顺序</strong>（可照抄）：</p>
+<ol>
+<li><code>KILL</code> 掉阻塞的事务（先确认不是核心批处理）；</li>
+<li>观察 <code>sys.schema_table_lock_waits</code> 是否清空；</li>
+<li>DDL 执行完后确认 <code>metadata_locks</code> 无 PENDING；</li>
+<li>复盘：把 2.4 的 Checklist 写进发布流程，缺一项不许发。</li>
+</ol>
+<h2 id="5-总结"><a href="#5-总结" class="headerlink" title="5. 总结"></a>5. 总结</h2><h3 id="5-1-面试速答表"><a href="#5-1-面试速答表" class="headerlink" title="5.1 面试速答表"></a>5.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>DDL 的三种算法</td>
+<td>COPY（重建+锁写）、INPLACE（重建但可并发 DML）、INSTANT（只改元数据）</td>
+</tr>
+<tr>
+<td>8.0 加列为什么快</td>
+<td>INSTANT 只改数据字典，实测 200 万行 0.035 s；8.0.29+ 支持中间插入</td>
+</tr>
+<tr>
+<td>加索引会锁表吗</td>
+<td>不会，<code>ADD INDEX</code> 是 INPLACE + <code>LOCK=NONE</code>，实测期间插入 0.05 s 完成</td>
+</tr>
+<tr>
+<td>改列类型为什么慢</td>
+<td>字节宽度变了必须重建，<code>TINYINT→SMALLINT</code> 强制 COPY，实测锁写 3.62 s</td>
+</tr>
+<tr>
+<td><code>VARCHAR(64)→VARCHAR(128)</code> 要重建吗</td>
+<td>不用，长度前缀字节数没变，实测元数据级 0.002 s</td>
+</tr>
+<tr>
+<td>MDL 是什么</td>
+<td>元数据锁，保护表结构；普通 SELECT 也要加 SHARED_READ</td>
+</tr>
+<tr>
+<td>为什么一条 SELECT 会被 DDL 挡住</td>
+<td>MDL 队列 FIFO，读请求不允许插到等待的 EXCLUSIVE 前面</td>
+</tr>
+<tr>
+<td>为什么设了 <code>innodb_lock_wait_timeout</code> 还卡</td>
+<td>等的是 MDL，受 <code>lock_wait_timeout</code> 控制（默认一年）</td>
+</tr>
+<tr>
+<td>DDL 前必须查什么</td>
+<td>长事务 + MDL PENDING + 算法支持情况</td>
+</tr>
+<tr>
+<td>gh-ost 和 pt-osc 的区别</td>
+<td>gh-ost 读 binlog 回放（无触发器），pt-osc 用触发器同步</td>
+</tr>
+<tr>
+<td>instant 加列有上限吗</td>
+<td>有，每表最多 64 次 instant 变更，之后需要一次重建</td>
+</tr>
+</tbody></table>
+<h3 id="5-2-实战避坑表"><a href="#5-2-实战避坑表" class="headerlink" title="5.2 实战避坑表"></a>5.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>DDL 一直 PENDING 不报错</td>
+<td>前面有长事务，<code>lock_wait_timeout</code> 默认一年</td>
+<td>查 <code>innodb_trx</code>，处理长事务</td>
+</tr>
+<tr>
+<td>DDL 一发业务全卡</td>
+<td>MDL 队列雪崩</td>
+<td>立刻杀掉阻塞事务，恢复后重发</td>
+</tr>
+<tr>
+<td>改列类型锁表几分钟</td>
+<td>走了 COPY</td>
+<td>改用 gh-ost 或低峰执行</td>
+</tr>
+<tr>
+<td><code>ALGORITHM=INPLACE</code> 报 1846</td>
+<td>该变更不支持 inplace</td>
+<td>按 COPY 处理，评估窗口</td>
+</tr>
+<tr>
+<td>加索引后写入变慢</td>
+<td>索引写放大（③）</td>
+<td>评估是否必要，清理冗余索引</td>
+</tr>
+<tr>
+<td>instant 加列失败</td>
+<td>超过 64 次上限</td>
+<td>做一次重建整理</td>
+</tr>
+</tbody></table>
+<h3 id="5-3-工具速查表"><a href="#5-3-工具速查表" class="headerlink" title="5.3 工具速查表"></a>5.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>判定标准</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>ALTER TABLE ... ALGORITHM=...</code></td>
+<td>支持的算法</td>
+<td>报 1846 &#x3D; 只能 COPY</td>
+</tr>
+<tr>
+<td><code>sys.schema_table_lock_waits</code></td>
+<td>谁堵谁</td>
+<td>有输出 &#x3D; 已经开始排队</td>
+</tr>
+<tr>
+<td><code>performance_schema.metadata_locks</code></td>
+<td>MDL 明细</td>
+<td>有 PENDING &#x3D; 不能发新 DDL</td>
+</tr>
+<tr>
+<td><code>information_schema.innodb_trx</code></td>
+<td>长事务</td>
+<td><code>age_s &gt; 5</code> 需处理</td>
+</tr>
+<tr>
+<td><code>information_schema.tables</code></td>
+<td>表大小</td>
+<td>用来估算 COPY 耗时</td>
+</tr>
+</tbody></table>
+<h3 id="5-4-实操建议"><a href="#5-4-实操建议" class="headerlink" title="5.4 实操建议"></a>5.4 实操建议</h3><ol>
+<li><strong>先问「这个变更能不能 INSTANT」</strong>。加列&#x2F;删列在 8.0 就是毫秒级，别用重工具。</li>
+<li><strong>DDL 前跑 2.4 的两条查询</strong>，把「长事务为零、MDL 无 PENDING」作为发布门禁。</li>
+<li>**显式设 <code>lock_wait_timeout</code>**，别让 DDL 无限排队——排队本身就是故障。</li>
+<li><strong>超过 1000 万行的加索引放低峰</strong>，1 亿行以上用 gh-ost 并限流。</li>
+<li><strong>改列类型一律视为锁表变更</strong>，走影子表方案，不用原生 DDL 赌运气。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告</strong>：⑪《Java 侧：连接池打满与 @Transactional 失效的真相》。前面十篇都在数据库里，下一篇回到应用层：连接池为什么会在「数据库很健康」的时候打满、<code>@Transactional</code> 为什么在自调用时失效、动态数据源切换与事务边界的冲突——会用真实代码把 11 个高频坑逐个跑通。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/MySQL/" rel="tag"># MySQL</a>
+              <a href="/tags/%E9%9D%A2%E8%AF%95/" rel="tag"># 面试</a>
+              <a href="/tags/DDL/" rel="tag"># DDL</a>
+              <a href="/tags/MDL/" rel="tag"># MDL</a>
+              <a href="/tags/gh-ost/" rel="tag"># gh-ost</a>
+              <a href="/tags/%E5%8F%98%E6%9B%B4/" rel="tag"># 变更</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/f375ea2a.html" rel="prev" title="备份与恢复：删库之后 30 分钟救回来">
+                  <i class="fa fa-angle-left"></i> 备份与恢复：删库之后 30 分钟救回来
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/post/4d87a909.html" rel="next" title="Java 侧：连接池打满与 @Transactional 失效的真相">
+                  Java 侧：连接池打满与 @Transactional 失效的真相 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">740k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">44:51</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
+</html>

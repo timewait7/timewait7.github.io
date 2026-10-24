@@ -1,0 +1,1245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="「Redis 扛不住了」这句话，八成是「key 太多」或「value 太大」，而不是「QPS 太高」。实测单实例 GET 在 8 个并发连接时就到了 27.5 万 rps，加到 128 连接也只到 32.9 万（+19%），而 p50 从 0.023 ms 涨到 0.199 ms（8.6 倍）——加并发不会让单实例更快，只会让延迟变高。 这一篇是收官篇，回答三个问题：单实例的上限在哪、什么时候该分">
+<meta property="og:type" content="article">
+<meta property="og:title" content="容量规划与分片：什么时候才该上 Cluster">
+<meta property="og:url" content="http://timewait7.github.io/post/b815463e.html">
+<meta property="og:site_name" content="知行栈">
+<meta property="og:description" content="「Redis 扛不住了」这句话，八成是「key 太多」或「value 太大」，而不是「QPS 太高」。实测单实例 GET 在 8 个并发连接时就到了 27.5 万 rps，加到 128 连接也只到 32.9 万（+19%），而 p50 从 0.023 ms 涨到 0.199 ms（8.6 倍）——加并发不会让单实例更快，只会让延迟变高。 这一篇是收官篇，回答三个问题：单实例的上限在哪、什么时候该分">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-10-25T12:00:00.000Z">
+<meta property="article:modified_time" content="2026-10-24T14:40:51.280Z">
+<meta property="article:tag" content="面试">
+<meta property="article:tag" content="容量规划">
+<meta property="article:tag" content="Redis">
+<meta property="article:tag" content="Cluster">
+<meta property="article:tag" content="分片">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/b815463e.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/b815463e.html","path":"post/b815463e.html","title":"容量规划与分片：什么时候才该上 Cluster"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>容量规划与分片：什么时候才该上 Cluster | 知行栈</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<!-- hexo injector head_end start --><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
+</style><style>
+/* 菜单链高亮：sub-menu 祖先（同主题 .menu-item-active 的 Pisces 规则） */
+.sub-menu .menu-item a.menu-chain-active {
+  border-bottom-color: #fc6423;
+  color: #fc6423;
+}
+.sub-menu .menu-item a.menu-chain-active:hover {
+  border-bottom-color: #fc6423;
+}
+/* 菜单链高亮：main-menu 祖先（同主题 hover/active 的背景规则） */
+.main-menu .menu-item a.menu-chain-active {
+  background: var(--menu-item-bg-color);
+}
+</style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">知行栈</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section" class="menu-chain-active"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>Categories</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-%E5%8D%95%E5%AE%9E%E4%BE%8B%E7%9A%84%E4%B8%89%E4%B8%AA%E4%B8%8A%E9%99%90"><span class="nav-text">1. 单实例的三个上限</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-QPS%EF%BC%9A8-%E4%B8%AA%E8%BF%9E%E6%8E%A5%E5%B0%B1%E5%88%B0%E9%A1%B6%E4%BA%86"><span class="nav-text">1.1 QPS：8 个连接就到顶了</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-2-%E5%86%85%E5%AD%98%EF%BC%9A%E6%8C%89-key-%E6%95%B0%E7%AE%97%EF%BC%8C%E4%B8%8D%E6%98%AF%E6%8C%89-value-%E5%A4%A7%E5%B0%8F%E7%AE%97"><span class="nav-text">1.2 内存：按 key 数算，不是按 value 大小算</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-3-%E8%BF%9E%E6%8E%A5%E6%95%B0%EF%BC%9A10000-%E6%98%AF%E9%BB%98%E8%AE%A4%E4%B8%8A%E9%99%90"><span class="nav-text">1.3 连接数：10000 是默认上限</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-4-%E8%AF%A5%E6%89%A9%E5%AE%B9%E7%9A%84%E4%BF%A1%E5%8F%B7"><span class="nav-text">1.4 该扩容的信号</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E5%88%86%E7%89%87%EF%BC%9A%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E8%AF%A5%E4%B8%8A-Cluster"><span class="nav-text">2. 分片：什么时候该上 Cluster</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E5%86%B3%E7%AD%96%E8%B7%AF%E5%BE%84"><span class="nav-text">2.1 决策路径</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E4%B8%89%E7%A7%8D%E5%88%86%E7%89%87%E6%96%B9%E5%BC%8F"><span class="nav-text">2.2 三种分片方式</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-%E5%88%86%E7%89%87%E9%94%AE%EF%BC%9A%E4%B8%89%E4%B8%AA%E5%88%A4%E6%8D%AE"><span class="nav-text">2.3 分片键：三个判据</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-4-%E5%88%86%E7%89%87%E7%9A%84%E7%9C%9F%E5%AE%9E%E4%BB%A3%E4%BB%B7"><span class="nav-text">2.4 分片的真实代价</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92%E6%A8%A1%E6%9D%BF"><span class="nav-text">3. 容量规划模板</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E4%B8%80%E5%BC%A0%E8%A1%A8%E7%AE%97%E6%B8%85"><span class="nav-text">3.1 一张表算清</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E5%88%86%E7%89%87%E5%89%8D%E5%BF%85%E9%A1%BB%E5%81%9A%E7%9A%84%E4%B8%89%E4%BB%B6%E4%BA%8B"><span class="nav-text">3.2 分片前必须做的三件事</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E5%85%A8%E7%B3%BB%E5%88%97%E6%80%BB%E8%A1%A8%EF%BC%88%E6%94%B6%E5%AE%98%EF%BC%89"><span class="nav-text">4. 全系列总表（收官）</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-%E5%8D%81%E4%BA%8C%E7%AF%87%E4%B8%80%E8%A7%88"><span class="nav-text">4.1 十二篇一览</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-%E4%B8%89%E7%A7%8D%E8%83%BD%E5%8A%9B%E7%9A%84%E5%88%86%E5%B1%82"><span class="nav-text">4.2 三种能力的分层</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-%E8%87%AA%E6%A3%80%E6%B8%85%E5%8D%95%EF%BC%9A%E8%83%BD%E8%84%B1%E7%A8%BF%E5%9B%9E%E7%AD%94%E5%B0%B1%E7%AE%97%E8%BF%87%E5%85%B3"><span class="nav-text">4.3 自检清单：能脱稿回答就算过关</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-4-%E4%B8%89%E4%B8%AA%E6%9C%88%E7%9A%84%E5%AD%A6%E4%B9%A0%E8%8A%82%E5%A5%8F"><span class="nav-text">4.4 三个月的学习节奏</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-5-%E5%8D%81%E4%BA%8C%E7%AF%87%E7%9A%84%E5%9B%A0%E6%9E%9C%E9%93%BE"><span class="nav-text">4.5 十二篇的因果链</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#6-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%9B%9B%E4%B8%AA%E5%8F%AF%E5%A4%8D%E7%8E%B0%E5%AE%9E%E9%AA%8C"><span class="nav-text">6. 动手验证：四个可复现实验</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#6-1-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E6%B5%8B%E5%87%BA%E4%BD%A0%E8%87%AA%E5%B7%B1%E5%AE%9E%E4%BE%8B%E7%9A%84-QPS-%E6%8B%90%E7%82%B9"><span class="nav-text">6.1 动手验证：测出你自己实例的 QPS 拐点</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-2-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E6%8C%89-key-%E6%95%B0%E4%BC%B0%E7%AE%97%E5%86%85%E5%AD%98"><span class="nav-text">6.2 动手验证：按 key 数估算内存</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-3-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E9%AA%8C%E8%AF%81-hash-tag-%E5%90%8C%E6%A7%BD"><span class="nav-text">6.3 动手验证：验证 hash tag 同槽</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E7%AE%97%E4%B8%80%E6%AC%A1%E5%AE%B9%E9%87%8F"><span class="nav-text">6.4 动手验证：算一次容量</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E6%80%BB%E7%BB%93"><span class="nav-text">5. 总结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E9%9D%A2%E8%AF%95%E9%80%9F%E7%AD%94%E8%A1%A8"><span class="nav-text">5.1 面试速答表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E5%AE%9E%E6%88%98%E9%81%BF%E5%9D%91%E8%A1%A8"><span class="nav-text">5.2 实战避坑表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-%E5%B7%A5%E5%85%B7%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">5.3 工具速查表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-%E5%AE%9E%E6%93%8D%E5%BB%BA%E8%AE%AE"><span class="nav-text">5.4 实操建议</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">104</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">14</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">175</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+    <div class="sidebar-inner sidebar-blogroll">
+      <div class="links-of-blogroll animated">
+        <div class="links-of-blogroll-title"><i class="fa fa-globe fa-fw"></i>
+          Links
+        </div>
+        <ul class="links-of-blogroll-list">
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9wYXVsZ3JhaGFtLmNvbS9hcnRpY2xlcy5odG1s" title="https:&#x2F;&#x2F;paulgraham.com&#x2F;articles.html">paulgraham</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly93d3cuam9lbG9uc29mdHdhcmUuY29tLw==" title="https:&#x2F;&#x2F;www.joelonsoftware.com&#x2F;">Joel on Software</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9tYXJ0aW5mb3dsZXIuY29tLw==" title="https:&#x2F;&#x2F;martinfowler.com&#x2F;">Martin Flower</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly96aGFuZ3RpZWxlaS5jb20v" title="https:&#x2F;&#x2F;zhangtielei.com&#x2F;">zhangtielei</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhLWRlc2lnbi1wYXR0ZXJucy5jb20vemgv" title="https:&#x2F;&#x2F;java-design-patterns.com&#x2F;zh&#x2F;">Java Design Patterns</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9taWNyb3NlcnZpY2VzLmlvLw==" title="https:&#x2F;&#x2F;microservices.io&#x2F;">Microservice Architecture</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhZ3VpZGUuY24v" title="https:&#x2F;&#x2F;javaguide.cn&#x2F;">JavaGuide</span>
+            </li>
+        </ul>
+      </div>
+    </div>
+        <div class="pjax">
+        
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-后端开发"><a href="/docs/nav/backend-dev-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-code fa-fw"></i>后端开发</a></li>
+
+
+      
+  <li class="menu-item menu-item-计算机基础"><a href="/docs/nav/cs-foundation-nav.html" rel="section"><i class="fa fa-desktop fa-fw"></i>计算机基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-ai-学习"><a href="/docs/nav/ai-learning-nav.html" rel="section"><i class="fa fa-robot fa-fw"></i>AI 学习</a></li>
+
+
+      
+  <li class="menu-item menu-item-项目实战"><a href="/docs/nav/5964f4da.html" rel="section"><i class="fa fa-flask fa-fw"></i>项目实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-misc"><a href="/docs/nav/misc-nav.html" rel="section"><i class="fa fa-box fa-fw"></i>Misc</a></li>
+
+
+      
+  <li class="menu-item menu-item-随笔·生活"><a href="/docs/nav/life-nav.html" rel="section"><i class="fa fa-feather fa-fw"></i>随笔·生活</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java"><a href="/docs/nav/java-nav.html" rel="section"><i class="fa fa-coffee fa-fw"></i>Java</a></li>
+
+
+      
+  <li class="menu-item menu-item-框架"><a href="/docs/nav/framework-nav.html" rel="section"><i class="fa fa-th-large fa-fw"></i>框架</a></li>
+
+
+      
+  <li class="menu-item menu-item-数据存储"><a href="/docs/nav/data-storage-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-hdd fa-fw"></i>数据存储</a></li>
+
+
+      
+  <li class="menu-item menu-item-中间件"><a href="/docs/nav/middleware-nav.html" rel="section"><i class="fa fa-cubes fa-fw"></i>中间件</a></li>
+
+
+      
+  <li class="menu-item menu-item-分布式与微服务"><a href="/docs/nav/distributed-nav.html" rel="section"><i class="fa fa-sitemap fa-fw"></i>分布式与微服务</a></li>
+
+
+      
+  <li class="menu-item menu-item-系统设计"><a href="/docs/nav/system-design-nav.html" rel="section"><i class="fa fa-pencil-ruler fa-fw"></i>系统设计</a></li>
+
+
+      
+  <li class="menu-item menu-item-部署运维"><a href="/docs/nav/devops-nav.html" rel="section"><i class="fa fa-terminal fa-fw"></i>部署运维</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-mysql"><a href="/docs/nav/mysql-nav.html" rel="section"><i class="fa fa-database fa-fw"></i>MySQL</a></li>
+
+
+      
+  <li class="menu-item menu-item-redis"><a href="/docs/nav/redis-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-bolt fa-fw"></i>Redis</a></li>
+
+
+      
+  <li class="menu-item menu-item-elasticsearch"><a href="/docs/nav/es-nav.html" rel="section"><i class="fa fa-search fa-fw"></i>ElasticSearch</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-redis-深度解析：从原理到精通"><a href="/post/bae4ff13.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Redis 深度解析：从原理到精通</a></li>
+
+
+      
+  <li class="menu-item menu-item-①-从这里开始：把-redis-变成你的实验台"><a href="/post/fb7bfeea.html" rel="section"><i class="fa fa-file-text fa-fw"></i>① 从这里开始：把 Redis 变成你的实验台</a></li>
+
+
+      
+  <li class="menu-item menu-item-②-一次请求的成本账：rtt、事件循环与命令执行"><a href="/post/d0aa1ba2.html" rel="section"><i class="fa fa-file-text fa-fw"></i>② 一次请求的成本账：RTT、事件循环与命令执行</a></li>
+
+
+      
+  <li class="menu-item menu-item-③-数据结构：编码阈值与复杂度的真实代价"><a href="/post/342c4932.html" rel="section"><i class="fa fa-file-text fa-fw"></i>③ 数据结构：编码阈值与复杂度的真实代价</a></li>
+
+
+      
+  <li class="menu-item menu-item-④-内存、淘汰与碎片：maxmemory-设了为什么还会-oom"><a href="/post/b28e7721.html" rel="section"><i class="fa fa-file-text fa-fw"></i>④ 内存、淘汰与碎片：maxmemory 设了为什么还会 OOM</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑤-单线程：为什么快，什么时候会卡"><a href="/post/d9138e00.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑤ 单线程：为什么快，什么时候会卡</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑥-pipeline、事务与-lua：原子性和-rtt-怎么兼得"><a href="/post/884c75a8.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑥ Pipeline、事务与 Lua：原子性和 RTT 怎么兼得</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑦-持久化：rdb、aof-与丢失窗口"><a href="/post/6a7a58b3.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑦ 持久化：RDB、AOF 与丢失窗口</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑧-复制、哨兵与-cluster：切一次主要多久"><a href="/post/63c21b5b.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑧ 复制、哨兵与 Cluster：切一次主要多久</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑨-缓存三大问题：穿透、击穿、雪崩的量化与解法"><a href="/post/1d7a96da.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑨ 缓存三大问题：穿透、击穿、雪崩的量化与解法</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑩-缓存与数据库一致性：更新顺序与不一致窗口"><a href="/post/35ae94a8.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑩ 缓存与数据库一致性：更新顺序与不一致窗口</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑪-分布式锁与限流：从-set-nx-到-redisson"><a href="/post/cb07eb8d.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑪ 分布式锁与限流：从 SET NX 到 Redisson</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑫-容量规划与分片：什么时候才该上-cluster"><a href="/post/b815463e.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑫ 容量规划与分片：什么时候才该上 Cluster</a></li>
+
+
+    </ul>
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/b815463e.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="容量规划与分片：什么时候才该上 Cluster | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          容量规划与分片：什么时候才该上 Cluster
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-10-25 20:00:00" itemprop="dateCreated datePublished" datetime="2026-10-25T20:00:00+08:00">2026-10-25</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/" itemprop="url" rel="index"><span itemprop="name">数据存储</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>3.9k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>14 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><p><strong>「Redis 扛不住了」这句话，八成是「key 太多」或「value 太大」，而不是「QPS 太高」</strong>。实测单实例 GET 在 8 个并发连接时就到了 27.5 万 rps，加到 128 连接也只到 32.9 万（+19%），而 p50 从 0.023 ms 涨到 0.199 ms（8.6 倍）——加并发不会让单实例更快，只会让延迟变高。</p>
+<p>这一篇是收官篇，回答三个问题：单实例的上限在哪、什么时候该分片、分片之后要多付什么代价。最后附全系列 12 篇的总表。</p>
+<blockquote>
+<p><strong>系列地图（Redis 实战路线，12 篇）</strong></p>
+<p>① 实验台与基线 → ② 一次请求的成本账 → ③ 数据结构与编码 → ④ 内存、淘汰与碎片 → ⑤ 单线程与阻塞 → ⑥ Pipeline、事务与 Lua → ⑦ 持久化与丢失窗口 → ⑧ 复制、哨兵与 Cluster → ⑨ 缓存三大问题 → ⑩ 缓存与数据库一致性 → ⑪ 分布式锁与限流 → ⑫ <strong>容量规划与分片（本文·收官）</strong></p>
+<p>与前后篇的关系：② 的 QPS 基线、③ 的编码阈值、④ 的淘汰与碎片，共同决定本文的「天花板」；⑧ 的 Cluster 是分片的实现，本文回答「什么时候才该用它」。</p>
+</blockquote>
+<h2 id="1-单实例的三个上限"><a href="#1-单实例的三个上限" class="headerlink" title="1. 单实例的三个上限"></a>1. 单实例的三个上限</h2><pre class="mermaid">flowchart TD
+    A["Single Redis instance"] --> Q["QPS ceiling&lt;br/>~30 万 GET/s（本文）"]
+    A --> M["Memory ceiling&lt;br/>keys x per-key bytes"]
+    A --> C["Connection ceiling&lt;br/>maxclients 10000（实测）"]
+    Q --> S1["more clients != more QPS&lt;br/>only more latency"]
+    M --> S2["eviction / OOM / 碎片"]
+    C --> S3["Too many connections"]</pre>
+
+<h3 id="1-1-QPS：8-个连接就到顶了"><a href="#1-1-QPS：8-个连接就到顶了" class="headerlink" title="1.1 QPS：8 个连接就到顶了"></a>1.1 QPS：8 个连接就到顶了</h3><p>单实例、10 万 key 已预热、GET 压测：</p>
+<table>
+<thead>
+<tr>
+<th>并发连接</th>
+<th>QPS</th>
+<th>p50</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>32,916</td>
+<td>0.031 ms</td>
+</tr>
+<tr>
+<td>8</td>
+<td><strong>275,103</strong></td>
+<td>0.023 ms</td>
+</tr>
+<tr>
+<td>32</td>
+<td>310,078</td>
+<td>0.055 ms</td>
+</tr>
+<tr>
+<td>64</td>
+<td>322,581</td>
+<td>0.103 ms</td>
+</tr>
+<tr>
+<td>128</td>
+<td>328,947</td>
+<td><strong>0.199 ms</strong></td>
+</tr>
+</tbody></table>
+<p><strong>读法</strong>：</p>
+<ol>
+<li><strong>8 个连接就把单核吃满了</strong>（27.5 万 rps）；</li>
+<li>从 8 加到 128，QPS 只涨 19%，<strong>p50 涨了 8.6 倍</strong>；</li>
+<li>所以「加连接数」在单实例上不是扩容，是<strong>用延迟换一点点吞吐</strong>。</li>
+</ol>
+<blockquote>
+<p>这是 loopback 的数字，生产环境受网络与客户端影响会更低；但「拐点在个位数到几十个连接」这个结论是普适的——因为 Redis 执行命令只有一个线程。</p>
+</blockquote>
+<h3 id="1-2-内存：按-key-数算，不是按-value-大小算"><a href="#1-2-内存：按-key-数算，不是按-value-大小算" class="headerlink" title="1.2 内存：按 key 数算，不是按 value 大小算"></a>1.2 内存：按 key 数算，不是按 value 大小算</h3><p>实测（<code>MEMORY USAGE</code> 抽样）：</p>
+<table>
+<thead>
+<tr>
+<th>value 大小</th>
+<th>单 key 实际占用</th>
+<th>额外开销</th>
+<th>1 亿 key 估算</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>64 B</td>
+<td><strong>128 B</strong></td>
+<td>64 B</td>
+<td>11.9 GB</td>
+</tr>
+<tr>
+<td>1 KB</td>
+<td><strong>1,328 B</strong></td>
+<td>304 B</td>
+<td>123.7 GB</td>
+</tr>
+<tr>
+<td>10 KB</td>
+<td><strong>12,336 B</strong></td>
+<td>2,096 B</td>
+<td><strong>1,148.9 GB</strong></td>
+</tr>
+</tbody></table>
+<p>三个必须知道的点：</p>
+<ol>
+<li><strong>小 value 的开销占比最高</strong>（64B 的 value 实际占 128B，开销 100%）；</li>
+<li><strong>大 value 有 jemalloc size class 效应</strong>（10 KB → 12 KB 桶，多 20%）；</li>
+<li><strong>1 亿个 10 KB 的 key 要 1.1 TB 内存</strong>——这时候必须分片，不是为了 QPS。</li>
+</ol>
+<p>容量公式：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">需要内存 ≈ key 数 × (value 向上取整到 jemalloc size class + 64~300 B)</span><br><span class="line">再乘：副本数（主从）× 1.1~1.3（碎片与 fork 余量）</span><br></pre></td></tr></table></figure>
+
+<h3 id="1-3-连接数：10000-是默认上限"><a href="#1-3-连接数：10000-是默认上限" class="headerlink" title="1.3 连接数：10000 是默认上限"></a>1.3 连接数：10000 是默认上限</h3><table>
+<thead>
+<tr>
+<th>指标</th>
+<th>实测</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>maxclients</code></td>
+<td><strong>10000</strong></td>
+</tr>
+<tr>
+<td>单连接内存开销</td>
+<td>约几十 KB（输入&#x2F;输出缓冲 + 客户端结构）</td>
+</tr>
+</tbody></table>
+<p>10000 个连接 × 几十 KB 也是几百 MB，所以「连接数」既是限制也是内存成本。</p>
+<h3 id="1-4-该扩容的信号"><a href="#1-4-该扩容的信号" class="headerlink" title="1.4 该扩容的信号"></a>1.4 该扩容的信号</h3><table>
+<thead>
+<tr>
+<th>信号</th>
+<th>阈值</th>
+<th>该做什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>QPS 到拐点</td>
+<td>单实例 ~30 万（本文）</td>
+<td>加从库（读扩展）或分片</td>
+</tr>
+<tr>
+<td>内存接近上限</td>
+<td><code>used_memory &gt; maxmemory</code> 的 80%</td>
+<td>加内存、调淘汰、清理大 key</td>
+</tr>
+<tr>
+<td>淘汰持续发生</td>
+<td><code>evicted_keys</code> 持续增长</td>
+<td>先算真实容量（本文 1.2）</td>
+</tr>
+<tr>
+<td>单 key 过大</td>
+<td>&gt; 10 KB 或集合 &gt; 5000</td>
+<td>拆 key（③）</td>
+</tr>
+<tr>
+<td>fork 停顿明显</td>
+<td><code>rdb_last_fork_usec</code> 增长</td>
+<td>减小实例内存、把持久化挪到从库</td>
+</tr>
+<tr>
+<td>连接数接近上限</td>
+<td>接近 10000</td>
+<td>加连接池上限管理，或分实例</td>
+</tr>
+</tbody></table>
+<h2 id="2-分片：什么时候该上-Cluster"><a href="#2-分片：什么时候该上-Cluster" class="headerlink" title="2. 分片：什么时候该上 Cluster"></a>2. 分片：什么时候该上 Cluster</h2><h3 id="2-1-决策路径"><a href="#2-1-决策路径" class="headerlink" title="2.1 决策路径"></a>2.1 决策路径</h3><pre class="mermaid">flowchart TD
+    A["Capacity alert"] --> B{"CPU-bound?&lt;br/>QPS at knee"}
+    B -- yes --> C["Read scaling:&lt;br/>replicas + client routing"]
+    C --> D{" writes also hot?"}
+    D -- yes --> E["Sharding"]
+    B -- no --> F{"memory-bound?"}
+    F -- yes --> G{"can we shrink keys?&lt;br/>TTL / big key split"}
+    G -- yes --> H["Fix data model first"]
+    G -- no --> E
+    E --> I["Choose shard key,&lt;br/>then reshard plan"]</pre>
+
+<p><strong>判断顺序</strong>：先确认是 CPU 还是内存瓶颈 → 能靠读扩展&#x2F;数据治理解决就不分片 → 都不行才分片。</p>
+<h3 id="2-2-三种分片方式"><a href="#2-2-三种分片方式" class="headerlink" title="2.2 三种分片方式"></a>2.2 三种分片方式</h3><table>
+<thead>
+<tr>
+<th>方式</th>
+<th>扩容影响</th>
+<th>客户端复杂度</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>客户端分片（取模）</td>
+<td>换 N 就全量迁移</td>
+<td>高（业务自己算路由）</td>
+<td>早期、分片数固定</td>
+</tr>
+<tr>
+<td>代理分片（Codis&#x2F;Twemproxy）</td>
+<td>中</td>
+<td>低（客户端无感）</td>
+<td>已有代理层</td>
+</tr>
+<tr>
+<td><strong>Redis Cluster</strong></td>
+<td>槽迁移，可在线</td>
+<td>中（要处理 MOVED&#x2F;ASK）</td>
+<td>主流选择</td>
+</tr>
+</tbody></table>
+<h3 id="2-3-分片键：三个判据"><a href="#2-3-分片键：三个判据" class="headerlink" title="2.3 分片键：三个判据"></a>2.3 分片键：三个判据</h3><table>
+<thead>
+<tr>
+<th>判据</th>
+<th>好</th>
+<th>坏</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>均匀</td>
+<td>用户 ID 哈希</td>
+<td>状态、地区</td>
+</tr>
+<tr>
+<td>查询能定位单片</td>
+<td><code>user:&#123;id&#125;:profile</code></td>
+<td>只有 <code>SCAN</code> 类需求</td>
+</tr>
+<tr>
+<td>允许跨片？</td>
+<td>单 key 操作</td>
+<td>跨片 <code>MGET</code>&#x2F;Lua（⑥ 实测 <code>CROSSSLOT</code>）</td>
+</tr>
+</tbody></table>
+<p><strong>hash tag 是分片设计的一部分</strong>：<code>&#123;user:1&#125;:name</code> 与 <code>&#123;user:1&#125;:age</code> 会落到同一个槽（⑧ 实测：都是 10778），这是「同一实体的多字段需要原子操作」的前提。</p>
+<h3 id="2-4-分片的真实代价"><a href="#2-4-分片的真实代价" class="headerlink" title="2.4 分片的真实代价"></a>2.4 分片的真实代价</h3><table>
+<thead>
+<tr>
+<th>代价</th>
+<th>具体表现</th>
+<th>缓解</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>跨片操作</td>
+<td><code>MGET</code>&#x2F;Lua 报 <code>CROSSSLOT</code></td>
+<td>hash tag、应用侧拆分</td>
+</tr>
+<tr>
+<td>多一次重定向</td>
+<td>请求打错节点返回 <code>MOVED</code>，客户端重试</td>
+<td>Smart client 缓存槽映射</td>
+</tr>
+<tr>
+<td>运维复杂</td>
+<td>扩缩容、槽迁移、故障转移</td>
+<td>用成熟方案 + 演练</td>
+</tr>
+<tr>
+<td>一致性变难</td>
+<td>跨片事务不可用</td>
+<td>业务拆分、最终一致</td>
+</tr>
+<tr>
+<td>监控维度变多</td>
+<td>要按节点看命中率&#x2F;内存</td>
+<td>统一看板</td>
+</tr>
+</tbody></table>
+<p><strong>一个常被忽略的成本</strong>：<code>MOVED</code> 重定向意味着一次请求变成两次往返。⑧ 的实测里，<code>SET user:1</code> 在错误节点上直接返回：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">MOVED 10778 172.19.0.7:6379</span><br></pre></td></tr></table></figure>
+
+<p>客户端要再发一次。按 ② 的「一次往返 31 µs」算，<strong>每次重定向多一次 RTT</strong>；如果客户端不做槽缓存，所有请求都多一次 RTT，吞吐直接腰斩。</p>
+<h2 id="3-容量规划模板"><a href="#3-容量规划模板" class="headerlink" title="3. 容量规划模板"></a>3. 容量规划模板</h2><pre class="mermaid">flowchart LR
+    A["Target QPS"] --> B["Instance QPS ceiling&lt;br/>e.g. 200k"]
+    B --> C["Shards by QPS"]
+    D["Key count"] --> E["Per-key bytes&lt;br/>e.g. 1.3 KB"]
+    E --> F["Raw memory"]
+    F --> G["x replica x frag factor"]
+    G --> H["Shards by memory"]
+    C --> I["max(QPS shards, memory shards)"]
+    H --> I</pre>
+
+<h3 id="3-1-一张表算清"><a href="#3-1-一张表算清" class="headerlink" title="3.1 一张表算清"></a>3.1 一张表算清</h3><table>
+<thead>
+<tr>
+<th>输入</th>
+<th>取值</th>
+<th>来源</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>目标 QPS</td>
+<td>例如 50 万</td>
+<td>业务预估</td>
+</tr>
+<tr>
+<td>单实例 QPS 上限</td>
+<td>例如 20 万（保守）</td>
+<td>本文 1.1 实测打折</td>
+</tr>
+<tr>
+<td>需要实例数（读）</td>
+<td>3 主 + 3 从</td>
+<td>主从分摊读</td>
+</tr>
+<tr>
+<td>key 数量</td>
+<td>例如 2 亿</td>
+<td>业务</td>
+</tr>
+<tr>
+<td>单 key 内存</td>
+<td>例如 1.3 KB（1KB value）</td>
+<td>本文 1.2</td>
+</tr>
+<tr>
+<td>裸内存</td>
+<td>2 亿 × 1.3 KB ≈ 260 GB</td>
+<td>计算</td>
+</tr>
+<tr>
+<td>加副本与碎片（×2.5）</td>
+<td>≈ 650 GB</td>
+<td>经验系数</td>
+</tr>
+<tr>
+<td>单机内存上限</td>
+<td>例如 64 GB</td>
+<td>硬件</td>
+</tr>
+<tr>
+<td>分片数</td>
+<td>650 &#x2F; 64 ≈ 11 → 12 片</td>
+<td>向上取整</td>
+</tr>
+</tbody></table>
+<p><strong>结论</strong>：这个场景需要 12 个分片（可以 12 主 + 12 从），而不是「加一台更大的机器」。</p>
+<h3 id="3-2-分片前必须做的三件事"><a href="#3-2-分片前必须做的三件事" class="headerlink" title="3.2 分片前必须做的三件事"></a>3.2 分片前必须做的三件事</h3><table>
+<thead>
+<tr>
+<th>事项</th>
+<th>为什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>清理大 key</td>
+<td>大 key 会让分片不均（③⑤）</td>
+</tr>
+<tr>
+<td>统一 TTL 策略</td>
+<td>避免集中失效（⑨）</td>
+</tr>
+<tr>
+<td>客户端支持 MOVED</td>
+<td>否则每次请求多一次 RTT</td>
+</tr>
+</tbody></table>
+<h2 id="4-全系列总表（收官）"><a href="#4-全系列总表（收官）" class="headerlink" title="4. 全系列总表（收官）"></a>4. 全系列总表（收官）</h2><h3 id="4-1-十二篇一览"><a href="#4-1-十二篇一览" class="headerlink" title="4.1 十二篇一览"></a>4.1 十二篇一览</h3><table>
+<thead>
+<tr>
+<th>#</th>
+<th>篇目</th>
+<th>一句话核心</th>
+<th>给你的能力</th>
+<th>关键实测</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>①</td>
+<td>从这里开始：把 Redis 变成你的实验台</td>
+<td>先数往返，再谈优化</td>
+<td>能搭环境、跑基线、分清三种成本</td>
+<td>PING 31 µs；1M key 139 B&#x2F;key</td>
+</tr>
+<tr>
+<td>②</td>
+<td>一次请求的成本账</td>
+<td>服务端执行只占 0.08%</td>
+<td>能判断瓶颈在网络还是执行</td>
+<td>pipeline 48×；unix socket 1.36×</td>
+</tr>
+<tr>
+<td>③</td>
+<td>数据结构与编码</td>
+<td>一个 field 能让内存涨 4.6 倍</td>
+<td>能选编码、避开断崖</td>
+<td>hash 512→513 涨 4.65×；zset 11.3×</td>
+</tr>
+<tr>
+<td>④</td>
+<td>内存、淘汰与碎片</td>
+<td><code>maxmemory</code> 不等于安全</td>
+<td>能配淘汰、能收碎片</td>
+<td>Lua 绕过 maxmemory 写出 34 MB；defrag 回收 128 MB</td>
+</tr>
+<tr>
+<td>⑤</td>
+<td>单线程与阻塞</td>
+<td>一条慢命令让所有人排队</td>
+<td>能定位并消除阻塞</td>
+<td><code>KEYS</code> 116 ms；<code>DEL</code> vs <code>UNLINK</code> 156 ms vs 7 µs</td>
+</tr>
+<tr>
+<td>⑥</td>
+<td>Pipeline、事务与 Lua</td>
+<td>Redis 事务不回滚</td>
+<td>能选对原子性方案</td>
+<td>1000 INCR：105→2.9 ms；Lua 扣减 100&#x2F;1000</td>
+</tr>
+<tr>
+<td>⑦</td>
+<td>持久化</td>
+<td><code>kill -9</code> 测不出 everysec 的丢失</td>
+<td>能配 RDB&#x2F;AOF、算丢失窗口</td>
+<td>always 487 µs&#x2F;op；AOF 18.6→4.3 MB</td>
+</tr>
+<tr>
+<td>⑧</td>
+<td>复制、哨兵与 Cluster</td>
+<td>切换时间由超时参数决定</td>
+<td>能搭高可用、判断切换窗口</td>
+<td>哨兵 3.33 s；Cluster 6.9 s</td>
+</tr>
+<tr>
+<td>⑨</td>
+<td>缓存三大问题</td>
+<td>缓存问题本质是数据库容量问题</td>
+<td>能防穿透&#x2F;击穿&#x2F;雪崩</td>
+<td>穿透 9,241 DB QPS；布隆误判 1.5%</td>
+</tr>
+<tr>
+<td>⑩</td>
+<td>缓存与数据库一致性</td>
+<td>先删缓存再更库 100% 出错</td>
+<td>能选对更新顺序</td>
+<td>60 轮并发：B 策略 60&#x2F;60 不一致</td>
+</tr>
+<tr>
+<td>⑪</td>
+<td>分布式锁与限流</td>
+<td>锁适合防重复，不适合防并发写</td>
+<td>能写出正确的锁与限流器</td>
+<td>脑裂双锁；固定窗口 2× 超发</td>
+</tr>
+<tr>
+<td>⑫</td>
+<td>容量规划与分片（本文）</td>
+<td>加并发不加吞吐</td>
+<td>能算容量、决定是否分片</td>
+<td>8 连接即拐点；1 亿 key 1.1 TB</td>
+</tr>
+</tbody></table>
+<h3 id="4-2-三种能力的分层"><a href="#4-2-三种能力的分层" class="headerlink" title="4.2 三种能力的分层"></a>4.2 三种能力的分层</h3><table>
+<thead>
+<tr>
+<th>层级</th>
+<th>能力</th>
+<th>对应篇目</th>
+<th>判断标准</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>L1 知识</td>
+<td>知道机制、参数、现象</td>
+<td>全部</td>
+<td>能画出来、能解释为什么</td>
+</tr>
+<tr>
+<td>L2 判断</td>
+<td>知道在什么量级下成立</td>
+<td>②③④⑦⑧⑫</td>
+<td>能给出数字与对照</td>
+</tr>
+<tr>
+<td>L3 责任</td>
+<td>独立处理过故障、切换、扩容</td>
+<td>⑤⑧⑪</td>
+<td>能签字、能复盘、能定预案</td>
+</tr>
+</tbody></table>
+<h3 id="4-3-自检清单：能脱稿回答就算过关"><a href="#4-3-自检清单：能脱稿回答就算过关" class="headerlink" title="4.3 自检清单：能脱稿回答就算过关"></a>4.3 自检清单：能脱稿回答就算过关</h3><ol>
+<li>一次 <code>GET</code> 的时间花在哪几段，服务端占多少？</li>
+<li>为什么 pipeline 能提升 10 倍以上，代价是什么？</li>
+<li>hash 从 512 涨到 513 个 field，内存为什么涨 4.6 倍？</li>
+<li><code>maxmemory</code> 设了为什么还会 OOM？</li>
+<li><code>KEYS *</code> 为什么会阻塞所有人，替代方案是什么？</li>
+<li>Redis 事务为什么不回滚，什么情况下会 <code>EXECABORT</code>？</li>
+<li><code>everysec</code> 到底会丢多少数据，<code>kill -9</code> 能测出来吗？</li>
+<li>哨兵切换要多久，由哪个参数决定？</li>
+<li>缓存穿透、击穿、雪崩各自的解法与代价？</li>
+<li>为什么「先删缓存再更库」是错的？</li>
+<li>分布式锁在什么情况下会出现两个持有者？</li>
+<li>什么时候该上 Cluster，分片键怎么选？</li>
+</ol>
+<h3 id="4-4-三个月的学习节奏"><a href="#4-4-三个月的学习节奏" class="headerlink" title="4.4 三个月的学习节奏"></a>4.4 三个月的学习节奏</h3><table>
+<thead>
+<tr>
+<th>周次</th>
+<th>内容</th>
+<th>产出</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1~2</td>
+<td>①②</td>
+<td>基线档案：延迟三层 + pipeline 曲线</td>
+</tr>
+<tr>
+<td>3~4</td>
+<td>③④</td>
+<td>编码断崖实验 + 淘汰策略命中率</td>
+</tr>
+<tr>
+<td>5~6</td>
+<td>⑤⑥</td>
+<td>阻塞探针 + 事务&#x2F;Lua 对照</td>
+</tr>
+<tr>
+<td>7~8</td>
+<td>⑦⑧</td>
+<td>三档 fsync + 哨兵切换演练</td>
+</tr>
+<tr>
+<td>9~10</td>
+<td>⑨⑩</td>
+<td>穿透压测 + 一致性轮次实验</td>
+</tr>
+<tr>
+<td>11~12</td>
+<td>⑪⑫</td>
+<td>锁失效复现 + 容量计算</td>
+</tr>
+</tbody></table>
+<p><strong>唯一的硬要求</strong>：每个实验的数字都记进 <code>redis-lab.md</code>。文章给的是结论，那份文件才是你自己的判断依据。</p>
+<hr>
+<h3 id="4-5-十二篇的因果链"><a href="#4-5-十二篇的因果链" class="headerlink" title="4.5 十二篇的因果链"></a>4.5 十二篇的因果链</h3><pre class="mermaid">flowchart LR
+    A1["1 Baseline"] --> A2["2 Cost per call"]
+    A2 --> A3["3 Encoding"]
+    A3 --> A4["4 Memory"]
+    A4 --> A5["5 Single thread"]
+    A5 --> A6["6 Tx &amp; Lua"]
+    A6 --> A7["7 Persistence"]
+    A7 --> A8["8 Replication"]
+    A8 --> A9["9 Cache failures"]
+    A9 --> A10["10 Consistency"]
+    A10 --> A11["11 Lock &amp; limit"]
+    A11 --> A12["12 Capacity"]</pre>
+
+<h2 id="6-动手验证：四个可复现实验"><a href="#6-动手验证：四个可复现实验" class="headerlink" title="6. 动手验证：四个可复现实验"></a>6. 动手验证：四个可复现实验</h2><h3 id="6-1-动手验证：测出你自己实例的-QPS-拐点"><a href="#6-1-动手验证：测出你自己实例的-QPS-拐点" class="headerlink" title="6.1 动手验证：测出你自己实例的 QPS 拐点"></a>6.1 动手验证：测出你自己实例的 QPS 拐点</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> redis-lab redis-benchmark -q -t <span class="built_in">set</span> -n 100000 -r 100000 -d 64</span><br><span class="line"><span class="keyword">for</span> C <span class="keyword">in</span> 1 8 32 64 128; <span class="keyword">do</span></span><br><span class="line">  docker <span class="built_in">exec</span> redis-lab redis-benchmark -q -t get -n 200000 -c <span class="variable">$C</span> -r 100000 2&gt;&amp;1 | <span class="built_in">tr</span> <span class="string">&#x27;\r&#x27;</span> <span class="string">&#x27;\n&#x27;</span> | grep <span class="string">&quot;GET&quot;</span></span><br><span class="line"><span class="keyword">done</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：QPS 在 8~32 连接后平台化，p50 随连接数上升（本文 27.5 万 → 32.9 万，p50 0.023 → 0.199 ms）。</p>
+<p><strong>判定标准</strong>：QPS 随连接数持续增长 → 你的实例还有余量；QPS 下降 → 有 CPU 争抢或客户端瓶颈。</p>
+<h3 id="6-2-动手验证：按-key-数估算内存"><a href="#6-2-动手验证：按-key-数估算内存" class="headerlink" title="6.2 动手验证：按 key 数估算内存"></a>6.2 动手验证：按 key 数估算内存</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">for</span> SZ <span class="keyword">in</span> 64 1024 10240; <span class="keyword">do</span></span><br><span class="line">  docker <span class="built_in">exec</span> redis-lab redis-cli FLUSHALL</span><br><span class="line">  docker <span class="built_in">exec</span> redis-lab redis-cli EVAL <span class="string">&quot;for i=1,10000 do redis.call(&#x27;set&#x27;,&#x27;m:&#x27;..i,string.rep(&#x27;x&#x27;,tonumber(ARGV[1]))) end return 1&quot;</span> 0 <span class="variable">$SZ</span></span><br><span class="line">  <span class="built_in">echo</span> -n <span class="string">&quot;value=<span class="variable">$SZ</span> &quot;</span>; docker <span class="built_in">exec</span> redis-lab redis-cli MEMORY USAGE m:1</span><br><span class="line"><span class="keyword">done</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：64B→128B、1KB→1328B、10KB→12336B（本文）。</p>
+<p><strong>判定标准</strong>：实测值远大于 value → 有 jemalloc size class 取整，评估容量时要按实测乘 key 数。</p>
+<h3 id="6-3-动手验证：验证-hash-tag-同槽"><a href="#6-3-动手验证：验证-hash-tag-同槽" class="headerlink" title="6.3 动手验证：验证 hash tag 同槽"></a>6.3 动手验证：验证 hash tag 同槽</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> redis-cluster-lab redis-cli CLUSTER KEYSLOT <span class="string">&#x27;&#123;user:1&#125;:name&#x27;</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-cluster-lab redis-cli CLUSTER KEYSLOT <span class="string">&#x27;&#123;user:1&#125;:age&#x27;</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-cluster-lab redis-cli CLUSTER KEYSLOT <span class="string">&#x27;user:2:name&#x27;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：两个 <code>&#123;user:1&#125;:*</code> 槽号相同（本文 10778），<code>user:2:name</code> 不同（15992）。</p>
+<p><strong>判定标准</strong>：两个 hash tag key 槽号不同 → 花括号位置写错了（必须包住要哈希的部分）。</p>
+<h3 id="6-4-动手验证：算一次容量"><a href="#6-4-动手验证：算一次容量" class="headerlink" title="6.4 动手验证：算一次容量"></a>6.4 动手验证：算一次容量</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 输入：目标 QPS、单实例上限、key 数、单 key 内存、副本数、碎片系数</span></span><br><span class="line">python3 - &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line">qps, per_instance = 500_000, 200_000</span><br><span class="line">keys, per_key_kb = 200_000_000, 1.3</span><br><span class="line">raw_gb = keys * per_key_kb / 1024 / 1024</span><br><span class="line">total_gb = raw_gb * 2.5          <span class="comment"># 副本 + 碎片余量</span></span><br><span class="line">shards = max(-(-qps // per_instance), -(-int(total_gb) // 64))</span><br><span class="line"><span class="built_in">print</span>(f<span class="string">&quot;按 QPS 需 &#123;qps/per_instance:.1f&#125; 片，按内存需 &#123;total_gb/64:.1f&#125; 片 -&gt; 取 &#123;shards&#125; 片&quot;</span>)</span><br><span class="line">EOF</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：输出应给出「QPS 需求」与「内存需求」两行，取较大者作为分片数。</p>
+<p><strong>判定标准</strong>：两者数量级差异很大 → 说明瓶颈单一，先按瓶颈那一侧扩容，别盲目分片。</p>
+<h2 id="5-总结"><a href="#5-总结" class="headerlink" title="5. 总结"></a>5. 总结</h2><h3 id="5-1-面试速答表"><a href="#5-1-面试速答表" class="headerlink" title="5.1 面试速答表"></a>5.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>单实例 Redis 能扛多少 QPS</td>
+<td>本文 loopback 实测 ~33 万 GET&#x2F;s，8 个连接就到拐点</td>
+</tr>
+<tr>
+<td>加连接能提升 QPS 吗</td>
+<td>几乎不能：8→128 连接 QPS +19%，p50 +8.6 倍</td>
+</tr>
+<tr>
+<td>内存怎么估算</td>
+<td>key 数 ×（value 按 size class 取整 + 64~300 B）× 副本 × 碎片系数</td>
+</tr>
+<tr>
+<td>1 亿个 key 要多少内存</td>
+<td>64B value 约 11.9 GB；10KB value 约 1.1 TB（本文实测）</td>
+</tr>
+<tr>
+<td>什么时候该分片</td>
+<td>QPS 到拐点且读扩展无效，或内存超过单机</td>
+</tr>
+<tr>
+<td>Redis Cluster 有什么代价</td>
+<td>跨槽操作受限、MOVED 多一次 RTT、运维复杂</td>
+</tr>
+<tr>
+<td>分片键怎么选</td>
+<td>均匀、查询必带、尽量单 key 操作</td>
+</tr>
+<tr>
+<td>hash tag 是什么</td>
+<td><code>&#123;user:1&#125;</code> 只对花括号内计算槽，保证同实体的 key 同槽</td>
+</tr>
+<tr>
+<td>为什么加了并发反而更慢</td>
+<td>单线程排队，p50 上升</td>
+</tr>
+<tr>
+<td><code>maxclients</code> 默认多少</td>
+<td>10000（本文实测）</td>
+</tr>
+</tbody></table>
+<h3 id="5-2-实战避坑表"><a href="#5-2-实战避坑表" class="headerlink" title="5.2 实战避坑表"></a>5.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>加机器后 QPS 没涨</td>
+<td>瓶颈在单实例 CPU&#x2F;单 key 热点</td>
+<td>分片或拆热点</td>
+</tr>
+<tr>
+<td>内存按 value 算总超</td>
+<td>忽略 key 开销与 size class</td>
+<td>用 <code>MEMORY USAGE</code> 抽样（③）</td>
+</tr>
+<tr>
+<td>分片后大量跨片报错</td>
+<td>分片键与查询不匹配</td>
+<td>重设计 key 或加 hash tag</td>
+</tr>
+<tr>
+<td>分片后吞吐反而降</td>
+<td>客户端没缓存槽映射，每次 MOVED</td>
+<td>用 Smart Client</td>
+</tr>
+<tr>
+<td>扩容迁移影响在线</td>
+<td>槽迁移没限流</td>
+<td>分批迁移 + 低峰执行</td>
+</tr>
+</tbody></table>
+<h3 id="5-3-工具速查表"><a href="#5-3-工具速查表" class="headerlink" title="5.3 工具速查表"></a>5.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>判定标准</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>redis-benchmark -c</code></td>
+<td>QPS 与 p50 随并发变化</td>
+<td>QPS 平台化 &#x3D; 到拐点</td>
+</tr>
+<tr>
+<td><code>MEMORY USAGE</code></td>
+<td>单 key 实际内存</td>
+<td>乘 key 数估容量</td>
+</tr>
+<tr>
+<td><code>INFO memory</code></td>
+<td>used &#x2F; rss &#x2F; 碎片</td>
+<td>80% 上限需扩容</td>
+</tr>
+<tr>
+<td><code>CONFIG GET maxclients</code></td>
+<td>连接上限</td>
+<td>10000，接近要处理</td>
+</tr>
+<tr>
+<td><code>CLUSTER KEYSLOT</code></td>
+<td>槽归属</td>
+<td>验证 hash tag</td>
+</tr>
+<tr>
+<td><code>INFO commandstats</code></td>
+<td>每命令耗时</td>
+<td>找热点命令</td>
+</tr>
+</tbody></table>
+<h3 id="5-4-实操建议"><a href="#5-4-实操建议" class="headerlink" title="5.4 实操建议"></a>5.4 实操建议</h3><ol>
+<li><strong>先算容量再谈分片</strong>：QPS、内存、连接数三个维度分别算，缺哪个补哪个。</li>
+<li><strong>单实例的 QPS 拐点比你想象的早</strong>（本文 8 个连接），别用「加连接」当扩容。</li>
+<li><strong>内存按 key 数 × 单 key 实际占用</strong>估，别用 value 大小乘（会差 2 倍以上）。</li>
+<li><strong>分片键必须在查询里出现</strong>，否则跨片查询会让分片失去意义。</li>
+<li><strong>分片前先做大 key 清理与 TTL 治理</strong>，否则分片只会把问题放大。</li>
+</ol>
+<hr>
+<p><strong>系列完结</strong>。十二篇的因果链是一条：<strong>先量（①）→ 算账（②）→ 数据与内存（③④）→ 单线程与原子性（⑤⑥）→ 持久化与高可用（⑦⑧）→ 应用模式（⑨⑩⑪）→ 最后才谈容量（⑫）</strong>。</p>
+<p>如果你的下一步是面试，按 4.3 的 12 个问题自测；如果是实战，从 ① 的环境和 ③ 的编码断崖开始动手。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/%E9%9D%A2%E8%AF%95/" rel="tag"># 面试</a>
+              <a href="/tags/%E5%AE%B9%E9%87%8F%E8%A7%84%E5%88%92/" rel="tag"># 容量规划</a>
+              <a href="/tags/Redis/" rel="tag"># Redis</a>
+              <a href="/tags/Cluster/" rel="tag"># Cluster</a>
+              <a href="/tags/%E5%88%86%E7%89%87/" rel="tag"># 分片</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/cb07eb8d.html" rel="prev" title="分布式锁与限流：从 SET NX 到 Redisson">
+                  <i class="fa fa-angle-left"></i> 分布式锁与限流：从 SET NX 到 Redisson
+                </a>
+            </div>
+            <div class="post-nav-item">
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">740k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">44:51</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
+</html>

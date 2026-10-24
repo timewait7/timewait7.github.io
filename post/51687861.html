@@ -1,0 +1,1169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="Seconds_Behind_Source 不可信，但绝大多数监控只看它。它的计算方式决定了两个盲区：从库应用线程停住时它显示 NULL（不是持续增长的数字），从库追平后它又恒为 0——两种情况都会让「延迟 &gt; 阈值」的告警失效。 本文搭了一套真实的 GTID 主从（两个容器），用实测把这件事钉死：在应用线程停住的 10 秒里，SBM 一直是 NULL，而心跳表测出的真实延迟从 11.38">
+<meta property="og:type" content="article">
+<meta property="og:title" content="复制与高可用：延迟的量化与判定">
+<meta property="og:url" content="http://timewait7.github.io/post/51687861.html">
+<meta property="og:site_name" content="知行栈">
+<meta property="og:description" content="Seconds_Behind_Source 不可信，但绝大多数监控只看它。它的计算方式决定了两个盲区：从库应用线程停住时它显示 NULL（不是持续增长的数字），从库追平后它又恒为 0——两种情况都会让「延迟 &gt; 阈值」的告警失效。 本文搭了一套真实的 GTID 主从（两个容器），用实测把这件事钉死：在应用线程停住的 10 秒里，SBM 一直是 NULL，而心跳表测出的真实延迟从 11.38">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-10-24T19:10:00.000Z">
+<meta property="article:modified_time" content="2026-10-24T13:36:16.669Z">
+<meta property="article:tag" content="MySQL">
+<meta property="article:tag" content="面试">
+<meta property="article:tag" content="主从复制">
+<meta property="article:tag" content="GTID">
+<meta property="article:tag" content="高可用">
+<meta property="article:tag" content="延迟">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/51687861.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/51687861.html","path":"post/51687861.html","title":"复制与高可用：延迟的量化与判定"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>复制与高可用：延迟的量化与判定 | 知行栈</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<!-- hexo injector head_end start --><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
+</style><style>
+/* 菜单链高亮：sub-menu 祖先（同主题 .menu-item-active 的 Pisces 规则） */
+.sub-menu .menu-item a.menu-chain-active {
+  border-bottom-color: #fc6423;
+  color: #fc6423;
+}
+.sub-menu .menu-item a.menu-chain-active:hover {
+  border-bottom-color: #fc6423;
+}
+/* 菜单链高亮：main-menu 祖先（同主题 hover/active 的背景规则） */
+.main-menu .menu-item a.menu-chain-active {
+  background: var(--menu-item-bg-color);
+}
+</style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">知行栈</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section" class="menu-chain-active"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>Categories</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-%E5%A4%8D%E5%88%B6%E9%93%BE%E8%B7%AF%EF%BC%9A%E4%B8%89%E4%B8%AA%E7%BA%BF%E7%A8%8B%E3%80%81%E4%B8%A4%E4%BB%BD%E6%97%A5%E5%BF%97"><span class="nav-text">1. 复制链路：三个线程、两份日志</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-%E4%B8%89%E7%BA%BF%E7%A8%8B%E6%A8%A1%E5%9E%8B"><span class="nav-text">1.1 三线程模型</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-2-binlog-%E4%B8%89%E7%A7%8D%E6%A0%BC%E5%BC%8F"><span class="nav-text">1.2 binlog 三种格式</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-3-GTID%EF%BC%9A%E6%8A%8A%E3%80%8C%E6%89%BE%E4%BD%8D%E7%82%B9%E3%80%8D%E5%8F%98%E6%88%90%E3%80%8C%E5%AF%B9%E9%9B%86%E5%90%88%E3%80%8D"><span class="nav-text">1.3 GTID：把「找位点」变成「对集合」</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-4-%E5%AE%9E%E6%B5%8B%EF%BC%9A%E6%90%AD%E4%B8%80%E5%A5%97-GTID-%E4%B8%BB%E4%BB%8E"><span class="nav-text">1.4 实测：搭一套 GTID 主从</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E5%B9%B6%E8%A1%8C%E5%A4%8D%E5%88%B6%EF%BC%9A%E4%B8%BA%E4%BB%80%E4%B9%88%E9%BB%98%E8%AE%A4%E8%BF%98%E6%98%AF%E6%85%A2"><span class="nav-text">2. 并行复制：为什么默认还是慢</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E5%AE%9E%E6%B5%8B%E9%BB%98%E8%AE%A4%E5%80%BC"><span class="nav-text">2.1 实测默认值</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E5%A4%A7%E4%BA%8B%E5%8A%A1%E6%98%AF%E5%B9%B6%E8%A1%8C%E7%9A%84%E5%A4%A9%E6%95%8C"><span class="nav-text">2.2 大事务是并行的天敌</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-%E5%AE%9E%E6%B5%8B%EF%BC%9A100-%E4%B8%87%E8%A1%8C%E5%8D%95%E4%BA%8B%E5%8A%A1%E7%9A%84%E5%9B%9E%E6%94%BE"><span class="nav-text">2.3 实测：100 万行单事务的回放</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E5%BB%B6%E8%BF%9F%EF%BC%9A%E4%B8%A4%E4%B8%AA%E6%8C%87%E6%A0%87%EF%BC%8C%E4%B8%A4%E5%A5%97%E7%9B%B2%E5%8C%BA"><span class="nav-text">3. 延迟：两个指标，两套盲区</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-Seconds-Behind-Source-%E5%88%B0%E5%BA%95%E6%80%8E%E4%B9%88%E7%AE%97"><span class="nav-text">3.1 Seconds_Behind_Source 到底怎么算</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E5%AE%9E%E6%B5%8B%EF%BC%9A%E4%B8%A4%E4%B8%AA%E6%8C%87%E6%A0%87%E7%9A%84%E8%83%8C%E7%A6%BB"><span class="nav-text">3.2 实测：两个指标的背离</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-%E5%BF%83%E8%B7%B3%E8%A1%A8%EF%BC%9A%E6%80%8E%E4%B9%88%E6%B5%8B%E7%9C%9F%E5%BB%B6%E8%BF%9F"><span class="nav-text">3.3 心跳表：怎么测真延迟</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-4-%E5%BB%B6%E8%BF%9F%E7%9A%84%E5%9B%9B%E7%B1%BB%E6%A0%B9%E5%9B%A0"><span class="nav-text">3.4 延迟的四类根因</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-5-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%88%B6%E9%80%A0%E5%B9%B6%E8%A7%82%E6%B5%8B%E5%BB%B6%E8%BF%9F"><span class="nav-text">3.5 动手验证：制造并观测延迟</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E9%AB%98%E5%8F%AF%E7%94%A8%EF%BC%9A%E5%88%87%E6%8D%A2%E6%BC%94%E7%BB%83"><span class="nav-text">4. 高可用：切换演练</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-%E5%AE%9E%E6%B5%8B%EF%BC%9A%E6%8A%8A%E4%BB%8E%E5%BA%93%E6%8F%90%E5%8D%87%E4%B8%BA%E4%B8%BB%E5%BA%93"><span class="nav-text">4.1 实测：把从库提升为主库</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-%E4%B8%89%E7%A7%8D%E9%AB%98%E5%8F%AF%E7%94%A8%E6%96%B9%E6%A1%88"><span class="nav-text">4.2 三种高可用方案</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-%E8%84%91%E8%A3%82%E4%B8%8E-fencing"><span class="nav-text">4.3 脑裂与 fencing</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%86%99%E4%B8%80%E4%B8%AA%E5%8F%AF%E9%87%8D%E5%A4%8D%E7%9A%84%E5%88%87%E6%8D%A2%E6%BC%94%E7%BB%83"><span class="nav-text">4.4 动手验证：写一个可重复的切换演练</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E6%80%BB%E7%BB%93"><span class="nav-text">5. 总结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E9%9D%A2%E8%AF%95%E9%80%9F%E7%AD%94%E8%A1%A8"><span class="nav-text">5.1 面试速答表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E5%AE%9E%E6%88%98%E9%81%BF%E5%9D%91%E8%A1%A8"><span class="nav-text">5.2 实战避坑表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-%E5%B7%A5%E5%85%B7%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">5.3 工具速查表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-%E5%AE%9E%E6%93%8D%E5%BB%BA%E8%AE%AE"><span class="nav-text">5.4 实操建议</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">104</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">14</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">175</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+    <div class="sidebar-inner sidebar-blogroll">
+      <div class="links-of-blogroll animated">
+        <div class="links-of-blogroll-title"><i class="fa fa-globe fa-fw"></i>
+          Links
+        </div>
+        <ul class="links-of-blogroll-list">
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9wYXVsZ3JhaGFtLmNvbS9hcnRpY2xlcy5odG1s" title="https:&#x2F;&#x2F;paulgraham.com&#x2F;articles.html">paulgraham</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly93d3cuam9lbG9uc29mdHdhcmUuY29tLw==" title="https:&#x2F;&#x2F;www.joelonsoftware.com&#x2F;">Joel on Software</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9tYXJ0aW5mb3dsZXIuY29tLw==" title="https:&#x2F;&#x2F;martinfowler.com&#x2F;">Martin Flower</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly96aGFuZ3RpZWxlaS5jb20v" title="https:&#x2F;&#x2F;zhangtielei.com&#x2F;">zhangtielei</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhLWRlc2lnbi1wYXR0ZXJucy5jb20vemgv" title="https:&#x2F;&#x2F;java-design-patterns.com&#x2F;zh&#x2F;">Java Design Patterns</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9taWNyb3NlcnZpY2VzLmlvLw==" title="https:&#x2F;&#x2F;microservices.io&#x2F;">Microservice Architecture</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhZ3VpZGUuY24v" title="https:&#x2F;&#x2F;javaguide.cn&#x2F;">JavaGuide</span>
+            </li>
+        </ul>
+      </div>
+    </div>
+        <div class="pjax">
+        
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-后端开发"><a href="/docs/nav/backend-dev-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-code fa-fw"></i>后端开发</a></li>
+
+
+      
+  <li class="menu-item menu-item-计算机基础"><a href="/docs/nav/cs-foundation-nav.html" rel="section"><i class="fa fa-desktop fa-fw"></i>计算机基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-ai-学习"><a href="/docs/nav/ai-learning-nav.html" rel="section"><i class="fa fa-robot fa-fw"></i>AI 学习</a></li>
+
+
+      
+  <li class="menu-item menu-item-项目实战"><a href="/docs/nav/5964f4da.html" rel="section"><i class="fa fa-flask fa-fw"></i>项目实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-misc"><a href="/docs/nav/misc-nav.html" rel="section"><i class="fa fa-box fa-fw"></i>Misc</a></li>
+
+
+      
+  <li class="menu-item menu-item-随笔·生活"><a href="/docs/nav/life-nav.html" rel="section"><i class="fa fa-feather fa-fw"></i>随笔·生活</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java"><a href="/docs/nav/java-nav.html" rel="section"><i class="fa fa-coffee fa-fw"></i>Java</a></li>
+
+
+      
+  <li class="menu-item menu-item-框架"><a href="/docs/nav/framework-nav.html" rel="section"><i class="fa fa-th-large fa-fw"></i>框架</a></li>
+
+
+      
+  <li class="menu-item menu-item-数据存储"><a href="/docs/nav/data-storage-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-hdd fa-fw"></i>数据存储</a></li>
+
+
+      
+  <li class="menu-item menu-item-中间件"><a href="/docs/nav/middleware-nav.html" rel="section"><i class="fa fa-cubes fa-fw"></i>中间件</a></li>
+
+
+      
+  <li class="menu-item menu-item-分布式与微服务"><a href="/docs/nav/distributed-nav.html" rel="section"><i class="fa fa-sitemap fa-fw"></i>分布式与微服务</a></li>
+
+
+      
+  <li class="menu-item menu-item-系统设计"><a href="/docs/nav/system-design-nav.html" rel="section"><i class="fa fa-pencil-ruler fa-fw"></i>系统设计</a></li>
+
+
+      
+  <li class="menu-item menu-item-部署运维"><a href="/docs/nav/devops-nav.html" rel="section"><i class="fa fa-terminal fa-fw"></i>部署运维</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-mysql"><a href="/docs/nav/mysql-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-database fa-fw"></i>MySQL</a></li>
+
+
+      
+  <li class="menu-item menu-item-redis"><a href="/docs/nav/redis-nav.html" rel="section"><i class="fa fa-bolt fa-fw"></i>Redis</a></li>
+
+
+      
+  <li class="menu-item menu-item-elasticsearch"><a href="/docs/nav/es-nav.html" rel="section"><i class="fa fa-search fa-fw"></i>ElasticSearch</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-mysql-深度解析：从原理到高可用与分库分表实战"><a href="/post/32511a71.html" rel="section"><i class="fa fa-file-text fa-fw"></i>MySQL 深度解析：从原理到高可用与分库分表实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-①-从这里开始：把-mysql-变成你的实验台"><a href="/post/60f95c16.html" rel="section"><i class="fa fa-file-text fa-fw"></i>① 从这里开始：把 MySQL 变成你的实验台</a></li>
+
+
+      
+  <li class="menu-item menu-item-②-一条-sql-的六层成本账：架构不是画流程图"><a href="/post/ffd9df8b.html" rel="section"><i class="fa fa-file-text fa-fw"></i>② 一条 SQL 的六层成本账：架构不是画流程图</a></li>
+
+
+      
+  <li class="menu-item menu-item-③-schema-与索引：把逻辑读降下来"><a href="/post/e1724727.html" rel="section"><i class="fa fa-file-text fa-fw"></i>③ Schema 与索引：把逻辑读降下来</a></li>
+
+
+      
+  <li class="menu-item menu-item-④-查询优化：优化器为什么会选错索引"><a href="/post/d65d7254.html" rel="section"><i class="fa fa-file-text fa-fw"></i>④ 查询优化：优化器为什么会选错索引</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑤-事务与-mvcc：把「不可重复读」亲手复现出来"><a href="/post/88fb6d0c.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑤ 事务与 MVCC：把「不可重复读」亲手复现出来</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑥-锁、死锁与-mdl：一次变更如何堵死整张表"><a href="/post/d090a538.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑥ 锁、死锁与 MDL：一次变更如何堵死整张表</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑦-innodb-内存与刷盘：物理-io-的钱花在哪"><a href="/post/8e8e95b7.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑦ InnoDB 内存与刷盘：物理 IO 的钱花在哪</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑧-复制与高可用：延迟的量化与判定"><a href="/post/51687861.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑧ 复制与高可用：延迟的量化与判定</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑨-备份与恢复：删库之后-30-分钟救回来"><a href="/post/f375ea2a.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑨ 备份与恢复：删库之后 30 分钟救回来</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑩-在线-ddl：一次加索引如何堵死整张表"><a href="/post/b5c3673.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑩ 在线 DDL：一次加索引如何堵死整张表</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑪-java-侧：连接池打满与-@transactional-失效的真相"><a href="/post/4d87a909.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑪ Java 侧：连接池打满与 @Transactional 失效的真相</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑫-容量与扩展：什么时候才该分库分表"><a href="/post/f8f36186.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑫ 容量与扩展：什么时候才该分库分表</a></li>
+
+
+    </ul>
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/51687861.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="复制与高可用：延迟的量化与判定 | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          复制与高可用：延迟的量化与判定
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-10-25 03:10:00" itemprop="dateCreated datePublished" datetime="2026-10-25T03:10:00+08:00">2026-10-25</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/" itemprop="url" rel="index"><span itemprop="name">数据存储</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>4.2k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>15 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><p><strong><code>Seconds_Behind_Source</code> 不可信，但绝大多数监控只看它</strong>。它的计算方式决定了两个盲区：从库应用线程停住时它显示 <code>NULL</code>（不是持续增长的数字），从库追平后它又恒为 <code>0</code>——两种情况都会让「延迟 &gt; 阈值」的告警失效。</p>
+<p>本文搭了一套真实的 GTID 主从（两个容器），用实测把这件事钉死：在应用线程停住的 10 秒里，<code>SBM</code> 一直是 <code>NULL</code>，而心跳表测出的真实延迟从 11.38 秒线性涨到 21.71 秒。最后再做一次主从切换演练，看 GTID 怎么把「找位点」变成「对集合」。</p>
+<blockquote>
+<p><strong>系列地图（高性能 MySQL 实战路线，12 篇）</strong></p>
+<p>① 实验台与基线 → ② 六层成本账 → ③ 索引与 Schema → ④ 优化器与慢查询 → ⑤ 事务与 MVCC → ⑥ 锁与死锁 → ⑦ 内存与刷盘 → ⑧ <strong>复制与高可用（本文）</strong> → ⑨ 备份与恢复 → ⑩ 在线 DDL → ⑪ Java 侧连接池 → ⑫ 容量与分库分表</p>
+<p>与前后篇的关系：⑦ 讲的两阶段提交是 binlog 一致性的前提，本篇的 binlog 是复制流的源头；本文的延迟判定是 ⑨ 备份窗口与 RPO 的输入；⑫ 讨论「读扩展」时，主从是第一种解法。</p>
+</blockquote>
+<h2 id="1-复制链路：三个线程、两份日志"><a href="#1-复制链路：三个线程、两份日志" class="headerlink" title="1. 复制链路：三个线程、两份日志"></a>1. 复制链路：三个线程、两份日志</h2><h3 id="1-1-三线程模型"><a href="#1-1-三线程模型" class="headerlink" title="1.1 三线程模型"></a>1.1 三线程模型</h3><pre class="mermaid">flowchart LR
+    subgraph P["Primary"]
+        W["Client writes"] --> BL["binlog"]
+        W --> ENG["InnoDB"]
+    end
+    subgraph R["Replica"]
+        IO["IO thread"] -->|"pull binlog"| RL["relay log"]
+        RL --> SQL["SQL thread(s)"]
+        SQL --> ENG2["InnoDB"]
+    end
+    BL -->|"SOURCE"| IO</pre>
+
+<table>
+<thead>
+<tr>
+<th>组件</th>
+<th>在哪</th>
+<th>干什么</th>
+<th>出问题时的表现</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>binlog dump 线程</td>
+<td>主库</td>
+<td>把 binlog 推给从库</td>
+<td>从库 <code>IO thread</code> 报连接错误</td>
+</tr>
+<tr>
+<td>IO thread</td>
+<td>从库</td>
+<td>拉 binlog 写 relay log</td>
+<td><code>Replica_IO_Running: No</code>，<code>Last_IO_Error</code> 有内容</td>
+</tr>
+<tr>
+<td>SQL thread（可多个 worker）</td>
+<td>从库</td>
+<td>回放 relay log</td>
+<td><code>Replica_SQL_Running: No</code>，<code>Last_SQL_Error</code> 有内容，延迟增长</td>
+</tr>
+</tbody></table>
+<p><strong>一个必须分清的点</strong>：<code>IO</code> 线程停了，从库连不上主库（网络问题）；<code>SQL</code> 线程停了，从库拿到了日志但没执行（应用冲突或人为停下）。两者的排查方向完全不同。</p>
+<h3 id="1-2-binlog-三种格式"><a href="#1-2-binlog-三种格式" class="headerlink" title="1.2 binlog 三种格式"></a>1.2 binlog 三种格式</h3><table>
+<thead>
+<tr>
+<th>格式</th>
+<th>写什么</th>
+<th>大小</th>
+<th>一致性风险</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>STATEMENT</td>
+<td>SQL 原文</td>
+<td>小</td>
+<td><code>NOW()</code>、<code>UUID()</code>、<code>LIMIT</code> 无排序等<strong>不确定语句</strong>会让主从不一致</td>
+<td>不推荐</td>
+</tr>
+<tr>
+<td>ROW（默认，实测）</td>
+<td>每行变更前后值</td>
+<td>大（一条 UPDATE 影响 100 万行 &#x3D; 100 万条事件）</td>
+<td>最安全，主从必然一致</td>
+<td>生产默认</td>
+</tr>
+<tr>
+<td>MIXED</td>
+<td>自动切换</td>
+<td>中</td>
+<td>由优化器判断，仍有不确定性</td>
+<td>历史遗留</td>
+</tr>
+</tbody></table>
+<p>实测默认 <code>binlog_format=ROW</code>。这解释了一个常见疑惑：<strong>为什么主库一条 <code>UPDATE ... WHERE</code> 改了 100 万行，binlog 会暴涨</strong>——ROW 格式记录的是每一行的变化，不是那条 SQL。</p>
+<h3 id="1-3-GTID：把「找位点」变成「对集合」"><a href="#1-3-GTID：把「找位点」变成「对集合」" class="headerlink" title="1.3 GTID：把「找位点」变成「对集合」"></a>1.3 GTID：把「找位点」变成「对集合」</h3><p>传统位点复制要维护 <code>MASTER_LOG_FILE</code> + <code>MASTER_LOG_POS</code>，切换时容易错。GTID 给每个事务一个全局唯一编号 <code>uuid:seq</code>，从库只需声明「我执行过哪些」，主从自动对账。</p>
+<pre class="mermaid">stateDiagram-v2
+    [*] --> Replicating: CHANGE REPLICATION SOURCE&lt;br/>SOURCE_AUTO_POSITION=1
+    Replicating --> CaughtUp: executed_set == received_set
+    CaughtUp --> Replicating: new transactions arrive
+    Replicating --> Promoted: STOP REPLICA&lt;br/>RESET REPLICA ALL
+    Promoted --> Writing: read_only=OFF
+    Writing --> [*]</pre>
+
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>位点复制</th>
+<th>GTID（实测 Auto_Position&#x3D;1）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>记录什么</td>
+<td>文件名 + 偏移量</td>
+<td><code>uuid:1-N</code> 集合</td>
+</tr>
+<tr>
+<td>切换时</td>
+<td>要算新位点，易错</td>
+<td>直接 <code>SOURCE_AUTO_POSITION=1</code></td>
+</tr>
+<tr>
+<td>跳过事务</td>
+<td>改位点，容易漏数据</td>
+<td><code>SET GTID_NEXT</code> 精确跳过</td>
+</tr>
+<tr>
+<td>主从一致性校验</td>
+<td>靠位点推算</td>
+<td>比较 <code>gtid_executed</code> 两个集合</td>
+</tr>
+</tbody></table>
+<h3 id="1-4-实测：搭一套-GTID-主从"><a href="#1-4-实测：搭一套-GTID-主从" class="headerlink" title="1.4 实测：搭一套 GTID 主从"></a>1.4 实测：搭一套 GTID 主从</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">docker network create repl-net</span><br><span class="line">docker run -d --name pri --network repl-net -e MYSQL_ROOT_PASSWORD=lab123 -p 3317:3306 mysql:8.0 \</span><br><span class="line">  --server-id=1 --log-bin=mysql-bin --binlog-format=ROW \</span><br><span class="line">  --gtid-mode=ON --enforce-gtid-consistency=ON</span><br><span class="line">docker run -d --name rep --network repl-net -e MYSQL_ROOT_PASSWORD=lab123 -p 3318:3306 mysql:8.0 \</span><br><span class="line">  --server-id=2 --relay-log=relay-bin \</span><br><span class="line">  --gtid-mode=ON --enforce-gtid-consistency=ON --read-only=ON</span><br></pre></td></tr></table></figure>
+
+<p>主库建复制账号，从库指向主库：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 主库</span></span><br><span class="line"><span class="keyword">CREATE</span> <span class="keyword">USER</span> <span class="string">&#x27;repl&#x27;</span>@<span class="string">&#x27;%&#x27;</span> IDENTIFIED <span class="keyword">WITH</span> mysql_native_password <span class="keyword">BY</span> <span class="string">&#x27;repl123&#x27;</span>;</span><br><span class="line"><span class="keyword">GRANT</span> REPLICATION SLAVE <span class="keyword">ON</span> <span class="operator">*</span>.<span class="operator">*</span> <span class="keyword">TO</span> <span class="string">&#x27;repl&#x27;</span>@<span class="string">&#x27;%&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="comment">-- 从库</span></span><br><span class="line">CHANGE REPLICATION SOURCE <span class="keyword">TO</span></span><br><span class="line">  SOURCE_HOST<span class="operator">=</span><span class="string">&#x27;pri&#x27;</span>, SOURCE_PORT<span class="operator">=</span><span class="number">3306</span>,</span><br><span class="line">  SOURCE_USER<span class="operator">=</span><span class="string">&#x27;repl&#x27;</span>, SOURCE_PASSWORD<span class="operator">=</span><span class="string">&#x27;repl123&#x27;</span>,</span><br><span class="line">  SOURCE_AUTO_POSITION<span class="operator">=</span><span class="number">1</span>;</span><br><span class="line"><span class="keyword">START</span> REPLICA;</span><br></pre></td></tr></table></figure>
+
+<p>实测 <code>SHOW REPLICA STATUS</code> 的关键字段：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">Replica_IO_Running: Yes</span><br><span class="line">Replica_SQL_Running: Yes</span><br><span class="line">Seconds_Behind_Source: 0</span><br><span class="line">Retrieved_Gtid_Set: effeaee3-...:1-11</span><br><span class="line">Executed_Gtid_Set:  effeaee3-...:1-11,</span><br><span class="line">Auto_Position: 1</span><br></pre></td></tr></table></figure>
+
+<p><strong>判定标准</strong>：<code>Retrieved</code> 与 <code>Executed</code> 两个集合相同 &#x3D; 已追平；<code>Executed</code> 是 <code>Retrieved</code> 的子集且差集在长大 &#x3D; 正在追。</p>
+<h2 id="2-并行复制：为什么默认还是慢"><a href="#2-并行复制：为什么默认还是慢" class="headerlink" title="2. 并行复制：为什么默认还是慢"></a>2. 并行复制：为什么默认还是慢</h2><h3 id="2-1-实测默认值"><a href="#2-1-实测默认值" class="headerlink" title="2.1 实测默认值"></a>2.1 实测默认值</h3><table>
+<thead>
+<tr>
+<th>参数</th>
+<th>值</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>replica_parallel_workers</code></td>
+<td>4（实测）</td>
+<td>回放线程数</td>
+</tr>
+<tr>
+<td><code>replica_parallel_type</code></td>
+<td><code>LOGICAL_CLOCK</code>（实测）</td>
+<td>按事务的提交顺序分组并行</td>
+</tr>
+<tr>
+<td><code>binlog_format</code></td>
+<td><code>ROW</code>（实测）</td>
+<td>行级事件</td>
+</tr>
+<tr>
+<td><code>replica_preserve_commit_order</code></td>
+<td>ON（8.0 文档默认）</td>
+<td>并行回放但提交顺序与主库一致</td>
+</tr>
+</tbody></table>
+<p><code>LOGICAL_CLOCK</code> 的并行依据是「在主库上是否同一时刻提交」：同一组内的事务可以在从库并行回放，不同组之间必须有序。</p>
+<h3 id="2-2-大事务是并行的天敌"><a href="#2-2-大事务是并行的天敌" class="headerlink" title="2.2 大事务是并行的天敌"></a>2.2 大事务是并行的天敌</h3><p><strong>一个事务只能由一个 worker 回放</strong>。所以：</p>
+<table>
+<thead>
+<tr>
+<th>主库操作</th>
+<th>从库能并行吗</th>
+<th>后果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1000 个独立小事务</td>
+<td>能（按组）</td>
+<td>几乎无延迟</td>
+</tr>
+<tr>
+<td>1 个改 100 万行的事务</td>
+<td><strong>不能</strong></td>
+<td>单线程回放，延迟 &#x3D; 回放耗时</td>
+</tr>
+<tr>
+<td>100 个大事务串行提交</td>
+<td>不能（组间有序）</td>
+<td>延迟线性累加</td>
+</tr>
+</tbody></table>
+<h3 id="2-3-实测：100-万行单事务的回放"><a href="#2-3-实测：100-万行单事务的回放" class="headerlink" title="2.3 实测：100 万行单事务的回放"></a>2.3 实测：100 万行单事务的回放</h3><p>本地两容器、ROW 格式，100 万行的单条 <code>INSERT ... SELECT</code>：</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>实测</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>主库写入耗时</td>
+<td>数十秒（本机，未精确计时）</td>
+</tr>
+<tr>
+<td>从库追平耗时</td>
+<td><strong>2~4 秒</strong>（本地 SSD + 空表）</td>
+</tr>
+<tr>
+<td>期间 <code>SBM</code> 峰值</td>
+<td>2 秒</td>
+</tr>
+<tr>
+<td>期间心跳延迟峰值</td>
+<td>0.49 秒</td>
+</tr>
+</tbody></table>
+<p>本机太快，复现不了生产的分钟级延迟——<strong>但这张表本身说明了一个重要事实：延迟不是「事务多大」决定的，而是「回放速度 vs 产生速度」的差</strong>。生产上从库延迟 40 分钟，通常不是单条 SQL 慢，而是：主库持续高速写入 + 从库单线程回放 + 大事务把 worker 堵死。</p>
+<h2 id="3-延迟：两个指标，两套盲区"><a href="#3-延迟：两个指标，两套盲区" class="headerlink" title="3. 延迟：两个指标，两套盲区"></a>3. 延迟：两个指标，两套盲区</h2><h3 id="3-1-Seconds-Behind-Source-到底怎么算"><a href="#3-1-Seconds-Behind-Source-到底怎么算" class="headerlink" title="3.1 Seconds_Behind_Source 到底怎么算"></a>3.1 <code>Seconds_Behind_Source</code> 到底怎么算</h3><p>它等于「当前正在回放的事件的时间戳」与「从库当前时间」的差。三个后果：</p>
+<ol>
+<li>只在<strong>有事件正在回放</strong>时有意义；</li>
+<li>事件时间戳来自主库，主从时钟不同步会直接污染这个值；</li>
+<li>没有事件时它没有「年龄」概念，于是返回 <code>0</code> 或 <code>NULL</code>。</li>
+</ol>
+<h3 id="3-2-实测：两个指标的背离"><a href="#3-2-实测：两个指标的背离" class="headerlink" title="3.2 实测：两个指标的背离"></a>3.2 实测：两个指标的背离</h3><p>人为停住从库的应用线程（模拟「回放跟不上」），主库持续写入，每秒采样：</p>
+<table>
+<thead>
+<tr>
+<th>时刻</th>
+<th><code>SBM</code></th>
+<th>心跳延迟</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>停住后 1s</td>
+<td><strong>NULL</strong></td>
+<td>11.38 s</td>
+<td>SBM 直接没有值</td>
+</tr>
+<tr>
+<td>停住后 5s</td>
+<td><strong>NULL</strong></td>
+<td>15.97 s</td>
+<td>心跳在老实增长</td>
+</tr>
+<tr>
+<td>停住后 10s</td>
+<td><strong>NULL</strong></td>
+<td>21.71 s</td>
+<td>差 21 秒，SBM 依然空</td>
+</tr>
+<tr>
+<td>恢复后 1s</td>
+<td>12</td>
+<td>1.21 s</td>
+<td>SBM 跳了一下</td>
+</tr>
+<tr>
+<td>恢复后 2s</td>
+<td><strong>0</strong></td>
+<td>2.35 s</td>
+<td>SBM 归零，心跳继续涨</td>
+</tr>
+<tr>
+<td>恢复后 5s</td>
+<td><strong>0</strong></td>
+<td>5.76 s</td>
+<td>追平后 SBM 恒为 0</td>
+</tr>
+</tbody></table>
+<p>两件事被这组数据钉死：</p>
+<p><strong>盲区一：应用线程停住时 <code>SBM</code> 是 <code>NULL</code>，不是增长的数字。</strong> 如果你的告警是 <code>SBM &gt; 60</code>，这段时间<strong>永远不会触发</strong>。这是最危险的漏报——延迟 21 秒、业务已经在读旧数据，监控一片绿。</p>
+<p><strong>盲区二：追平后 <code>SBM</code> 恒为 0。</strong> 上表恢复后的 2~5 秒里，从库确实追平了，<code>SBM=0</code> 是对的；但心跳延迟还在涨，因为主库此时已经停止写心跳。<strong>所以 <code>SBM=0</code> 只能说明「没有积压」，不能说明「数据新鲜」</strong>。</p>
+<h3 id="3-3-心跳表：怎么测真延迟"><a href="#3-3-心跳表：怎么测真延迟" class="headerlink" title="3.3 心跳表：怎么测真延迟"></a>3.3 心跳表：怎么测真延迟</h3><p>原理很简单：主库每秒往一张表写一次时间戳（这个写入本身也会被复制），从库读这行，用当前时间减它就是真实延迟。</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 主库：建表 + 持续写入（每秒一次）</span></span><br><span class="line"><span class="keyword">CREATE TABLE</span> heartbeat (id <span class="type">INT</span> <span class="keyword">PRIMARY KEY</span>, ts DATETIME(<span class="number">6</span>) <span class="keyword">NOT NULL</span>) ENGINE<span class="operator">=</span>InnoDB;</span><br><span class="line"><span class="keyword">INSERT INTO</span> heartbeat <span class="keyword">VALUES</span> (<span class="number">1</span>, NOW(<span class="number">6</span>));</span><br><span class="line"><span class="comment">-- 定时任务：UPDATE heartbeat SET ts = NOW(6) WHERE id = 1;</span></span><br><span class="line"></span><br><span class="line"><span class="comment">-- 从库：读真实延迟</span></span><br><span class="line"><span class="keyword">SELECT</span> TIMESTAMPDIFF(MICROSECOND, ts, NOW(<span class="number">6</span>)) <span class="operator">/</span> <span class="number">1000000</span> <span class="keyword">AS</span> lag_seconds</span><br><span class="line"><span class="keyword">FROM</span> heartbeat;</span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th>方案</th>
+<th>优点</th>
+<th>盲区</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>SBM</code></td>
+<td>内置、零成本</td>
+<td>停住时 NULL、空闲时恒 0、受时钟影响</td>
+</tr>
+<tr>
+<td>心跳表</td>
+<td>真实反映数据新鲜度</td>
+<td>主库不写心跳时也会「假涨」；需要额外表与定时任务</td>
+</tr>
+<tr>
+<td><code>performance_schema.replication_applier_status</code></td>
+<td>能看到 worker 级状态</td>
+<td>不直接给秒数</td>
+</tr>
+<tr>
+<td>对比 <code>gtid_executed</code> 集合</td>
+<td>精确知道差多少事务</td>
+<td>需要额外查询，不知时间</td>
+</tr>
+</tbody></table>
+<p><strong>判定准则</strong>：<code>SBM</code> 为 <code>NULL</code> 或 <code>0</code> 且心跳延迟 &gt; 5 秒时，<strong>以心跳为准</strong>；两者都健康才叫健康。监控上要同时采这两个值，并对 <code>NULL</code> 单独告警——<code>NULL</code> 往往意味着线程停了，比延迟更严重。</p>
+<h3 id="3-4-延迟的四类根因"><a href="#3-4-延迟的四类根因" class="headerlink" title="3.4 延迟的四类根因"></a>3.4 延迟的四类根因</h3><pre class="mermaid">flowchart TD
+    L["Replica lag detected"] --> Q1{"SQL thread&lt;br/>running?"}
+    Q1 -- no --> A["Apply stopped&lt;br/>SBM = NULL&lt;br/>check Last_SQL_Error"]
+    Q1 -- yes --> Q2{"big transactions&lt;br/>in binlog?"}
+    Q2 -- yes --> B["Single transaction&lt;br/>cannot parallelize"]
+    Q2 -- no --> Q3{"primary write rate&lt;br/>higher than apply rate?"}
+    Q3 -- yes --> C["Capacity: add workers&lt;br/>or reduce write burst"]
+    Q3 -- no --> D["Network / IO thread&lt;br/>relay log write slow"]</pre>
+
+<table>
+<thead>
+<tr>
+<th>根因</th>
+<th>特征</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>大事务</td>
+<td>binlog 里单个事务事件量巨大，<code>SBM</code> 阶梯式跳变</td>
+<td>拆批提交（每批 1000~5000 行）</td>
+</tr>
+<tr>
+<td>单线程瓶颈</td>
+<td>worker 数少、CPU 用不满、<code>SBM</code> 缓慢增长</td>
+<td>加 <code>replica_parallel_workers</code>，确认 <code>LOGICAL_CLOCK</code></td>
+</tr>
+<tr>
+<td>主库写入过载</td>
+<td>主库 TPS 高，从库回放跟不上</td>
+<td>削峰、分库、读写分离降级</td>
+</tr>
+<tr>
+<td>网络&#x2F;relay log IO</td>
+<td><code>SBM</code> 波动大，<code>Retrieved</code> 增长慢</td>
+<td>查带宽、<code>sync_relay_log</code> 配置</td>
+</tr>
+<tr>
+<td>从库资源争抢</td>
+<td>从库还在跑备份&#x2F;大查询</td>
+<td>隔离备份窗口，<code>innodb_buffer_pool_size</code> 给足</td>
+</tr>
+</tbody></table>
+<h3 id="3-5-动手验证：制造并观测延迟"><a href="#3-5-动手验证：制造并观测延迟" class="headerlink" title="3.5 动手验证：制造并观测延迟"></a>3.5 动手验证：制造并观测延迟</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1) 人为停住应用线程（模拟回放跟不上）</span></span><br><span class="line">docker <span class="built_in">exec</span> -i rep mysql -uroot -plab123 -e <span class="string">&quot;STOP REPLICA SQL_THREAD;&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 2) 主库持续写入 + 写心跳</span></span><br><span class="line"><span class="keyword">for</span> i <span class="keyword">in</span> $(<span class="built_in">seq</span> 1 10); <span class="keyword">do</span></span><br><span class="line">  docker <span class="built_in">exec</span> -i pri mysql -uroot -plab123 shop -e \</span><br><span class="line">    <span class="string">&quot;UPDATE heartbeat SET ts=NOW(6) WHERE id=1; INSERT INTO orders (user_id,status,amount,created_at) VALUES (<span class="variable">$i</span>,0,1,NOW());&quot;</span></span><br><span class="line">  <span class="built_in">sleep</span> 1</span><br><span class="line"><span class="keyword">done</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 3) 同时看两个指标</span></span><br><span class="line">docker <span class="built_in">exec</span> -i rep mysql -uroot -plab123 -e <span class="string">&quot;SHOW REPLICA STATUS\G&quot;</span> | grep Seconds_Behind</span><br><span class="line">docker <span class="built_in">exec</span> -i rep mysql -uroot -plab123 -e \</span><br><span class="line">  <span class="string">&quot;SELECT TIMESTAMPDIFF(SECOND, ts, NOW(6)) AS lag_s FROM shop.heartbeat;&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 4) 恢复并观察归零过程</span></span><br><span class="line">docker <span class="built_in">exec</span> -i rep mysql -uroot -plab123 -e <span class="string">&quot;START REPLICA SQL_THREAD;&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：停住期间 <code>SBM</code> 是 <code>NULL</code>（<code>SHOW REPLICA STATUS</code> 里显示 <code>NULL</code>），心跳延迟每秒 +1 左右；恢复后 <code>SBM</code> 先跳一个值再归 0。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li><code>SBM = NULL</code> 且 <code>Replica_SQL_Running: Yes</code> → 线程刚启动或正在等事件，结合心跳判断；</li>
+<li><code>SBM = NULL</code> 且 <code>Replica_SQL_Running: No</code> → 应用线程挂了，看 <code>Last_SQL_Error</code>；</li>
+<li>心跳延迟持续增长但 <code>SBM=0</code> → 主库没写入，不是复制问题。</li>
+</ul>
+<h2 id="4-高可用：切换演练"><a href="#4-高可用：切换演练" class="headerlink" title="4. 高可用：切换演练"></a>4. 高可用：切换演练</h2><h3 id="4-1-实测：把从库提升为主库"><a href="#4-1-实测：把从库提升为主库" class="headerlink" title="4.1 实测：把从库提升为主库"></a>4.1 实测：把从库提升为主库</h3><figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 从库执行</span></span><br><span class="line">STOP REPLICA;</span><br><span class="line">RESET REPLICA <span class="keyword">ALL</span>;</span><br><span class="line"><span class="keyword">SET</span> <span class="keyword">GLOBAL</span> super_read_only <span class="operator">=</span> OFF;</span><br><span class="line"><span class="keyword">SET</span> <span class="keyword">GLOBAL</span> read_only <span class="operator">=</span> OFF;</span><br></pre></td></tr></table></figure>
+
+<p>实测结果：</p>
+<table>
+<thead>
+<tr>
+<th>检查项</th>
+<th>实测值</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>命令耗时</td>
+<td>0 秒（不含路由切换与应用重连）</td>
+</tr>
+<tr>
+<td><code>read_only</code> &#x2F; <code>super_read_only</code></td>
+<td>0 &#x2F; 0</td>
+</tr>
+<tr>
+<td>数据行数</td>
+<td>1,500,011（与主库一致）</td>
+</tr>
+<tr>
+<td><code>gtid_executed</code></td>
+<td>两个 UUID（原主库 1-193 + 自身 1-6）</td>
+</tr>
+</tbody></table>
+<p>最后一行值得单独说：切换后 <code>gtid_executed</code> 会包含<strong>两个 UUID 的集合</strong>——原主库贡献的历史，加自己的新写入。这正是 GTID 的价值：谁都能算清「我有哪些事务」，不需要再去比对文件名和偏移量。</p>
+<h3 id="4-2-三种高可用方案"><a href="#4-2-三种高可用方案" class="headerlink" title="4.2 三种高可用方案"></a>4.2 三种高可用方案</h3><table>
+<thead>
+<tr>
+<th>方案</th>
+<th>一致性</th>
+<th>自动化</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>主从 + MHA&#x2F;Orchestrator</td>
+<td>异步&#x2F;半同步，可能丢少量事务</td>
+<td>脚本化切换</td>
+<td>传统自建机房</td>
+</tr>
+<tr>
+<td>半同步复制</td>
+<td>至少一个副本确认</td>
+<td>需配合外部切换</td>
+<td>对丢失敏感但可接受延迟</td>
+</tr>
+<tr>
+<td>MGR &#x2F; InnoDB Cluster</td>
+<td>多数派提交（Paxos 类）</td>
+<td>内置选主 + Router</td>
+<td>要求自动故障转移</td>
+</tr>
+</tbody></table>
+<p>半同步在 8.0.26 之后参数改了名，实测镜像里插件文件确实存在（<code>semisync_source.so</code> &#x2F; <code>semisync_replica.so</code>），参数是 <code>rpl_semi_sync_source_enabled</code> 与 <code>rpl_semi_sync_replica_enabled</code>；装法：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">INSTALL PLUGIN rpl_semi_sync_source SONAME <span class="string">&#x27;semisync_source.so&#x27;</span>;</span><br><span class="line"><span class="keyword">SET</span> <span class="keyword">GLOBAL</span> rpl_semi_sync_source_enabled <span class="operator">=</span> <span class="keyword">ON</span>;</span><br><span class="line"><span class="keyword">SET</span> <span class="keyword">GLOBAL</span> rpl_semi_sync_source_timeout <span class="operator">=</span> <span class="number">1000</span>;   <span class="comment">-- 毫秒，超时退化为异步</span></span><br></pre></td></tr></table></figure>
+
+<pre class="mermaid">sequenceDiagram
+    participant C as Client
+    participant P as Primary
+    participant R as Replica
+    C->>P: COMMIT
+    P->>P: commit in InnoDB
+    P->>R: send binlog event
+    R-->>P: ACK (relay log written)
+    P-->>C: OK
+    Note over P,R: timeout -> fall back to async&lt;br/>and count Rpl_semi_sync_source_status</pre>
+
+<p><strong>注意</strong>：半同步只保证「至少一个副本收到了 relay log」，<strong>不保证副本已经执行</strong>。所以半同步切换后仍可能读到旧数据（读到的是 relay log 里的事务尚未 apply 完成）。</p>
+<h3 id="4-3-脑裂与-fencing"><a href="#4-3-脑裂与-fencing" class="headerlink" title="4.3 脑裂与 fencing"></a>4.3 脑裂与 fencing</h3><p>切换最怕的不是慢，是「两个主库同时可写」。三个必要动作：</p>
+<table>
+<thead>
+<tr>
+<th>动作</th>
+<th>目的</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>提升前 <code>SET GLOBAL super_read_only = ON</code> 原主库（若还活着）</td>
+<td>强制原主只读</td>
+</tr>
+<tr>
+<td>用 VIP &#x2F; 代理层做统一入口</td>
+<td>应用只认一个地址</td>
+</tr>
+<tr>
+<td>切换后校验 <code>gtid_executed</code> 是否包含原主全部事务</td>
+<td>防丢数据</td>
+</tr>
+</tbody></table>
+<h3 id="4-4-动手验证：写一个可重复的切换演练"><a href="#4-4-动手验证：写一个可重复的切换演练" class="headerlink" title="4.4 动手验证：写一个可重复的切换演练"></a>4.4 动手验证：写一个可重复的切换演练</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1) 停主库写入</span></span><br><span class="line">docker <span class="built_in">exec</span> -i pri mysql -uroot -plab123 -e <span class="string">&quot;SET GLOBAL super_read_only = ON;&quot;</span></span><br><span class="line"><span class="comment"># 2) 等从库追平</span></span><br><span class="line"><span class="keyword">until</span> [ <span class="string">&quot;<span class="subst">$(docker exec -i rep mysql -uroot -plab123 -N -e &#x27;SHOW REPLICA STATUS\G&#x27; | \</span></span></span><br><span class="line"><span class="subst"><span class="string">  awk -F&#x27;: &#x27; &#x27;/Seconds_Behind_Source/&#123;print $2&#125;&#x27;)</span>&quot;</span> = <span class="string">&quot;0&quot;</span> ]; <span class="keyword">do</span> <span class="built_in">sleep</span> 1; <span class="keyword">done</span></span><br><span class="line"><span class="comment"># 3) 提升从库</span></span><br><span class="line">docker <span class="built_in">exec</span> -i rep mysql -uroot -plab123 -e <span class="string">&quot;</span></span><br><span class="line"><span class="string">STOP REPLICA; RESET REPLICA ALL;</span></span><br><span class="line"><span class="string">SET GLOBAL super_read_only = OFF; SET GLOBAL read_only = OFF;&quot;</span></span><br><span class="line"><span class="comment"># 4) 验证可写 + 数据完整</span></span><br><span class="line">docker <span class="built_in">exec</span> -i rep mysql -uroot -plab123 shop -e <span class="string">&quot;</span></span><br><span class="line"><span class="string">INSERT INTO orders (user_id,status,amount,created_at) VALUES (1,0,1,NOW());</span></span><br><span class="line"><span class="string">SELECT COUNT(*) FROM orders;&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：第 2 步等待期间 <code>SBM</code> 可能一直是 <code>0</code>（主库已停写），此时要用 <code>gtid_executed</code> 是否相等来判断追平，而不是信 <code>SBM</code>——这正是 3.2 那个盲区的实际影响。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>提升后写入成功、<code>gtid_executed</code> 含原主库全部事务 → 切换成功；</li>
+<li>提升后 <code>read_only</code> 仍为 1 → 漏了 <code>super_read_only</code>（它优先级更高，必须先关）。</li>
+</ul>
+<h2 id="5-总结"><a href="#5-总结" class="headerlink" title="5. 总结"></a>5. 总结</h2><h3 id="5-1-面试速答表"><a href="#5-1-面试速答表" class="headerlink" title="5.1 面试速答表"></a>5.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>主从复制的三个线程</td>
+<td>主库 binlog dump、从库 IO thread、从库 SQL thread（可多 worker）</td>
+</tr>
+<tr>
+<td>binlog 三种格式的取舍</td>
+<td>ROW 最安全但体积大，STATEMENT 省空间但不保证一致，生产用 ROW</td>
+</tr>
+<tr>
+<td>GTID 解决了什么</td>
+<td>把位点换成事务集合，切换不用算偏移量，主从对账靠 <code>gtid_executed</code></td>
+</tr>
+<tr>
+<td>并行复制按什么并行</td>
+<td><code>LOGICAL_CLOCK</code> 按主库提交组，组内并行、组间有序</td>
+</tr>
+<tr>
+<td>大事务为什么导致延迟</td>
+<td>一个事务只能由一个 worker 回放，无法拆到多线程</td>
+</tr>
+<tr>
+<td><code>SBM</code> 怎么算的</td>
+<td>当前回放事件的时间戳与从库当前时间之差</td>
+</tr>
+<tr>
+<td><code>SBM</code> 的两个盲区</td>
+<td>应用线程停住时为 <code>NULL</code>（不增长）；追平后恒为 0</td>
+</tr>
+<tr>
+<td>为什么 <code>SBM=0</code> 也可能有问题</td>
+<td>它只说「没有积压」，不说「数据新鲜」；主库停写时它必然为 0</td>
+</tr>
+<tr>
+<td>怎么测真实延迟</td>
+<td>心跳表：主库每秒写时间戳，从库算差值；或对比 <code>gtid_executed</code> 集合</td>
+</tr>
+<tr>
+<td>半同步保证什么</td>
+<td>至少一个副本收到 relay log 并 ACK，<strong>不保证已 apply</strong></td>
+</tr>
+<tr>
+<td>半同步 8.0.26 的参数名</td>
+<td><code>rpl_semi_sync_source_enabled</code> &#x2F; <code>rpl_semi_sync_replica_enabled</code></td>
+</tr>
+<tr>
+<td>切换时怎么防脑裂</td>
+<td>原主库 <code>super_read_only=ON</code>、统一入口、切换后校验 GTID</td>
+</tr>
+</tbody></table>
+<h3 id="5-2-实战避坑表"><a href="#5-2-实战避坑表" class="headerlink" title="5.2 实战避坑表"></a>5.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>监控显示 <code>SBM=0</code> 但业务读到旧数据</td>
+<td>盲区二：追平≠新鲜，或读到了从库</td>
+<td>加心跳监控，读一致性走主库或强制读主</td>
+</tr>
+<tr>
+<td>延迟告警从不触发</td>
+<td>盲区一：<code>SBM</code> 是 <code>NULL</code> 时比较不成立</td>
+<td>对 <code>NULL</code> 单独告警，并对 <code>Replica_SQL_Running</code> 告警</td>
+</tr>
+<tr>
+<td>从库延迟阶梯式跳变</td>
+<td>主库有大事务</td>
+<td>拆批提交，单批 ≤5000 行</td>
+</tr>
+<tr>
+<td>从库 CPU 打满但延迟还涨</td>
+<td>单线程回放</td>
+<td>加 <code>replica_parallel_workers</code>，确认 <code>LOGICAL_CLOCK</code></td>
+</tr>
+<tr>
+<td>切换后数据少了一截</td>
+<td>提升前没等追平</td>
+<td>用 <code>gtid_executed</code> 相等作为判定，别用 <code>SBM</code></td>
+</tr>
+<tr>
+<td>提升后仍只读</td>
+<td><code>super_read_only</code> 优先级更高</td>
+<td>两个都要关</td>
+</tr>
+<tr>
+<td>半同步开着但延迟暴涨</td>
+<td><code>rpl_semi_sync_source_timeout</code> 太大或副本慢</td>
+<td>调小超时，监控退化计数</td>
+</tr>
+</tbody></table>
+<h3 id="5-3-工具速查表"><a href="#5-3-工具速查表" class="headerlink" title="5.3 工具速查表"></a>5.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>判定标准</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>SHOW REPLICA STATUS</code></td>
+<td><code>SBM</code>、两个 Running、<code>Last_SQL_Error</code></td>
+<td><code>SBM</code> 为 NULL 要看线程状态，别判 <code>&gt; 60</code></td>
+</tr>
+<tr>
+<td><code>gtid_executed</code> &#x2F; <code>Retrieved_Gtid_Set</code></td>
+<td>两个集合是否相等</td>
+<td>相等才算追平</td>
+</tr>
+<tr>
+<td>心跳表</td>
+<td><code>NOW(6) - ts</code></td>
+<td>&gt; 5 秒即异常，且比 <code>SBM</code> 可信</td>
+</tr>
+<tr>
+<td><code>replication_applier_status_by_worker</code></td>
+<td>每个 worker 在做什么</td>
+<td>只有一个 worker 忙 &#x3D; 大事务</td>
+</tr>
+<tr>
+<td><code>SHOW BINARY LOGS</code></td>
+<td>binlog 文件与大小</td>
+<td>单个事务过大时会看到文件暴涨</td>
+</tr>
+<tr>
+<td><code>performance_schema.replication_*</code></td>
+<td>复制线程与延迟明细</td>
+<td>定位 IO&#x2F;SQL&#x2F;worker 层问题</td>
+</tr>
+</tbody></table>
+<h3 id="5-4-实操建议"><a href="#5-4-实操建议" class="headerlink" title="5.4 实操建议"></a>5.4 实操建议</h3><ol>
+<li><strong>监控必须同时采 <code>SBM</code> 和心跳延迟</strong>，并对 <code>SBM IS NULL</code> 单独告警——这是最容易被忽略的漏报。</li>
+<li><strong>切换的判定条件是 <code>gtid_executed</code> 相等</strong>，不是 <code>SBM=0</code>。前者是事实，后者是推测。</li>
+<li><strong>批处理一律拆小</strong>（每批 1000~5000 行），既降延迟又降回滚代价。</li>
+<li><strong>半同步不是「不丢数据」的保证</strong>，它只保证「至少一个副本收到」；要读到自己刚写的数据，还是得走主库。</li>
+<li><strong>切换演练每季度做一次</strong>，并且用真实的业务写入验证，而不是只看 <code>read_only=0</code>。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告</strong>：⑨《备份与恢复：删库之后 30 分钟救回来》。本文的 binlog 在下一篇变成「时间机器」：全备 + binlog 重放能恢复到误删前的那一刻。会用 <code>xtrabackup</code> 打一次全备、真删一次表、再算一次 RTO，把「备份有没有用」变成可验证的分钟数。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/MySQL/" rel="tag"># MySQL</a>
+              <a href="/tags/%E9%9D%A2%E8%AF%95/" rel="tag"># 面试</a>
+              <a href="/tags/%E4%B8%BB%E4%BB%8E%E5%A4%8D%E5%88%B6/" rel="tag"># 主从复制</a>
+              <a href="/tags/GTID/" rel="tag"># GTID</a>
+              <a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/" rel="tag"># 高可用</a>
+              <a href="/tags/%E5%BB%B6%E8%BF%9F/" rel="tag"># 延迟</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/8e8e95b7.html" rel="prev" title="InnoDB 内存与刷盘：物理 IO 的钱花在哪">
+                  <i class="fa fa-angle-left"></i> InnoDB 内存与刷盘：物理 IO 的钱花在哪
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/post/f375ea2a.html" rel="next" title="备份与恢复：删库之后 30 分钟救回来">
+                  备份与恢复：删库之后 30 分钟救回来 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">740k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">44:51</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
+</html>

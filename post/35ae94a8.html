@@ -1,0 +1,1037 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="「先删缓存再更库」是四种常见写法里唯一 100% 出错的。实测 60 轮并发读写：先更库再删缓存 0 轮不一致，延迟双删 0 轮，只更库不动缓存 60 轮不一致，而「先删缓存再更库」60 轮全部不一致——因为读线程在删缓存之后、更库之前回源，把旧值又写回了缓存。 本文用真实的 MySQL + Redis + 8 个读线程，把四种写策略的「不一致率」和「不一致窗口」都量出来。  系列地图（Redis">
+<meta property="og:type" content="article">
+<meta property="og:title" content="缓存与数据库一致性：更新顺序与不一致窗口">
+<meta property="og:url" content="http://timewait7.github.io/post/35ae94a8.html">
+<meta property="og:site_name" content="知行栈">
+<meta property="og:description" content="「先删缓存再更库」是四种常见写法里唯一 100% 出错的。实测 60 轮并发读写：先更库再删缓存 0 轮不一致，延迟双删 0 轮，只更库不动缓存 60 轮不一致，而「先删缓存再更库」60 轮全部不一致——因为读线程在删缓存之后、更库之前回源，把旧值又写回了缓存。 本文用真实的 MySQL + Redis + 8 个读线程，把四种写策略的「不一致率」和「不一致窗口」都量出来。  系列地图（Redis">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-10-25T10:00:00.000Z">
+<meta property="article:modified_time" content="2026-10-24T14:40:51.281Z">
+<meta property="article:tag" content="面试">
+<meta property="article:tag" content="Redis">
+<meta property="article:tag" content="缓存一致性">
+<meta property="article:tag" content="延迟双删">
+<meta property="article:tag" content="binlog">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/35ae94a8.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/35ae94a8.html","path":"post/35ae94a8.html","title":"缓存与数据库一致性：更新顺序与不一致窗口"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>缓存与数据库一致性：更新顺序与不一致窗口 | 知行栈</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<!-- hexo injector head_end start --><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
+</style><style>
+/* 菜单链高亮：sub-menu 祖先（同主题 .menu-item-active 的 Pisces 规则） */
+.sub-menu .menu-item a.menu-chain-active {
+  border-bottom-color: #fc6423;
+  color: #fc6423;
+}
+.sub-menu .menu-item a.menu-chain-active:hover {
+  border-bottom-color: #fc6423;
+}
+/* 菜单链高亮：main-menu 祖先（同主题 hover/active 的背景规则） */
+.main-menu .menu-item a.menu-chain-active {
+  background: var(--menu-item-bg-color);
+}
+</style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">知行栈</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section" class="menu-chain-active"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>Categories</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-%E5%9B%9B%E7%A7%8D%E5%86%99%E7%AD%96%E7%95%A5"><span class="nav-text">1. 四种写策略</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E5%AE%9E%E6%B5%8B%EF%BC%9A%E8%B0%81%E4%BC%9A%E7%9C%9F%E7%9A%84%E4%B8%8D%E4%B8%80%E8%87%B4"><span class="nav-text">2. 实测：谁会真的不一致</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-B-%E7%9A%84%E5%8D%B1%E9%99%A9%E5%9C%A8%E4%BA%8E%E3%80%8C%E6%8C%81%E7%BB%AD%E3%80%8D%E8%80%8C%E4%B8%8D%E6%98%AF%E3%80%8C%E7%9F%AD%E6%9A%82%E3%80%8D"><span class="nav-text">2.1 B 的危险在于「持续」而不是「短暂」</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E4%B8%8D%E4%B8%80%E8%87%B4%E7%AA%97%E5%8F%A3%E6%9C%89%E5%A4%9A%E5%AE%BD"><span class="nav-text">3. 不一致窗口有多宽</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E5%BC%82%E6%AD%A5%E5%88%A0%E9%99%A4%EF%BC%9Abinlog-%E8%AE%A2%E9%98%85"><span class="nav-text">4. 异步删除：binlog 订阅</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-%E5%BB%B6%E8%BF%9F%E5%8F%8C%E5%88%A0%E7%9A%84%E3%80%8C%E5%BB%B6%E8%BF%9F%E3%80%8D%E8%AF%A5%E5%A4%9A%E4%B9%85"><span class="nav-text">4.1 延迟双删的「延迟」该多久</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E6%9B%B4%E5%BC%BA%E7%9A%84%E6%96%B9%E6%A1%88%EF%BC%9A%E8%AF%BB%E4%B8%BB%E5%BA%93-%E7%89%88%E6%9C%AC%E5%8F%B7"><span class="nav-text">5. 更强的方案：读主库 + 版本号</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E4%B8%80%E4%B8%AA%E5%AE%B9%E6%98%93%E8%A2%AB%E5%BF%BD%E7%95%A5%E7%9A%84%E4%B8%8D%E4%B8%80%E8%87%B4%E6%9D%A5%E6%BA%90%EF%BC%9A%E4%B8%BB%E4%BB%8E%E5%BB%B6%E8%BF%9F"><span class="nav-text">5.1 一个容易被忽略的不一致来源：主从延迟</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%A4%8D%E7%8E%B0-B-%E7%9A%84-100-%E4%B8%8D%E4%B8%80%E8%87%B4"><span class="nav-text">5.2 动手验证：复现 B 的 100% 不一致</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-3-%E4%B8%BA%E4%BB%80%E4%B9%88%E6%98%AF%E3%80%8C%E5%88%A0%E7%BC%93%E5%AD%98%E3%80%8D%E8%80%8C%E4%B8%8D%E6%98%AF%E3%80%8C%E6%9B%B4%E6%96%B0%E7%BC%93%E5%AD%98%E3%80%8D"><span class="nav-text">5.3 为什么是「删缓存」而不是「更新缓存」</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#7-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%9B%9B%E4%B8%AA%E5%8F%AF%E5%A4%8D%E7%8E%B0%E5%AE%9E%E9%AA%8C"><span class="nav-text">7. 动手验证：四个可复现实验</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#7-1-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%A4%8D%E7%8E%B0%E3%80%8C%E5%85%88%E5%88%A0%E7%BC%93%E5%AD%98%E5%86%8D%E6%9B%B4%E5%BA%93%E3%80%8D%E7%9A%84-100-%E4%B8%8D%E4%B8%80%E8%87%B4"><span class="nav-text">7.1 动手验证：复现「先删缓存再更库」的 100% 不一致</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-2-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E6%B5%8B%E9%87%8F%E4%B8%8D%E4%B8%80%E8%87%B4%E7%AA%97%E5%8F%A3"><span class="nav-text">7.2 动手验证：测量不一致窗口</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-3-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E9%AA%8C%E8%AF%81%E5%BB%B6%E8%BF%9F%E5%8F%8C%E5%88%A0"><span class="nav-text">7.3 动手验证：验证延迟双删</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E9%AA%8C%E8%AF%81%E8%AF%BB%E5%86%99%E5%88%86%E7%A6%BB%E5%AF%BC%E8%87%B4%E7%9A%84%E4%B8%8D%E4%B8%80%E8%87%B4"><span class="nav-text">7.4 动手验证：验证读写分离导致的不一致</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#6-%E6%80%BB%E7%BB%93"><span class="nav-text">6. 总结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#6-1-%E9%9D%A2%E8%AF%95%E9%80%9F%E7%AD%94%E8%A1%A8"><span class="nav-text">6.1 面试速答表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-2-%E5%AE%9E%E6%88%98%E9%81%BF%E5%9D%91%E8%A1%A8"><span class="nav-text">6.2 实战避坑表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-3-%E5%B7%A5%E5%85%B7%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">6.3 工具速查表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-4-%E5%AE%9E%E6%93%8D%E5%BB%BA%E8%AE%AE"><span class="nav-text">6.4 实操建议</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">104</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">14</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">175</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+    <div class="sidebar-inner sidebar-blogroll">
+      <div class="links-of-blogroll animated">
+        <div class="links-of-blogroll-title"><i class="fa fa-globe fa-fw"></i>
+          Links
+        </div>
+        <ul class="links-of-blogroll-list">
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9wYXVsZ3JhaGFtLmNvbS9hcnRpY2xlcy5odG1s" title="https:&#x2F;&#x2F;paulgraham.com&#x2F;articles.html">paulgraham</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly93d3cuam9lbG9uc29mdHdhcmUuY29tLw==" title="https:&#x2F;&#x2F;www.joelonsoftware.com&#x2F;">Joel on Software</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9tYXJ0aW5mb3dsZXIuY29tLw==" title="https:&#x2F;&#x2F;martinfowler.com&#x2F;">Martin Flower</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly96aGFuZ3RpZWxlaS5jb20v" title="https:&#x2F;&#x2F;zhangtielei.com&#x2F;">zhangtielei</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhLWRlc2lnbi1wYXR0ZXJucy5jb20vemgv" title="https:&#x2F;&#x2F;java-design-patterns.com&#x2F;zh&#x2F;">Java Design Patterns</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9taWNyb3NlcnZpY2VzLmlvLw==" title="https:&#x2F;&#x2F;microservices.io&#x2F;">Microservice Architecture</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhZ3VpZGUuY24v" title="https:&#x2F;&#x2F;javaguide.cn&#x2F;">JavaGuide</span>
+            </li>
+        </ul>
+      </div>
+    </div>
+        <div class="pjax">
+        
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-后端开发"><a href="/docs/nav/backend-dev-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-code fa-fw"></i>后端开发</a></li>
+
+
+      
+  <li class="menu-item menu-item-计算机基础"><a href="/docs/nav/cs-foundation-nav.html" rel="section"><i class="fa fa-desktop fa-fw"></i>计算机基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-ai-学习"><a href="/docs/nav/ai-learning-nav.html" rel="section"><i class="fa fa-robot fa-fw"></i>AI 学习</a></li>
+
+
+      
+  <li class="menu-item menu-item-项目实战"><a href="/docs/nav/5964f4da.html" rel="section"><i class="fa fa-flask fa-fw"></i>项目实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-misc"><a href="/docs/nav/misc-nav.html" rel="section"><i class="fa fa-box fa-fw"></i>Misc</a></li>
+
+
+      
+  <li class="menu-item menu-item-随笔·生活"><a href="/docs/nav/life-nav.html" rel="section"><i class="fa fa-feather fa-fw"></i>随笔·生活</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java"><a href="/docs/nav/java-nav.html" rel="section"><i class="fa fa-coffee fa-fw"></i>Java</a></li>
+
+
+      
+  <li class="menu-item menu-item-框架"><a href="/docs/nav/framework-nav.html" rel="section"><i class="fa fa-th-large fa-fw"></i>框架</a></li>
+
+
+      
+  <li class="menu-item menu-item-数据存储"><a href="/docs/nav/data-storage-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-hdd fa-fw"></i>数据存储</a></li>
+
+
+      
+  <li class="menu-item menu-item-中间件"><a href="/docs/nav/middleware-nav.html" rel="section"><i class="fa fa-cubes fa-fw"></i>中间件</a></li>
+
+
+      
+  <li class="menu-item menu-item-分布式与微服务"><a href="/docs/nav/distributed-nav.html" rel="section"><i class="fa fa-sitemap fa-fw"></i>分布式与微服务</a></li>
+
+
+      
+  <li class="menu-item menu-item-系统设计"><a href="/docs/nav/system-design-nav.html" rel="section"><i class="fa fa-pencil-ruler fa-fw"></i>系统设计</a></li>
+
+
+      
+  <li class="menu-item menu-item-部署运维"><a href="/docs/nav/devops-nav.html" rel="section"><i class="fa fa-terminal fa-fw"></i>部署运维</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-mysql"><a href="/docs/nav/mysql-nav.html" rel="section"><i class="fa fa-database fa-fw"></i>MySQL</a></li>
+
+
+      
+  <li class="menu-item menu-item-redis"><a href="/docs/nav/redis-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-bolt fa-fw"></i>Redis</a></li>
+
+
+      
+  <li class="menu-item menu-item-elasticsearch"><a href="/docs/nav/es-nav.html" rel="section"><i class="fa fa-search fa-fw"></i>ElasticSearch</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-redis-深度解析：从原理到精通"><a href="/post/bae4ff13.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Redis 深度解析：从原理到精通</a></li>
+
+
+      
+  <li class="menu-item menu-item-①-从这里开始：把-redis-变成你的实验台"><a href="/post/fb7bfeea.html" rel="section"><i class="fa fa-file-text fa-fw"></i>① 从这里开始：把 Redis 变成你的实验台</a></li>
+
+
+      
+  <li class="menu-item menu-item-②-一次请求的成本账：rtt、事件循环与命令执行"><a href="/post/d0aa1ba2.html" rel="section"><i class="fa fa-file-text fa-fw"></i>② 一次请求的成本账：RTT、事件循环与命令执行</a></li>
+
+
+      
+  <li class="menu-item menu-item-③-数据结构：编码阈值与复杂度的真实代价"><a href="/post/342c4932.html" rel="section"><i class="fa fa-file-text fa-fw"></i>③ 数据结构：编码阈值与复杂度的真实代价</a></li>
+
+
+      
+  <li class="menu-item menu-item-④-内存、淘汰与碎片：maxmemory-设了为什么还会-oom"><a href="/post/b28e7721.html" rel="section"><i class="fa fa-file-text fa-fw"></i>④ 内存、淘汰与碎片：maxmemory 设了为什么还会 OOM</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑤-单线程：为什么快，什么时候会卡"><a href="/post/d9138e00.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑤ 单线程：为什么快，什么时候会卡</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑥-pipeline、事务与-lua：原子性和-rtt-怎么兼得"><a href="/post/884c75a8.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑥ Pipeline、事务与 Lua：原子性和 RTT 怎么兼得</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑦-持久化：rdb、aof-与丢失窗口"><a href="/post/6a7a58b3.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑦ 持久化：RDB、AOF 与丢失窗口</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑧-复制、哨兵与-cluster：切一次主要多久"><a href="/post/63c21b5b.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑧ 复制、哨兵与 Cluster：切一次主要多久</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑨-缓存三大问题：穿透、击穿、雪崩的量化与解法"><a href="/post/1d7a96da.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑨ 缓存三大问题：穿透、击穿、雪崩的量化与解法</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑩-缓存与数据库一致性：更新顺序与不一致窗口"><a href="/post/35ae94a8.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑩ 缓存与数据库一致性：更新顺序与不一致窗口</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑪-分布式锁与限流：从-set-nx-到-redisson"><a href="/post/cb07eb8d.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑪ 分布式锁与限流：从 SET NX 到 Redisson</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑫-容量规划与分片：什么时候才该上-cluster"><a href="/post/b815463e.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑫ 容量规划与分片：什么时候才该上 Cluster</a></li>
+
+
+    </ul>
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/35ae94a8.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="缓存与数据库一致性：更新顺序与不一致窗口 | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          缓存与数据库一致性：更新顺序与不一致窗口
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-10-25 18:00:00" itemprop="dateCreated datePublished" datetime="2026-10-25T18:00:00+08:00">2026-10-25</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/" itemprop="url" rel="index"><span itemprop="name">数据存储</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>3.4k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>13 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><p><strong>「先删缓存再更库」是四种常见写法里唯一 100% 出错的</strong>。实测 60 轮并发读写：先更库再删缓存 0 轮不一致，延迟双删 0 轮，只更库不动缓存 60 轮不一致，而「先删缓存再更库」<strong>60 轮全部不一致</strong>——因为读线程在删缓存之后、更库之前回源，把旧值又写回了缓存。</p>
+<p>本文用真实的 MySQL + Redis + 8 个读线程，把四种写策略的「不一致率」和「不一致窗口」都量出来。</p>
+<blockquote>
+<p><strong>系列地图（Redis 实战路线，12 篇）</strong></p>
+<p>① 实验台与基线 → ② 一次请求的成本账 → ③ 数据结构与编码 → ④ 内存、淘汰与碎片 → ⑤ 单线程与阻塞 → ⑥ Pipeline、事务与 Lua → ⑦ 持久化与丢失窗口 → ⑧ 复制、哨兵与 Cluster → ⑨ 缓存三大问题 → ⑩ <strong>缓存与数据库一致性（本文）</strong> → ⑪ 分布式锁与限流 → ⑫ 容量规划与分片</p>
+<p>与前后篇的关系：⑨ 讲「读不到怎么办」，本文讲「写的时候怎么保证读到的不是旧值」；⑧ 的主从延迟会让「更库成功但读到旧库」也变成一种不一致来源。</p>
+</blockquote>
+<h2 id="1-四种写策略"><a href="#1-四种写策略" class="headerlink" title="1. 四种写策略"></a>1. 四种写策略</h2><table>
+<thead>
+<tr>
+<th>策略</th>
+<th>顺序</th>
+<th>直觉</th>
+<th>本文实测</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>A</td>
+<td>先更库，再删缓存</td>
+<td>最常见，Cache-Aside 标准做法</td>
+<td>0&#x2F;60 不一致</td>
+</tr>
+<tr>
+<td>B</td>
+<td>先删缓存，再更库</td>
+<td>「让缓存先失效更保险」</td>
+<td><strong>60&#x2F;60 不一致</strong></td>
+</tr>
+<tr>
+<td>C</td>
+<td>先删缓存，更库，延迟再删一次</td>
+<td>延迟双删</td>
+<td>0&#x2F;60 不一致</td>
+</tr>
+<tr>
+<td>D</td>
+<td>只更库，不动缓存</td>
+<td>靠 TTL 自然过期</td>
+<td>60&#x2F;60 不一致</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">sequenceDiagram
+    participant W as Writer
+    participant R as Reader
+    participant DB as MySQL
+    participant C as Redis
+    Note over W,C: B: delete-then-update (broken)
+    W->>C: DEL item:1
+    R->>C: GET item:1 -> nil
+    R->>DB: SELECT -> old value A
+    R->>C: SET item:1 = A
+    W->>DB: UPDATE -> B
+    Note over C: cache still A, DB is B</pre>
+
+<h2 id="2-实测：谁会真的不一致"><a href="#2-实测：谁会真的不一致" class="headerlink" title="2. 实测：谁会真的不一致"></a>2. 实测：谁会真的不一致</h2><p>方法：60 轮，每轮 8 个读线程持续读（读不到就回源并写回缓存），写线程执行一次更新，立刻对比缓存与数据库。</p>
+<table>
+<thead>
+<tr>
+<th>策略</th>
+<th>不一致轮数</th>
+<th>不一致率</th>
+<th>结束时 cache &#x2F; db</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>A 先更库再删缓存</td>
+<td><strong>0</strong> &#x2F; 60</td>
+<td>0%</td>
+<td>B &#x2F; B ✅</td>
+</tr>
+<tr>
+<td>B 先删缓存再更库</td>
+<td><strong>60</strong> &#x2F; 60</td>
+<td><strong>100%</strong></td>
+<td>A &#x2F; B ❌</td>
+</tr>
+<tr>
+<td>C 先删-更库-延迟再删</td>
+<td><strong>0</strong> &#x2F; 60</td>
+<td>0%</td>
+<td>B &#x2F; B ✅</td>
+</tr>
+<tr>
+<td>D 只更库不动缓存</td>
+<td><strong>60</strong> &#x2F; 60</td>
+<td>100%</td>
+<td>A &#x2F; B ❌</td>
+</tr>
+</tbody></table>
+<p><strong>为什么 B 全错</strong>：读线程在「缓存已删、数据库还没更新」的窗口里回源，读到旧值 A 并写回缓存。写线程随后把数据库改成 B，但缓存里已经是 A——而且<strong>没有任何机制会再删它</strong>，直到 TTL 到期。</p>
+<h3 id="2-1-B-的危险在于「持续」而不是「短暂」"><a href="#2-1-B-的危险在于「持续」而不是「短暂」" class="headerlink" title="2.1 B 的危险在于「持续」而不是「短暂」"></a>2.1 B 的危险在于「持续」而不是「短暂」</h3><table>
+<thead>
+<tr>
+<th>策略</th>
+<th>不一致持续时间</th>
+<th>影响</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>A</td>
+<td>等于「更库到删缓存」的间隔（本文 20ms → 实测窗口 23ms）</td>
+<td>短暂，可接受</td>
+</tr>
+<tr>
+<td>B</td>
+<td><strong>直到 TTL 到期</strong>（TTL 1 小时就是 1 小时）</td>
+<td>持续，不可接受</td>
+</tr>
+<tr>
+<td>C</td>
+<td>同 A（多一次删除兜底）</td>
+<td>短暂</td>
+</tr>
+<tr>
+<td>D</td>
+<td>直到 TTL 到期</td>
+<td>持续，但 TTL 短时可接受</td>
+</tr>
+</tbody></table>
+<p><strong>这就是「先删缓存再更库」被很多人认为「更安全」的误区</strong>：它看起来让旧数据更快失效，实际上制造了一个「读回源把旧值写回」的机会窗口，而且窗口之后无人修复。</p>
+<h2 id="3-不一致窗口有多宽"><a href="#3-不一致窗口有多宽" class="headerlink" title="3. 不一致窗口有多宽"></a>3. 不一致窗口有多宽</h2><table>
+<thead>
+<tr>
+<th>策略</th>
+<th>配置</th>
+<th>实测最长不一致窗口</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>A 先更库再删缓存</td>
+<td>更库与删缓存间隔 20ms</td>
+<td><strong>23 ms</strong></td>
+</tr>
+<tr>
+<td>C 异步删除（模拟 binlog 订阅，50ms 轮询）</td>
+<td>轮询间隔 50ms</td>
+<td><strong>58 ms</strong></td>
+</tr>
+<tr>
+<td>B 先删缓存再更库</td>
+<td>间隔 20ms</td>
+<td>持续到 TTL（本文不设上限）</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart LR
+    T0["DB commit B"] --> W1["window: readers still see A"]
+    W1 --> T1["cache deleted"]
+    T1 --> OK["next read repopulates B"]
+    T0 -.->|"A 策略：窗口 = 删缓存的延迟"| W1</pre>
+
+<p><strong>结论</strong>：把「删缓存」放在「更库提交之后」，窗口就是一个 RTT 级别（几十毫秒）；放在之前，窗口就是 TTL 级别。</p>
+<h2 id="4-异步删除：binlog-订阅"><a href="#4-异步删除：binlog-订阅" class="headerlink" title="4. 异步删除：binlog 订阅"></a>4. 异步删除：binlog 订阅</h2><pre class="mermaid">flowchart LR
+    A["Application"] -->|"1. UPDATE"| DB["MySQL"]
+    DB -->|"2. binlog"| C["Canal / Debezium"]
+    C -->|"3. 删除缓存"| R["Redis"]
+    A -.->|"同步路径只写库"| DB</pre>
+
+<table>
+<thead>
+<tr>
+<th>方案</th>
+<th>窗口</th>
+<th>优点</th>
+<th>代价</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>应用内删缓存（A）</td>
+<td>一个 RTT（本文 23ms）</td>
+<td>简单</td>
+<td>删缓存失败就没兜底</td>
+</tr>
+<tr>
+<td>binlog 订阅异步删</td>
+<td>消费延迟（本文模拟 50ms → 58ms）</td>
+<td>与业务解耦、可重放</td>
+<td>需要 Canal&#x2F;Debezium、多一套组件</td>
+</tr>
+<tr>
+<td>延迟双删（C）</td>
+<td>同 A</td>
+<td>兜底成本低</td>
+<td>「延迟多久」难定，且引入 sleep</td>
+</tr>
+</tbody></table>
+<p><strong>binlog 订阅的额外好处</strong>：它能捕获「非应用路径」的变更（DBA 手工改数据、其他服务的写入），这是应用内删缓存做不到的。</p>
+<h3 id="4-1-延迟双删的「延迟」该多久"><a href="#4-1-延迟双删的「延迟」该多久" class="headerlink" title="4.1 延迟双删的「延迟」该多久"></a>4.1 延迟双删的「延迟」该多久</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">updateDb(entity);              <span class="comment">// 1. 更新数据库</span></span><br><span class="line">redis.delete(key);             <span class="comment">// 2. 立即删一次</span></span><br><span class="line"><span class="comment">// 3. 延迟再删一次：要覆盖「读请求的回源 + 写回」这段时间</span></span><br><span class="line">scheduledExecutor.schedule(() -&gt; redis.delete(key), <span class="number">500</span>, TimeUnit.MILLISECONDS);</span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>取值依据</th>
+<th>风险</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>延迟时间</td>
+<td>≥ 一次「读回源 + 写回缓存」的耗时（本文 RTT 级别，几十 ms）</td>
+<td>太短：覆盖不到；太长：多一次删除、缓存短时间内频繁失效</td>
+</tr>
+<tr>
+<td>线程池</td>
+<td>独立调度线程池</td>
+<td>与业务线程池混用会互相影响</td>
+</tr>
+</tbody></table>
+<p>本文实测：延迟 300ms 的双删，60 轮 0 不一致——因为第一次删除后写入的旧值，被 300ms 后的第二次删除清掉了。</p>
+<pre class="mermaid">flowchart TD
+    Q{"一致性要求"} -->|"能接受毫秒窗口"| A["先更库再删缓存&lt;br/>+ 删除重试"]
+    Q -->|"需要更快收敛"| B["延迟双删&lt;br/>或 binlog 订阅"]
+    Q -->|"必须强一致"| C["读写都走主库&lt;br/>或加版本号校验"]
+    A --> R["加对账任务兜底"]
+    B --> R</pre>
+
+<h2 id="5-更强的方案：读主库-版本号"><a href="#5-更强的方案：读主库-版本号" class="headerlink" title="5. 更强的方案：读主库 + 版本号"></a>5. 更强的方案：读主库 + 版本号</h2><table>
+<thead>
+<tr>
+<th>方案</th>
+<th>一致性</th>
+<th>性能</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>A 先更库再删缓存</td>
+<td>最终一致（窗口 ~ms）</td>
+<td>高</td>
+<td>绝大多数场景</td>
+</tr>
+<tr>
+<td>延迟双删</td>
+<td>最终一致（窗口更小）</td>
+<td>高</td>
+<td>删缓存可能失败时兜底</td>
+</tr>
+<tr>
+<td>binlog 订阅</td>
+<td>最终一致（窗口 &#x3D; 消费延迟）</td>
+<td>高</td>
+<td>需要覆盖非应用写入</td>
+</tr>
+<tr>
+<td>读写都走主库</td>
+<td>强一致</td>
+<td>低（主库压力翻倍）</td>
+<td>金额、库存等关键字段</td>
+</tr>
+<tr>
+<td>缓存带版本号 + 校验</td>
+<td>可检测</td>
+<td>中</td>
+<td>对一致性要求高的读</td>
+</tr>
+</tbody></table>
+<p><strong>「读主库」的代价很实在</strong>：⑧ 说过主从是异步复制，读写分离时读从库可能读到旧值。所以「强一致 &#x3D; 读写都走主库」，这是容量与一致性的直接兑换。</p>
+<h3 id="5-1-一个容易被忽略的不一致来源：主从延迟"><a href="#5-1-一个容易被忽略的不一致来源：主从延迟" class="headerlink" title="5.1 一个容易被忽略的不一致来源：主从延迟"></a>5.1 一个容易被忽略的不一致来源：主从延迟</h3><p>即使你用了 A 策略，如果读请求走了从库：</p>
+<table>
+<thead>
+<tr>
+<th>时序</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>写主库（成功）</td>
+<td>主库 &#x3D; B</td>
+</tr>
+<tr>
+<td>删缓存（成功）</td>
+<td>缓存空</td>
+</tr>
+<tr>
+<td>读请求 → 从库（还没同步到 B）</td>
+<td>读到 A，写回缓存 &#x3D; A</td>
+</tr>
+<tr>
+<td>从库追平</td>
+<td>数据库 &#x3D; B，<strong>缓存还是 A</strong></td>
+</tr>
+</tbody></table>
+<p><strong>这是「A 策略 + 读写分离」组合下的隐藏 bug</strong>：删缓存的窗口虽然只有毫秒，但读从库可能读到回滚前的值。处理办法：</p>
+<table>
+<thead>
+<tr>
+<th>手段</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>写后一段时间内强制读主库</td>
+<td>比如 500ms 内该 key 走主库</td>
+</tr>
+<tr>
+<td>用 GTID&#x2F;位点等待</td>
+<td>从库等到指定位置再返回（MySQL 系列 ⑧）</td>
+</tr>
+<tr>
+<td>缓存删除加「延时双删」</td>
+<td>覆盖主从延迟窗口</td>
+</tr>
+</tbody></table>
+<h3 id="5-2-动手验证：复现-B-的-100-不一致"><a href="#5-2-动手验证：复现-B-的-100-不一致" class="headerlink" title="5.2 动手验证：复现 B 的 100% 不一致"></a>5.2 动手验证：复现 B 的 100% 不一致</h3><figure class="highlight python"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 写线程：先删缓存，再更库（错误顺序）</span></span><br><span class="line">redis.delete(key)</span><br><span class="line">time.sleep(<span class="number">0.02</span>)          <span class="comment"># 模拟更库耗时</span></span><br><span class="line">db.execute(<span class="string">&#x27;UPDATE items SET name=%s WHERE id=1&#x27;</span>, (<span class="string">&#x27;B&#x27;</span>,))</span><br><span class="line"></span><br><span class="line"><span class="comment"># 读线程：读不到就回源并写回</span></span><br><span class="line">v = redis.get(key)</span><br><span class="line"><span class="keyword">if</span> v <span class="keyword">is</span> <span class="literal">None</span>:</span><br><span class="line">    v = db.query_one(<span class="string">&#x27;SELECT name FROM items WHERE id=1&#x27;</span>)</span><br><span class="line">    redis.<span class="built_in">set</span>(key, v, ex=<span class="number">3600</span>)</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：并发跑 60 轮，几乎每轮结束时 <code>redis.get(key)</code> 都是旧值 <code>A</code>，而数据库是 <code>B</code>。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>不一致率接近 100% → 你用了「先删缓存再更库」，立刻改成先更库；</li>
+<li>不一致率 0% 但偶发 → 检查是不是读写分离读到了从库（5.1）；</li>
+<li>延迟双删后仍然不一致 → 延迟时间太短，或第二次删除失败没重试。</li>
+</ul>
+<h2 id="5-3-为什么是「删缓存」而不是「更新缓存」"><a href="#5-3-为什么是「删缓存」而不是「更新缓存」" class="headerlink" title="5.3 为什么是「删缓存」而不是「更新缓存」"></a>5.3 为什么是「删缓存」而不是「更新缓存」</h2><table>
+<thead>
+<tr>
+<th>做法</th>
+<th>并发写两次的结果</th>
+<th>问题</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>更新缓存</td>
+<td>请求 1 写 DB&#x3D;A、缓存&#x3D;A；请求 2 写 DB&#x3D;B、缓存&#x3D;B</td>
+<td>如果顺序错乱（缓存 B 先写、A 后写），缓存停在 A，DB 是 B</td>
+</tr>
+<tr>
+<td>删除缓存</td>
+<td>两次都只是 DEL</td>
+<td>幂等，谁先谁后结果一样，下一次读会回源到最新值</td>
+</tr>
+</tbody></table>
+<p><strong>本质</strong>：删除是幂等操作，更新不是。并发场景下「谁最后写缓存」无法保证，而删除没有这个问题——代价只是下一次读多一次回源（几十微秒到几毫秒）。</p>
+<p><strong>什么时候可以更新缓存</strong>：写少读多、且能保证串行（比如单线程消费 binlog），此时更新缓存可以省掉一次回源。</p>
+<h2 id="7-动手验证：四个可复现实验"><a href="#7-动手验证：四个可复现实验" class="headerlink" title="7. 动手验证：四个可复现实验"></a>7. 动手验证：四个可复现实验</h2><h3 id="7-1-动手验证：复现「先删缓存再更库」的-100-不一致"><a href="#7-1-动手验证：复现「先删缓存再更库」的-100-不一致" class="headerlink" title="7.1 动手验证：复现「先删缓存再更库」的 100% 不一致"></a>7.1 动手验证：复现「先删缓存再更库」的 100% 不一致</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 60 轮：写线程先删缓存、睡 20ms 再更库；8 个读线程持续回源</span></span><br><span class="line"><span class="comment"># 每轮结束对比 redis GET 与 DB 的值</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：60 轮里 60 轮结束时缓存是旧值、数据库是新值（本文 B 策略 60&#x2F;60）。</p>
+<p><strong>判定标准</strong>：不一致率很低 → 你的窗口太窄（更库太快）或读并发太低，把间隔调到 50ms 再试。</p>
+<h3 id="7-2-动手验证：测量不一致窗口"><a href="#7-2-动手验证：测量不一致窗口" class="headerlink" title="7.2 动手验证：测量不一致窗口"></a>7.2 动手验证：测量不一致窗口</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 记录「DB 提交时刻」到「读请求最后一次读到旧值」的时间差</span></span><br><span class="line"><span class="comment"># A 策略：更库后 20ms 删缓存 -&gt; 窗口应 ≈ 20ms</span></span><br><span class="line"><span class="comment"># 异步删除：50ms 轮询 -&gt; 窗口应 ≈ 50ms</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：A 策略窗口 23 ms、异步删除 58 ms（本文）；B 策略会持续到 TTL。</p>
+<p><strong>判定标准</strong>：窗口远大于预期 → 删缓存这一步被阻塞（连接池&#x2F;网络），或主从延迟导致读到了旧库。</p>
+<h3 id="7-3-动手验证：验证延迟双删"><a href="#7-3-动手验证：验证延迟双删" class="headerlink" title="7.3 动手验证：验证延迟双删"></a>7.3 动手验证：验证延迟双删</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 第一次删除 -&gt; 更库 -&gt; 300ms 后第二次删除</span></span><br><span class="line"><span class="comment"># 并发读线程持续回源，检查最终缓存是否为新值</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：60 轮 0 不一致（本文）。</p>
+<p><strong>判定标准</strong>：仍有不一致 → 延迟时间不够（小于一次回源+写回耗时），或第二次删除失败没重试。</p>
+<h3 id="7-4-动手验证：验证读写分离导致的不一致"><a href="#7-4-动手验证：验证读写分离导致的不一致" class="headerlink" title="7.4 动手验证：验证读写分离导致的不一致"></a>7.4 动手验证：验证读写分离导致的不一致</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 主库写入 + 删缓存后，立刻从从库读（复制还没到）</span></span><br><span class="line"><span class="comment"># 观察读到的旧值是否被写回缓存</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：从库返回旧值并被写回缓存，从库追平后缓存仍是旧值。</p>
+<p><strong>判定标准</strong>：没有复现 → 复制太快（loopback）或读请求没有路由到从库。</p>
+<h2 id="6-总结"><a href="#6-总结" class="headerlink" title="6. 总结"></a>6. 总结</h2><h3 id="6-1-面试速答表"><a href="#6-1-面试速答表" class="headerlink" title="6.1 面试速答表"></a>6.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>缓存和数据库怎么保持一致</td>
+<td>先更库、再删缓存（Cache-Aside），容忍毫秒级窗口</td>
+</tr>
+<tr>
+<td>为什么是「删缓存」不是「更新缓存」</td>
+<td>并发更新会把旧值写回；删是幂等的，更新不是</td>
+</tr>
+<tr>
+<td>为什么不能先删缓存再更库</td>
+<td>读线程会在窗口内回源旧值并写回，实测 100% 不一致且持续到 TTL</td>
+</tr>
+<tr>
+<td>延迟双删解决什么</td>
+<td>兜底「删缓存后又被旧值写回」的情况；延迟要覆盖一次读回源</td>
+</tr>
+<tr>
+<td>延迟双删的延迟怎么定</td>
+<td>≥ 一次读回源+写回的耗时（几十 ms 起），并配独立调度线程</td>
+</tr>
+<tr>
+<td>binlog 订阅有什么优势</td>
+<td>能捕获非应用路径的变更，与业务解耦</td>
+</tr>
+<tr>
+<td>什么场景必须强一致</td>
+<td>金额、库存；做法是读写都走主库，代价是容量</td>
+</tr>
+<tr>
+<td>读写分离会引入什么不一致</td>
+<td>主从延迟导致读到旧库并写回缓存</td>
+</tr>
+<tr>
+<td>不一致窗口有多宽</td>
+<td>先更库再删：一个 RTT（本文 23ms）；异步删：消费延迟（本文 58ms）；先删再更：到 TTL</td>
+</tr>
+<tr>
+<td>缓存更新失败怎么办</td>
+<td>重试 + 消息补偿 + TTL 兜底，不能只依赖一次删除</td>
+</tr>
+</tbody></table>
+<h3 id="6-2-实战避坑表"><a href="#6-2-实战避坑表" class="headerlink" title="6.2 实战避坑表"></a>6.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>用户说「刚改的数据没生效」</td>
+<td>先删缓存再更库，旧值被写回</td>
+<td>改成先更库再删缓存</td>
+</tr>
+<tr>
+<td>偶发读到旧值，刷新就好</td>
+<td>不一致窗口（毫秒级）</td>
+<td>可接受；关键字段读主库</td>
+</tr>
+<tr>
+<td>缓存与库长期不一致</td>
+<td>只更库不动缓存，或写回旧值</td>
+<td>加延迟双删或 binlog 订阅</td>
+</tr>
+<tr>
+<td>读写分离后不一致变多</td>
+<td>从库延迟</td>
+<td>写后时间窗内强制读主</td>
+</tr>
+<tr>
+<td>删缓存失败导致脏数据</td>
+<td>没有重试与兜底</td>
+<td>删除失败进重试队列，TTL 兜底</td>
+</tr>
+</tbody></table>
+<h3 id="6-3-工具速查表"><a href="#6-3-工具速查表" class="headerlink" title="6.3 工具速查表"></a>6.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>判定标准</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>MySQL binlog &#x2F; Canal</td>
+<td>数据变更流</td>
+<td>消费延迟 &#x3D; 缓存不一致窗口</td>
+</tr>
+<tr>
+<td><code>INFO stats</code> 的命中率</td>
+<td>缓存失效频率</td>
+<td>频繁失效 &#x3D; 双删太激进</td>
+</tr>
+<tr>
+<td>业务侧对账任务</td>
+<td>缓存 vs DB 差异</td>
+<td>定期扫描能发现长期不一致</td>
+</tr>
+<tr>
+<td><code>KEYS</code>&#x2F;抽样</td>
+<td>缓存值</td>
+<td>用于验证修复效果（别在生产用 KEYS，见 ⑤）</td>
+</tr>
+</tbody></table>
+<h3 id="6-4-实操建议"><a href="#6-4-实操建议" class="headerlink" title="6.4 实操建议"></a>6.4 实操建议</h3><ol>
+<li><strong>默认用「先更库、再删缓存」</strong>，别用「先删缓存再更库」——实测 100% 出错。</li>
+<li><strong>删缓存要重试</strong>（消息队列或重试表），一次失败就可能长期不一致。</li>
+<li><strong>核心字段读主库</strong>，用容量换确定性；非核心接受毫秒级窗口。</li>
+<li><strong>读写分离时，写后 500ms 内强制读主</strong>，避免「读到从库旧值又写回缓存」。</li>
+<li><strong>加对账任务</strong>：定期抽样比对缓存与数据库，长期不一致能提前发现。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告</strong>：⑪《分布式锁与限流：从 SET NX 到 Redisson》。本文说「删缓存可能失败」，下一篇说「锁可能丢」：<code>SET NX PX</code> 为什么会锁不住、watchdog 续期怎么实现、哨兵切换瞬间为什么两个客户端能同时持锁（⑧ 埋的伏笔），以及 RedLock 的争议到底在争什么。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/%E9%9D%A2%E8%AF%95/" rel="tag"># 面试</a>
+              <a href="/tags/Redis/" rel="tag"># Redis</a>
+              <a href="/tags/%E7%BC%93%E5%AD%98%E4%B8%80%E8%87%B4%E6%80%A7/" rel="tag"># 缓存一致性</a>
+              <a href="/tags/%E5%BB%B6%E8%BF%9F%E5%8F%8C%E5%88%A0/" rel="tag"># 延迟双删</a>
+              <a href="/tags/binlog/" rel="tag"># binlog</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/1d7a96da.html" rel="prev" title="缓存三大问题：穿透、击穿、雪崩的量化与解法">
+                  <i class="fa fa-angle-left"></i> 缓存三大问题：穿透、击穿、雪崩的量化与解法
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/post/cb07eb8d.html" rel="next" title="分布式锁与限流：从 SET NX 到 Redisson">
+                  分布式锁与限流：从 SET NX 到 Redisson <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">740k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">44:51</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
+</html>

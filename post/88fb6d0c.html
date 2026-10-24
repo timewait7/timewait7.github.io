@@ -1,0 +1,1174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="隔离级别不是背四个名字，而是回答「同一个事务里两次读，凭什么看到同一个值」。答案是 MVCC：每行数据挂一条 undo 版本链，事务开始时拍一张 ReadView 快照，之后所有普通查询都按这张快照判断「哪个版本我能看」。理解了这条链，脏读、不可重复读、幻读的差别就不再是术语，而是三个可以手工复现的现象。 本文用两个会话把三种异常逐个演出来（全部实测），再解释 ReadView 的判定规则、快照读">
+<meta property="og:type" content="article">
+<meta property="og:title" content="事务与 MVCC：把「不可重复读」亲手复现出来">
+<meta property="og:url" content="http://timewait7.github.io/post/88fb6d0c.html">
+<meta property="og:site_name" content="知行栈">
+<meta property="og:description" content="隔离级别不是背四个名字，而是回答「同一个事务里两次读，凭什么看到同一个值」。答案是 MVCC：每行数据挂一条 undo 版本链，事务开始时拍一张 ReadView 快照，之后所有普通查询都按这张快照判断「哪个版本我能看」。理解了这条链，脏读、不可重复读、幻读的差别就不再是术语，而是三个可以手工复现的现象。 本文用两个会话把三种异常逐个演出来（全部实测），再解释 ReadView 的判定规则、快照读">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-10-24T16:05:00.000Z">
+<meta property="article:modified_time" content="2026-10-24T13:36:16.668Z">
+<meta property="article:tag" content="MySQL">
+<meta property="article:tag" content="事务">
+<meta property="article:tag" content="面试">
+<meta property="article:tag" content="MVCC">
+<meta property="article:tag" content="隔离级别">
+<meta property="article:tag" content="undo">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/88fb6d0c.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/88fb6d0c.html","path":"post/88fb6d0c.html","title":"事务与 MVCC：把「不可重复读」亲手复现出来"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>事务与 MVCC：把「不可重复读」亲手复现出来 | 知行栈</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<!-- hexo injector head_end start --><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
+</style><style>
+/* 菜单链高亮：sub-menu 祖先（同主题 .menu-item-active 的 Pisces 规则） */
+.sub-menu .menu-item a.menu-chain-active {
+  border-bottom-color: #fc6423;
+  color: #fc6423;
+}
+.sub-menu .menu-item a.menu-chain-active:hover {
+  border-bottom-color: #fc6423;
+}
+/* 菜单链高亮：main-menu 祖先（同主题 hover/active 的背景规则） */
+.main-menu .menu-item a.menu-chain-active {
+  background: var(--menu-item-bg-color);
+}
+</style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">知行栈</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section" class="menu-chain-active"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>Categories</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-ACID-%E4%B8%8D%E6%98%AF%E5%9B%9B%E4%B8%AA%E8%AF%8D%EF%BC%8C%E6%98%AF%E5%9B%9B%E5%A5%97%E6%9C%BA%E5%88%B6"><span class="nav-text">1. ACID 不是四个词，是四套机制</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-%E6%AF%8F%E4%B8%AA%E5%AD%97%E6%AF%8D%E8%83%8C%E5%90%8E%E9%83%BD%E6%9C%89%E4%B8%80%E4%B8%AA%E7%BB%84%E4%BB%B6"><span class="nav-text">1.1 每个字母背后都有一个组件</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-2-%E5%9B%9B%E7%A7%8D%E9%9A%94%E7%A6%BB%E7%BA%A7%E5%88%AB%EF%BC%8C%E5%90%84%E6%8C%A1%E6%8E%89%E4%BB%80%E4%B9%88"><span class="nav-text">1.2 四种隔离级别，各挡掉什么</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-3-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E4%B8%89%E7%A7%8D%E5%BC%82%E5%B8%B8%E4%B8%80%E6%AC%A1%E5%A4%8D%E7%8E%B0"><span class="nav-text">1.3 动手验证：三种异常一次复现</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-MVCC%EF%BC%9A%E4%B8%80%E6%9D%A1%E7%89%88%E6%9C%AC%E9%93%BE-%E4%B8%80%E5%BC%A0%E5%BF%AB%E7%85%A7"><span class="nav-text">2. MVCC：一条版本链 + 一张快照</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E9%9A%90%E8%97%8F%E5%88%97%E4%B8%8E%E7%89%88%E6%9C%AC%E9%93%BE"><span class="nav-text">2.1 隐藏列与版本链</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-ReadView-%E7%9A%84%E5%9B%9B%E4%B8%AA%E5%AD%97%E6%AE%B5%E4%B8%8E%E5%88%A4%E5%AE%9A%E8%A7%84%E5%88%99"><span class="nav-text">2.2 ReadView 的四个字段与判定规则</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-RC-%E4%B8%8E-RR-%E7%9A%84%E5%B7%AE%E5%88%AB%EF%BC%8C%E5%8F%AA%E6%9C%89%E4%B8%80%E5%8F%A5%E8%AF%9D"><span class="nav-text">2.3 RC 与 RR 的差别，只有一句话</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E7%9C%8B%E4%B8%80%E7%9C%BC%E6%AD%A3%E5%9C%A8%E8%BF%90%E8%A1%8C%E7%9A%84%E4%BA%8B%E5%8A%A1"><span class="nav-text">2.4 动手验证：看一眼正在运行的事务</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E5%BF%AB%E7%85%A7%E8%AF%BB%E4%B8%8E%E5%BD%93%E5%89%8D%E8%AF%BB%EF%BC%9A%E4%B8%80%E6%9D%A1%E5%88%86%E7%95%8C%E7%BA%BF"><span class="nav-text">3. 快照读与当前读：一条分界线</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E5%93%AA%E4%BA%9B%E8%AF%AD%E5%8F%A5%E8%B5%B0%E5%93%AA%E4%B8%AA%E8%AF%BB"><span class="nav-text">3.1 哪些语句走哪个读</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E5%AE%9E%E6%B5%8B%EF%BC%9A%E5%B9%BB%E8%AF%BB%E5%8F%AA%E5%87%BA%E7%8E%B0%E5%9C%A8%E5%BD%93%E5%89%8D%E8%AF%BB"><span class="nav-text">3.2 实测：幻读只出现在当前读</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-%E5%AE%9E%E6%B5%8B%EF%BC%9A%E5%BF%AB%E7%85%A7%E8%AF%BB%E4%B8%8D%E5%8A%A0%E9%94%81%EF%BC%8C%E5%BD%93%E5%89%8D%E8%AF%BB%E5%8A%A0%E9%94%81"><span class="nav-text">3.3 实测：快照读不加锁，当前读加锁</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E8%84%8F%E8%AF%BB%E5%8F%AA%E5%9C%A8-RU-%E5%87%BA%E7%8E%B0"><span class="nav-text">3.4 动手验证：脏读只在 RU 出现</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E9%95%BF%E4%BA%8B%E5%8A%A1%EF%BC%9A%E4%B8%89%E9%87%8D%E5%8D%B1%E5%AE%B3%E7%9A%84%E5%AE%9E%E6%B5%8B"><span class="nav-text">4. 长事务：三重危害的实测</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-%E5%8D%B1%E5%AE%B3%E4%B8%80%EF%BC%9A%E9%94%81%E4%B8%80%E7%9B%B4%E4%B8%8D%E6%94%BE%EF%BC%8C%E6%8A%8A%E5%86%99%E5%85%A5%E6%8E%92%E9%98%9F"><span class="nav-text">4.1 危害一：锁一直不放，把写入排队</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-%E5%8D%B1%E5%AE%B3%E4%BA%8C%EF%BC%9Aundo-%E8%86%A8%E8%83%80%EF%BC%8C%E8%80%8C%E4%B8%94%E4%B8%8D%E4%BC%9A%E8%87%AA%E5%B7%B1%E7%BC%A9%E5%9B%9E%E5%8E%BB"><span class="nav-text">4.2 危害二：undo 膨胀，而且不会自己缩回去</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-%E5%8D%B1%E5%AE%B3%E4%B8%89%EF%BC%9A%E6%8B%96%E4%BD%8F-purge%EF%BC%8C%E9%97%B4%E6%8E%A5%E6%8B%96%E5%9E%AE%E4%BB%8E%E5%BA%93"><span class="nav-text">4.3 危害三：拖住 purge，间接拖垮从库</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-4-%E6%8E%92%E6%9F%A5%E4%B8%8E%E5%88%A4%E5%AE%9A"><span class="nav-text">4.4 排查与判定</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-5-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E4%BA%B2%E6%89%8B%E9%80%A0%E4%B8%80%E4%B8%AA%E9%95%BF%E4%BA%8B%E5%8A%A1%E5%86%8D%E6%8A%93%E5%AE%83"><span class="nav-text">4.5 动手验证：亲手造一个长事务再抓它</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-Java-%E4%BE%A7%EF%BC%9A%E4%BA%8B%E5%8A%A1%E6%98%AF%E6%80%8E%E4%B9%88%E8%A2%AB%E6%8B%89%E9%95%BF%E7%9A%84"><span class="nav-text">5. Java 侧：事务是怎么被拉长的</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#6-%E6%80%BB%E7%BB%93"><span class="nav-text">6. 总结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#6-1-%E9%9D%A2%E8%AF%95%E9%80%9F%E7%AD%94%E8%A1%A8"><span class="nav-text">6.1 面试速答表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-2-%E5%AE%9E%E6%88%98%E9%81%BF%E5%9D%91%E8%A1%A8"><span class="nav-text">6.2 实战避坑表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-3-%E5%B7%A5%E5%85%B7%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">6.3 工具速查表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-4-%E5%AE%9E%E6%93%8D%E5%BB%BA%E8%AE%AE"><span class="nav-text">6.4 实操建议</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">104</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">14</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">175</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+    <div class="sidebar-inner sidebar-blogroll">
+      <div class="links-of-blogroll animated">
+        <div class="links-of-blogroll-title"><i class="fa fa-globe fa-fw"></i>
+          Links
+        </div>
+        <ul class="links-of-blogroll-list">
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9wYXVsZ3JhaGFtLmNvbS9hcnRpY2xlcy5odG1s" title="https:&#x2F;&#x2F;paulgraham.com&#x2F;articles.html">paulgraham</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly93d3cuam9lbG9uc29mdHdhcmUuY29tLw==" title="https:&#x2F;&#x2F;www.joelonsoftware.com&#x2F;">Joel on Software</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9tYXJ0aW5mb3dsZXIuY29tLw==" title="https:&#x2F;&#x2F;martinfowler.com&#x2F;">Martin Flower</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly96aGFuZ3RpZWxlaS5jb20v" title="https:&#x2F;&#x2F;zhangtielei.com&#x2F;">zhangtielei</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhLWRlc2lnbi1wYXR0ZXJucy5jb20vemgv" title="https:&#x2F;&#x2F;java-design-patterns.com&#x2F;zh&#x2F;">Java Design Patterns</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9taWNyb3NlcnZpY2VzLmlvLw==" title="https:&#x2F;&#x2F;microservices.io&#x2F;">Microservice Architecture</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhZ3VpZGUuY24v" title="https:&#x2F;&#x2F;javaguide.cn&#x2F;">JavaGuide</span>
+            </li>
+        </ul>
+      </div>
+    </div>
+        <div class="pjax">
+        
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-后端开发"><a href="/docs/nav/backend-dev-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-code fa-fw"></i>后端开发</a></li>
+
+
+      
+  <li class="menu-item menu-item-计算机基础"><a href="/docs/nav/cs-foundation-nav.html" rel="section"><i class="fa fa-desktop fa-fw"></i>计算机基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-ai-学习"><a href="/docs/nav/ai-learning-nav.html" rel="section"><i class="fa fa-robot fa-fw"></i>AI 学习</a></li>
+
+
+      
+  <li class="menu-item menu-item-项目实战"><a href="/docs/nav/5964f4da.html" rel="section"><i class="fa fa-flask fa-fw"></i>项目实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-misc"><a href="/docs/nav/misc-nav.html" rel="section"><i class="fa fa-box fa-fw"></i>Misc</a></li>
+
+
+      
+  <li class="menu-item menu-item-随笔·生活"><a href="/docs/nav/life-nav.html" rel="section"><i class="fa fa-feather fa-fw"></i>随笔·生活</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java"><a href="/docs/nav/java-nav.html" rel="section"><i class="fa fa-coffee fa-fw"></i>Java</a></li>
+
+
+      
+  <li class="menu-item menu-item-框架"><a href="/docs/nav/framework-nav.html" rel="section"><i class="fa fa-th-large fa-fw"></i>框架</a></li>
+
+
+      
+  <li class="menu-item menu-item-数据存储"><a href="/docs/nav/data-storage-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-hdd fa-fw"></i>数据存储</a></li>
+
+
+      
+  <li class="menu-item menu-item-中间件"><a href="/docs/nav/middleware-nav.html" rel="section"><i class="fa fa-cubes fa-fw"></i>中间件</a></li>
+
+
+      
+  <li class="menu-item menu-item-分布式与微服务"><a href="/docs/nav/distributed-nav.html" rel="section"><i class="fa fa-sitemap fa-fw"></i>分布式与微服务</a></li>
+
+
+      
+  <li class="menu-item menu-item-系统设计"><a href="/docs/nav/system-design-nav.html" rel="section"><i class="fa fa-pencil-ruler fa-fw"></i>系统设计</a></li>
+
+
+      
+  <li class="menu-item menu-item-部署运维"><a href="/docs/nav/devops-nav.html" rel="section"><i class="fa fa-terminal fa-fw"></i>部署运维</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-mysql"><a href="/docs/nav/mysql-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-database fa-fw"></i>MySQL</a></li>
+
+
+      
+  <li class="menu-item menu-item-redis"><a href="/docs/nav/redis-nav.html" rel="section"><i class="fa fa-bolt fa-fw"></i>Redis</a></li>
+
+
+      
+  <li class="menu-item menu-item-elasticsearch"><a href="/docs/nav/es-nav.html" rel="section"><i class="fa fa-search fa-fw"></i>ElasticSearch</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-mysql-深度解析：从原理到高可用与分库分表实战"><a href="/post/32511a71.html" rel="section"><i class="fa fa-file-text fa-fw"></i>MySQL 深度解析：从原理到高可用与分库分表实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-①-从这里开始：把-mysql-变成你的实验台"><a href="/post/60f95c16.html" rel="section"><i class="fa fa-file-text fa-fw"></i>① 从这里开始：把 MySQL 变成你的实验台</a></li>
+
+
+      
+  <li class="menu-item menu-item-②-一条-sql-的六层成本账：架构不是画流程图"><a href="/post/ffd9df8b.html" rel="section"><i class="fa fa-file-text fa-fw"></i>② 一条 SQL 的六层成本账：架构不是画流程图</a></li>
+
+
+      
+  <li class="menu-item menu-item-③-schema-与索引：把逻辑读降下来"><a href="/post/e1724727.html" rel="section"><i class="fa fa-file-text fa-fw"></i>③ Schema 与索引：把逻辑读降下来</a></li>
+
+
+      
+  <li class="menu-item menu-item-④-查询优化：优化器为什么会选错索引"><a href="/post/d65d7254.html" rel="section"><i class="fa fa-file-text fa-fw"></i>④ 查询优化：优化器为什么会选错索引</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑤-事务与-mvcc：把「不可重复读」亲手复现出来"><a href="/post/88fb6d0c.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑤ 事务与 MVCC：把「不可重复读」亲手复现出来</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑥-锁、死锁与-mdl：一次变更如何堵死整张表"><a href="/post/d090a538.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑥ 锁、死锁与 MDL：一次变更如何堵死整张表</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑦-innodb-内存与刷盘：物理-io-的钱花在哪"><a href="/post/8e8e95b7.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑦ InnoDB 内存与刷盘：物理 IO 的钱花在哪</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑧-复制与高可用：延迟的量化与判定"><a href="/post/51687861.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑧ 复制与高可用：延迟的量化与判定</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑨-备份与恢复：删库之后-30-分钟救回来"><a href="/post/f375ea2a.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑨ 备份与恢复：删库之后 30 分钟救回来</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑩-在线-ddl：一次加索引如何堵死整张表"><a href="/post/b5c3673.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑩ 在线 DDL：一次加索引如何堵死整张表</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑪-java-侧：连接池打满与-@transactional-失效的真相"><a href="/post/4d87a909.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑪ Java 侧：连接池打满与 @Transactional 失效的真相</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑫-容量与扩展：什么时候才该分库分表"><a href="/post/f8f36186.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑫ 容量与扩展：什么时候才该分库分表</a></li>
+
+
+    </ul>
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/88fb6d0c.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="事务与 MVCC：把「不可重复读」亲手复现出来 | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          事务与 MVCC：把「不可重复读」亲手复现出来
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-10-25 00:05:00" itemprop="dateCreated datePublished" datetime="2026-10-25T00:05:00+08:00">2026-10-25</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/" itemprop="url" rel="index"><span itemprop="name">数据存储</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>4.6k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>17 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><p><strong>隔离级别不是背四个名字，而是回答「同一个事务里两次读，凭什么看到同一个值」</strong>。答案是 MVCC：每行数据挂一条 undo 版本链，事务开始时拍一张 ReadView 快照，之后所有普通查询都按这张快照判断「哪个版本我能看」。理解了这条链，脏读、不可重复读、幻读的差别就不再是术语，而是三个可以手工复现的现象。</p>
+<p>本文用两个会话把三种异常逐个演出来（全部实测），再解释 ReadView 的判定规则、快照读与当前读的分界线，最后用数据说明长事务为什么是「三重危害」。这一篇也是下一篇锁机制的地基：<strong>快照读不加锁、当前读加锁</strong>，是理解间隙锁的前提。</p>
+<blockquote>
+<p><strong>系列地图（高性能 MySQL 实战路线，12 篇）</strong></p>
+<p>① 实验台与基线 → ② 六层成本账 → ③ 索引与 Schema → ④ 优化器与慢查询 → ⑤ <strong>事务与 MVCC（本文）</strong> → ⑥ 锁与死锁 → ⑦ 内存与刷盘 → ⑧ 复制与高可用 → ⑨ 备份与恢复 → ⑩ 在线 DDL → ⑪ Java 侧连接池 → ⑫ 容量与分库分表</p>
+<p>与前后篇的关系：② 说 <code>UPDATE</code> 比 <code>SELECT</code> 多了 undo 与 redo，本文把 undo 那条链接上；本文结尾的「当前读会加锁」直接引出 ⑥ 的间隙锁，长事务对从库的影响在 ⑧ 展开。</p>
+</blockquote>
+<h2 id="1-ACID-不是四个词，是四套机制"><a href="#1-ACID-不是四个词，是四套机制" class="headerlink" title="1. ACID 不是四个词，是四套机制"></a>1. ACID 不是四个词，是四套机制</h2><h3 id="1-1-每个字母背后都有一个组件"><a href="#1-1-每个字母背后都有一个组件" class="headerlink" title="1.1 每个字母背后都有一个组件"></a>1.1 每个字母背后都有一个组件</h3><table>
+<thead>
+<tr>
+<th>特性</th>
+<th>一句话定义</th>
+<th>靠什么实现</th>
+<th>失效后果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>原子性（A）</td>
+<td>要么全做，要么全不做</td>
+<td>undo log（回滚日志）</td>
+<td>扣了钱没加钱</td>
+</tr>
+<tr>
+<td>一致性（C）</td>
+<td>约束始终成立</td>
+<td>由 A、I、D 与应用共同保证</td>
+<td>余额为负、外键悬空</td>
+</tr>
+<tr>
+<td>隔离性（I）</td>
+<td>并发事务互不干扰</td>
+<td>MVCC + 锁</td>
+<td>读到脏数据、丢失更新</td>
+</tr>
+<tr>
+<td>持久性（D）</td>
+<td>提交了就不丢</td>
+<td>redo log + 刷盘</td>
+<td>宕机丢订单</td>
+</tr>
+</tbody></table>
+<p><strong>“一致性”是唯一没有专属组件的</strong>：它是前三个加上业务约束的结果。所以面试问「MySQL 怎么保证一致性」时，答「靠 undo、redo、锁一起」比背定义有效。</p>
+<h3 id="1-2-四种隔离级别，各挡掉什么"><a href="#1-2-四种隔离级别，各挡掉什么" class="headerlink" title="1.2 四种隔离级别，各挡掉什么"></a>1.2 四种隔离级别，各挡掉什么</h3><p>实测默认级别：<code>REPEATABLE-READ</code>（8.0 未变）。</p>
+<table>
+<thead>
+<tr>
+<th>隔离级别</th>
+<th>脏读</th>
+<th>不可重复读</th>
+<th>幻读</th>
+<th>实现方式</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>READ UNCOMMITTED</td>
+<td>会</td>
+<td>会</td>
+<td>会</td>
+<td>直接读最新版本，不加 ReadView</td>
+</tr>
+<tr>
+<td>READ COMMITTED</td>
+<td>不会</td>
+<td><strong>会</strong></td>
+<td>会</td>
+<td>每条语句新建 ReadView</td>
+</tr>
+<tr>
+<td>REPEATABLE READ（默认）</td>
+<td>不会</td>
+<td>不会</td>
+<td>快照读不会、当前读会</td>
+<td>事务内首个快照读建 ReadView，之后复用</td>
+</tr>
+<tr>
+<td>SERIALIZABLE</td>
+<td>不会</td>
+<td>不会</td>
+<td>不会</td>
+<td>普通读也加共享锁</td>
+</tr>
+</tbody></table>
+<p>表格里那句「幻读：快照读不会、当前读会」是全文的关键，第 3 节会用实测把它钉死。</p>
+<h3 id="1-3-动手验证：三种异常一次复现"><a href="#1-3-动手验证：三种异常一次复现" class="headerlink" title="1.3 动手验证：三种异常一次复现"></a>1.3 动手验证：三种异常一次复现</h3><p>准备一张账户表，两个会话：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">CREATE TABLE</span> acct (</span><br><span class="line">  id <span class="type">INT</span> <span class="keyword">PRIMARY KEY</span>, owner <span class="type">VARCHAR</span>(<span class="number">20</span>) <span class="keyword">NOT NULL</span>,</span><br><span class="line">  balance <span class="type">DECIMAL</span>(<span class="number">10</span>,<span class="number">2</span>) <span class="keyword">NOT NULL</span>, version <span class="type">INT</span> <span class="keyword">NOT NULL</span> <span class="keyword">DEFAULT</span> <span class="number">0</span></span><br><span class="line">) ENGINE<span class="operator">=</span>InnoDB;</span><br><span class="line"><span class="keyword">INSERT INTO</span> acct <span class="keyword">VALUES</span> (<span class="number">1</span>,<span class="string">&#x27;alice&#x27;</span>,<span class="number">1000.00</span>,<span class="number">0</span>),(<span class="number">2</span>,<span class="string">&#x27;bob&#x27;</span>,<span class="number">2000.00</span>,<span class="number">0</span>),(<span class="number">3</span>,<span class="string">&#x27;carol&#x27;</span>,<span class="number">3000.00</span>,<span class="number">0</span>);</span><br></pre></td></tr></table></figure>
+
+<p><strong>会话 A</strong>（读方，第二个 <code>SLEEP</code> 期间由会话 B 改写并提交）：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">SET</span> SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED;  <span class="comment">-- 换成 REPEATABLE READ 再跑一遍</span></span><br><span class="line"><span class="keyword">START</span> TRANSACTION;</span><br><span class="line"><span class="keyword">SELECT</span> balance <span class="keyword">FROM</span> acct <span class="keyword">WHERE</span> id <span class="operator">=</span> <span class="number">1</span>;   <span class="comment">-- 第一次读</span></span><br><span class="line">DO SLEEP(<span class="number">6</span>);</span><br><span class="line"><span class="keyword">SELECT</span> balance <span class="keyword">FROM</span> acct <span class="keyword">WHERE</span> id <span class="operator">=</span> <span class="number">1</span>;   <span class="comment">-- 第二次读</span></span><br><span class="line"><span class="keyword">COMMIT</span>;</span><br></pre></td></tr></table></figure>
+
+<p><strong>会话 B</strong>（在 A 睡眠期间执行）：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">START</span> TRANSACTION;</span><br><span class="line"><span class="keyword">UPDATE</span> acct <span class="keyword">SET</span> balance <span class="operator">=</span> balance <span class="operator">+</span> <span class="number">100</span> <span class="keyword">WHERE</span> id <span class="operator">=</span> <span class="number">1</span>;</span><br><span class="line"><span class="keyword">COMMIT</span>;</span><br></pre></td></tr></table></figure>
+
+<p><strong>实测结果</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>隔离级别</th>
+<th>第一次读</th>
+<th>第二次读</th>
+<th>现象</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>READ COMMITTED</td>
+<td>1000.00</td>
+<td><strong>1100.00</strong></td>
+<td>不可重复读</td>
+</tr>
+<tr>
+<td>REPEATABLE READ</td>
+<td>1000.00</td>
+<td><strong>1000.00</strong></td>
+<td>同一个快照</td>
+</tr>
+</tbody></table>
+<p><strong>判定标准</strong>：RC 下两次读不一致、RR 下一致——如果你的 RR 也变了，检查是不是用了 <code>SET autocommit</code> 或语句之间隐式提交（DDL 会隐式提交）。</p>
+<h2 id="2-MVCC：一条版本链-一张快照"><a href="#2-MVCC：一条版本链-一张快照" class="headerlink" title="2. MVCC：一条版本链 + 一张快照"></a>2. MVCC：一条版本链 + 一张快照</h2><h3 id="2-1-隐藏列与版本链"><a href="#2-1-隐藏列与版本链" class="headerlink" title="2.1 隐藏列与版本链"></a>2.1 隐藏列与版本链</h3><p>InnoDB 每行都有两个隐藏列：<code>DB_TRX_ID</code>（最后修改它的事务 ID）和 <code>DB_ROLL_PTR</code>（指向 undo 里的上一个版本）。每次更新都把「旧值」写进 undo，并用指针串起来：</p>
+<pre class="mermaid">flowchart LR
+    R["Current row&lt;br/>balance=1000&lt;br/>DB_TRX_ID=100"] --> U1["undo v1&lt;br/>balance=900&lt;br/>trx_id=80"]
+    U1 --> U2["undo v2&lt;br/>balance=800&lt;br/>trx_id=60"]
+    U2 --> U3["...older versions"]</pre>
+
+<p>一条链上的每个版本都带着「是哪个事务写的」。读的时候从当前行沿链往回走，找到第一个「对我可见」的版本——这就是 MVCC 的全部。</p>
+<table>
+<thead>
+<tr>
+<th>概念</th>
+<th>存在哪</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>DB_TRX_ID</code></td>
+<td>行记录</td>
+<td>标记最后修改者</td>
+</tr>
+<tr>
+<td><code>DB_ROLL_PTR</code></td>
+<td>行记录</td>
+<td>指向 undo 里的旧版本</td>
+</tr>
+<tr>
+<td>undo log</td>
+<td>undo 表空间</td>
+<td>存旧版本 + 支撑回滚</td>
+</tr>
+<tr>
+<td>ReadView</td>
+<td>内存（事务私有）</td>
+<td>判断「谁能看见谁」</td>
+</tr>
+</tbody></table>
+<h3 id="2-2-ReadView-的四个字段与判定规则"><a href="#2-2-ReadView-的四个字段与判定规则" class="headerlink" title="2.2 ReadView 的四个字段与判定规则"></a>2.2 ReadView 的四个字段与判定规则</h3><p>ReadView 是一个「活跃事务名单」的快照，只有四个关键值：</p>
+<table>
+<thead>
+<tr>
+<th>字段</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>m_ids</code></td>
+<td>创建快照时，所有活跃（未提交）事务的 ID 列表</td>
+</tr>
+<tr>
+<td><code>min_trx_id</code></td>
+<td><code>m_ids</code> 里的最小值</td>
+</tr>
+<tr>
+<td><code>max_trx_id</code></td>
+<td>创建快照时系统<strong>下一个</strong>要分配的事务 ID</td>
+</tr>
+<tr>
+<td><code>creator_trx_id</code></td>
+<td>创建这个 ReadView 的事务自己</td>
+</tr>
+</tbody></table>
+<p>判定一个版本 <code>trx_id = V</code> 是否可见：</p>
+<pre class="mermaid">flowchart TD
+    V["version trx_id = V"] --> Q1{"V == creator_trx_id?"}
+    Q1 -- yes --> VIS["Visible: my own change"]
+    Q1 -- no --> Q2{"V &lt; min_trx_id?"}
+    Q2 -- yes --> VIS2["Visible: committed before snapshot"]
+    Q2 -- no --> Q3{"V >= max_trx_id?"}
+    Q3 -- yes --> INV["Invisible: born after snapshot"]
+    Q3 -- no --> Q4{"V in m_ids?"}
+    Q4 -- yes --> INV2["Invisible: still uncommitted at snapshot"]
+    Q4 -- no --> VIS3["Visible: committed before snapshot"]</pre>
+
+<p>按这个顺序判断，直到找到一个可见版本；找不到就说明这行在快照时刻还不存在（这也是幻读的机制）。</p>
+<h3 id="2-3-RC-与-RR-的差别，只有一句话"><a href="#2-3-RC-与-RR-的差别，只有一句话" class="headerlink" title="2.3 RC 与 RR 的差别，只有一句话"></a>2.3 RC 与 RR 的差别，只有一句话</h3><p><strong>ReadView 的创建时机不同</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>级别</th>
+<th>ReadView 何时创建</th>
+<th>效果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>READ COMMITTED</td>
+<td><strong>每条语句</strong>都新建</td>
+<td>每次都能看到别人已提交的新数据 → 不可重复读</td>
+</tr>
+<tr>
+<td>REPEATABLE READ</td>
+<td>事务内<strong>第一次快照读</strong>时创建，之后复用</td>
+<td>整个事务看同一个快照 → 可重复读</td>
+</tr>
+</tbody></table>
+<p>这就是 1.3 实验的全部解释：同样的两条 <code>SELECT</code>，差别只在「第二次读有没有重新拍快照」。</p>
+<p><strong>注意一个反直觉点</strong>：RR 下「可重复读」是快照读的特权。如果你在事务里用 <code>UPDATE</code> 或 <code>SELECT ... FOR UPDATE</code>，读的是<strong>最新已提交版本</strong>（当前读），不是快照。这也是「RR 也挡不住丢失更新」的原因。</p>
+<h3 id="2-4-动手验证：看一眼正在运行的事务"><a href="#2-4-动手验证：看一眼正在运行的事务" class="headerlink" title="2.4 动手验证：看一眼正在运行的事务"></a>2.4 动手验证：看一眼正在运行的事务</h3><figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 另一个会话里执行一条不提交的语句后，观察它</span></span><br><span class="line"><span class="keyword">SELECT</span> trx_id, trx_state, trx_started,</span><br><span class="line">       TIMESTAMPDIFF(<span class="keyword">SECOND</span>, trx_started, NOW()) <span class="keyword">AS</span> age_s,</span><br><span class="line">       trx_rows_modified, trx_isolation_level, trx_mysql_thread_id</span><br><span class="line"><span class="keyword">FROM</span> information_schema.innodb_trx</span><br><span class="line"><span class="keyword">ORDER</span> <span class="keyword">BY</span> trx_started;</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：<code>trx_state</code> 是 <code>RUNNING</code>，<code>age_s</code> 就是它开了多久，<code>trx_rows_modified</code> 是它改了多少行。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li><code>age_s &gt; 10</code> 且 <code>trx_rows_modified &gt; 0</code> → 长写事务，第 4 节处理；</li>
+<li><code>age_s &gt; 60</code> 但 <code>trx_rows_modified = 0</code> → 长只读事务，同样会拖住 purge；</li>
+<li>同一张表上有多条 <code>RUNNING</code> 事务互相等 → 去 ⑥ 看锁。</li>
+</ul>
+<h2 id="3-快照读与当前读：一条分界线"><a href="#3-快照读与当前读：一条分界线" class="headerlink" title="3. 快照读与当前读：一条分界线"></a>3. 快照读与当前读：一条分界线</h2><h3 id="3-1-哪些语句走哪个读"><a href="#3-1-哪些语句走哪个读" class="headerlink" title="3.1 哪些语句走哪个读"></a>3.1 哪些语句走哪个读</h3><table>
+<thead>
+<tr>
+<th>语句</th>
+<th>读类型</th>
+<th>加锁</th>
+<th>看哪个版本</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>SELECT ...</code>（普通）</td>
+<td>快照读</td>
+<td>不加锁</td>
+<td>ReadView 快照</td>
+</tr>
+<tr>
+<td><code>SELECT ... FOR UPDATE</code></td>
+<td>当前读</td>
+<td>排他锁</td>
+<td>最新已提交</td>
+</tr>
+<tr>
+<td><code>SELECT ... FOR SHARE</code>（8.0，旧名 <code>LOCK IN SHARE MODE</code>）</td>
+<td>当前读</td>
+<td>共享锁</td>
+<td>最新已提交</td>
+</tr>
+<tr>
+<td><code>UPDATE</code> &#x2F; <code>DELETE</code></td>
+<td>当前读</td>
+<td>排他锁</td>
+<td>最新已提交</td>
+</tr>
+<tr>
+<td><code>INSERT</code></td>
+<td>当前读</td>
+<td>插入意向锁 + 唯一性检查</td>
+<td>最新已提交</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart LR
+    Q["A statement arrives"] --> T{"which kind?"}
+    T -- "plain SELECT" --> SN["Snapshot read&lt;br/>ReadView, no lock&lt;br/>reads undo versions"]
+    T -- "FOR UPDATE / FOR SHARE&lt;br/>UPDATE / DELETE" --> CU["Current read&lt;br/>latest committed&lt;br/>takes locks"]
+    SN --> OK["never blocks writers"]
+    CU --> BLK["blocks conflicting writers"]</pre>
+
+<p><strong>这条分界线决定了后面几篇的所有并发问题</strong>：快照读之所以能「读不加锁」，是因为它读的是 undo 里的历史版本；当前读必须看最新值，所以必须加锁把别人挡在外面。</p>
+<h3 id="3-2-实测：幻读只出现在当前读"><a href="#3-2-实测：幻读只出现在当前读" class="headerlink" title="3.2 实测：幻读只出现在当前读"></a>3.2 实测：幻读只出现在当前读</h3><p>会话 A（RR）：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">SET</span> SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ;</span><br><span class="line"><span class="keyword">START</span> TRANSACTION;</span><br><span class="line"><span class="keyword">SELECT</span> <span class="built_in">COUNT</span>(<span class="operator">*</span>) <span class="keyword">FROM</span> acct <span class="keyword">WHERE</span> balance <span class="operator">&gt;</span> <span class="number">1500</span>;              <span class="comment">-- #1</span></span><br><span class="line">DO SLEEP(<span class="number">6</span>);</span><br><span class="line"><span class="keyword">SELECT</span> <span class="built_in">COUNT</span>(<span class="operator">*</span>) <span class="keyword">FROM</span> acct <span class="keyword">WHERE</span> balance <span class="operator">&gt;</span> <span class="number">1500</span>;              <span class="comment">-- #2</span></span><br><span class="line"><span class="keyword">SELECT</span> <span class="built_in">COUNT</span>(<span class="operator">*</span>) <span class="keyword">FROM</span> acct <span class="keyword">WHERE</span> balance <span class="operator">&gt;</span> <span class="number">1500</span> <span class="keyword">FOR</span> <span class="keyword">UPDATE</span>;   <span class="comment">-- #3</span></span><br><span class="line"><span class="keyword">COMMIT</span>;</span><br></pre></td></tr></table></figure>
+
+<p>会话 B（A 睡眠期间）：<code>INSERT INTO acct VALUES (4,&#39;dave&#39;,1800.00,0);</code></p>
+<p><strong>实测结果</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>步骤</th>
+<th>结果</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>#1 快照读</td>
+<td>2</td>
+<td>bob 2000 + carol 3000</td>
+</tr>
+<tr>
+<td>#2 快照读（B 已提交后）</td>
+<td><strong>2</strong></td>
+<td>快照没变，幻读被挡住</td>
+</tr>
+<tr>
+<td>#3 当前读 <code>FOR UPDATE</code></td>
+<td><strong>3</strong></td>
+<td>看到 dave，幻读出现</td>
+</tr>
+</tbody></table>
+<p>同一张表、同一个事务，仅仅把 <code>SELECT</code> 换成 <code>SELECT ... FOR UPDATE</code>，结果就变了。这就是「RR 解决了幻读」这句话的准确边界：<strong>它解决的是快照读下的幻读</strong>。</p>
+<h3 id="3-3-实测：快照读不加锁，当前读加锁"><a href="#3-3-实测：快照读不加锁，当前读加锁" class="headerlink" title="3.3 实测：快照读不加锁，当前读加锁"></a>3.3 实测：快照读不加锁，当前读加锁</h3><table>
+<thead>
+<tr>
+<th>会话 A 执行的语句</th>
+<th>会话 B 的 <code>UPDATE</code> 结果</th>
+<th>耗时</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>普通 <code>SELECT</code>（快照读）</td>
+<td>立即成功</td>
+<td>0.061 s</td>
+</tr>
+<tr>
+<td><code>SELECT ... FOR UPDATE</code>（当前读）</td>
+<td><code>ERROR 1205</code> 锁等待超时</td>
+<td>2.07 s（<code>innodb_lock_wait_timeout=2</code>）</td>
+</tr>
+</tbody></table>
+<p>同样是「读一行」，一个完全不影响写入，一个把写入挡到超时。<strong>线上「我只查了一下，为什么把别人堵住了」的疑问，答案就在这里：你查的方式不对。</strong></p>
+<h3 id="3-4-动手验证：脏读只在-RU-出现"><a href="#3-4-动手验证：脏读只在-RU-出现" class="headerlink" title="3.4 动手验证：脏读只在 RU 出现"></a>3.4 动手验证：脏读只在 RU 出现</h3><p>会话 A：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">SET</span> SESSION TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;</span><br><span class="line"><span class="keyword">START</span> TRANSACTION;</span><br><span class="line">DO SLEEP(<span class="number">2</span>);</span><br><span class="line"><span class="keyword">SELECT</span> balance <span class="keyword">FROM</span> acct <span class="keyword">WHERE</span> id <span class="operator">=</span> <span class="number">2</span>;   <span class="comment">-- B 已改但未提交</span></span><br><span class="line">DO SLEEP(<span class="number">5</span>);</span><br><span class="line"><span class="keyword">SELECT</span> balance <span class="keyword">FROM</span> acct <span class="keyword">WHERE</span> id <span class="operator">=</span> <span class="number">2</span>;   <span class="comment">-- B 已回滚</span></span><br><span class="line"><span class="keyword">COMMIT</span>;</span><br></pre></td></tr></table></figure>
+
+<p>会话 B（不提交就回滚）：<code>START TRANSACTION; UPDATE acct SET balance=9999 WHERE id=2; DO SLEEP(3); ROLLBACK;</code></p>
+<p><strong>实测结果</strong>：A 第一次读到 <strong>9999.00</strong>（B 未提交的脏数据），B 回滚后 A 读到 <strong>2000.00</strong>。</p>
+<p><strong>判定标准</strong>：RU 下读到未提交值 &#x3D; 脏读确认；把 A 的级别换成 RC 重跑，就应该仍是 2000.00。生产上永远不要用 RU，它唯一的用途是「不在乎一致性的统计快照」。</p>
+<h2 id="4-长事务：三重危害的实测"><a href="#4-长事务：三重危害的实测" class="headerlink" title="4. 长事务：三重危害的实测"></a>4. 长事务：三重危害的实测</h2><h3 id="4-1-危害一：锁一直不放，把写入排队"><a href="#4-1-危害一：锁一直不放，把写入排队" class="headerlink" title="4.1 危害一：锁一直不放，把写入排队"></a>4.1 危害一：锁一直不放，把写入排队</h3><p>一个改 5 万行、迟迟不提交的事务：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">START</span> TRANSACTION;</span><br><span class="line"><span class="keyword">UPDATE</span> tord <span class="keyword">SET</span> status <span class="operator">=</span> <span class="number">9</span> <span class="keyword">WHERE</span> id <span class="operator">&lt;=</span> <span class="number">50000</span>;   <span class="comment">-- 不提交</span></span><br></pre></td></tr></table></figure>
+
+<p>实测它在 <code>innodb_trx</code> 里的样子：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">trx_id  trx_state  age_s  trx_rows_modified  trx_isolation_level</span><br><span class="line">1864    RUNNING    2      50000              REPEATABLE READ</span><br></pre></td></tr></table></figure>
+
+<p>此时另一个会话更新其中任意一行，<code>innodb_lock_wait_timeout = 3</code>：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">ERROR 1205 (HY000): Lock wait timeout exceeded; try restarting transaction</span><br><span class="line">real 0m3.054s</span><br></pre></td></tr></table></figure>
+
+<p><strong>3 秒一到就报错</strong>，而默认超时是 50 秒。也就是说：一个忘了提交的批处理，可以让所有碰这批数据的事务卡 50 秒然后失败——用户看到的是「系统卡死」。</p>
+<h3 id="4-2-危害二：undo-膨胀，而且不会自己缩回去"><a href="#4-2-危害二：undo-膨胀，而且不会自己缩回去" class="headerlink" title="4.2 危害二：undo 膨胀，而且不会自己缩回去"></a>4.2 危害二：undo 膨胀，而且不会自己缩回去</h3><p>实测同一实例里 undo 表空间的 allocated size 变化：</p>
+<table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>undo 总占用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>初始（2 个 undo 表空间 × 16MB）</td>
+<td>32 MB</td>
+</tr>
+<tr>
+<td>长事务 + 并发更新后</td>
+<td>48 MB</td>
+</tr>
+<tr>
+<td>再一轮更新后</td>
+<td><strong>64 MB</strong></td>
+</tr>
+<tr>
+<td>长事务结束、purge 追平后</td>
+<td><strong>仍是 64 MB</strong></td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart TD
+    LT["Long-running transaction"] --> L1["row locks held&lt;br/>writers queue"]
+    LT --> L2["old read view or&lt;br/>big undo footprint"]
+    L2 --> U1["undo records cannot be purged"]
+    U1 --> U2["undo tablespace grows"]
+    U2 --> D1["disk pressure +&lt;br/>longer crash recovery"]
+    LT --> L3["binlog/relay log backlog"]
+    L3 --> R1["replica lag"]</pre>
+
+<p><strong>为什么不会自己缩回去</strong>：<code>innodb_undo_log_truncate</code> 默认 ON，但只有 undo 表空间超过 <code>innodb_max_undo_log_size</code>（实测默认 <strong>1024MB</strong>）才会触发截断。64MB 这种量级，它会一直留着——平时看不出来，等到磁盘告警时才发现。</p>
+<h3 id="4-3-危害三：拖住-purge，间接拖垮从库"><a href="#4-3-危害三：拖住-purge，间接拖垮从库" class="headerlink" title="4.3 危害三：拖住 purge，间接拖垮从库"></a>4.3 危害三：拖住 purge，间接拖垮从库</h3><p>长事务持有一个很旧的 ReadView，purge 线程（实测默认 4 个）就不敢清理它可能需要的旧版本。清理跟不上，undo 持续增长，同时：</p>
+<ul>
+<li>Buffer Pool 里堆积着大量「只对历史快照有用」的页；</li>
+<li>主库写压力不变但有效吞吐下降；</li>
+<li>大事务写 binlog 时是一次性巨量写入，从库单线程回放时会形成长延迟（⑧ 展开）。</li>
+</ul>
+<p>一个诚实的说明：本篇实测里 <code>trx_rseg_history_len</code>（history list length）一直是个位数（5~7），因为 20 万行这个量级 purge 完全跟得上。<strong>生产上看到 10 万+ 的前提是「高 TPS × 事务持续数分钟」，不是单次大 UPDATE</strong>。所以别把这个指标当唯一信号，<code>innodb_trx</code> 里的 <code>age_s</code> 更直接。</p>
+<h3 id="4-4-排查与判定"><a href="#4-4-排查与判定" class="headerlink" title="4.4 排查与判定"></a>4.4 排查与判定</h3><figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 当前最老的事务有多久、改了多少行</span></span><br><span class="line"><span class="keyword">SELECT</span> trx_id, trx_state, TIMESTAMPDIFF(<span class="keyword">SECOND</span>, trx_started, NOW()) <span class="keyword">AS</span> age_s,</span><br><span class="line">       trx_rows_modified, trx_mysql_thread_id, trx_query</span><br><span class="line"><span class="keyword">FROM</span> information_schema.innodb_trx</span><br><span class="line"><span class="keyword">ORDER</span> <span class="keyword">BY</span> trx_started LIMIT <span class="number">5</span>;</span><br><span class="line"></span><br><span class="line"><span class="comment">-- history list length（经验阈值：10 万以上要警惕）</span></span><br><span class="line"><span class="keyword">SELECT</span> COUNT <span class="keyword">AS</span> history_list_length <span class="keyword">FROM</span> information_schema.innodb_metrics</span><br><span class="line"><span class="keyword">WHERE</span> NAME <span class="operator">=</span> <span class="string">&#x27;trx_rseg_history_len&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="comment">-- undo 占用</span></span><br><span class="line"><span class="keyword">SELECT</span> NAME, ROUND(ALLOCATED_SIZE<span class="operator">/</span><span class="number">1024</span><span class="operator">/</span><span class="number">1024</span>) <span class="keyword">AS</span> mb</span><br><span class="line"><span class="keyword">FROM</span> information_schema.innodb_tablespaces <span class="keyword">WHERE</span> NAME <span class="keyword">LIKE</span> <span class="string">&#x27;%undo%&#x27;</span>;</span><br><span class="line"></span><br><span class="line"><span class="comment">-- 谁在持有锁（8.0 新表）</span></span><br><span class="line"><span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> performance_schema.data_lock_waits\G</span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th>信号</th>
+<th>阈值</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>age_s</code>（最老事务）</td>
+<td>&gt; 10s 需关注，&gt; 60s 处理</td>
+<td>长事务</td>
+</tr>
+<tr>
+<td><code>trx_rows_modified</code></td>
+<td>&gt; 1 万</td>
+<td>大事务，回滚代价高</td>
+</tr>
+<tr>
+<td><code>history_list_length</code></td>
+<td>&gt; 10 万（经验值）</td>
+<td>purge 跟不上</td>
+</tr>
+<tr>
+<td>undo 占用</td>
+<td>接近 <code>innodb_max_undo_log_size</code></td>
+<td>磁盘风险</td>
+</tr>
+<tr>
+<td><code>data_lock_waits</code> 有记录</td>
+<td>任意</td>
+<td>已经有事务在等锁</td>
+</tr>
+</tbody></table>
+<h3 id="4-5-动手验证：亲手造一个长事务再抓它"><a href="#4-5-动手验证：亲手造一个长事务再抓它" class="headerlink" title="4.5 动手验证：亲手造一个长事务再抓它"></a>4.5 动手验证：亲手造一个长事务再抓它</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 会话 1：开一个改 5 万行不提交的事务</span></span><br><span class="line">docker <span class="built_in">exec</span> -i mysql-lab mysql -uroot -plab123 lab &lt;&lt;<span class="string">&#x27;SQL&#x27;</span></span><br><span class="line">START TRANSACTION;</span><br><span class="line">UPDATE tord SET status = 9 WHERE <span class="built_in">id</span> &lt;= 50000;</span><br><span class="line">DO SLEEP(20);</span><br><span class="line">ROLLBACK;</span><br><span class="line">SQL</span><br><span class="line"></span><br><span class="line"><span class="comment"># 会话 2：观察它</span></span><br><span class="line">docker <span class="built_in">exec</span> -i mysql-lab mysql -uroot -plab123 -t &lt;&lt;<span class="string">&#x27;SQL&#x27;</span></span><br><span class="line">SELECT trx_id, TIMESTAMPDIFF(SECOND, trx_started, NOW()) AS age_s, trx_rows_modified</span><br><span class="line">FROM information_schema.innodb_trx ORDER BY trx_started LIMIT 1;</span><br><span class="line">SQL</span><br><span class="line"></span><br><span class="line"><span class="comment"># 会话 3：验证锁等待（记得给短的超时，别等 50 秒）</span></span><br><span class="line">docker <span class="built_in">exec</span> -i mysql-lab mysql -uroot -plab123 lab &lt;&lt;<span class="string">&#x27;SQL&#x27;</span></span><br><span class="line">SET SESSION innodb_lock_wait_timeout = 3;</span><br><span class="line">UPDATE tord SET amount = 1.00 WHERE <span class="built_in">id</span> = 100;</span><br><span class="line">SQL</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：会话 2 看到 <code>age_s</code> 与 <code>trx_rows_modified = 50000</code>；会话 3 大约 3 秒后返回 <code>ERROR 1205</code>。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>会话 3 立即成功 → 说明它更新的行不在被锁范围内（<code>id = 100</code> 应该在里面）；</li>
+<li>报 <code>1205</code> 而不是 <code>1213</code>（死锁） → 只是等待超时，没有循环等待（死锁见 ⑥）。</li>
+</ul>
+<h2 id="5-Java-侧：事务是怎么被拉长的"><a href="#5-Java-侧：事务是怎么被拉长的" class="headerlink" title="5. Java 侧：事务是怎么被拉长的"></a>5. Java 侧：事务是怎么被拉长的</h2><p><code>@Transactional</code> 只是「在方法前后加 begin&#x2F;commit」，它不会让你的方法变快。三个最常见的拉长方式：</p>
+<table>
+<thead>
+<tr>
+<th>写法</th>
+<th>为什么变长</th>
+<th>改法</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>事务里调 RPC &#x2F; HTTP</td>
+<td>网络耗时全在事务内，锁一直持有</td>
+<td>把远程调用挪到事务外，先算后写</td>
+</tr>
+<tr>
+<td>事务里循环查库 &#x2F; 循环 insert</td>
+<td>每条语句都要走一遍 Server 层</td>
+<td>批量操作、一次性查出来内存处理</td>
+</tr>
+<tr>
+<td>大文件 &#x2F; 大批量处理放在事务里</td>
+<td>事务持有时长与数据量成正比</td>
+<td>分批提交，每批独立事务</td>
+</tr>
+</tbody></table>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 反例：RPC 在事务内，锁持有时间 = RPC 耗时</span></span><br><span class="line"><span class="meta">@Transactional</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">pay</span><span class="params">(Long orderId)</span> &#123;</span><br><span class="line">    <span class="type">Order</span> <span class="variable">o</span> <span class="operator">=</span> orderMapper.selectById(orderId);       <span class="comment">// 快</span></span><br><span class="line">    <span class="type">String</span> <span class="variable">r</span> <span class="operator">=</span> payClient.call(o);                    <span class="comment">// 慢：200ms~2s，锁一直拿着</span></span><br><span class="line">    orderMapper.updateStatus(orderId, r);</span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 正例：先远程调用，再开短事务写库</span></span><br><span class="line"><span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">pay</span><span class="params">(Long orderId)</span> &#123;</span><br><span class="line">    <span class="type">Order</span> <span class="variable">o</span> <span class="operator">=</span> orderMapper.selectById(orderId);</span><br><span class="line">    <span class="type">String</span> <span class="variable">r</span> <span class="operator">=</span> payClient.call(o);                    <span class="comment">// 事务外</span></span><br><span class="line">    txTemplate.executeWithoutResult(s -&gt; orderMapper.updateStatus(orderId, r));</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<pre class="mermaid">sequenceDiagram
+    participant App
+    participant DB
+    Note over App,DB: RPC inside transaction - lock held 200ms+
+    App->>DB: BEGIN
+    App->>DB: SELECT order FOR UPDATE
+    App->>App: RPC pay (200ms)
+    App->>DB: UPDATE order
+    App->>DB: COMMIT
+    Note over App,DB: RPC outside transaction - lock held &lt;1ms
+    App->>App: RPC pay (200ms)
+    App->>DB: BEGIN
+    App->>DB: UPDATE order
+    App->>DB: COMMIT</pre>
+
+<p>事务传播行为、<code>@Transactional</code> 失效的五种场景放在 ⑪ 展开——那一篇会把连接池、动态数据源和事务边界一起算清楚。这里只记一句：<strong>事务越短越好，不是因为规范，而是因为锁和 undo 都在按事务时长收费</strong>。</p>
+<h2 id="6-总结"><a href="#6-总结" class="headerlink" title="6. 总结"></a>6. 总结</h2><h3 id="6-1-面试速答表"><a href="#6-1-面试速答表" class="headerlink" title="6.1 面试速答表"></a>6.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>ACID 分别靠什么实现</td>
+<td>原子性靠 undo，持久性靠 redo，隔离性靠 MVCC + 锁，一致性靠前三者加业务约束</td>
+</tr>
+<tr>
+<td>MVCC 是什么</td>
+<td>每行挂 undo 版本链 + 事务持 ReadView 快照，读时沿链找第一个可见版本</td>
+</tr>
+<tr>
+<td>RC 和 RR 的差别</td>
+<td>只差 ReadView 的创建时机：RC 每语句新建，RR 事务内首个快照读建一次后复用</td>
+</tr>
+<tr>
+<td>RR 能防幻读吗</td>
+<td>快照读能，当前读（<code>FOR UPDATE</code>&#x2F;<code>UPDATE</code>）不能；实测同一事务里快照读 2 行、当前读 3 行</td>
+</tr>
+<tr>
+<td>快照读和当前读的区别</td>
+<td>快照读读 undo 历史版本、不加锁；当前读读最新已提交、必须加锁</td>
+</tr>
+<tr>
+<td>为什么普通 SELECT 不阻塞 UPDATE</td>
+<td>它不加锁，只读快照</td>
+</tr>
+<tr>
+<td>长事务有什么危害</td>
+<td>锁持有（阻塞写入）、undo 无法 purge（膨胀且不回落）、binlog 累积（从库延迟）</td>
+</tr>
+<tr>
+<td>undo 表空间会自动缩小吗</td>
+<td>只有超过 <code>innodb_max_undo_log_size</code>（默认 1GB）才触发 truncate，否则一直占着</td>
+</tr>
+<tr>
+<td>怎么发现长事务</td>
+<td><code>information_schema.innodb_trx</code> 按 <code>trx_started</code> 排序，看 <code>age_s</code> 与 <code>trx_rows_modified</code></td>
+</tr>
+<tr>
+<td>RR 下会丢更新吗</td>
+<td>会。两个事务都「快照读 + 计算 + 写」，后写的覆盖先写的；要用当前读或原子更新</td>
+</tr>
+<tr>
+<td>为什么 RU 不能用</td>
+<td>会读到未提交数据，回滚后你的逻辑已经基于幽灵数据跑了</td>
+</tr>
+</tbody></table>
+<h3 id="6-2-实战避坑表"><a href="#6-2-实战避坑表" class="headerlink" title="6.2 实战避坑表"></a>6.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>接口偶发 1205 锁等待超时</td>
+<td>有长事务持有行锁</td>
+<td>查 <code>innodb_trx</code> 的 <code>age_s</code>，找到源头应用</td>
+</tr>
+<tr>
+<td>磁盘持续增长，找不到大表</td>
+<td>undo 表空间膨胀</td>
+<td>查 <code>innodb_tablespaces</code> 的 undo 占用，处理长事务</td>
+</tr>
+<tr>
+<td>事务里两次读同一个值不一致</td>
+<td>用了 RC，或中间有隐式提交</td>
+<td>确认隔离级别；检查 DDL&#x2F;<code>SET autocommit</code></td>
+</tr>
+<tr>
+<td><code>SELECT ... FOR UPDATE</code> 把写入堵死</td>
+<td>当前读加锁，且没走索引会锁更多行</td>
+<td>缩小范围、走索引（⑥ 详解）</td>
+</tr>
+<tr>
+<td>明明没改代码，超时变多</td>
+<td>某处新增了事务内的 RPC 调用</td>
+<td>查事务边界，把远程调用挪出去</td>
+</tr>
+<tr>
+<td>统计类查询跑很久还拖着 purge</td>
+<td>长只读事务持有旧 ReadView</td>
+<td>统计走从库或缩短事务</td>
+</tr>
+</tbody></table>
+<h3 id="6-3-工具速查表"><a href="#6-3-工具速查表" class="headerlink" title="6.3 工具速查表"></a>6.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>判定标准</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>information_schema.innodb_trx</code></td>
+<td><code>age_s</code>、<code>trx_rows_modified</code>、<code>trx_query</code></td>
+<td><code>age_s &gt; 10s</code> 关注，<code>&gt; 60s</code> 处理</td>
+</tr>
+<tr>
+<td><code>information_schema.innodb_metrics</code></td>
+<td><code>trx_rseg_history_len</code></td>
+<td>&gt; 10 万（经验值）说明 purge 跟不上</td>
+</tr>
+<tr>
+<td><code>information_schema.innodb_tablespaces</code></td>
+<td>undo 的 <code>ALLOCATED_SIZE</code></td>
+<td>接近 1GB 会触发 truncate，需排查源头</td>
+</tr>
+<tr>
+<td><code>performance_schema.data_lock_waits</code></td>
+<td>谁在等谁</td>
+<td>有记录就说明正在排队</td>
+</tr>
+<tr>
+<td><code>SHOW ENGINE INNODB STATUS</code></td>
+<td><code>TRANSACTIONS</code> 段</td>
+<td>看最老事务与锁等待详情</td>
+</tr>
+<tr>
+<td><code>SELECT ... FOR UPDATE</code> 前的 <code>EXPLAIN</code></td>
+<td>走了哪个索引</td>
+<td>没走索引 → 锁范围会扩大（⑥）</td>
+</tr>
+</tbody></table>
+<h3 id="6-4-实操建议"><a href="#6-4-实操建议" class="headerlink" title="6.4 实操建议"></a>6.4 实操建议</h3><ol>
+<li><strong>先记住那条分界线</strong>：快照读不加锁、当前读加锁。遇到任何并发问题，先判断这条语句是哪一类。</li>
+<li><strong>事务里禁止出现 RPC、文件 IO、循环查询</strong>。这三件事是把 10ms 事务变成 2s 事务的标准配方。</li>
+<li><strong>给每个事务设上限</strong>：业务上定一个「事务最长 1 秒」的约定，超过就拆分，比事后排查便宜。</li>
+<li><strong>监控 <code>age_s</code> 而不是只看 TPS</strong>。一个有长事务的库，TPS 可能很好看，但锁等待在堆积。</li>
+<li><strong>别用 RU 换性能</strong>。脏读带来的问题，修复成本远高于那点收益。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告</strong>：⑥《锁、死锁与 MDL：一次变更如何堵死整张表》。本文说了「当前读要加锁」，但没回答<strong>加多少</strong>：<code>WHERE id = 5</code> 到底锁一行还是锁一片？为什么一个走不到索引的 <code>UPDATE</code> 会把整张表锁住？死锁日志该从哪一行读起？下一篇用 <code>data_locks</code> 把加锁范围直接画出来，再逐行读一次真实的死锁报告。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/MySQL/" rel="tag"># MySQL</a>
+              <a href="/tags/%E4%BA%8B%E5%8A%A1/" rel="tag"># 事务</a>
+              <a href="/tags/%E9%9D%A2%E8%AF%95/" rel="tag"># 面试</a>
+              <a href="/tags/MVCC/" rel="tag"># MVCC</a>
+              <a href="/tags/%E9%9A%94%E7%A6%BB%E7%BA%A7%E5%88%AB/" rel="tag"># 隔离级别</a>
+              <a href="/tags/undo/" rel="tag"># undo</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/d65d7254.html" rel="prev" title="查询优化：优化器为什么会选错索引">
+                  <i class="fa fa-angle-left"></i> 查询优化：优化器为什么会选错索引
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/post/d090a538.html" rel="next" title="锁、死锁与 MDL：一次变更如何堵死整张表">
+                  锁、死锁与 MDL：一次变更如何堵死整张表 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">740k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">44:51</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
+</html>

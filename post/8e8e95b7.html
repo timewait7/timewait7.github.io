@@ -1,0 +1,1099 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="前面六篇都在省「读」，这一篇看「写」。一次 COMMIT 背后至少两次落盘：redo 一次、binlog 一次。这两次 fsync 值多少钱？实测下来，把 innodb_flush_log_at_trx_commit 从 1 改成 0，单行插入 TPS 从 734 涨到 151,035——206 倍。而代价是：kill -9 之后，刚提交的 2000 行一行都不剩。 这就是本文要算的账：性能与持久">
+<meta property="og:type" content="article">
+<meta property="og:title" content="InnoDB 内存与刷盘：物理 IO 的钱花在哪">
+<meta property="og:url" content="http://timewait7.github.io/post/8e8e95b7.html">
+<meta property="og:site_name" content="知行栈">
+<meta property="og:description" content="前面六篇都在省「读」，这一篇看「写」。一次 COMMIT 背后至少两次落盘：redo 一次、binlog 一次。这两次 fsync 值多少钱？实测下来，把 innodb_flush_log_at_trx_commit 从 1 改成 0，单行插入 TPS 从 734 涨到 151,035——206 倍。而代价是：kill -9 之后，刚提交的 2000 行一行都不剩。 这就是本文要算的账：性能与持久">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-10-24T18:20:00.000Z">
+<meta property="article:modified_time" content="2026-10-24T13:36:16.666Z">
+<meta property="article:tag" content="MySQL">
+<meta property="article:tag" content="面试">
+<meta property="article:tag" content="InnoDB">
+<meta property="article:tag" content="Buffer Pool">
+<meta property="article:tag" content="redo">
+<meta property="article:tag" content="持久性">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/8e8e95b7.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/8e8e95b7.html","path":"post/8e8e95b7.html","title":"InnoDB 内存与刷盘：物理 IO 的钱花在哪"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>InnoDB 内存与刷盘：物理 IO 的钱花在哪 | 知行栈</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<!-- hexo injector head_end start --><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
+</style><style>
+/* 菜单链高亮：sub-menu 祖先（同主题 .menu-item-active 的 Pisces 规则） */
+.sub-menu .menu-item a.menu-chain-active {
+  border-bottom-color: #fc6423;
+  color: #fc6423;
+}
+.sub-menu .menu-item a.menu-chain-active:hover {
+  border-bottom-color: #fc6423;
+}
+/* 菜单链高亮：main-menu 祖先（同主题 hover/active 的背景规则） */
+.main-menu .menu-item a.menu-chain-active {
+  background: var(--menu-item-bg-color);
+}
+</style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">知行栈</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section" class="menu-chain-active"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>Categories</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-%E5%86%99%E8%B7%AF%E5%BE%84%EF%BC%9A%E4%B8%80%E6%AC%A1-commit-%E5%86%99%E4%BA%86%E5%87%A0%E6%AC%A1%E7%9B%98"><span class="nav-text">1. 写路径：一次 commit 写了几次盘</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-WAL%EF%BC%9A%E5%85%88%E5%86%99%E6%97%A5%E5%BF%97%EF%BC%8C%E5%86%8D%E6%85%A2%E6%85%A2%E5%86%99%E6%95%B0%E6%8D%AE"><span class="nav-text">1.1 WAL：先写日志，再慢慢写数据</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-2-%E4%B8%A4%E9%98%B6%E6%AE%B5%E6%8F%90%E4%BA%A4%EF%BC%9Aredo-%E4%B8%8E-binlog-%E5%BF%85%E9%A1%BB%E4%B8%80%E8%87%B4"><span class="nav-text">1.2 两阶段提交：redo 与 binlog 必须一致</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-3-%E4%B8%80%E6%AC%A1-commit-%E7%9A%84-fsync-%E6%AC%A1%E6%95%B0"><span class="nav-text">1.3 一次 commit 的 fsync 次数</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E6%95%B0%E4%B8%80%E6%95%B0%E4%BD%A0%E7%9A%84-fsync"><span class="nav-text">1.4 动手验证：数一数你的 fsync</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-flush-sync-%E4%B8%89%E6%A1%A3%EF%BC%9A%E6%80%A7%E8%83%BD%E4%B8%8E%E6%8C%81%E4%B9%85%E6%80%A7%E7%9A%84%E5%85%91%E6%8D%A2%E7%8E%87"><span class="nav-text">2. flush &#x2F; sync 三档：性能与持久性的兑换率</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E5%AE%9E%E6%B5%8B-TPS-%E9%98%B6%E6%A2%AF"><span class="nav-text">2.1 实测 TPS 阶梯</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E5%AE%9E%E6%B5%8B%EF%BC%9Akill-9-%E4%B9%8B%E5%90%8E%E8%BF%98%E5%89%A9%E5%A4%9A%E5%B0%91"><span class="nav-text">2.2 实测：kill -9 之后还剩多少</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-%E6%B7%B1%E6%8C%96%EF%BC%9A%E4%B8%BA%E4%BB%80%E4%B9%88-flush-2-%E5%9C%A8-kill-9-%E4%B8%8B%E6%B2%A1%E4%B8%A2%E6%95%B0%E6%8D%AE"><span class="nav-text">2.3 深挖：为什么 flush&#x3D;2 在 kill -9 下没丢数据</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-4-%E7%94%9F%E4%BA%A7%E6%80%8E%E4%B9%88%E9%80%89"><span class="nav-text">2.4 生产怎么选</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-5-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E8%87%AA%E5%B7%B1%E5%88%B6%E9%80%A0%E4%B8%80%E6%AC%A1%E6%95%B0%E6%8D%AE%E4%B8%A2%E5%A4%B1"><span class="nav-text">2.5 动手验证：自己制造一次数据丢失</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-Buffer-Pool%EF%BC%9A%E5%91%BD%E4%B8%AD%E7%8E%87%E6%98%AF%E6%80%8E%E4%B9%88%E7%AE%97%E7%9A%84"><span class="nav-text">3. Buffer Pool：命中率是怎么算的</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E7%BB%93%E6%9E%84%EF%BC%9A%E4%B8%80%E4%B8%AA%E8%A2%AB%E6%94%B9%E9%80%A0%E8%BF%87%E7%9A%84-LRU"><span class="nav-text">3.1 结构：一个被改造过的 LRU</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E5%91%BD%E4%B8%AD%E7%8E%87%E7%9A%84%E7%AE%97%E6%B3%95%E4%B8%8E%E9%99%B7%E9%98%B1"><span class="nav-text">3.2 命中率的算法与陷阱</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-%E6%B7%B1%E6%8C%96%EF%BC%9A%E4%B8%BA%E4%BB%80%E4%B9%88-SET-GLOBAL-%E6%94%B9%E4%B8%8D%E4%BA%86%E6%B1%A0%E5%A4%A7%E5%B0%8F"><span class="nav-text">3.3 深挖：为什么 SET GLOBAL 改不了池大小</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-4-change-buffer-%E4%B8%8E-doublewrite"><span class="nav-text">3.4 change buffer 与 doublewrite</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-5-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%91%BD%E4%B8%AD%E7%8E%87%E9%98%B6%E6%A2%AF"><span class="nav-text">3.5 动手验证：命中率阶梯</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E5%B4%A9%E6%BA%83%E6%81%A2%E5%A4%8D%EF%BC%9Aredo-%E6%80%8E%E4%B9%88%E6%8A%8A%E6%95%B0%E6%8D%AE%E6%95%91%E5%9B%9E%E6%9D%A5"><span class="nav-text">4. 崩溃恢复：redo 怎么把数据救回来</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-%E6%81%A2%E5%A4%8D%E6%B5%81%E7%A8%8B"><span class="nav-text">4.1 恢复流程</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-%E5%AE%9E%E6%B5%8B%EF%BC%9Akill-9-%E4%B9%8B%E5%90%8E%E7%9C%8B%E6%81%A2%E5%A4%8D"><span class="nav-text">4.2 实测：kill -9 之后看恢复</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E6%80%BB%E7%BB%93"><span class="nav-text">5. 总结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E9%9D%A2%E8%AF%95%E9%80%9F%E7%AD%94%E8%A1%A8"><span class="nav-text">5.1 面试速答表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E5%AE%9E%E6%88%98%E9%81%BF%E5%9D%91%E8%A1%A8"><span class="nav-text">5.2 实战避坑表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-%E5%B7%A5%E5%85%B7%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">5.3 工具速查表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-%E5%AE%9E%E6%93%8D%E5%BB%BA%E8%AE%AE"><span class="nav-text">5.4 实操建议</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">104</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">14</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">175</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+    <div class="sidebar-inner sidebar-blogroll">
+      <div class="links-of-blogroll animated">
+        <div class="links-of-blogroll-title"><i class="fa fa-globe fa-fw"></i>
+          Links
+        </div>
+        <ul class="links-of-blogroll-list">
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9wYXVsZ3JhaGFtLmNvbS9hcnRpY2xlcy5odG1s" title="https:&#x2F;&#x2F;paulgraham.com&#x2F;articles.html">paulgraham</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly93d3cuam9lbG9uc29mdHdhcmUuY29tLw==" title="https:&#x2F;&#x2F;www.joelonsoftware.com&#x2F;">Joel on Software</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9tYXJ0aW5mb3dsZXIuY29tLw==" title="https:&#x2F;&#x2F;martinfowler.com&#x2F;">Martin Flower</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly96aGFuZ3RpZWxlaS5jb20v" title="https:&#x2F;&#x2F;zhangtielei.com&#x2F;">zhangtielei</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhLWRlc2lnbi1wYXR0ZXJucy5jb20vemgv" title="https:&#x2F;&#x2F;java-design-patterns.com&#x2F;zh&#x2F;">Java Design Patterns</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9taWNyb3NlcnZpY2VzLmlvLw==" title="https:&#x2F;&#x2F;microservices.io&#x2F;">Microservice Architecture</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhZ3VpZGUuY24v" title="https:&#x2F;&#x2F;javaguide.cn&#x2F;">JavaGuide</span>
+            </li>
+        </ul>
+      </div>
+    </div>
+        <div class="pjax">
+        
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-后端开发"><a href="/docs/nav/backend-dev-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-code fa-fw"></i>后端开发</a></li>
+
+
+      
+  <li class="menu-item menu-item-计算机基础"><a href="/docs/nav/cs-foundation-nav.html" rel="section"><i class="fa fa-desktop fa-fw"></i>计算机基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-ai-学习"><a href="/docs/nav/ai-learning-nav.html" rel="section"><i class="fa fa-robot fa-fw"></i>AI 学习</a></li>
+
+
+      
+  <li class="menu-item menu-item-项目实战"><a href="/docs/nav/5964f4da.html" rel="section"><i class="fa fa-flask fa-fw"></i>项目实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-misc"><a href="/docs/nav/misc-nav.html" rel="section"><i class="fa fa-box fa-fw"></i>Misc</a></li>
+
+
+      
+  <li class="menu-item menu-item-随笔·生活"><a href="/docs/nav/life-nav.html" rel="section"><i class="fa fa-feather fa-fw"></i>随笔·生活</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java"><a href="/docs/nav/java-nav.html" rel="section"><i class="fa fa-coffee fa-fw"></i>Java</a></li>
+
+
+      
+  <li class="menu-item menu-item-框架"><a href="/docs/nav/framework-nav.html" rel="section"><i class="fa fa-th-large fa-fw"></i>框架</a></li>
+
+
+      
+  <li class="menu-item menu-item-数据存储"><a href="/docs/nav/data-storage-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-hdd fa-fw"></i>数据存储</a></li>
+
+
+      
+  <li class="menu-item menu-item-中间件"><a href="/docs/nav/middleware-nav.html" rel="section"><i class="fa fa-cubes fa-fw"></i>中间件</a></li>
+
+
+      
+  <li class="menu-item menu-item-分布式与微服务"><a href="/docs/nav/distributed-nav.html" rel="section"><i class="fa fa-sitemap fa-fw"></i>分布式与微服务</a></li>
+
+
+      
+  <li class="menu-item menu-item-系统设计"><a href="/docs/nav/system-design-nav.html" rel="section"><i class="fa fa-pencil-ruler fa-fw"></i>系统设计</a></li>
+
+
+      
+  <li class="menu-item menu-item-部署运维"><a href="/docs/nav/devops-nav.html" rel="section"><i class="fa fa-terminal fa-fw"></i>部署运维</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-mysql"><a href="/docs/nav/mysql-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-database fa-fw"></i>MySQL</a></li>
+
+
+      
+  <li class="menu-item menu-item-redis"><a href="/docs/nav/redis-nav.html" rel="section"><i class="fa fa-bolt fa-fw"></i>Redis</a></li>
+
+
+      
+  <li class="menu-item menu-item-elasticsearch"><a href="/docs/nav/es-nav.html" rel="section"><i class="fa fa-search fa-fw"></i>ElasticSearch</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-mysql-深度解析：从原理到高可用与分库分表实战"><a href="/post/32511a71.html" rel="section"><i class="fa fa-file-text fa-fw"></i>MySQL 深度解析：从原理到高可用与分库分表实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-①-从这里开始：把-mysql-变成你的实验台"><a href="/post/60f95c16.html" rel="section"><i class="fa fa-file-text fa-fw"></i>① 从这里开始：把 MySQL 变成你的实验台</a></li>
+
+
+      
+  <li class="menu-item menu-item-②-一条-sql-的六层成本账：架构不是画流程图"><a href="/post/ffd9df8b.html" rel="section"><i class="fa fa-file-text fa-fw"></i>② 一条 SQL 的六层成本账：架构不是画流程图</a></li>
+
+
+      
+  <li class="menu-item menu-item-③-schema-与索引：把逻辑读降下来"><a href="/post/e1724727.html" rel="section"><i class="fa fa-file-text fa-fw"></i>③ Schema 与索引：把逻辑读降下来</a></li>
+
+
+      
+  <li class="menu-item menu-item-④-查询优化：优化器为什么会选错索引"><a href="/post/d65d7254.html" rel="section"><i class="fa fa-file-text fa-fw"></i>④ 查询优化：优化器为什么会选错索引</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑤-事务与-mvcc：把「不可重复读」亲手复现出来"><a href="/post/88fb6d0c.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑤ 事务与 MVCC：把「不可重复读」亲手复现出来</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑥-锁、死锁与-mdl：一次变更如何堵死整张表"><a href="/post/d090a538.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑥ 锁、死锁与 MDL：一次变更如何堵死整张表</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑦-innodb-内存与刷盘：物理-io-的钱花在哪"><a href="/post/8e8e95b7.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑦ InnoDB 内存与刷盘：物理 IO 的钱花在哪</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑧-复制与高可用：延迟的量化与判定"><a href="/post/51687861.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑧ 复制与高可用：延迟的量化与判定</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑨-备份与恢复：删库之后-30-分钟救回来"><a href="/post/f375ea2a.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑨ 备份与恢复：删库之后 30 分钟救回来</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑩-在线-ddl：一次加索引如何堵死整张表"><a href="/post/b5c3673.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑩ 在线 DDL：一次加索引如何堵死整张表</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑪-java-侧：连接池打满与-@transactional-失效的真相"><a href="/post/4d87a909.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑪ Java 侧：连接池打满与 @Transactional 失效的真相</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑫-容量与扩展：什么时候才该分库分表"><a href="/post/f8f36186.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑫ 容量与扩展：什么时候才该分库分表</a></li>
+
+
+    </ul>
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/8e8e95b7.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="InnoDB 内存与刷盘：物理 IO 的钱花在哪 | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          InnoDB 内存与刷盘：物理 IO 的钱花在哪
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-10-25 02:20:00" itemprop="dateCreated datePublished" datetime="2026-10-25T02:20:00+08:00">2026-10-25</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/" itemprop="url" rel="index"><span itemprop="name">数据存储</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>4.4k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>16 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><p><strong>前面六篇都在省「读」，这一篇看「写」</strong>。一次 <code>COMMIT</code> 背后至少两次落盘：redo 一次、binlog 一次。这两次 <code>fsync</code> 值多少钱？实测下来，把 <code>innodb_flush_log_at_trx_commit</code> 从 1 改成 0，单行插入 TPS 从 <strong>734 涨到 151,035</strong>——206 倍。而代价是：<code>kill -9</code> 之后，刚提交的 2000 行<strong>一行都不剩</strong>。</p>
+<p>这就是本文要算的账：<strong>性能与持久性的兑换率</strong>。文中所有数字都在 MySQL 8.0.46 容器里实测，<code>kill -9</code> 是真杀进程后重启验证的。</p>
+<blockquote>
+<p><strong>系列地图（高性能 MySQL 实战路线，12 篇）</strong></p>
+<p>① 实验台与基线 → ② 六层成本账 → ③ 索引与 Schema → ④ 优化器与慢查询 → ⑤ 事务与 MVCC → ⑥ 锁与死锁 → ⑦ <strong>内存与刷盘（本文）</strong> → ⑧ 复制与高可用 → ⑨ 备份与恢复 → ⑩ 在线 DDL → ⑪ Java 侧连接池 → ⑫ 容量与分库分表</p>
+<p>与前后篇的关系：① 测到「冷启动物理读 1046、热缓存 0」，本文解释那批物理读是怎么被 redo 与 Buffer Pool 安排的；本文的 binlog 落盘是 ⑧ 复制的源头；本文的「丢数据代价」是 ⑨ 备份策略的定价依据。</p>
+</blockquote>
+<h2 id="1-写路径：一次-commit-写了几次盘"><a href="#1-写路径：一次-commit-写了几次盘" class="headerlink" title="1. 写路径：一次 commit 写了几次盘"></a>1. 写路径：一次 commit 写了几次盘</h2><h3 id="1-1-WAL：先写日志，再慢慢写数据"><a href="#1-1-WAL：先写日志，再慢慢写数据" class="headerlink" title="1.1 WAL：先写日志，再慢慢写数据"></a>1.1 WAL：先写日志，再慢慢写数据</h3><p>InnoDB 改数据时<strong>不直接改磁盘上的页</strong>，而是：</p>
+<ol>
+<li>把页读进 Buffer Pool（内存），在内存里改；</li>
+<li>把「改了什么」写进 redo log（顺序写、小）；</li>
+<li>提交时确保 redo 落盘 → 事务就算持久了；</li>
+<li>脏页由后台线程慢慢刷回磁盘（随机写、慢）。</li>
+</ol>
+<pre class="mermaid">flowchart LR
+    C["COMMIT"] --> RB["redo log buffer&lt;br/>memory"]
+    RB -->|"write()"| OS["OS page cache"]
+    OS -->|"fsync()"| RD["redo file&lt;br/>#innodb_redo"]
+    C --> BB["binlog buffer"]
+    BB -->|"write()"| BOS["OS page cache"]
+    BOS -->|"fsync()"| BF["binlog file"]
+    BP["Buffer Pool dirty pages"] -->|"background flush"| DF["data files .ibd"]</pre>
+
+<p><strong>WAL 的价值</strong>：把「随机写数据页」变成「顺序写日志」。一次事务改 3 个页，日志可能只有 200 字节；如果不写日志直接刷脏页，就要 3 次随机 IO。</p>
+<p>代价是：<strong>同一份数据写了两遍</strong>（redo + 数据页），而且 redo 也要落盘。所以「写放大」在数据库里是常态，不是 bug。</p>
+<h3 id="1-2-两阶段提交：redo-与-binlog-必须一致"><a href="#1-2-两阶段提交：redo-与-binlog-必须一致" class="headerlink" title="1.2 两阶段提交：redo 与 binlog 必须一致"></a>1.2 两阶段提交：redo 与 binlog 必须一致</h3><p>redo 是 InnoDB 的，binlog 是 Server 层的，两者独立。为了让「主库数据和从库&#x2F;备份的 binlog」一致，提交要走两阶段：</p>
+<pre class="mermaid">sequenceDiagram
+    participant C as Client
+    participant S as Server
+    participant I as InnoDB
+    C->>S: COMMIT
+    S->>I: prepare (写 redo, 标记 prepare)
+    I-->>S: ok
+    S->>S: 写 binlog + fsync
+    S->>I: commit (redo 标记 commit)
+    I-->>C: ok</pre>
+
+<p>崩溃恢复时的判定很简单：</p>
+<table>
+<thead>
+<tr>
+<th>崩溃时机</th>
+<th>redo 状态</th>
+<th>binlog 状态</th>
+<th>恢复动作</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>prepare 之前</td>
+<td>无</td>
+<td>无</td>
+<td>回滚</td>
+</tr>
+<tr>
+<td>prepare 之后、binlog 之前</td>
+<td>prepare</td>
+<td>无</td>
+<td><strong>回滚</strong></td>
+</tr>
+<tr>
+<td>binlog 之后、commit 之前</td>
+<td>prepare</td>
+<td>有</td>
+<td><strong>提交</strong>（redo 补 commit）</td>
+</tr>
+<tr>
+<td>commit 之后</td>
+<td>commit</td>
+<td>有</td>
+<td>无需动作</td>
+</tr>
+</tbody></table>
+<p><strong>这就是「binlog 写成功但没 commit」也能恢复的原因</strong>。理解了这张表，⑧ 的主从一致性、⑨ 的 PITR 都不会再有疑问。</p>
+<h3 id="1-3-一次-commit-的-fsync-次数"><a href="#1-3-一次-commit-的-fsync-次数" class="headerlink" title="1.3 一次 commit 的 fsync 次数"></a>1.3 一次 commit 的 fsync 次数</h3><table>
+<thead>
+<tr>
+<th>配置</th>
+<th>redo fsync</th>
+<th>binlog fsync</th>
+<th>一次 commit 的 fsync 次数</th>
+<th>丢失风险</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>flush=1</code>, <code>sync_binlog=1</code></td>
+<td>每次提交</td>
+<td>每次提交</td>
+<td>2</td>
+<td>不丢</td>
+</tr>
+<tr>
+<td><code>flush=2</code>, <code>sync_binlog=1</code></td>
+<td>每秒（后台）</td>
+<td>每次提交</td>
+<td>1</td>
+<td>掉电丢 ~1s</td>
+</tr>
+<tr>
+<td><code>flush=1</code>, <code>sync_binlog=0</code></td>
+<td>每次提交</td>
+<td>由 OS 决定</td>
+<td>1</td>
+<td>掉电丢 binlog</td>
+</tr>
+<tr>
+<td><code>flush=2</code>, <code>sync_binlog=0</code></td>
+<td>每秒</td>
+<td>由 OS 决定</td>
+<td>~0</td>
+<td>掉电丢 ~1s</td>
+</tr>
+<tr>
+<td><code>flush=0</code>, <code>sync_binlog=0</code></td>
+<td>每秒（且不 write）</td>
+<td>由 OS 决定</td>
+<td>0</td>
+<td><strong>进程崩溃就丢</strong></td>
+</tr>
+</tbody></table>
+<p>实测默认值（8.0.46）：<code>innodb_flush_log_at_trx_commit=1</code>、<code>sync_binlog=1</code>、<code>innodb_flush_method=fsync</code>、<code>innodb_redo_log_capacity=100MB</code>、<code>binlog_group_commit_sync_delay=0</code>。</p>
+<h3 id="1-4-动手验证：数一数你的-fsync"><a href="#1-4-动手验证：数一数你的-fsync" class="headerlink" title="1.4 动手验证：数一数你的 fsync"></a>1.4 动手验证：数一数你的 fsync</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 在一个测试实例里跑 3000 次单行插入（每次自动提交 = 每行一个事务）</span></span><br><span class="line">docker <span class="built_in">exec</span> -i mysql-lab mysql -uroot -plab123 lab &lt;&lt;<span class="string">&#x27;SQL&#x27;</span></span><br><span class="line">SET GLOBAL innodb_flush_log_at_trx_commit = 1;</span><br><span class="line">SET GLOBAL sync_binlog = 1;</span><br><span class="line">SET @s := SYSDATE(6);</span><br><span class="line">CALL bench(3000);</span><br><span class="line">SET @e := SYSDATE(6);</span><br><span class="line">SELECT ROUND(TIMESTAMPDIFF(MICROSECOND,@s,@e)/1000000,3) AS seconds;</span><br><span class="line">SQL</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：单次插入的耗时应该在 <strong>0.5~2 毫秒</strong>量级（其中绝大部分是两次 <code>fsync</code> 的等待），而不是微秒级。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>3000 次插入 &lt; 0.5 秒 → 你机器上 fsync 极便宜（内存盘&#x2F;云盘缓存），要换真实磁盘复测；</li>
+<li>单次 &gt; 5 毫秒 → 磁盘或虚拟化层很慢，生产上这样的盘撑不住高并发写入；</li>
+<li>与 1.2 节的 TPS 阶梯对照，确认你测的是「持久性成本」而不是 SQL 解析。</li>
+</ul>
+<h2 id="2-flush-sync-三档：性能与持久性的兑换率"><a href="#2-flush-sync-三档：性能与持久性的兑换率" class="headerlink" title="2. flush &#x2F; sync 三档：性能与持久性的兑换率"></a>2. flush &#x2F; sync 三档：性能与持久性的兑换率</h2><h3 id="2-1-实测-TPS-阶梯"><a href="#2-1-实测-TPS-阶梯" class="headerlink" title="2.1 实测 TPS 阶梯"></a>2.1 实测 TPS 阶梯</h3><p>固定 3000 次单行插入（每次独立事务），只改两个参数：</p>
+<table>
+<thead>
+<tr>
+<th>配置</th>
+<th>耗时</th>
+<th>TPS</th>
+<th>相对基线</th>
+<th>数据安全</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>flush=1</code>, <code>sync_binlog=1</code>（默认）</td>
+<td>4.086 s</td>
+<td><strong>734</strong></td>
+<td>1.0×</td>
+<td>提交即持久</td>
+</tr>
+<tr>
+<td><code>flush=2</code>, <code>sync_binlog=1</code></td>
+<td>1.529 s</td>
+<td>1,962</td>
+<td>2.7×</td>
+<td>掉电丢 ≤1s</td>
+</tr>
+<tr>
+<td><code>flush=2</code>, <code>sync_binlog=0</code></td>
+<td>0.128 s</td>
+<td>23,443</td>
+<td>32×</td>
+<td>掉电丢 ≤1s（含 binlog）</td>
+</tr>
+<tr>
+<td><code>flush=0</code>, <code>sync_binlog=0</code></td>
+<td>0.020 s</td>
+<td><strong>151,035</strong></td>
+<td><strong>206×</strong></td>
+<td><strong>崩溃即丢</strong></td>
+</tr>
+</tbody></table>
+<p>三个必须读出来的结论：</p>
+<ol>
+<li><strong><code>sync_binlog</code> 比 <code>flush_log</code> 更贵</strong>。第 2 行到第 3 行只改了 <code>sync_binlog</code>，TPS 从 1,962 跳到 23,443（12 倍）；而第 1 行到第 2 行改 <code>flush_log</code> 只有 2.7 倍。原因：binlog 的 <code>fsync</code> 是<strong>每次提交都做</strong>（<code>sync_binlog=1</code>），而 redo 在 <code>flush=2</code> 时交给后台每秒一次。</li>
+<li><strong><code>flush=0</code> 和 <code>flush=2</code> 完全不是一个量级</strong>。<code>flush=2</code> 至少把 redo <code>write()</code> 到了操作系统，进程崩溃不丢；<code>flush=0</code> 连 write 都不做，数据还在 MySQL 自己的内存里。</li>
+<li><strong>2.1 的性能是「买来的」</strong>，价格就是下面这张表。</li>
+</ol>
+<h3 id="2-2-实测：kill-9-之后还剩多少"><a href="#2-2-实测：kill-9-之后还剩多少" class="headerlink" title="2.2 实测：kill -9 之后还剩多少"></a>2.2 实测：kill -9 之后还剩多少</h3><p>做法：提交 N 行 → 立刻 <code>docker kill -s KILL</code> → 重启 → 数行数。</p>
+<table>
+<thead>
+<tr>
+<th>配置</th>
+<th>提交耗时</th>
+<th>提交行数</th>
+<th>恢复后丢失</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>flush=0</code>, <code>sync_binlog=0</code></td>
+<td>0.018 s</td>
+<td>2,000</td>
+<td><strong>2,000（全丢）</strong></td>
+</tr>
+<tr>
+<td><code>flush=2</code>, <code>sync_binlog=1</code></td>
+<td>0.987 s</td>
+<td>2,000</td>
+<td>0</td>
+</tr>
+<tr>
+<td><code>flush=1</code>, <code>sync_binlog=1</code></td>
+<td>1.401 s</td>
+<td>2,000</td>
+<td>0</td>
+</tr>
+</tbody></table>
+<p><strong>第一行要重点看</strong>：0.018 秒「提交成功」了 2000 行，客户端收到的是 <code>OK</code>，但重启后一行都没有。这就是为什么 <code>flush=0</code> 在任何有数据价值的场景都不能用——它连「提交成功」这个承诺都不算数。</p>
+<h3 id="2-3-深挖：为什么-flush-2-在-kill-9-下没丢数据"><a href="#2-3-深挖：为什么-flush-2-在-kill-9-下没丢数据" class="headerlink" title="2.3 深挖：为什么 flush=2 在 kill -9 下没丢数据"></a>2.3 深挖：为什么 <code>flush=2</code> 在 kill -9 下没丢数据</h3><p>这是本文最容易被误解的一点。<code>flush=2</code> 的语义是：**提交时 <code>write()</code> 到操作系统，但不 <code>fsync()</code>**。</p>
+<table>
+<thead>
+<tr>
+<th>崩溃类型</th>
+<th><code>flush=2</code> 会丢吗</th>
+<th>原因</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>mysqld 进程崩溃（kill -9、段错误）</td>
+<td><strong>不会</strong></td>
+<td>数据已 <code>write()</code> 进 OS page cache，进程死了 OS 还在</td>
+</tr>
+<tr>
+<td>操作系统崩溃 &#x2F; 容器被销毁 &#x2F; 掉电</td>
+<td><strong>会</strong>（≤1 秒）</td>
+<td>page cache 属于内存，断电即丢</td>
+</tr>
+<tr>
+<td>磁盘故障</td>
+<td>会</td>
+<td>需要副本&#x2F;备份兜底</td>
+</tr>
+</tbody></table>
+<p>所以「<code>kill -9</code> 测 <code>flush=2</code>」这个实验<strong>天然测不出丢失</strong>——我在容器里杀进程，page cache 完好无损。要验证 <code>flush=2</code> 的丢失，只能拔电源、杀宿主机，或者用 <code>fsync</code> 层面的故障注入。<strong>这一点很多文章写错，把 <code>flush=2</code> 说成「崩溃丢 1 秒」，准确说法是「掉电丢 1 秒」。</strong></p>
+<h3 id="2-4-生产怎么选"><a href="#2-4-生产怎么选" class="headerlink" title="2.4 生产怎么选"></a>2.4 生产怎么选</h3><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>建议</th>
+<th>理由</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>订单、支付、账务</td>
+<td><code>flush=1</code> + <code>sync_binlog=1</code></td>
+<td>丢一笔都是事故，206 倍不值得</td>
+</tr>
+<tr>
+<td>日志、行为埋点、监控数据</td>
+<td><code>flush=2</code> + <code>sync_binlog=0</code></td>
+<td>丢 1 秒可接受，TPS 换 32 倍</td>
+</tr>
+<tr>
+<td>批量导入、离线计算中间表</td>
+<td><code>flush=2</code> + <code>sync_binlog=0</code>，导入后立即备份</td>
+<td>临时数据，重跑即可</td>
+</tr>
+<tr>
+<td>压测基准</td>
+<td>保持 <code>flush=1</code></td>
+<td>用 <code>flush=0</code> 压出来的数字没有参考价值</td>
+</tr>
+</tbody></table>
+<p><strong>一条铁律</strong>：<code>flush=0</code> 不要出现在任何配置模板里。它省下的不是「性能」，是「数据」。</p>
+<p>另外两个常被一起改的参数：<code>binlog_group_commit_sync_delay</code>（默认 0）能让多个事务合并一次 <code>fsync</code>，在高并发写入时能显著提升吞吐，代价是人为增加延迟；<code>innodb_flush_method=O_DIRECT</code> 可以绕开 OS page cache，避免双缓存（① 提过），在专用数据库机器上通常是更好的选择。</p>
+<h3 id="2-5-动手验证：自己制造一次数据丢失"><a href="#2-5-动手验证：自己制造一次数据丢失" class="headerlink" title="2.5 动手验证：自己制造一次数据丢失"></a>2.5 动手验证：自己制造一次数据丢失</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1) 切成最不安全的档位</span></span><br><span class="line">docker <span class="built_in">exec</span> -i mysql-lab mysql -uroot -plab123 -e <span class="string">&quot;</span></span><br><span class="line"><span class="string">SET GLOBAL innodb_flush_log_at_trx_commit = 0;</span></span><br><span class="line"><span class="string">SET GLOBAL sync_binlog = 0;&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 2) 记下当前行数，提交 2000 行</span></span><br><span class="line">docker <span class="built_in">exec</span> -i mysql-lab mysql -uroot -plab123 lab -e <span class="string">&quot;SELECT COUNT(*) FROM w;&quot;</span></span><br><span class="line">docker <span class="built_in">exec</span> -i mysql-lab mysql -uroot -plab123 lab -e <span class="string">&quot;CALL bench(2000);&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 3) 立刻杀进程（模拟崩溃）</span></span><br><span class="line">docker <span class="built_in">kill</span> -s KILL mysql-lab</span><br><span class="line">docker start mysql-lab &amp;&amp; <span class="built_in">sleep</span> 15</span><br><span class="line"></span><br><span class="line"><span class="comment"># 4) 数一数还剩多少</span></span><br><span class="line">docker <span class="built_in">exec</span> -i mysql-lab mysql -uroot -plab123 lab -e <span class="string">&quot;SELECT COUNT(*) FROM w;&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：第 4 步的行数会回到第 2 步的水平，2000 行凭空消失。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>丢 0 行 → 后台刷盘刚好赶上，重跑一次或把提交量加大到 5000 行；</li>
+<li>换成 <code>flush=1</code> 重跑，必须丢 0 行；如果也丢，说明你改的参数没生效（用 <code>SELECT @@GLOBAL.innodb_flush_log_at_trx_commit</code> 确认）。</li>
+</ul>
+<h2 id="3-Buffer-Pool：命中率是怎么算的"><a href="#3-Buffer-Pool：命中率是怎么算的" class="headerlink" title="3. Buffer Pool：命中率是怎么算的"></a>3. Buffer Pool：命中率是怎么算的</h2><h3 id="3-1-结构：一个被改造过的-LRU"><a href="#3-1-结构：一个被改造过的-LRU" class="headerlink" title="3.1 结构：一个被改造过的 LRU"></a>3.1 结构：一个被改造过的 LRU</h3><p>Buffer Pool 按页管理（默认 16KB&#x2F;页），内部是「young &#x2F; old」两段式 LRU：</p>
+<pre class="mermaid">flowchart LR
+    subgraph LRU["Buffer Pool LRU list"]
+        Y["young sublist&lt;br/>hot pages, 5/8"] --> O["old sublist&lt;br/>cold pages, 3/8"]
+    end
+    NEW["new page read in"] --> O
+    O -->|"accessed again&lt;br/>after innodb_old_blocks_time"| Y
+    O -->|"evicted when full"| OUT["evicted"]</pre>
+
+<p><strong>为什么分成两段</strong>：全表扫描会一次性读入大量「只用一次」的页。如果纯 LRU，这些页会把热数据挤出去。分两段之后，新页先落在 old 区，只有被再次访问（且间隔超过 <code>innodb_old_blocks_time</code>，默认 1000ms）才会晋升 young 区。这就是「一次大查询不会把热数据全冲掉」的机制。</p>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>实测默认值</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>innodb_buffer_pool_size</code></td>
+<td>128MB</td>
+<td>池大小，生产建议内存的 50%~70%</td>
+</tr>
+<tr>
+<td><code>innodb_buffer_pool_instances</code></td>
+<td>8（≥1GB 时）</td>
+<td>分段减少锁竞争</td>
+</tr>
+<tr>
+<td><code>innodb_buffer_pool_chunk_size</code></td>
+<td>128MB</td>
+<td>扩容&#x2F;缩容的最小单位</td>
+</tr>
+<tr>
+<td><code>innodb_old_blocks_time</code></td>
+<td>1000ms</td>
+<td>新页晋升 young 的等待时间</td>
+</tr>
+</tbody></table>
+<h3 id="3-2-命中率的算法与陷阱"><a href="#3-2-命中率的算法与陷阱" class="headerlink" title="3.2 命中率的算法与陷阱"></a>3.2 命中率的算法与陷阱</h3><figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">命中率 = 1 - Innodb_buffer_pool_reads / Innodb_buffer_pool_read_requests</span><br></pre></td></tr></table></figure>
+
+<p>两个陷阱：</p>
+<ol>
+<li><strong>它是「页级」指标，不是「SQL 级」</strong>。一条慢 SQL 可能命中率 100% 但读了 30 万个页（③ 的回表），所以命中率不能替代 <code>EXPLAIN</code>。</li>
+<li><strong>它的分母是请求次数，不是数据量</strong>。循环访问同一个页 100 万次，命中率也是 100%。</li>
+</ol>
+<p>① 的实测正好能对照：100 万行表（3430 页）在 128MB 池里能整表装下，冷启动扫一次物理读 1046，热缓存后再扫 <strong>物理读 0</strong>，但逻辑读一次都没少。<strong>命中率只说明「要不要去磁盘」，不说明「读得多不多」。</strong></p>
+<h3 id="3-3-深挖：为什么-SET-GLOBAL-改不了池大小"><a href="#3-3-深挖：为什么-SET-GLOBAL-改不了池大小" class="headerlink" title="3.3 深挖：为什么 SET GLOBAL 改不了池大小"></a>3.3 深挖：为什么 <code>SET GLOBAL</code> 改不了池大小</h3><p>我在 1GB 池的实例上执行：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">SET</span> <span class="keyword">GLOBAL</span> innodb_buffer_pool_size <span class="operator">=</span> <span class="number">134217728</span>;   <span class="comment">-- 想改成 128MB</span></span><br><span class="line"><span class="keyword">SELECT</span> @<span class="variable">@innodb_buffer_pool_size</span> <span class="operator">/</span> <span class="number">1024</span> <span class="operator">/</span> <span class="number">1024</span>;   <span class="comment">-- 实测仍是 1024</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>静默无效</strong>。原因：池大小必须是 <code>innodb_buffer_pool_chunk_size × innodb_buffer_pool_instances</code> 的整数倍。默认 chunk 128MB，池 ≥1GB 时 instances 自动变成 8，于是最小有效值是 <strong>1024MB</strong>——任何小于它的设置都会被忽略，而且不报错。</p>
+<p>在另一个启动参数为 <code>--innodb-buffer-pool-size=32M --innodb-buffer-pool-instances=1 --innodb-buffer-pool-chunk-size=8M</code> 的容器里，同样的 <code>SET GLOBAL</code> 就能从 32MB 长到 512MB。</p>
+<p><strong>生产含义</strong>：调小 Buffer Pool 不是「改个参数」这么简单，<code>instances</code> 是启动参数，必须改配置文件重启。很多「我调了参数怎么没变化」的困惑，根因就在这里。</p>
+<h3 id="3-4-change-buffer-与-doublewrite"><a href="#3-4-change-buffer-与-doublewrite" class="headerlink" title="3.4 change buffer 与 doublewrite"></a>3.4 change buffer 与 doublewrite</h3><table>
+<thead>
+<tr>
+<th>机制</th>
+<th>解决什么问题</th>
+<th>边界</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>change buffer</td>
+<td>非唯一二级索引页不在内存时，先记变更，避免随机读</td>
+<td><strong>唯一索引不适用</strong>（要读页做唯一性检查）；<code>innodb_change_buffer_max_size</code> 实测默认 25%</td>
+</tr>
+<tr>
+<td>doublewrite</td>
+<td>页写一半时崩溃（torn page），用副本恢复</td>
+<td>实测默认 ON，文件为 <code>#ib_16384_0.dblwr</code>；<code>O_DIRECT</code> 下仍需要它</td>
+</tr>
+<tr>
+<td>redo</td>
+<td>崩溃后重放已提交的变更</td>
+<td>环形文件，实测容量 100MB，写满后推进检查点</td>
+</tr>
+</tbody></table>
+<p>doublewrite 的代价很直接：<strong>每个脏页写两次</strong>（先写 dblwr，再写数据文件）。所以它在写入密集场景是实打实的开销，但没人敢关——关掉之后一次断电就可能留下「页只写了一半」的静默损坏，比丢 1 秒数据严重得多。</p>
+<h3 id="3-5-动手验证：命中率阶梯"><a href="#3-5-动手验证：命中率阶梯" class="headerlink" title="3.5 动手验证：命中率阶梯"></a>3.5 动手验证：命中率阶梯</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 小池容器（instances=1、chunk=8M，这样 SET GLOBAL 才生效）</span></span><br><span class="line">docker run -d --name mysql-pool -e MYSQL_ROOT_PASSWORD=lab123 -p 3316:3306 \</span><br><span class="line">  mysql:8.0 --innodb-buffer-pool-size=32M \</span><br><span class="line">  --innodb-buffer-pool-instances=1 --innodb-buffer-pool-chunk-size=8M</span><br><span class="line"></span><br><span class="line"><span class="comment"># 造一张明显大于池的表</span></span><br><span class="line">docker <span class="built_in">exec</span> -i mysql-pool mysql -uroot -plab123 &lt;&lt;<span class="string">&#x27;SQL&#x27;</span></span><br><span class="line">CREATE DATABASE IF NOT EXISTS lab; USE lab;</span><br><span class="line">SET SESSION cte_max_recursion_depth = 400001;</span><br><span class="line">CREATE TABLE fat (<span class="built_in">id</span> BIGINT PRIMARY KEY AUTO_INCREMENT, v INT, pad VARCHAR(240));</span><br><span class="line">INSERT INTO fat (v, pad)</span><br><span class="line">WITH RECURSIVE <span class="built_in">seq</span>(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM <span class="built_in">seq</span> WHERE n &lt; 300000)</span><br><span class="line">SELECT n, CONCAT(REPEAT(<span class="string">&#x27;x&#x27;</span>, 200), n) FROM <span class="built_in">seq</span>;</span><br><span class="line">SQL</span><br><span class="line"></span><br><span class="line"><span class="comment"># 扫两遍，看物理读</span></span><br><span class="line">docker <span class="built_in">exec</span> -i mysql-pool mysql -uroot -plab123 lab -N &lt;&lt;<span class="string">&#x27;SQL&#x27;</span></span><br><span class="line">SET @r0 := (SELECT VARIABLE_VALUE FROM performance_schema.global_status</span><br><span class="line">            WHERE VARIABLE_NAME=<span class="string">&#x27;Innodb_buffer_pool_read_requests&#x27;</span>);</span><br><span class="line">SET @p0 := (SELECT VARIABLE_VALUE FROM performance_schema.global_status</span><br><span class="line">            WHERE VARIABLE_NAME=<span class="string">&#x27;Innodb_buffer_pool_reads&#x27;</span>);</span><br><span class="line">SELECT SUM(LENGTH(pad)) FROM fat;</span><br><span class="line">SET @r1 := (SELECT VARIABLE_VALUE FROM performance_schema.global_status</span><br><span class="line">            WHERE VARIABLE_NAME=<span class="string">&#x27;Innodb_buffer_pool_read_requests&#x27;</span>);</span><br><span class="line">SET @p1 := (SELECT VARIABLE_VALUE FROM performance_schema.global_status</span><br><span class="line">            WHERE VARIABLE_NAME=<span class="string">&#x27;Innodb_buffer_pool_reads&#x27;</span>);</span><br><span class="line">SELECT CONCAT(<span class="string">&#x27;logical=&#x27;</span>, @r1-@r0, <span class="string">&#x27; physical=&#x27;</span>, @p1-@p0);</span><br><span class="line">SQL</span><br></pre></td></tr></table></figure>
+
+<p>然后把池调到 512MB 再扫一次：<code>SET GLOBAL innodb_buffer_pool_size = 536870912;</code>（在 instances&#x3D;1、chunk&#x3D;8M 时有效）。</p>
+<p><strong>预期观察点</strong>：小池时 <code>physical</code> 明显大于 0、命中率掉下来；大池热起来后 <code>physical</code> 趋近 0。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>小池和大池的 <code>physical</code> 都接近 0 → 表太小，加大表或减小池；</li>
+<li><code>SET GLOBAL</code> 后 <code>@@innodb_buffer_pool_size</code> 没变 → 撞上 3.3 的 chunk 约束。</li>
+</ul>
+<blockquote>
+<p>诚实说明：在 Docker Desktop（macOS）里，操作系统 page cache 会兜住一部分读，<code>physical</code> 的绝对值不可信。<strong>只做相对比较</strong>，要绝对值请上 Linux 物理机&#x2F;云主机。</p>
+</blockquote>
+<h2 id="4-崩溃恢复：redo-怎么把数据救回来"><a href="#4-崩溃恢复：redo-怎么把数据救回来" class="headerlink" title="4. 崩溃恢复：redo 怎么把数据救回来"></a>4. 崩溃恢复：redo 怎么把数据救回来</h2><h3 id="4-1-恢复流程"><a href="#4-1-恢复流程" class="headerlink" title="4.1 恢复流程"></a>4.1 恢复流程</h3><pre class="mermaid">flowchart TD
+    S["mysqld starts"] --> A["read checkpoint from redo"]
+    A --> B["replay redo from checkpoint&lt;br/>redo apply"]
+    B --> C{"page corrupt?&lt;br/>(torn page)"}
+    C -- yes --> D["restore page from doublewrite"]
+    C -- no --> E["continue"]
+    D --> E
+    E --> F["rollback uncommitted trx&lt;br/>using undo"]
+    F --> G["purge starts,&lt;br/>history list drains"]
+    G --> H["ready for connections"]</pre>
+
+<p>三个关键点：</p>
+<ol>
+<li><strong>redo 重放是幂等的</strong>：同一个变更重放多次结果一样，所以崩溃恢复可以放心重做。</li>
+<li><strong>doublewrite 只在「页损坏」时登场</strong>：它的作用不是加速，是保险。</li>
+<li><strong>未提交事务靠 undo 回滚</strong>：这就是 ⑤ 里 undo 的第二个用途（第一个是 MVCC）。</li>
+</ol>
+<h3 id="4-2-实测：kill-9-之后看恢复"><a href="#4-2-实测：kill-9-之后看恢复" class="headerlink" title="4.2 实测：kill -9 之后看恢复"></a>4.2 实测：kill -9 之后看恢复</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">kill</span> -s KILL mysql-lab</span><br><span class="line">docker start mysql-lab</span><br><span class="line">docker <span class="built_in">exec</span> -i mysql-lab mysql -uroot -plab123 -e <span class="string">&quot;SHOW ENGINE INNODB STATUS\G&quot;</span> | <span class="built_in">head</span> -20</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：启动日志&#x2F;状态里能看到 <code>Database was not shut down normally</code> 之类的提示，随后是 redo apply 的进度；恢复时间与「上次检查点之后写了多少 redo」成正比。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>恢复时间突然变长 → 检查点推进不及时（大事务、刷脏跟不上），看 <code>innodb_buffer_pool_wait_free</code>；</li>
+<li>启动报 <code>page corruption</code> → doublewrite 可能被关了，或者磁盘真坏了。</li>
+</ul>
+<h2 id="5-总结"><a href="#5-总结" class="headerlink" title="5. 总结"></a>5. 总结</h2><h3 id="5-1-面试速答表"><a href="#5-1-面试速答表" class="headerlink" title="5.1 面试速答表"></a>5.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>一次 COMMIT 落几次盘</td>
+<td>默认两次：redo <code>fsync</code> + binlog <code>fsync</code>；<code>flush=2</code> 或 <code>sync_binlog=0</code> 可减为一次</td>
+</tr>
+<tr>
+<td>为什么要两阶段提交</td>
+<td>redo 与 binlog 是两套日志，必须保证「要么都有、要么都没有」，否则主从&#x2F;备份会不一致</td>
+</tr>
+<tr>
+<td>binlog 写了但没 commit，恢复后算提交吗</td>
+<td>算。redo 在 prepare 状态且 binlog 完整 → 补 commit</td>
+</tr>
+<tr>
+<td><code>flush=1/2/0</code> 区别</td>
+<td>1：每次提交 fsync；2：每次提交 write，每秒 fsync；0：每秒由后台写，进程崩溃即丢</td>
+</tr>
+<tr>
+<td><code>flush=2</code> 丢数据的场景</td>
+<td>掉电、OS 崩溃、容器被销毁；<strong>mysqld 进程崩溃不丢</strong>（已 write 到 page cache）</td>
+</tr>
+<tr>
+<td><code>sync_binlog</code> 为什么影响这么大</td>
+<td>它控制每次提交是否 fsync binlog，实测从 1 改 0，TPS 提升 12 倍</td>
+</tr>
+<tr>
+<td>实测 TPS 差多少</td>
+<td>734 → 1,962 → 23,443 → 151,035（四档配置），最大 206 倍</td>
+</tr>
+<tr>
+<td>WAL 解决了什么</td>
+<td>把随机写数据页变成顺序写日志，用「多写一份日志」换「少做随机 IO」</td>
+</tr>
+<tr>
+<td>Buffer Pool 命中率怎么算</td>
+<td><code>1 - read_requests / reads</code>，页级指标，不能替代 <code>EXPLAIN</code></td>
+</tr>
+<tr>
+<td>为什么改不小 Buffer Pool</td>
+<td>池大小必须是 <code>chunk_size × instances</code> 的整数倍，小于它就静默无效，实测 1GB 池设 128MB 无效</td>
+</tr>
+<tr>
+<td>change buffer 对唯一索引有效吗</td>
+<td>无效，唯一性检查必须读页</td>
+</tr>
+<tr>
+<td>doublewrite 的代价</td>
+<td>每个脏页写两次，但能防 torn page 静默损坏</td>
+</tr>
+</tbody></table>
+<h3 id="5-2-实战避坑表"><a href="#5-2-实战避坑表" class="headerlink" title="5.2 实战避坑表"></a>5.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>压测 TPS 很高，上线扛不住</td>
+<td>压测用了 <code>flush=0</code></td>
+<td>压测必须与生产同档位</td>
+</tr>
+<tr>
+<td>掉电后丢了几秒数据</td>
+<td><code>flush=2</code> + 掉电</td>
+<td>核心表改回 1，或用半同步&#x2F;多副本兜底</td>
+</tr>
+<tr>
+<td>写入突然变慢，磁盘 util 100%</td>
+<td>脏页刷不过来</td>
+<td>看 <code>innodb_buffer_pool_wait_free</code>、加大池或降写入</td>
+</tr>
+<tr>
+<td><code>SET GLOBAL</code> 改池大小无效</td>
+<td>chunk × instances 约束</td>
+<td>改配置文件重启</td>
+</tr>
+<tr>
+<td>崩溃恢复时间越来越长</td>
+<td>检查点推进慢、redo 堆积</td>
+<td>排查大事务与刷脏能力</td>
+</tr>
+<tr>
+<td>命中率 100% 但依然慢</td>
+<td>逻辑读太多（回表&#x2F;全表扫）</td>
+<td>回 ③④ 查索引</td>
+</tr>
+</tbody></table>
+<h3 id="5-3-工具速查表"><a href="#5-3-工具速查表" class="headerlink" title="5.3 工具速查表"></a>5.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>判定标准</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>Innodb_buffer_pool_reads</code> &#x2F; <code>read_requests</code></td>
+<td>物理读 &#x2F; 逻辑读</td>
+<td>物理读占比 &gt; 5% → 池不够</td>
+</tr>
+<tr>
+<td><code>Innodb_buffer_pool_wait_free</code></td>
+<td>等空闲页次数</td>
+<td>&gt; 0 说明刷脏跟不上</td>
+</tr>
+<tr>
+<td><code>Innodb_buffer_pool_pages_dirty</code></td>
+<td>脏页数</td>
+<td>持续高位 → 刷脏能力不足</td>
+</tr>
+<tr>
+<td><code>SHOW ENGINE INNODB STATUS</code></td>
+<td><code>LOG</code> &#x2F; <code>BUFFER POOL AND MEMORY</code></td>
+<td>看 checkpoint age 与 pending writes</td>
+</tr>
+<tr>
+<td><code>@@innodb_redo_log_capacity</code></td>
+<td>redo 容量</td>
+<td>实测默认 100MB，写密集可加大</td>
+</tr>
+<tr>
+<td>启动日志</td>
+<td><code>Database was not shut down normally</code></td>
+<td>崩溃恢复的标志</td>
+</tr>
+</tbody></table>
+<h3 id="5-4-实操建议"><a href="#5-4-实操建议" class="headerlink" title="5.4 实操建议"></a>5.4 实操建议</h3><ol>
+<li>**别碰 <code>flush=0</code>**。它省下的不是性能，是数据；要在压测里用它，先想清楚压出来的数字能证明什么。</li>
+<li>**核心业务保持 <code>flush=1</code> + <code>sync_binlog=1</code>**，把性能预算花在索引和架构上，而不是省 fsync。</li>
+<li><strong>要换吞吐，优先调 <code>sync_binlog</code> 与组提交</strong>，别动 <code>flush_log</code>——前者的丢失场景更可控。</li>
+<li><strong>验证持久性别只用 kill -9</strong>。它测不出 <code>flush=2</code> 的风险，那需要掉电级别的故障注入。</li>
+<li>**改池大小前先算 <code>chunk × instances</code>**，否则你会以为参数改了、其实什么都没变。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告</strong>：⑧《复制与高可用：延迟的量化与判定》。本文的 binlog 在下一篇变成复制流的源头：一条 200 万行的 <code>UPDATE</code> 为什么能让从库延迟 40 分钟，<code>Seconds_Behind_Source</code> 为什么会显示 0，<code>pt-heartbeat</code> 又是怎么测出真延迟的——会用实测把这两个指标的背离关系钉死。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/MySQL/" rel="tag"># MySQL</a>
+              <a href="/tags/%E9%9D%A2%E8%AF%95/" rel="tag"># 面试</a>
+              <a href="/tags/InnoDB/" rel="tag"># InnoDB</a>
+              <a href="/tags/Buffer-Pool/" rel="tag"># Buffer Pool</a>
+              <a href="/tags/redo/" rel="tag"># redo</a>
+              <a href="/tags/%E6%8C%81%E4%B9%85%E6%80%A7/" rel="tag"># 持久性</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/d090a538.html" rel="prev" title="锁、死锁与 MDL：一次变更如何堵死整张表">
+                  <i class="fa fa-angle-left"></i> 锁、死锁与 MDL：一次变更如何堵死整张表
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/post/51687861.html" rel="next" title="复制与高可用：延迟的量化与判定">
+                  复制与高可用：延迟的量化与判定 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">740k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">44:51</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
+</html>

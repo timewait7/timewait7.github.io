@@ -1,0 +1,1282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="Redis 的慢只有四个来源：网络往返次数、单线程排队、内存压力、持久化停顿。它不是「算得慢」——一条 GET 在 Redis 里执行只要几百纳秒，你从客户端测到的 0.087 毫秒里有 99% 是网络与排队。 本文是「Redis 实战路线」第一篇，做三件事：把 Redis 的成本拆成四项、搭一台可以随便压的实例、跑出你的第一组基线（延迟 &#x2F; 吞吐 &#x2F; 内存 &#x2F; 慢日">
+<meta property="og:type" content="article">
+<meta property="og:title" content="从这里开始：把 Redis 变成你的实验台">
+<meta property="og:url" content="http://timewait7.github.io/post/fb7bfeea.html">
+<meta property="og:site_name" content="知行栈">
+<meta property="og:description" content="Redis 的慢只有四个来源：网络往返次数、单线程排队、内存压力、持久化停顿。它不是「算得慢」——一条 GET 在 Redis 里执行只要几百纳秒，你从客户端测到的 0.087 毫秒里有 99% 是网络与排队。 本文是「Redis 实战路线」第一篇，做三件事：把 Redis 的成本拆成四项、搭一台可以随便压的实例、跑出你的第一组基线（延迟 &#x2F; 吞吐 &#x2F; 内存 &#x2F; 慢日">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-10-25T01:00:00.000Z">
+<meta property="article:modified_time" content="2026-10-24T13:50:23.004Z">
+<meta property="article:tag" content="面试">
+<meta property="article:tag" content="性能优化">
+<meta property="article:tag" content="基准测试">
+<meta property="article:tag" content="实验设计">
+<meta property="article:tag" content="延迟">
+<meta property="article:tag" content="Redis">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/fb7bfeea.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/fb7bfeea.html","path":"post/fb7bfeea.html","title":"从这里开始：把 Redis 变成你的实验台"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>从这里开始：把 Redis 变成你的实验台 | 知行栈</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<!-- hexo injector head_end start --><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
+</style><style>
+/* 菜单链高亮：sub-menu 祖先（同主题 .menu-item-active 的 Pisces 规则） */
+.sub-menu .menu-item a.menu-chain-active {
+  border-bottom-color: #fc6423;
+  color: #fc6423;
+}
+.sub-menu .menu-item a.menu-chain-active:hover {
+  border-bottom-color: #fc6423;
+}
+/* 菜单链高亮：main-menu 祖先（同主题 hover/active 的背景规则） */
+.main-menu .menu-item a.menu-chain-active {
+  background: var(--menu-item-bg-color);
+}
+</style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">知行栈</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section" class="menu-chain-active"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>Categories</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-Redis-%E7%9A%84%E5%9B%9B%E7%A7%8D%E6%88%90%E6%9C%AC"><span class="nav-text">1. Redis 的四种成本</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-%E4%B8%80%E5%8F%A5%E8%AF%9D%E5%AE%9A%E4%B9%89"><span class="nav-text">1.1 一句话定义</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-2-%E4%B8%BA%E4%BB%80%E4%B9%88%E3%80%8CRedis-%E5%BE%88%E5%BF%AB%E3%80%8D%E8%BF%99%E5%8F%A5%E8%AF%9D%E4%BC%9A%E9%AA%97%E4%BA%BA"><span class="nav-text">1.2 为什么「Redis 很快」这句话会骗人</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-3-%E6%B7%B1%E6%8C%96%EF%BC%9A%E4%B8%BA%E4%BB%80%E4%B9%88%E5%8D%95%E7%BA%BF%E7%A8%8B%E8%BF%98%E8%83%BD%E8%B7%91%E5%88%B0-30-%E4%B8%87-QPS"><span class="nav-text">1.3 深挖：为什么单线程还能跑到 30 万 QPS</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E4%B8%89%E7%A7%8D%E6%88%90%E6%9C%AC%E5%90%84%E9%87%8F%E4%B8%80%E6%AC%A1"><span class="nav-text">1.4 动手验证：三种成本各量一次</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E6%90%AD%E5%AE%9E%E9%AA%8C%E5%8F%B0"><span class="nav-text">2. 搭实验台</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E8%B5%B7%E4%B8%80%E4%B8%AA%E8%83%BD%E9%9A%8F%E4%BE%BF%E5%8E%8B%E7%9A%84%E5%AE%9E%E4%BE%8B"><span class="nav-text">2.1 起一个能随便压的实例</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E5%85%88%E6%8A%8A%E9%BB%98%E8%AE%A4%E5%80%BC%E6%9F%A5%E6%B8%85%E6%A5%9A%EF%BC%88%E5%AE%9E%E6%B5%8B%EF%BC%89"><span class="nav-text">2.2 先把默认值查清楚（实测）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-%E4%B8%89%E4%B8%AA%E4%BC%9A%E6%B5%AA%E8%B4%B9%E4%BD%A0%E5%8D%8A%E5%B0%8F%E6%97%B6%E7%9A%84%E5%9D%91"><span class="nav-text">2.3 三个会浪费你半小时的坑</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E7%8E%AF%E5%A2%83%E8%87%AA%E6%A3%80"><span class="nav-text">2.4 动手验证：环境自检</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E5%9F%BA%E7%BA%BF%E5%9B%9B%E4%BB%B6%E5%A5%97"><span class="nav-text">3. 基线四件套</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E5%BB%B6%E8%BF%9F%EF%BC%9A%E4%B8%89%E5%B1%82%E8%A6%81%E5%88%86%E5%BC%80%E9%87%8F"><span class="nav-text">3.1 延迟：三层要分开量</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E5%90%9E%E5%90%90%EF%BC%9Apipeline-%E6%98%AF%E7%AC%AC%E4%B8%80%E4%B8%AA%E5%80%8D%E5%A2%9E%E5%99%A8"><span class="nav-text">3.2 吞吐：pipeline 是第一个倍增器</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-%E5%86%85%E5%AD%98%EF%BC%9A100-%E4%B8%87-key-%E5%88%B0%E5%BA%95%E5%90%83%E5%A4%9A%E5%B0%91"><span class="nav-text">3.3 内存：100 万 key 到底吃多少</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-4-%E6%85%A2%E6%97%A5%E5%BF%97%E4%B8%8E%E5%BB%B6%E8%BF%9F%E7%9B%91%E6%8E%A7%EF%BC%9A%E4%B8%A4%E4%B8%AA%E9%BB%98%E8%AE%A4%E5%85%B3%E9%97%AD%E7%9A%84%E5%BC%80%E5%85%B3"><span class="nav-text">3.4 慢日志与延迟监控：两个默认关闭的开关</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-5-%E5%9F%BA%E7%BA%BF%E9%87%87%E9%9B%86%E9%97%AD%E7%8E%AF"><span class="nav-text">3.5 基线采集闭环</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-6-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E8%B7%91%E5%87%BA%E4%BD%A0%E7%9A%84%E5%9F%BA%E7%BA%BF%E6%A1%A3%E6%A1%88"><span class="nav-text">3.6 动手验证：跑出你的基线档案</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E5%9F%BA%E7%BA%BF%E6%80%8E%E4%B9%88%E7%94%A8"><span class="nav-text">4. 基线怎么用</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-%E4%B8%80%E5%BC%A0%E5%88%A4%E6%96%AD%E8%A1%A8"><span class="nav-text">4.1 一张判断表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-%E4%B8%8E-MySQL-%E7%B3%BB%E5%88%97%E7%9A%84%E4%B8%89%E4%B8%AA%E8%81%94%E5%8A%A8"><span class="nav-text">4.2 与 MySQL 系列的三个联动</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%A4%8D%E7%8E%B0%E4%B8%80%E6%AC%A1%E3%80%8C%E6%8A%96%E5%8A%A8%E3%80%8D"><span class="nav-text">4.3 动手验证：复现一次「抖动」</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E6%80%BB%E7%BB%93"><span class="nav-text">5. 总结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E9%9D%A2%E8%AF%95%E9%80%9F%E7%AD%94%E8%A1%A8"><span class="nav-text">5.1 面试速答表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E5%AE%9E%E6%88%98%E9%81%BF%E5%9D%91%E8%A1%A8"><span class="nav-text">5.2 实战避坑表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-%E5%B7%A5%E5%85%B7%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">5.3 工具速查表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-%E5%AE%9E%E6%93%8D%E5%BB%BA%E8%AE%AE"><span class="nav-text">5.4 实操建议</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">104</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">14</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">175</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+    <div class="sidebar-inner sidebar-blogroll">
+      <div class="links-of-blogroll animated">
+        <div class="links-of-blogroll-title"><i class="fa fa-globe fa-fw"></i>
+          Links
+        </div>
+        <ul class="links-of-blogroll-list">
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9wYXVsZ3JhaGFtLmNvbS9hcnRpY2xlcy5odG1s" title="https:&#x2F;&#x2F;paulgraham.com&#x2F;articles.html">paulgraham</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly93d3cuam9lbG9uc29mdHdhcmUuY29tLw==" title="https:&#x2F;&#x2F;www.joelonsoftware.com&#x2F;">Joel on Software</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9tYXJ0aW5mb3dsZXIuY29tLw==" title="https:&#x2F;&#x2F;martinfowler.com&#x2F;">Martin Flower</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly96aGFuZ3RpZWxlaS5jb20v" title="https:&#x2F;&#x2F;zhangtielei.com&#x2F;">zhangtielei</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhLWRlc2lnbi1wYXR0ZXJucy5jb20vemgv" title="https:&#x2F;&#x2F;java-design-patterns.com&#x2F;zh&#x2F;">Java Design Patterns</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9taWNyb3NlcnZpY2VzLmlvLw==" title="https:&#x2F;&#x2F;microservices.io&#x2F;">Microservice Architecture</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhZ3VpZGUuY24v" title="https:&#x2F;&#x2F;javaguide.cn&#x2F;">JavaGuide</span>
+            </li>
+        </ul>
+      </div>
+    </div>
+        <div class="pjax">
+        
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-后端开发"><a href="/docs/nav/backend-dev-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-code fa-fw"></i>后端开发</a></li>
+
+
+      
+  <li class="menu-item menu-item-计算机基础"><a href="/docs/nav/cs-foundation-nav.html" rel="section"><i class="fa fa-desktop fa-fw"></i>计算机基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-ai-学习"><a href="/docs/nav/ai-learning-nav.html" rel="section"><i class="fa fa-robot fa-fw"></i>AI 学习</a></li>
+
+
+      
+  <li class="menu-item menu-item-项目实战"><a href="/docs/nav/5964f4da.html" rel="section"><i class="fa fa-flask fa-fw"></i>项目实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-misc"><a href="/docs/nav/misc-nav.html" rel="section"><i class="fa fa-box fa-fw"></i>Misc</a></li>
+
+
+      
+  <li class="menu-item menu-item-随笔·生活"><a href="/docs/nav/life-nav.html" rel="section"><i class="fa fa-feather fa-fw"></i>随笔·生活</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java"><a href="/docs/nav/java-nav.html" rel="section"><i class="fa fa-coffee fa-fw"></i>Java</a></li>
+
+
+      
+  <li class="menu-item menu-item-框架"><a href="/docs/nav/framework-nav.html" rel="section"><i class="fa fa-th-large fa-fw"></i>框架</a></li>
+
+
+      
+  <li class="menu-item menu-item-数据存储"><a href="/docs/nav/data-storage-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-hdd fa-fw"></i>数据存储</a></li>
+
+
+      
+  <li class="menu-item menu-item-中间件"><a href="/docs/nav/middleware-nav.html" rel="section"><i class="fa fa-cubes fa-fw"></i>中间件</a></li>
+
+
+      
+  <li class="menu-item menu-item-分布式与微服务"><a href="/docs/nav/distributed-nav.html" rel="section"><i class="fa fa-sitemap fa-fw"></i>分布式与微服务</a></li>
+
+
+      
+  <li class="menu-item menu-item-系统设计"><a href="/docs/nav/system-design-nav.html" rel="section"><i class="fa fa-pencil-ruler fa-fw"></i>系统设计</a></li>
+
+
+      
+  <li class="menu-item menu-item-部署运维"><a href="/docs/nav/devops-nav.html" rel="section"><i class="fa fa-terminal fa-fw"></i>部署运维</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-mysql"><a href="/docs/nav/mysql-nav.html" rel="section"><i class="fa fa-database fa-fw"></i>MySQL</a></li>
+
+
+      
+  <li class="menu-item menu-item-redis"><a href="/docs/nav/redis-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-bolt fa-fw"></i>Redis</a></li>
+
+
+      
+  <li class="menu-item menu-item-elasticsearch"><a href="/docs/nav/es-nav.html" rel="section"><i class="fa fa-search fa-fw"></i>ElasticSearch</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-redis-深度解析：从原理到精通"><a href="/post/bae4ff13.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Redis 深度解析：从原理到精通</a></li>
+
+
+      
+  <li class="menu-item menu-item-①-从这里开始：把-redis-变成你的实验台"><a href="/post/fb7bfeea.html" rel="section"><i class="fa fa-file-text fa-fw"></i>① 从这里开始：把 Redis 变成你的实验台</a></li>
+
+
+      
+  <li class="menu-item menu-item-②-一次请求的成本账：rtt、事件循环与命令执行"><a href="/post/d0aa1ba2.html" rel="section"><i class="fa fa-file-text fa-fw"></i>② 一次请求的成本账：RTT、事件循环与命令执行</a></li>
+
+
+      
+  <li class="menu-item menu-item-③-数据结构：编码阈值与复杂度的真实代价"><a href="/post/342c4932.html" rel="section"><i class="fa fa-file-text fa-fw"></i>③ 数据结构：编码阈值与复杂度的真实代价</a></li>
+
+
+      
+  <li class="menu-item menu-item-④-内存、淘汰与碎片：maxmemory-设了为什么还会-oom"><a href="/post/b28e7721.html" rel="section"><i class="fa fa-file-text fa-fw"></i>④ 内存、淘汰与碎片：maxmemory 设了为什么还会 OOM</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑤-单线程：为什么快，什么时候会卡"><a href="/post/d9138e00.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑤ 单线程：为什么快，什么时候会卡</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑥-pipeline、事务与-lua：原子性和-rtt-怎么兼得"><a href="/post/884c75a8.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑥ Pipeline、事务与 Lua：原子性和 RTT 怎么兼得</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑦-持久化：rdb、aof-与丢失窗口"><a href="/post/6a7a58b3.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑦ 持久化：RDB、AOF 与丢失窗口</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑧-复制、哨兵与-cluster：切一次主要多久"><a href="/post/63c21b5b.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑧ 复制、哨兵与 Cluster：切一次主要多久</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑨-缓存三大问题：穿透、击穿、雪崩的量化与解法"><a href="/post/1d7a96da.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑨ 缓存三大问题：穿透、击穿、雪崩的量化与解法</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑩-缓存与数据库一致性：更新顺序与不一致窗口"><a href="/post/35ae94a8.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑩ 缓存与数据库一致性：更新顺序与不一致窗口</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑪-分布式锁与限流：从-set-nx-到-redisson"><a href="/post/cb07eb8d.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑪ 分布式锁与限流：从 SET NX 到 Redisson</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑫-容量规划与分片：什么时候才该上-cluster"><a href="/post/b815463e.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑫ 容量规划与分片：什么时候才该上 Cluster</a></li>
+
+
+    </ul>
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/fb7bfeea.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="从这里开始：把 Redis 变成你的实验台 | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          从这里开始：把 Redis 变成你的实验台
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-10-25 09:00:00" itemprop="dateCreated datePublished" datetime="2026-10-25T09:00:00+08:00">2026-10-25</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/" itemprop="url" rel="index"><span itemprop="name">数据存储</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>4.3k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>16 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><p><strong>Redis 的慢只有四个来源：网络往返次数、单线程排队、内存压力、持久化停顿</strong>。它不是「算得慢」——一条 <code>GET</code> 在 Redis 里执行只要几百纳秒，你从客户端测到的 0.087 毫秒里有 99% 是网络与排队。</p>
+<p>本文是「Redis 实战路线」第一篇，做三件事：把 Redis 的成本拆成四项、搭一台可以随便压的实例、跑出你的第一组基线（延迟 &#x2F; 吞吐 &#x2F; 内存 &#x2F; 慢日志）。后面十一篇的每个结论都会回来跟这组数字对照。</p>
+<blockquote>
+<p><strong>系列地图（Redis 实战路线，12 篇）</strong></p>
+<p>① <strong>实验台与基线（本文）</strong> → ② 一次请求的成本账 → ③ 数据结构与编码 → ④ 内存、淘汰与碎片 → ⑤ 单线程与阻塞 → ⑥ Pipeline、事务与 Lua → ⑦ 持久化与丢失窗口 → ⑧ 复制、哨兵与 Cluster → ⑨ 缓存三大问题 → ⑩ 缓存与数据库一致性 → ⑪ 分布式锁与限流 → ⑫ 容量规划与分片</p>
+<p>与站内《Redis 深度解析》的分工：那边是 20 章的知识地图，当字典查；这边是实验手册，按顺序练。本文对应那边的第 1 章定位与第 5 章单线程。</p>
+</blockquote>
+<h2 id="1-Redis-的四种成本"><a href="#1-Redis-的四种成本" class="headerlink" title="1. Redis 的四种成本"></a>1. Redis 的四种成本</h2><h3 id="1-1-一句话定义"><a href="#1-1-一句话定义" class="headerlink" title="1.1 一句话定义"></a>1.1 一句话定义</h3><p>MySQL 的成本是「读了多少页」，Redis 的成本是「<strong>往返了几次、谁在排队</strong>」。同样是 1 万次读，逐条发是 1 万次 RTT，pipeline 发是 625 次 RTT（按 16 个一批），CPU 消耗几乎一样。</p>
+<table>
+<thead>
+<tr>
+<th>成本</th>
+<th>一句话定义</th>
+<th>由什么决定</th>
+<th>怎么观测</th>
+<th>详见</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>网络往返（RTT）</td>
+<td>一条命令从发出到收到回复的时间</td>
+<td>物理距离、TCP 栈、命令条数、pipeline</td>
+<td><code>redis-cli --latency</code>、benchmark 的 p50</td>
+<td>②⑥</td>
+</tr>
+<tr>
+<td>单线程排队</td>
+<td>所有命令在一个事件循环里排队</td>
+<td>命令复杂度、大 key、阻塞命令</td>
+<td><code>SLOWLOG</code>、<code>INFO commandstats</code>、P99 抖动</td>
+<td>③⑤</td>
+</tr>
+<tr>
+<td>内存压力</td>
+<td>装不下就要淘汰、碎片高就要整理</td>
+<td>key 数量、value 大小、编码方式</td>
+<td><code>INFO memory</code>、<code>MEMORY USAGE</code>、碎片率</td>
+<td>③④</td>
+</tr>
+<tr>
+<td>持久化停顿</td>
+<td>fork、AOF fsync、rewrite</td>
+<td>持久化配置、写入量</td>
+<td><code>SLOWLOG</code>、<code>INFO persistence</code>、P99</td>
+<td>⑦</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart LR
+    C["Client call"] --> N["Network RTT&lt;br/>10us~1ms"]
+    N --> Q["Event loop queue&lt;br/>single thread"]
+    Q --> E["Command exec&lt;br/>100ns~100ms"]
+    E --> M["Memory&lt;br/>alloc / evict / frag"]
+    E --> P["Persistence&lt;br/>fork / fsync"]
+    M --> R["Reply"]
+    P --> R
+    R --> N</pre>
+
+<h3 id="1-2-为什么「Redis-很快」这句话会骗人"><a href="#1-2-为什么「Redis-很快」这句话会骗人" class="headerlink" title="1.2 为什么「Redis 很快」这句话会骗人"></a>1.2 为什么「Redis 很快」这句话会骗人</h3><p>实测（Redis 7.4.11，容器内 loopback，客户端与服务端同机）：</p>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>实测</th>
+<th>换算到单次</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>PING</code>，1 个连接</td>
+<td>32,981 rps</td>
+<td><strong>31 µs &#x2F; 次往返</strong></td>
+</tr>
+<tr>
+<td><code>GET</code>，50 连接，无 pipeline</td>
+<td>319,489 rps</td>
+<td>87 µs &#x2F; 次（含排队）</td>
+</tr>
+<tr>
+<td><code>GET</code>，50 连接，<code>-P 16</code></td>
+<td><strong>3,703,704 rps</strong></td>
+<td>单次 0.27 µs（摊销后）</td>
+</tr>
+</tbody></table>
+<p>同一个 <code>GET</code>，pipeline 与否差了 <strong>11.6 倍</strong>。差的是 Redis 的执行速度吗？不是——<strong>差的是往返次数</strong>。这就是第一篇要立的第一个观念：<strong>先数往返，再谈优化</strong>。</p>
+<h3 id="1-3-深挖：为什么单线程还能跑到-30-万-QPS"><a href="#1-3-深挖：为什么单线程还能跑到-30-万-QPS" class="headerlink" title="1.3 深挖：为什么单线程还能跑到 30 万 QPS"></a>1.3 深挖：为什么单线程还能跑到 30 万 QPS</h3><p>Redis 用单线程处理命令，靠三件事把 CPU 吃满：</p>
+<ol>
+<li><strong>纯内存操作</strong>，没有磁盘等待；</li>
+<li><strong>epoll 多路复用</strong>，一个线程管几万个连接，没有线程切换；</li>
+<li><strong>命令足够短</strong>，<code>GET</code> 的 CPU 时间在百纳秒级，所以瓶颈天然落在网络上。</li>
+</ol>
+<p>代价也很明确：<strong>任何一条慢命令都会堵住所有人</strong>。这也是第⑤篇的主题——<code>KEYS *</code>、<code>DEL</code> 大 key、Lua 长脚本，都会让 P99 从 0.1ms 跳到几百毫秒，而 CPU 使用率看起来还很健康（因为只有一个核在跑）。</p>
+<p>这里可以直接对照站内 MySQL 系列第②篇：MySQL 的六层里，「等待」是第三种成本；Redis 的「等待」更极端——只有一个线程，排队就是全局的。</p>
+<h3 id="1-4-动手验证：三种成本各量一次"><a href="#1-4-动手验证：三种成本各量一次" class="headerlink" title="1.4 动手验证：三种成本各量一次"></a>1.4 动手验证：三种成本各量一次</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1) RTT：系统本身的调度延迟（不含网络）</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli --intrinsic-latency 3</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2) RTT：Redis 往返（container 内 loopback）</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-lab sh -c <span class="string">&#x27;redis-cli --latency -i 1 &amp; P=$!; sleep 5; kill $P&#x27;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 3) 吞吐：有/无 pipeline</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-benchmark -t get -n 100000 -c 50 -q</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-benchmark -t get -n 100000 -c 50 -P 16 -q</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：<code>--intrinsic-latency</code> 给出的是「这台机器什么都不做时的调度抖动」（本文实测平均 34 ns、最差 88 倍）；<code>--latency</code> 的 avg 是几十微秒到几百微秒；benchmark 的 p50 在 0.05~0.1 ms。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li><code>--intrinsic-latency</code> 的 max 超过 1 ms → 宿主机的调度有问题（CPU 争抢、虚拟化），先解决环境再谈 Redis；</li>
+<li><code>--latency</code> 的 avg 远大于 p50 → 有偶发尖刺，去 ⑤ 找阻塞命令；</li>
+<li>pipeline 后 QPS 提升不到 2 倍 → 你的命令本身很重（大 value &#x2F; 复杂命令），不是 RTT 主导。</li>
+</ul>
+<h2 id="2-搭实验台"><a href="#2-搭实验台" class="headerlink" title="2. 搭实验台"></a>2. 搭实验台</h2><h3 id="2-1-起一个能随便压的实例"><a href="#2-1-起一个能随便压的实例" class="headerlink" title="2.1 起一个能随便压的实例"></a>2.1 起一个能随便压的实例</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">docker run -d --name redis-lab -p 6380:6379 \</span><br><span class="line">  redis:7.4-alpine \</span><br><span class="line">  --enable-debug-command <span class="built_in">yes</span></span><br></pre></td></tr></table></figure>
+
+<p>两点说明：</p>
+<ul>
+<li>端口用 <strong>6380</strong>，避开本机可能存在的 6379；</li>
+<li><code>--enable-debug-command yes</code> 是为了用 <code>DEBUG POPULATE</code>、<code>DEBUG SLEEP</code>、<code>DEBUG JMAP</code> 这类造数与故障注入命令——<strong>生产绝对不要开</strong>（它能让任何人触发崩溃或阻塞）。</li>
+</ul>
+<p>实测版本：Redis <strong>7.4.11</strong>，jemalloc 5.3.0，standalone。</p>
+<h3 id="2-2-先把默认值查清楚（实测）"><a href="#2-2-先把默认值查清楚（实测）" class="headerlink" title="2.2 先把默认值查清楚（实测）"></a>2.2 先把默认值查清楚（实测）</h3><p>不要抄文档，直接问实例：</p>
+<figure class="highlight sql"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">CONFIG <span class="keyword">GET</span> maxmemory maxmemory<span class="operator">-</span>policy appendonly appendfsync io<span class="operator">-</span>threads \</span><br><span class="line">           slowlog<span class="operator">-</span>log<span class="operator">-</span>slower<span class="operator">-</span>than latency<span class="operator">-</span>monitor<span class="operator">-</span>threshold</span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>本文实例实测</th>
+<th>含义</th>
+<th>对你的影响</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>maxmemory</code></td>
+<td><strong>0</strong></td>
+<td>不限制内存</td>
+<td>不设上限 &#x3D; 随时可能被 OOM Killer 干掉</td>
+</tr>
+<tr>
+<td><code>maxmemory-policy</code></td>
+<td><code>noeviction</code></td>
+<td>写满后拒绝写入</td>
+<td>缓存场景几乎一定要改</td>
+</tr>
+<tr>
+<td><code>appendonly</code></td>
+<td><code>no</code></td>
+<td>默认只开 RDB</td>
+<td>崩溃会丢最后一次快照之后的数据</td>
+</tr>
+<tr>
+<td><code>appendfsync</code></td>
+<td><code>everysec</code></td>
+<td>每秒刷盘</td>
+<td>最多丢 1 秒（⑦ 实测）</td>
+</tr>
+<tr>
+<td><code>save</code></td>
+<td><code>3600 1 300 100 60 10000</code></td>
+<td>RDB 三条规则</td>
+<td>三者触发任一即落盘</td>
+</tr>
+<tr>
+<td><code>io-threads</code></td>
+<td><strong>1</strong></td>
+<td>只用主线程做 IO</td>
+<td>带宽打满时它是瓶颈（⑥ 会试多线程）</td>
+</tr>
+<tr>
+<td><code>slowlog-log-slower-than</code></td>
+<td><strong>10000 µs</strong></td>
+<td>只记 10ms 以上的命令</td>
+<td>99% 的「慢」它看不见</td>
+</tr>
+<tr>
+<td><code>latency-monitor-threshold</code></td>
+<td><strong>0</strong></td>
+<td>延迟监控关闭</td>
+<td>尖刺无记录</td>
+</tr>
+<tr>
+<td><code>hash-max-listpack-entries</code></td>
+<td><strong>512</strong></td>
+<td>hash 编码切换阈值</td>
+<td>见 ③（注意：不同版本默认值不同，以 <code>CONFIG GET</code> 为准）</td>
+</tr>
+<tr>
+<td><code>zset-max-listpack-entries</code></td>
+<td>128</td>
+<td>zset 编码阈值</td>
+<td>同上</td>
+</tr>
+<tr>
+<td><code>set-max-intset-entries</code></td>
+<td>512</td>
+<td>set 整数集合上限</td>
+<td>同上</td>
+</tr>
+<tr>
+<td><code>list-max-listpack-size</code></td>
+<td>-2</td>
+<td>quicklist 单节点 8KB</td>
+<td>影响大 list 的内存</td>
+</tr>
+</tbody></table>
+<p><strong>这张表最该记住的两行</strong>：<code>maxmemory = 0</code> 和 <code>slowlog-log-slower-than = 10000</code>。前者意味着你的 Redis 随时可能被系统杀掉，后者意味着 10ms 以下的抖动你永远看不见——而线上投诉往往就是 5ms 变 50ms。</p>
+<h3 id="2-3-三个会浪费你半小时的坑"><a href="#2-3-三个会浪费你半小时的坑" class="headerlink" title="2.3 三个会浪费你半小时的坑"></a>2.3 三个会浪费你半小时的坑</h3><table>
+<thead>
+<tr>
+<th>坑</th>
+<th>现象</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Docker 的端口映射抬高 RTT</td>
+<td>宿主机连容器比容器内 loopback 慢一个量级</td>
+<td>测「Redis 本身」用容器内；测「业务侧」用宿主机，两组都记</td>
+</tr>
+<tr>
+<td><code>DEBUG</code> 命令默认禁用</td>
+<td><code>DEBUG POPULATE</code> 报 <code>ERR DEBUG command not allowed</code></td>
+<td>启动加 <code>--enable-debug-command yes</code>，仅测试环境</td>
+</tr>
+<tr>
+<td>空实例的碎片率毫无意义</td>
+<td><code>mem_fragmentation_ratio: 13.94</code></td>
+<td>别慌：used 1MB、rss 13.7MB，分母太小。灌入数据后再看（本文灌完是 1.09）</td>
+</tr>
+</tbody></table>
+<h3 id="2-4-动手验证：环境自检"><a href="#2-4-动手验证：环境自检" class="headerlink" title="2.4 动手验证：环境自检"></a>2.4 动手验证：环境自检</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli INFO server | grep -E <span class="string">&quot;redis_version|redis_mode|io_threads&quot;</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli INFO memory | grep -E <span class="string">&quot;used_memory_human|used_memory_rss_human|mem_fragmentation_ratio&quot;</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli CONFIG GET maxmemory maxmemory-policy slowlog-log-slower-than</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli PING</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli DBSIZE</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：<code>redis_version:7.4.x</code>、<code>maxmemory:0</code>、<code>DBSIZE:0</code>、<code>PING:PONG</code>。</p>
+<p><strong>判定标准</strong>：<code>io_threads_active</code> 为 0（io-threads&#x3D;1 时不会启用多线程）；如果你打算做 ⑥ 的多线程实验，确认启动参数里已经带上 <code>--io-threads 4</code>，否则 <code>CONFIG SET</code> 也能生效但需要重启连接。</p>
+<h2 id="3-基线四件套"><a href="#3-基线四件套" class="headerlink" title="3. 基线四件套"></a>3. 基线四件套</h2><h3 id="3-1-延迟：三层要分开量"><a href="#3-1-延迟：三层要分开量" class="headerlink" title="3.1 延迟：三层要分开量"></a>3.1 延迟：三层要分开量</h3><pre class="mermaid">flowchart LR
+    A["1 System scheduling&lt;br/>intrinsic 34ns"] --> B["2 Redis round trip&lt;br/>loopback 0.17ms"]
+    B --> C["3 App-side P99&lt;br/>includes pool + serialization"]
+    C --> D["Where the 5ms comes from"]</pre>
+
+<table>
+<thead>
+<tr>
+<th>层</th>
+<th>工具</th>
+<th>本文实测</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>系统调度</td>
+<td><code>--intrinsic-latency 3</code></td>
+<td>平均 <strong>34 ns</strong>，最差 88 倍</td>
+<td>测「机器本身抖不抖」</td>
+</tr>
+<tr>
+<td>Redis 往返</td>
+<td><code>--latency</code>（loopback）</td>
+<td>avg <strong>0.17 ms</strong></td>
+<td>含 redis-cli 自身开销</td>
+</tr>
+<tr>
+<td>单命令往返</td>
+<td><code>redis-benchmark -t ping -c 1</code></td>
+<td><strong>32,981 rps</strong>（≈31 µs）</td>
+<td>最接近「一次 RTT」</td>
+</tr>
+<tr>
+<td>业务视角</td>
+<td>应用侧埋点 P99</td>
+<td>必须自己测</td>
+<td>含连接池、序列化、网络</td>
+</tr>
+</tbody></table>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>系统调度最差 &gt; 1 ms → 换机器或解决 CPU 争抢，别调 Redis；</li>
+<li>单命令往返 31 µs（同机）而业务 P99 是 5 ms → 问题在客户端（连接池、序列化、线程池），不在 Redis。</li>
+</ul>
+<h3 id="3-2-吞吐：pipeline-是第一个倍增器"><a href="#3-2-吞吐：pipeline-是第一个倍增器" class="headerlink" title="3.2 吞吐：pipeline 是第一个倍增器"></a>3.2 吞吐：pipeline 是第一个倍增器</h3><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>实测 rps</th>
+<th>p50</th>
+<th>相对</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>SET</code>，50 连接，无 pipeline</td>
+<td>316,456</td>
+<td>0.087 ms</td>
+<td>1.0×</td>
+</tr>
+<tr>
+<td><code>GET</code>，50 连接，无 pipeline</td>
+<td>319,489</td>
+<td>0.087 ms</td>
+<td>1.0×</td>
+</tr>
+<tr>
+<td><code>SET</code>，<code>-P 16</code></td>
+<td><strong>3,448,276</strong></td>
+<td>0.183 ms</td>
+<td><strong>10.9×</strong></td>
+</tr>
+<tr>
+<td><code>GET</code>，<code>-P 16</code></td>
+<td><strong>3,703,704</strong></td>
+<td>0.159 ms</td>
+<td><strong>11.6×</strong></td>
+</tr>
+</tbody></table>
+<p>注意 p50 反而变大了（0.087 → 0.183 ms）：<strong>pipeline 用延迟换吞吐</strong>。批量发 16 条，第一条要等 16 条都处理完才回来。所以 pipeline 适合「批量写&#x2F;批量读」，不适合「一次只取一个值还要立刻用」。</p>
+<blockquote>
+<p>这些是容器内 loopback 的数字，<strong>不能当线上容量</strong>。真实环境里 RTT 由网络决定，pipeline 的收益通常更大（因为 RTT 更贵）。</p>
+</blockquote>
+<h3 id="3-3-内存：100-万-key-到底吃多少"><a href="#3-3-内存：100-万-key-到底吃多少" class="headerlink" title="3.3 内存：100 万 key 到底吃多少"></a>3.3 内存：100 万 key 到底吃多少</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 空实例</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli INFO memory | grep -E <span class="string">&quot;used_memory_human|used_memory_rss_human&quot;</span></span><br><span class="line"><span class="comment"># 灌 100 万个 key，每个 64 字节 value</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli DEBUG POPULATE 1000000 user: 64</span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th>状态</th>
+<th>used_memory</th>
+<th>rss</th>
+<th>碎片率</th>
+<th>dataset 占比</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>空实例</td>
+<td>1.02 MB</td>
+<td>13.70 MB</td>
+<td>13.94</td>
+<td>—</td>
+</tr>
+<tr>
+<td>100 万 key（64B value）</td>
+<td><strong>138.84 MB</strong></td>
+<td>151.79 MB</td>
+<td><strong>1.09</strong></td>
+<td><strong>66.54%</strong></td>
+</tr>
+</tbody></table>
+<p>换算：<strong>每个 key 约 139 字节</strong>，而 value 只有 64 字节。单 key 实测 <code>MEMORY USAGE = 136 字节</code>。</p>
+<p>多出来的 72 字节是什么？key 名、dictEntry、redisObject、jemalloc 的 size class 对齐。<strong>这是 Redis 内存规划的第一个坑：按 value 大小乘 key 数量算内存，一定算少。</strong></p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>用途</th>
+<th>本文实测</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>used_memory</code></td>
+<td>Redis 认为用了多少</td>
+<td>138.84 MB</td>
+</tr>
+<tr>
+<td><code>used_memory_rss</code></td>
+<td>操作系统看到多少</td>
+<td>151.79 MB</td>
+</tr>
+<tr>
+<td><code>mem_fragmentation_ratio</code></td>
+<td>rss &#x2F; used</td>
+<td>1.09（健康，1~1.5 正常）</td>
+</tr>
+<tr>
+<td><code>used_memory_dataset_perc</code></td>
+<td>有效数据占比</td>
+<td>66.54%（其余是开销）</td>
+</tr>
+<tr>
+<td><code>MEMORY USAGE key</code></td>
+<td>单个 key 的真实开销</td>
+<td>136 B</td>
+</tr>
+</tbody></table>
+<p><strong>灌完之后性能有没有退化？</strong> 没有：</p>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>空实例</th>
+<th>100 万 key 之后</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>GET</code> 50 连接</td>
+<td>319,489 rps</td>
+<td><strong>308,642 rps</strong>（-3.4%）</td>
+</tr>
+</tbody></table>
+<p>这就是 Redis 和 MySQL 的一个重要差异：<strong>MySQL 的大表会让你担心 B+ 树变高、Buffer Pool 装不下；Redis 的 100 万 key 对 <code>GET</code> 几乎没有影响</strong>，因为哈希表是 O(1)。它的上限是内存，不是「数据量」。</p>
+<h3 id="3-4-慢日志与延迟监控：两个默认关闭的开关"><a href="#3-4-慢日志与延迟监控：两个默认关闭的开关" class="headerlink" title="3.4 慢日志与延迟监控：两个默认关闭的开关"></a>3.4 慢日志与延迟监控：两个默认关闭的开关</h3><p>实测：<code>DEBUG POPULATE 1000000</code> 耗时 <strong>362 ms</strong>，被慢日志记下来了（<code>slowlog-log-slower-than = 10000 µs</code>）：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">1) (integer) 0            # 日志 id</span><br><span class="line">2) (integer) 1792849759   # 时间戳</span><br><span class="line">3) (integer) 362742       # 耗时（微秒）= 362 ms</span><br><span class="line">4) 1) &quot;DEBUG&quot; 2) &quot;POPULATE&quot; 3) &quot;1000000&quot; 4) &quot;user:&quot; 5) &quot;64&quot;</span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th>工具</th>
+<th>默认状态</th>
+<th>本文实测</th>
+<th>建议</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>SLOWLOG</code></td>
+<td>阈值 10 ms，只留 128 条</td>
+<td>362 ms 的 DEBUG 被记录</td>
+<td>线上调到 1~2 ms，条数加到 512</td>
+</tr>
+<tr>
+<td><code>LATENCY MONITOR</code></td>
+<td><strong>关闭</strong>（threshold&#x3D;0）</td>
+<td><code>LATENCY LATEST</code> 为空</td>
+<td>打开（阈值 10~50 ms），它记录的是「事件尖刺」</td>
+</tr>
+<tr>
+<td><code>INFO commandstats</code></td>
+<td>一直开</td>
+<td>可查每个命令的调用次数与耗时</td>
+<td>定位「谁在跑重命令」</td>
+</tr>
+</tbody></table>
+<p><strong>两者的差别</strong>：<code>SLOWLOG</code> 记录「单条命令耗时超过阈值」，<code>LATENCY MONITOR</code> 记录「事件循环被阻塞的尖刺」。排查线上抖动，后者往往更有用——因为真正的问题是「所有人都在等」，而不是「某条命令自己慢」。</p>
+<h3 id="3-5-基线采集闭环"><a href="#3-5-基线采集闭环" class="headerlink" title="3.5 基线采集闭环"></a>3.5 基线采集闭环</h3><pre class="mermaid">flowchart LR
+    A["Prepare: 1M keys"] --> B["Measure: latency / qps / mem"]
+    B --> C["Record into redis-lab.md"]
+    C --> D{"Compare with last baseline"}
+    D -- worse --> E["Change one variable, rerun"]
+    E --> B
+    D -- better --> F["Keep it, record why"]</pre>
+
+<h3 id="3-6-动手验证：跑出你的基线档案"><a href="#3-6-动手验证：跑出你的基线档案" class="headerlink" title="3.6 动手验证：跑出你的基线档案"></a>3.6 动手验证：跑出你的基线档案</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 一条命令跑完四件套（输出直接贴进笔记）</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-lab sh -c <span class="string">&#x27;</span></span><br><span class="line"><span class="string">  echo &quot;== version ==&quot;;  redis-cli INFO server | grep redis_version</span></span><br><span class="line"><span class="string">  echo &quot;== latency ==&quot;;  redis-cli --latency -i 1 &amp; P=$!; sleep 3; kill $P</span></span><br><span class="line"><span class="string">  echo &quot;== qps ==&quot;;      redis-benchmark -t get -n 50000 -c 50 -q | tail -1</span></span><br><span class="line"><span class="string">  echo &quot;== memory ==&quot;;   redis-cli INFO memory | grep -E &quot;used_memory_human|mem_fragmentation_ratio&quot;</span></span><br><span class="line"><span class="string">  echo &quot;== slowlog ==&quot;;  redis-cli SLOWLOG LEN</span></span><br><span class="line"><span class="string">&#x27;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：四个数字各就位；<code>SLOWLOG LEN</code> 在空实例上是 0。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>吞吐低于 10 万 rps（同机 loopback）→ 检查 CPU 限流、容器配额；</li>
+<li>碎片率 &gt; 1.5 → 有大量删除或大 key 分配不均（④ 讲）；</li>
+<li><code>SLOWLOG LEN</code> 持续增长 → 有命令超过 10 ms，先抓出来看是谁。</li>
+</ul>
+<p>把结果填进自己的档案，后面每篇加一行：</p>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>数据量</th>
+<th>参数</th>
+<th>命令</th>
+<th>延迟</th>
+<th>QPS</th>
+<th>内存</th>
+<th>结论</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>空实例</td>
+<td>0</td>
+<td>默认</td>
+<td>PING</td>
+<td>31 µs</td>
+<td>32,981</td>
+<td>1.02 MB</td>
+<td>地板价</td>
+</tr>
+<tr>
+<td>100 万 key</td>
+<td>1M × 64B</td>
+<td>默认</td>
+<td>GET</td>
+<td>87 µs</td>
+<td>308,642</td>
+<td>138.84 MB</td>
+<td>无退化，139 B&#x2F;key</td>
+</tr>
+<tr>
+<td>pipeline</td>
+<td>1M × 64B</td>
+<td><code>-P 16</code></td>
+<td>GET</td>
+<td>159 µs</td>
+<td>3,703,704</td>
+<td>138.84 MB</td>
+<td>吞吐 11.6×</td>
+</tr>
+<tr>
+<td>慢命令</td>
+<td>1M</td>
+<td>默认</td>
+<td>DEBUG POPULATE</td>
+<td>362 ms</td>
+<td>—</td>
+<td>—</td>
+<td>被慢日志捕获</td>
+</tr>
+</tbody></table>
+<h2 id="4-基线怎么用"><a href="#4-基线怎么用" class="headerlink" title="4. 基线怎么用"></a>4. 基线怎么用</h2><h3 id="4-1-一张判断表"><a href="#4-1-一张判断表" class="headerlink" title="4.1 一张判断表"></a>4.1 一张判断表</h3><pre class="mermaid">flowchart TD
+    T["Latency spike"] --> Q1{"all endpoints&lt;br/>at once?"}
+    Q1 -- yes --> Q2{"CPU near 100%?"}
+    Q2 -- yes --> A["Single-thread busy&lt;br/>find the heavy command"]
+    Q2 -- no --> B["Blocked by slow cmd&lt;br/>SLOWLOG / LATENCY"]
+    Q1 -- no --> C["RTT x command count&lt;br/>count the calls"]
+    C --> D["pipeline / batch / local cache"]</pre>
+
+<table>
+<thead>
+<tr>
+<th>症状</th>
+<th>大概率是哪类成本</th>
+<th>第一件事</th>
+<th>别做什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>所有接口 P99 一起涨，CPU 不高</td>
+<td>单线程被阻塞</td>
+<td><code>SLOWLOG GET</code> &#x2F; <code>LATENCY LATEST</code></td>
+<td>别加机器</td>
+</tr>
+<tr>
+<td>只有某个接口慢</td>
+<td>RTT &#x2F; 命令条数</td>
+<td>数这条链路发了几次 Redis 命令</td>
+<td>别调 <code>maxmemory</code></td>
+</tr>
+<tr>
+<td>偶发尖刺，均值正常</td>
+<td>fork &#x2F; 大 key &#x2F; 淘汰</td>
+<td>看 <code>INFO persistence</code> 的 <code>latest_fork_usec</code></td>
+<td>别急着换集群</td>
+</tr>
+<tr>
+<td>内存持续上涨</td>
+<td>无上限 &#x2F; 无 TTL</td>
+<td><code>INFO keyspace</code> 的 expires、<code>--bigkeys</code></td>
+<td>别先加内存</td>
+</tr>
+<tr>
+<td>写入报 <code>OOM command not allowed</code></td>
+<td><code>noeviction</code> 且打满</td>
+<td>设 <code>maxmemory-policy</code>（④）</td>
+<td>别以为加内存能根治</td>
+</tr>
+</tbody></table>
+<h3 id="4-2-与-MySQL-系列的三个联动"><a href="#4-2-与-MySQL-系列的三个联动" class="headerlink" title="4.2 与 MySQL 系列的三个联动"></a>4.2 与 MySQL 系列的三个联动</h3><table>
+<thead>
+<tr>
+<th>联动点</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>方法论一致</td>
+<td>MySQL ① 的「先量再改」在这里复用：延迟分三层、吞吐看拐点、内存看开销</td>
+</tr>
+<tr>
+<td>缓存是 MySQL 的前置</td>
+<td>⑨ 会实测「缓存挂了，MySQL 扛不扛得住」——那篇要靠 MySQL ③④ 的索引判断兜底能力</td>
+</tr>
+<tr>
+<td>一致性是跨组件的</td>
+<td>⑩ 的「先删缓存还是先更库」本质是 MySQL ⑤ 的事务提交时机问题</td>
+</tr>
+</tbody></table>
+<h3 id="4-3-动手验证：复现一次「抖动」"><a href="#4-3-动手验证：复现一次「抖动」" class="headerlink" title="4.3 动手验证：复现一次「抖动」"></a>4.3 动手验证：复现一次「抖动」</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 会话 A：造一个 5 秒的阻塞（生产上等价于 KEYS * 或大 DEL）</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli DEBUG SLEEP 5 &amp;</span><br><span class="line"></span><br><span class="line"><span class="comment"># 会话 B：同一时间测延迟</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli --latency -i 1 &amp;</span><br><span class="line"><span class="built_in">sleep</span> 6; <span class="built_in">kill</span> %1 2&gt;/dev/null</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：<code>--latency</code> 的 max 会跳到 5000 ms 附近——一个命令阻塞，所有请求一起等。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>max 跳到秒级 → 确认是单线程阻塞，去 ⑤ 找「谁在阻塞」；</li>
+<li>max 只有几十毫秒 → 阻塞命令没落到同一个实例（检查是否连错端口&#x2F;库）。</li>
+</ul>
+<h2 id="5-总结"><a href="#5-总结" class="headerlink" title="5. 总结"></a>5. 总结</h2><h3 id="5-1-面试速答表"><a href="#5-1-面试速答表" class="headerlink" title="5.1 面试速答表"></a>5.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Redis 为什么快</td>
+<td>纯内存 + epoll 单线程 + 短命令，瓶颈天然在网络不在 CPU</td>
+</tr>
+<tr>
+<td>单线程怎么扛住高并发</td>
+<td>一个线程处理所有命令，没有线程切换；但慢命令会阻塞所有人</td>
+</tr>
+<tr>
+<td>为什么 pipeline 快</td>
+<td>把 N 次 RTT 合成 1 次；实测 11.6 倍（本文环境）</td>
+</tr>
+<tr>
+<td>Redis 的延迟由什么构成</td>
+<td>网络往返 + 事件循环排队 + 命令执行 + 内存分配 + 持久化停顿</td>
+</tr>
+<tr>
+<td>100 万 key 占多少内存</td>
+<td>本文实测 138.84 MB（64B value），约 139 B&#x2F;key，是 value 的 2 倍多</td>
+</tr>
+<tr>
+<td>key 的内存开销包含什么</td>
+<td>key 名、dictEntry、redisObject、jemalloc 对齐</td>
+</tr>
+<tr>
+<td>空实例碎片率 13.94 正常吗</td>
+<td>正常，rss 基数太小；灌入数据后本文是 1.09</td>
+</tr>
+<tr>
+<td><code>SLOWLOG</code> 默认阈值</td>
+<td>10000 µs（10 ms），只保留 128 条</td>
+</tr>
+<tr>
+<td><code>LATENCY MONITOR</code> 默认开吗</td>
+<td>不开，<code>latency-monitor-threshold=0</code></td>
+</tr>
+<tr>
+<td><code>maxmemory=0</code> 意味着什么</td>
+<td>不限制内存，可能被 OOM Killer 杀</td>
+</tr>
+<tr>
+<td>Redis 的容量上限是什么</td>
+<td>内存，不是数据量；<code>GET</code> 在 1M key 时无退化</td>
+</tr>
+<tr>
+<td>怎么确认问题在 Redis 还是客户端</td>
+<td>分别测 intrinsic &#x2F; loopback &#x2F; 业务侧三层延迟</td>
+</tr>
+</tbody></table>
+<h3 id="5-2-实战避坑表"><a href="#5-2-实战避坑表" class="headerlink" title="5.2 实战避坑表"></a>5.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>宿主机测出 1ms，容器内 0.1ms</td>
+<td>Docker 端口映射与 NAT</td>
+<td>分层测，别混用</td>
+</tr>
+<tr>
+<td><code>DEBUG</code> 命令报错</td>
+<td>默认禁用</td>
+<td>测试实例加 <code>--enable-debug-command yes</code></td>
+</tr>
+<tr>
+<td>内存按 value 算，上线就 OOM</td>
+<td>忽略了每 key 的 70+ 字节开销</td>
+<td>用 <code>MEMORY USAGE</code> 抽样乘 key 数</td>
+</tr>
+<tr>
+<td>慢日志里什么都没有但确实慢</td>
+<td>阈值 10ms 太高</td>
+<td>调到 1~2ms，并开 LATENCY MONITOR</td>
+</tr>
+<tr>
+<td>灌数慢</td>
+<td>逐条 SET</td>
+<td><code>DEBUG POPULATE</code>（测试）或 pipeline &#x2F; <code>--pipe</code></td>
+</tr>
+<tr>
+<td>空实例碎片率告警</td>
+<td>分母太小</td>
+<td>灌入数据后再看</td>
+</tr>
+</tbody></table>
+<h3 id="5-3-工具速查表"><a href="#5-3-工具速查表" class="headerlink" title="5.3 工具速查表"></a>5.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>判定标准</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>--intrinsic-latency</code></td>
+<td>系统调度抖动</td>
+<td>max &gt; 1ms 说明环境有问题</td>
+</tr>
+<tr>
+<td><code>--latency</code></td>
+<td>Redis 往返</td>
+<td>avg 与 p50 差距大 &#x3D; 有尖刺</td>
+</tr>
+<tr>
+<td><code>redis-benchmark -P</code></td>
+<td>pipeline 前后吞吐</td>
+<td>提升 &lt; 2× &#x3D; 命令本身重</td>
+</tr>
+<tr>
+<td><code>INFO memory</code></td>
+<td>used &#x2F; rss &#x2F; 碎片率</td>
+<td>碎片率 &gt; 1.5 需关注</td>
+</tr>
+<tr>
+<td><code>MEMORY USAGE</code></td>
+<td>单 key 开销</td>
+<td>乘 key 数 &#x3D; 真实容量</td>
+</tr>
+<tr>
+<td><code>SLOWLOG</code></td>
+<td>超阈值命令</td>
+<td>持续增长 &#x3D; 有重命令</td>
+</tr>
+<tr>
+<td><code>LATENCY LATEST</code></td>
+<td>事件尖刺</td>
+<td>空 &#x3D; 没开监控</td>
+</tr>
+</tbody></table>
+<h3 id="5-4-实操建议"><a href="#5-4-实操建议" class="headerlink" title="5.4 实操建议"></a>5.4 实操建议</h3><ol>
+<li><strong>先测三层延迟</strong>（intrinsic &#x2F; loopback &#x2F; 业务侧），再决定优化哪一层。</li>
+<li><strong>把 <code>slowlog-log-slower-than</code> 调到 1~2 ms</strong>，并打开 <code>latency-monitor-threshold</code>——默认的 10 ms 会漏掉大部分抖动。</li>
+<li><strong>容量按 <code>MEMORY USAGE</code> 抽样算</strong>，别用 value 大小乘 key 数；本文的值是 136 B &#x2F; 64 B ≈ 2.1 倍。</li>
+<li><strong><code>maxmemory</code> 必须设</strong>，并明确 <code>maxmemory-policy</code>；<code>noeviction</code> 在缓存场景等于「写满即挂」。</li>
+<li>**建一份 <code>redis-lab.md</code>**，把「场景 &#x2F; 数据量 &#x2F; 参数 &#x2F; 命令 &#x2F; 延迟 &#x2F; QPS &#x2F; 内存 &#x2F; 结论」记下来，后面十一篇都往里加。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告</strong>：②《一次请求的成本账：RTT、事件循环与命令执行》。本文量了「一次往返 31 微秒」，下一篇把这条命令拆开：TCP 与 Unix socket 差多少、value 从 64B 涨到 100KB 时瓶颈怎么从 RTT 变成带宽、<code>io-threads</code> 开了到底有没有用——用同一组命令在四种配置下跑出对照曲线。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/%E9%9D%A2%E8%AF%95/" rel="tag"># 面试</a>
+              <a href="/tags/%E6%80%A7%E8%83%BD%E4%BC%98%E5%8C%96/" rel="tag"># 性能优化</a>
+              <a href="/tags/%E5%9F%BA%E5%87%86%E6%B5%8B%E8%AF%95/" rel="tag"># 基准测试</a>
+              <a href="/tags/%E5%AE%9E%E9%AA%8C%E8%AE%BE%E8%AE%A1/" rel="tag"># 实验设计</a>
+              <a href="/tags/%E5%BB%B6%E8%BF%9F/" rel="tag"># 延迟</a>
+              <a href="/tags/Redis/" rel="tag"># Redis</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/f8f36186.html" rel="prev" title="容量与扩展：什么时候才该分库分表">
+                  <i class="fa fa-angle-left"></i> 容量与扩展：什么时候才该分库分表
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/post/d0aa1ba2.html" rel="next" title="一次请求的成本账：RTT、事件循环与命令执行">
+                  一次请求的成本账：RTT、事件循环与命令执行 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">740k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">44:51</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
+</html>

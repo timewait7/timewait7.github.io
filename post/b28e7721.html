@@ -1,0 +1,1221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="设了 maxmemory 不等于安全。本文实测了三种「照样出问题」的情况：noeviction 下写满就报 OOM command not allowed；一段 Lua 脚本能在 maxmemory&#x3D;2MB 的实例里写出 34MB；以及删掉一半数据后 RSS 不降、碎片率从 1.09 飙到 4.96——直到开 activedefrag 才把 128MB 还给操作系统。 这一篇把「容量」这件事拆成三">
+<meta property="og:type" content="article">
+<meta property="og:title" content="内存、淘汰与碎片：maxmemory 设了为什么还会 OOM">
+<meta property="og:url" content="http://timewait7.github.io/post/b28e7721.html">
+<meta property="og:site_name" content="知行栈">
+<meta property="og:description" content="设了 maxmemory 不等于安全。本文实测了三种「照样出问题」的情况：noeviction 下写满就报 OOM command not allowed；一段 Lua 脚本能在 maxmemory&#x3D;2MB 的实例里写出 34MB；以及删掉一半数据后 RSS 不降、碎片率从 1.09 飙到 4.96——直到开 activedefrag 才把 128MB 还给操作系统。 这一篇把「容量」这件事拆成三">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-10-25T04:00:00.000Z">
+<meta property="article:modified_time" content="2026-10-24T14:40:51.282Z">
+<meta property="article:tag" content="面试">
+<meta property="article:tag" content="Redis">
+<meta property="article:tag" content="内存">
+<meta property="article:tag" content="淘汰策略">
+<meta property="article:tag" content="内存碎片">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/b28e7721.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/b28e7721.html","path":"post/b28e7721.html","title":"内存、淘汰与碎片：maxmemory 设了为什么还会 OOM"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>内存、淘汰与碎片：maxmemory 设了为什么还会 OOM | 知行栈</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<!-- hexo injector head_end start --><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
+</style><style>
+/* 菜单链高亮：sub-menu 祖先（同主题 .menu-item-active 的 Pisces 规则） */
+.sub-menu .menu-item a.menu-chain-active {
+  border-bottom-color: #fc6423;
+  color: #fc6423;
+}
+.sub-menu .menu-item a.menu-chain-active:hover {
+  border-bottom-color: #fc6423;
+}
+/* 菜单链高亮：main-menu 祖先（同主题 hover/active 的背景规则） */
+.main-menu .menu-item a.menu-chain-active {
+  background: var(--menu-item-bg-color);
+}
+</style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">知行栈</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section" class="menu-chain-active"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>Categories</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-%E6%B7%98%E6%B1%B0%EF%BC%9A%E8%A3%85%E4%B8%8D%E4%B8%8B%E7%9A%84%E6%97%B6%E5%80%99%E6%80%8E%E4%B9%88%E5%8A%9E"><span class="nav-text">1. 淘汰：装不下的时候怎么办</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-%E5%85%AB%E7%A7%8D%E7%AD%96%E7%95%A5%EF%BC%8C%E5%85%88%E5%88%86%E6%B8%85%E4%B8%A4%E7%B1%BB"><span class="nav-text">1.1 八种策略，先分清两类</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-2-%E5%AE%9E%E6%B5%8B%EF%BC%9A%E5%90%8C%E4%B8%80%E4%B8%AA%E5%86%99%E6%BB%A1%E8%BF%87%E7%A8%8B%EF%BC%8C%E4%B8%A4%E7%A7%8D%E7%BB%93%E5%B1%80"><span class="nav-text">1.2 实测：同一个写满过程，两种结局</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-3-%E6%B7%B1%E6%8C%96%EF%BC%9ALua-%E8%84%9A%E6%9C%AC%E8%83%BD%E7%BB%95%E8%BF%87-maxmemory%EF%BC%88%E5%AE%9E%E6%B5%8B%EF%BC%89"><span class="nav-text">1.3 深挖：Lua 脚本能绕过 maxmemory（实测）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E9%AA%8C%E8%AF%81%E4%BD%A0%E7%9A%84%E5%AE%9E%E4%BE%8B%E5%9C%A8%E5%86%99%E6%BB%A1%E6%97%B6%E6%98%AF%E3%80%8C%E6%8A%A5%E9%94%99%E3%80%8D%E8%BF%98%E6%98%AF%E3%80%8C%E6%B7%98%E6%B1%B0%E3%80%8D"><span class="nav-text">1.4 动手验证：验证你的实例在写满时是「报错」还是「淘汰」</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E5%91%BD%E4%B8%AD%E7%8E%87%EF%BC%9ALRU%E3%80%81LFU-%E4%B8%8E%E9%9A%8F%E6%9C%BA%E5%B7%AE%E5%A4%9A%E5%B0%91"><span class="nav-text">2. 命中率：LRU、LFU 与随机差多少</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E5%AE%9E%E9%AA%8C%E8%AE%BE%E8%AE%A1%EF%BC%88%E8%BF%99%E4%B8%80%E6%AD%A5%E6%AF%94%E7%BB%93%E8%AE%BA%E9%87%8D%E8%A6%81%EF%BC%89"><span class="nav-text">2.1 实验设计（这一步比结论重要）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E5%AE%9E%E6%B5%8B%E7%BB%93%E6%9E%9C"><span class="nav-text">2.2 实测结果</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-%E6%B7%B1%E6%8C%96%EF%BC%9A%E4%B8%BA%E4%BB%80%E4%B9%88-LFU-%E6%B2%A1%E6%9C%89%E6%83%B3%E8%B1%A1%E4%B8%AD%E9%82%A3%E4%B9%88%E5%A5%BD"><span class="nav-text">2.3 深挖：为什么 LFU 没有想象中那么好</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-4-%E4%B8%80%E4%B8%AA%E8%A2%AB%E5%BF%BD%E7%95%A5%E7%9A%84%E7%BB%86%E8%8A%82%EF%BC%9A%E6%B7%98%E6%B1%B0%E6%98%AF%E3%80%8C%E8%BF%91%E4%BC%BC%E3%80%8D%E7%9A%84"><span class="nav-text">2.4 一个被忽略的细节：淘汰是「近似」的</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-5-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E7%BB%99%E4%BD%A0%E7%9A%84%E4%B8%9A%E5%8A%A1%E8%B4%9F%E8%BD%BD%E6%B5%8B%E4%B8%80%E6%AC%A1%E5%91%BD%E4%B8%AD%E7%8E%87"><span class="nav-text">2.5 动手验证：给你的业务负载测一次命中率</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E8%BF%87%E6%9C%9F%E4%B8%8E%E6%83%B0%E6%80%A7%E9%87%8A%E6%94%BE%EF%BC%9A%E5%86%85%E5%AD%98%E4%B8%BA%E4%BB%80%E4%B9%88%E6%B2%A1%E8%BF%98%E5%9B%9E%E5%8E%BB"><span class="nav-text">3. 过期与惰性释放：内存为什么没还回去</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E5%AE%9E%E6%B5%8B%EF%BC%9A10-%E4%B8%87%E4%B8%AA-TTL-5-%E7%A7%92%E7%9A%84-key"><span class="nav-text">3.1 实测：10 万个 TTL 5 秒的 key</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E6%B7%B1%E6%8C%96%EF%BC%9A%E7%A2%8E%E7%89%87%E7%8E%87%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E6%89%8D%E6%9C%89%E6%84%8F%E4%B9%89"><span class="nav-text">3.2 深挖：碎片率什么时候才有意义</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-%E5%AE%9E%E6%B5%8B%EF%BC%9A%E7%A2%8E%E7%89%87%E6%98%AF%E6%80%8E%E4%B9%88%E4%BA%A7%E7%94%9F%E7%9A%84%EF%BC%8C%E6%80%8E%E4%B9%88%E6%94%B6%E5%9B%9E%E5%8E%BB"><span class="nav-text">3.3 实测：碎片是怎么产生的，怎么收回去</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-4-%E7%A2%8E%E7%89%87%E6%95%B4%E7%90%86%E7%9A%84%E4%B8%89%E4%B8%AA%E5%8F%82%E6%95%B0"><span class="nav-text">3.4 碎片整理的三个参数</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-5-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%88%B6%E9%80%A0%E7%A2%8E%E7%89%87%E5%86%8D%E6%94%B6%E5%9B%9E%E5%8E%BB"><span class="nav-text">3.5 动手验证：制造碎片再收回去</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E5%AE%B9%E9%87%8F%E6%B2%BB%E7%90%86%EF%BC%9A%E6%8A%8A%E4%B8%89%E5%B1%82%E4%B8%B2%E8%B5%B7%E6%9D%A5"><span class="nav-text">4. 容量治理：把三层串起来</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-%E4%B8%89%E5%B1%82%E6%8E%92%E6%9F%A5%E9%A1%BA%E5%BA%8F"><span class="nav-text">4.1 三层排查顺序</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-%E4%B8%80%E5%BC%A0%E9%85%8D%E7%BD%AE%E8%A1%A8%EF%BC%88%E7%BC%93%E5%AD%98%E5%9C%BA%E6%99%AF%E5%8F%AF%E7%9B%B4%E6%8E%A5%E6%8A%84%EF%BC%89"><span class="nav-text">4.2 一张配置表（缓存场景可直接抄）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-%E4%B8%8E-MySQL-%E7%B3%BB%E5%88%97%E7%9A%84%E5%AF%B9%E7%85%A7"><span class="nav-text">4.3 与 MySQL 系列的对照</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#6-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%9B%9B%E4%B8%AA%E5%8F%AF%E5%A4%8D%E7%8E%B0%E5%AE%9E%E9%AA%8C"><span class="nav-text">6. 动手验证：四个可复现实验</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#6-1-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E9%AA%8C%E8%AF%81%E5%86%99%E6%BB%A1%E6%97%B6%E6%98%AF%E6%8A%A5%E9%94%99%E8%BF%98%E6%98%AF%E6%B7%98%E6%B1%B0"><span class="nav-text">6.1 动手验证：验证写满时是报错还是淘汰</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-2-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%91%BD%E4%B8%AD%E7%8E%87%E5%AE%9E%E9%AA%8C%E5%BF%85%E9%A1%BB%E5%B8%A6%E9%A2%84%E7%83%AD"><span class="nav-text">6.2 动手验证：命中率实验必须带预热</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-3-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E9%AA%8C%E8%AF%81-TTL-%E8%BF%87%E6%9C%9F%E4%B8%8E%E5%86%85%E5%AD%98%E5%9B%9E%E6%94%B6"><span class="nav-text">6.3 动手验证：验证 TTL 过期与内存回收</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%88%B6%E9%80%A0%E7%A2%8E%E7%89%87%E5%86%8D%E6%94%B6%E5%9B%9E%E5%8E%BB"><span class="nav-text">6.4 动手验证：制造碎片再收回去</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E6%80%BB%E7%BB%93"><span class="nav-text">5. 总结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E9%9D%A2%E8%AF%95%E9%80%9F%E7%AD%94%E8%A1%A8"><span class="nav-text">5.1 面试速答表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E5%AE%9E%E6%88%98%E9%81%BF%E5%9D%91%E8%A1%A8"><span class="nav-text">5.2 实战避坑表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-%E5%B7%A5%E5%85%B7%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">5.3 工具速查表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-%E5%AE%9E%E6%93%8D%E5%BB%BA%E8%AE%AE"><span class="nav-text">5.4 实操建议</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">104</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">14</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">175</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+    <div class="sidebar-inner sidebar-blogroll">
+      <div class="links-of-blogroll animated">
+        <div class="links-of-blogroll-title"><i class="fa fa-globe fa-fw"></i>
+          Links
+        </div>
+        <ul class="links-of-blogroll-list">
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9wYXVsZ3JhaGFtLmNvbS9hcnRpY2xlcy5odG1s" title="https:&#x2F;&#x2F;paulgraham.com&#x2F;articles.html">paulgraham</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly93d3cuam9lbG9uc29mdHdhcmUuY29tLw==" title="https:&#x2F;&#x2F;www.joelonsoftware.com&#x2F;">Joel on Software</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9tYXJ0aW5mb3dsZXIuY29tLw==" title="https:&#x2F;&#x2F;martinfowler.com&#x2F;">Martin Flower</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly96aGFuZ3RpZWxlaS5jb20v" title="https:&#x2F;&#x2F;zhangtielei.com&#x2F;">zhangtielei</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhLWRlc2lnbi1wYXR0ZXJucy5jb20vemgv" title="https:&#x2F;&#x2F;java-design-patterns.com&#x2F;zh&#x2F;">Java Design Patterns</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9taWNyb3NlcnZpY2VzLmlvLw==" title="https:&#x2F;&#x2F;microservices.io&#x2F;">Microservice Architecture</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhZ3VpZGUuY24v" title="https:&#x2F;&#x2F;javaguide.cn&#x2F;">JavaGuide</span>
+            </li>
+        </ul>
+      </div>
+    </div>
+        <div class="pjax">
+        
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-后端开发"><a href="/docs/nav/backend-dev-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-code fa-fw"></i>后端开发</a></li>
+
+
+      
+  <li class="menu-item menu-item-计算机基础"><a href="/docs/nav/cs-foundation-nav.html" rel="section"><i class="fa fa-desktop fa-fw"></i>计算机基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-ai-学习"><a href="/docs/nav/ai-learning-nav.html" rel="section"><i class="fa fa-robot fa-fw"></i>AI 学习</a></li>
+
+
+      
+  <li class="menu-item menu-item-项目实战"><a href="/docs/nav/5964f4da.html" rel="section"><i class="fa fa-flask fa-fw"></i>项目实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-misc"><a href="/docs/nav/misc-nav.html" rel="section"><i class="fa fa-box fa-fw"></i>Misc</a></li>
+
+
+      
+  <li class="menu-item menu-item-随笔·生活"><a href="/docs/nav/life-nav.html" rel="section"><i class="fa fa-feather fa-fw"></i>随笔·生活</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java"><a href="/docs/nav/java-nav.html" rel="section"><i class="fa fa-coffee fa-fw"></i>Java</a></li>
+
+
+      
+  <li class="menu-item menu-item-框架"><a href="/docs/nav/framework-nav.html" rel="section"><i class="fa fa-th-large fa-fw"></i>框架</a></li>
+
+
+      
+  <li class="menu-item menu-item-数据存储"><a href="/docs/nav/data-storage-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-hdd fa-fw"></i>数据存储</a></li>
+
+
+      
+  <li class="menu-item menu-item-中间件"><a href="/docs/nav/middleware-nav.html" rel="section"><i class="fa fa-cubes fa-fw"></i>中间件</a></li>
+
+
+      
+  <li class="menu-item menu-item-分布式与微服务"><a href="/docs/nav/distributed-nav.html" rel="section"><i class="fa fa-sitemap fa-fw"></i>分布式与微服务</a></li>
+
+
+      
+  <li class="menu-item menu-item-系统设计"><a href="/docs/nav/system-design-nav.html" rel="section"><i class="fa fa-pencil-ruler fa-fw"></i>系统设计</a></li>
+
+
+      
+  <li class="menu-item menu-item-部署运维"><a href="/docs/nav/devops-nav.html" rel="section"><i class="fa fa-terminal fa-fw"></i>部署运维</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-mysql"><a href="/docs/nav/mysql-nav.html" rel="section"><i class="fa fa-database fa-fw"></i>MySQL</a></li>
+
+
+      
+  <li class="menu-item menu-item-redis"><a href="/docs/nav/redis-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-bolt fa-fw"></i>Redis</a></li>
+
+
+      
+  <li class="menu-item menu-item-elasticsearch"><a href="/docs/nav/es-nav.html" rel="section"><i class="fa fa-search fa-fw"></i>ElasticSearch</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-redis-深度解析：从原理到精通"><a href="/post/bae4ff13.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Redis 深度解析：从原理到精通</a></li>
+
+
+      
+  <li class="menu-item menu-item-①-从这里开始：把-redis-变成你的实验台"><a href="/post/fb7bfeea.html" rel="section"><i class="fa fa-file-text fa-fw"></i>① 从这里开始：把 Redis 变成你的实验台</a></li>
+
+
+      
+  <li class="menu-item menu-item-②-一次请求的成本账：rtt、事件循环与命令执行"><a href="/post/d0aa1ba2.html" rel="section"><i class="fa fa-file-text fa-fw"></i>② 一次请求的成本账：RTT、事件循环与命令执行</a></li>
+
+
+      
+  <li class="menu-item menu-item-③-数据结构：编码阈值与复杂度的真实代价"><a href="/post/342c4932.html" rel="section"><i class="fa fa-file-text fa-fw"></i>③ 数据结构：编码阈值与复杂度的真实代价</a></li>
+
+
+      
+  <li class="menu-item menu-item-④-内存、淘汰与碎片：maxmemory-设了为什么还会-oom"><a href="/post/b28e7721.html" rel="section"><i class="fa fa-file-text fa-fw"></i>④ 内存、淘汰与碎片：maxmemory 设了为什么还会 OOM</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑤-单线程：为什么快，什么时候会卡"><a href="/post/d9138e00.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑤ 单线程：为什么快，什么时候会卡</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑥-pipeline、事务与-lua：原子性和-rtt-怎么兼得"><a href="/post/884c75a8.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑥ Pipeline、事务与 Lua：原子性和 RTT 怎么兼得</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑦-持久化：rdb、aof-与丢失窗口"><a href="/post/6a7a58b3.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑦ 持久化：RDB、AOF 与丢失窗口</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑧-复制、哨兵与-cluster：切一次主要多久"><a href="/post/63c21b5b.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑧ 复制、哨兵与 Cluster：切一次主要多久</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑨-缓存三大问题：穿透、击穿、雪崩的量化与解法"><a href="/post/1d7a96da.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑨ 缓存三大问题：穿透、击穿、雪崩的量化与解法</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑩-缓存与数据库一致性：更新顺序与不一致窗口"><a href="/post/35ae94a8.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑩ 缓存与数据库一致性：更新顺序与不一致窗口</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑪-分布式锁与限流：从-set-nx-到-redisson"><a href="/post/cb07eb8d.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑪ 分布式锁与限流：从 SET NX 到 Redisson</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑫-容量规划与分片：什么时候才该上-cluster"><a href="/post/b815463e.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑫ 容量规划与分片：什么时候才该上 Cluster</a></li>
+
+
+    </ul>
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/b28e7721.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="内存、淘汰与碎片：maxmemory 设了为什么还会 OOM | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          内存、淘汰与碎片：maxmemory 设了为什么还会 OOM
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-10-25 12:00:00" itemprop="dateCreated datePublished" datetime="2026-10-25T12:00:00+08:00">2026-10-25</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/" itemprop="url" rel="index"><span itemprop="name">数据存储</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>4.4k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>16 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><p><strong>设了 <code>maxmemory</code> 不等于安全</strong>。本文实测了三种「照样出问题」的情况：<code>noeviction</code> 下写满就报 <code>OOM command not allowed</code>；<strong>一段 Lua 脚本能在 <code>maxmemory=2MB</code> 的实例里写出 34MB</strong>；以及删掉一半数据后 RSS 不降、碎片率从 1.09 飙到 4.96——直到开 <code>activedefrag</code> 才把 128MB 还给操作系统。</p>
+<p>这一篇把「容量」这件事拆成三层：<strong>装不装得下（淘汰）→ 还回不还回（过期与惰性释放）→ 碎不碎（碎片整理）</strong>。</p>
+<blockquote>
+<p><strong>系列地图（Redis 实战路线，12 篇）</strong></p>
+<p>① 实验台与基线 → ② 一次请求的成本账 → ③ 数据结构与编码 → ④ <strong>内存、淘汰与碎片（本文）</strong> → ⑤ 单线程与阻塞 → ⑥ Pipeline、事务与 Lua → ⑦ 持久化与丢失窗口 → ⑧ 复制、哨兵与 Cluster → ⑨ 缓存三大问题 → ⑩ 缓存与数据库一致性 → ⑪ 分布式锁与限流 → ⑫ 容量规划与分片</p>
+<p>与前后篇的关系：③ 讲了「一个 key 占多少字节」，本文讲「整个实例怎么被撑爆」；⑥ 会解释本文发现的「Lua 脚本绕过 maxmemory」到底是什么机制；⑫ 用本文的结论算「一个实例能扛多少 key」。</p>
+</blockquote>
+<h2 id="1-淘汰：装不下的时候怎么办"><a href="#1-淘汰：装不下的时候怎么办" class="headerlink" title="1. 淘汰：装不下的时候怎么办"></a>1. 淘汰：装不下的时候怎么办</h2><h3 id="1-1-八种策略，先分清两类"><a href="#1-1-八种策略，先分清两类" class="headerlink" title="1.1 八种策略，先分清两类"></a>1.1 八种策略，先分清两类</h3><table>
+<thead>
+<tr>
+<th>策略</th>
+<th>从哪选淘汰对象</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>noeviction</code>（默认）</td>
+<td>不淘汰，写满报错</td>
+<td>当数据库用、绝不允许丢数据</td>
+</tr>
+<tr>
+<td><code>allkeys-lru</code></td>
+<td>所有 key，按最近最少使用</td>
+<td><strong>缓存场景首选</strong></td>
+</tr>
+<tr>
+<td><code>allkeys-lfu</code></td>
+<td>所有 key，按访问频次</td>
+<td>热点长期稳定</td>
+</tr>
+<tr>
+<td><code>allkeys-random</code></td>
+<td>所有 key，随机</td>
+<td>几乎不用，除非访问完全均匀</td>
+</tr>
+<tr>
+<td><code>volatile-lru</code></td>
+<td><strong>只从设置了 TTL 的 key</strong> 里选</td>
+<td>缓存与持久数据混布</td>
+</tr>
+<tr>
+<td><code>volatile-lfu</code></td>
+<td>同上，按频次</td>
+<td>同上</td>
+</tr>
+<tr>
+<td><code>volatile-random</code></td>
+<td>同上，随机</td>
+<td>同上</td>
+</tr>
+<tr>
+<td><code>volatile-ttl</code></td>
+<td>同上，优先淘汰快过期的</td>
+<td>同上</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart TD
+    M["Memory full"] --> P{"maxmemory-policy"}
+    P -- "noeviction" --> E["Reject writes&lt;br/>OOM error"]
+    P -- "allkeys-*" --> A["Evict from all keys"]
+    P -- "volatile-*" --> V{"key has TTL?"}
+    V -- yes --> VE["Evict among volatile keys"]
+    V -- "no TTL keys at all" --> E</pre>
+
+<p><strong>关键区别</strong>：<code>volatile-*</code> 只在「有过期时间的 key」里淘汰。如果你忘了给缓存设 TTL，<code>volatile-lru</code> 在内存满时会<strong>退化成 noeviction</strong>——这是生产上最常见的「淘汰不生效」原因。</p>
+<h3 id="1-2-实测：同一个写满过程，两种结局"><a href="#1-2-实测：同一个写满过程，两种结局" class="headerlink" title="1.2 实测：同一个写满过程，两种结局"></a>1.2 实测：同一个写满过程，两种结局</h3><p>固定 <code>maxmemory=2mb</code>，写入 40,000 条 100 字节的 key：</p>
+<table>
+<thead>
+<tr>
+<th>策略</th>
+<th>成功写入</th>
+<th>被淘汰</th>
+<th>最终 dbsize</th>
+<th>报错</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>noeviction</code></td>
+<td>766 条后停止</td>
+<td>0</td>
+<td>766</td>
+<td><strong><code>OOM command not allowed when used memory &gt; &#39;maxmemory&#39;.</code></strong></td>
+</tr>
+<tr>
+<td><code>allkeys-lru</code></td>
+<td><strong>40,000 条全成功</strong></td>
+<td><strong>38,730</strong></td>
+<td>1,577</td>
+<td>无</td>
+</tr>
+</tbody></table>
+<p><code>noeviction</code> 那条记录的 <code>total_error_replies</code> 是 <strong>11,014</strong>——也就是说这轮写入了 1 万多次失败，而应用侧如果没把这类错误单独处理，用户看到的就是「偶发写入失败」。</p>
+<h3 id="1-3-深挖：Lua-脚本能绕过-maxmemory（实测）"><a href="#1-3-深挖：Lua-脚本能绕过-maxmemory（实测）" class="headerlink" title="1.3 深挖：Lua 脚本能绕过 maxmemory（实测）"></a>1.3 深挖：Lua 脚本能绕过 maxmemory（实测）</h3><p>同样 <code>maxmemory=2mb</code> + <code>noeviction</code>，换成一段 Lua 脚本批量写：</p>
+<figure class="highlight lua"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">-- 实测：maxmemory=2mb 的实例里，这段脚本写出了 20 万个 key、34MB 内存</span></span><br><span class="line"><span class="keyword">local</span> i = <span class="number">0</span></span><br><span class="line"><span class="keyword">while</span> <span class="literal">true</span> <span class="keyword">do</span></span><br><span class="line">  i = i + <span class="number">1</span></span><br><span class="line">  redis.call(<span class="string">&#x27;SET&#x27;</span>, <span class="string">&#x27;k&#x27;</span>..i, <span class="built_in">string</span>.<span class="built_in">rep</span>(<span class="string">&#x27;x&#x27;</span>, <span class="number">100</span>))</span><br><span class="line">  <span class="keyword">if</span> i &gt; <span class="number">200000</span> <span class="keyword">then</span> <span class="keyword">return</span> <span class="string">&#x27;no error&#x27;</span> <span class="keyword">end</span></span><br><span class="line"><span class="keyword">end</span></span><br></pre></td></tr></table></figure>
+
+<p>结果：</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>实测值</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>返回</td>
+<td><code>no error</code>（一次 OOM 都没有）</td>
+</tr>
+<tr>
+<td>dbsize</td>
+<td>200,001</td>
+</tr>
+<tr>
+<td><code>used_memory</code></td>
+<td><strong>34.02 MB</strong>（<code>maxmemory</code> 是 2 MB）</td>
+</tr>
+</tbody></table>
+<p><strong>原因</strong>：<code>maxmemory</code> 的检查发生在<strong>命令入口</strong>（执行每条命令前判断是否需要淘汰&#x2F;拒绝），而一段脚本在执行过程中不会再走这个入口。所以脚本里的写入不受限制，RDB&#x2F;AOF 也拦不住它。</p>
+<p>生产含义很直接：</p>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>风险</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>用 Lua 做批量写入&#x2F;迁移</td>
+<td>能瞬间把内存打爆，触发 OOM Killer</td>
+</tr>
+<tr>
+<td>用 Lua 做大 key 遍历</td>
+<td>长时间阻塞（⑥ 会算）</td>
+</tr>
+<tr>
+<td>用 <code>EVAL</code> 做「安全」的限流</td>
+<td>与 maxmemory 无关，但会阻塞</td>
+</tr>
+</tbody></table>
+<p><strong>结论</strong>：脚本要么限制迭代次数，要么在应用侧分批调用；指望 <code>maxmemory</code> 兜底是错的。</p>
+<h3 id="1-4-动手验证：验证你的实例在写满时是「报错」还是「淘汰」"><a href="#1-4-动手验证：验证你的实例在写满时是「报错」还是「淘汰」" class="headerlink" title="1.4 动手验证：验证你的实例在写满时是「报错」还是「淘汰」"></a>1.4 动手验证：验证你的实例在写满时是「报错」还是「淘汰」</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1) 看策略</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli CONFIG GET maxmemory maxmemory-policy</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2) 手动设一个很小的上限（测试环境！）</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli CONFIG SET maxmemory 2mb</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli CONFIG SET maxmemory-policy noeviction</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli FLUSHALL</span><br><span class="line"></span><br><span class="line"><span class="comment"># 3) 写满，看报错</span></span><br><span class="line">python3 -c <span class="string">&quot;print(&#x27;\n&#x27;.join(f&#x27;SET n&#123;i&#125; &#x27; + &#x27;x&#x27;*100 for i in range(1,3000)))&quot;</span> \</span><br><span class="line">  | docker <span class="built_in">exec</span> -i redis-lab redis-cli 2&gt;&amp;1 | grep -m1 <span class="string">&quot;OOM&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 4) 换策略，重复</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli CONFIG SET maxmemory-policy allkeys-lru</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli FLUSHALL</span><br><span class="line">python3 -c <span class="string">&quot;print(&#x27;\n&#x27;.join(f&#x27;SET n&#123;i&#125; &#x27; + &#x27;x&#x27;*100 for i in range(1,3000)))&quot;</span> \</span><br><span class="line">  | docker <span class="built_in">exec</span> -i redis-lab redis-cli 2&gt;&amp;1 | grep -c <span class="string">&quot;OK&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：<code>noeviction</code> 下出现 <code>OOM command not allowed...</code>；<code>allkeys-lru</code> 下所有 SET 都返回 OK，且 <code>INFO stats</code> 的 <code>evicted_keys</code> 增长。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>线上是 <code>noeviction</code> 且当缓存用 → 迟早写满报错，改成 <code>allkeys-lru</code>；</li>
+<li>是 <code>volatile-lru</code> 但 key 都没 TTL → 等同于 <code>noeviction</code>，检查 TTL 覆盖率；</li>
+<li><code>evicted_keys</code> 持续增长 → 容量不足，先算真实内存（⑫）再扩。</li>
+</ul>
+<h2 id="2-命中率：LRU、LFU-与随机差多少"><a href="#2-命中率：LRU、LFU-与随机差多少" class="headerlink" title="2. 命中率：LRU、LFU 与随机差多少"></a>2. 命中率：LRU、LFU 与随机差多少</h2><h3 id="2-1-实验设计（这一步比结论重要）"><a href="#2-1-实验设计（这一步比结论重要）" class="headerlink" title="2.1 实验设计（这一步比结论重要）"></a>2.1 实验设计（这一步比结论重要）</h3><ul>
+<li>缓存上限 4MB，先灌 5 万个 key（必然触发淘汰）</li>
+<li>预热 1000 个热 key（模拟应用访问过）</li>
+<li>工作负载 10 万次：80% 访问热 key（1000 个）、15% 访问冷 key、5% 写入新 key</li>
+</ul>
+<h3 id="2-2-实测结果"><a href="#2-2-实测结果" class="headerlink" title="2.2 实测结果"></a>2.2 实测结果</h3><table>
+<thead>
+<tr>
+<th>策略</th>
+<th>命中</th>
+<th>未命中</th>
+<th>命中率</th>
+<th>淘汰数</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>allkeys-lru</code></td>
+<td>83,479</td>
+<td>11,523</td>
+<td><strong>87.9%</strong></td>
+<td>4,410</td>
+</tr>
+<tr>
+<td><code>allkeys-lfu</code></td>
+<td>81,334</td>
+<td>13,668</td>
+<td><strong>85.6%</strong></td>
+<td>4,426</td>
+</tr>
+<tr>
+<td><code>allkeys-random</code></td>
+<td>73,022</td>
+<td>21,980</td>
+<td><strong>76.9%</strong></td>
+<td>4,436</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart LR
+    R["allkeys-random&lt;br/>76.9%"] --> L["allkeys-lfu&lt;br/>85.6%"]
+    L --> U["allkeys-lru&lt;br/>87.9%"]</pre>
+
+<p><strong>结论与流行说法不一样</strong>：在这个 80&#x2F;20 场景里，<strong>LRU 与 LFU 只差 2.3 个百分点，LRU 甚至略好</strong>，而随机策略明显差一档（-11 个百分点）。</p>
+<h3 id="2-3-深挖：为什么-LFU-没有想象中那么好"><a href="#2-3-深挖：为什么-LFU-没有想象中那么好" class="headerlink" title="2.3 深挖：为什么 LFU 没有想象中那么好"></a>2.3 深挖：为什么 LFU 没有想象中那么好</h3><p>LFU 的优势要在「热点长期稳定 + 访问频次差异大」时才显现。本文的工作负载里，热 key 刚被预热过、又持续被访问——<strong>「最近」和「最频繁」几乎是同一批 key</strong>，两种策略自然接近。</p>
+<p>LFU 真正的坑在另一头：</p>
+<table>
+<thead>
+<tr>
+<th>问题</th>
+<th>机制</th>
+<th>对策</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>历史热点赖着不走</td>
+<td>频次计数器长期不衰减，新热点挤不进来</td>
+<td><code>lfu-decay-time</code>（实测默认 1 分钟）</td>
+</tr>
+<tr>
+<td>新 key 冷启动</td>
+<td>新 key 频次从 0 开始，容易被淘汰</td>
+<td><code>lfu-log-factor</code>（实测默认 10，控制增长曲线）</td>
+</tr>
+<tr>
+<td>计数器占空间</td>
+<td>每 key 多几个 bit</td>
+<td>可忽略</td>
+</tr>
+</tbody></table>
+<p><strong>所以选型建议</strong>：默认 <code>allkeys-lru</code>；只有当你能观察到「热点稳定、LRU 频繁误淘汰」时再上 LFU，并配合调 <code>lfu-decay-time</code>。</p>
+<h3 id="2-4-一个被忽略的细节：淘汰是「近似」的"><a href="#2-4-一个被忽略的细节：淘汰是「近似」的" class="headerlink" title="2.4 一个被忽略的细节：淘汰是「近似」的"></a>2.4 一个被忽略的细节：淘汰是「近似」的</h3><p><code>maxmemory-samples</code>（实测默认 5）决定每次淘汰时采样多少 key 来「近似」找最久未用的。采样越少越省 CPU、越不准。</p>
+<table>
+<thead>
+<tr>
+<th>参数</th>
+<th>实测默认</th>
+<th>调大的代价</th>
+<th>调大的收益</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>maxmemory-samples</code></td>
+<td>5</td>
+<td>每次淘汰多采样，CPU 上升</td>
+<td>淘汰更准，命中率略升</td>
+</tr>
+</tbody></table>
+<p>这也是为什么「理论上的 LRU」和「Redis 的 LRU」不完全一样——后者是采样近似。</p>
+<h3 id="2-5-动手验证：给你的业务负载测一次命中率"><a href="#2-5-动手验证：给你的业务负载测一次命中率" class="headerlink" title="2.5 动手验证：给你的业务负载测一次命中率"></a>2.5 动手验证：给你的业务负载测一次命中率</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 关键：先预热热 key，再测；否则测的是「预热分布」而不是策略效果</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli CONFIG SET maxmemory 4mb</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli CONFIG SET maxmemory-policy allkeys-lru</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli FLUSHALL</span><br><span class="line"><span class="comment"># 1) 灌冷数据  2) 预热热数据  3) CONFIG RESETSTAT  4) 打工作负载</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli INFO stats | grep -E <span class="string">&quot;keyspace_hits|keyspace_misses|evicted_keys&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：命中率 &#x3D; <code>keyspace_hits / (hits + misses)</code>，本文在 87% 左右。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>命中率 &lt; 60% → 容量不足或访问分布太散，加内存比换策略有效；</li>
+<li>命中率 &gt; 95% 且 <code>evicted_keys</code> 很低 → 容量富余，可考虑缩容；</li>
+<li>命中率忽高忽低 → 有定时任务在批量写（把热数据冲掉了）。</li>
+</ul>
+<blockquote>
+<p>实验设计的一个坑：我第一次测出 LRU 只有 <strong>5.1%</strong> 命中率——因为热 key 在灌数据阶段就被淘汰了，工作负载又只有 <code>GET</code>（未命中不会回填）。<strong>命中率实验必须包含「预热」或「回填」</strong>，否则测出来的不是策略效果。</p>
+</blockquote>
+<h2 id="3-过期与惰性释放：内存为什么没还回去"><a href="#3-过期与惰性释放：内存为什么没还回去" class="headerlink" title="3. 过期与惰性释放：内存为什么没还回去"></a>3. 过期与惰性释放：内存为什么没还回去</h2><h3 id="3-1-实测：10-万个-TTL-5-秒的-key"><a href="#3-1-实测：10-万个-TTL-5-秒的-key" class="headerlink" title="3.1 实测：10 万个 TTL 5 秒的 key"></a>3.1 实测：10 万个 TTL 5 秒的 key</h3><table>
+<thead>
+<tr>
+<th>时刻</th>
+<th>dbsize</th>
+<th>used_memory</th>
+<th>rss</th>
+<th>expired_keys</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>写入后</td>
+<td>100,000</td>
+<td>26.06 MB</td>
+<td>42.28 MB</td>
+<td>0</td>
+</tr>
+<tr>
+<td>6 秒后</td>
+<td><strong>0</strong></td>
+<td><strong>1.25 MB</strong></td>
+<td>42.28 MB</td>
+<td><strong>100,000</strong></td>
+</tr>
+</tbody></table>
+<p><strong>暴露了两件事</strong>：</p>
+<ol>
+<li>过期删除是有效的：10 万个 key 在 6 秒内全部清掉，<code>used_memory</code> 从 26MB 掉到 1.25MB；</li>
+<li><strong>RSS 没降</strong>：43MB 一直占着，因为 jemalloc 把释放的内存留在自己的 arena 里，不还给 OS。此时 <code>mem_fragmentation_ratio</code> 显示 <strong>34.85</strong>——这个数字毫无意义，因为分母（used）太小了。</li>
+</ol>
+<h3 id="3-2-深挖：碎片率什么时候才有意义"><a href="#3-2-深挖：碎片率什么时候才有意义" class="headerlink" title="3.2 深挖：碎片率什么时候才有意义"></a>3.2 深挖：碎片率什么时候才有意义</h3><figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">mem_fragmentation_ratio = used_memory_rss / used_memory</span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th>used_memory</th>
+<th>ratio</th>
+<th>是否要处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1 MB</td>
+<td>34.85</td>
+<td>不用，分母太小，纯噪声</td>
+</tr>
+<tr>
+<td>37 MB</td>
+<td>4.96</td>
+<td><strong>要</strong>，说明有真实碎片</td>
+</tr>
+<tr>
+<td>170 MB</td>
+<td>1.09</td>
+<td>不用，健康</td>
+</tr>
+<tr>
+<td>任意</td>
+<td>&gt; 1.5 且 used &gt; 几百 MB</td>
+<td>要，考虑 <code>activedefrag</code> 或迁移</td>
+</tr>
+</tbody></table>
+<p><strong>判据</strong>：先看 <code>used_memory</code> 是否够大（比如 &gt; 100MB），再看 ratio。空实例 ratio 13.94（① 的实测）也是同一个道理。</p>
+<h3 id="3-3-实测：碎片是怎么产生的，怎么收回去"><a href="#3-3-实测：碎片是怎么产生的，怎么收回去" class="headerlink" title="3.3 实测：碎片是怎么产生的，怎么收回去"></a>3.3 实测：碎片是怎么产生的，怎么收回去</h3><table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>used</th>
+<th>rss</th>
+<th>ratio</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>灌 10 万条（64B~4KB 混合）</td>
+<td>169.62 MB</td>
+<td>184.75 MB</td>
+<td><strong>1.09</strong></td>
+</tr>
+<tr>
+<td>删掉一半（5 万条）</td>
+<td><strong>37.30 MB</strong></td>
+<td>184.75 MB</td>
+<td><strong>4.96</strong></td>
+</tr>
+<tr>
+<td>开 <code>activedefrag</code> +8s</td>
+<td>37.30 MB</td>
+<td>105.11 MB</td>
+<td>2.82</td>
+</tr>
+<tr>
+<td>+13s</td>
+<td>37.30 MB</td>
+<td><strong>56.24 MB</strong></td>
+<td><strong>1.51</strong></td>
+</tr>
+<tr>
+<td>+18s &#x2F; +23s</td>
+<td>37.30 MB</td>
+<td>56.24 MB</td>
+<td>1.51（收敛）</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart LR
+    A["fill 100k keys&lt;br/>used 169MB rss 185MB&lt;br/>ratio 1.09"] --> B["delete half&lt;br/>used 37MB rss 185MB&lt;br/>ratio 4.96"]
+    B --> C["activedefrag 8s&lt;br/>rss 105MB ratio 2.82"]
+    C --> D["+13s&lt;br/>rss 56MB ratio 1.51"]</pre>
+
+<p><strong><code>activedefrag</code> 把 128 MB 还给了操作系统</strong>（184.75 → 56.24 MB），碎片率从 4.96 降到 1.51。整个过程没有重启、没有迁移数据。</p>
+<h3 id="3-4-碎片整理的三个参数"><a href="#3-4-碎片整理的三个参数" class="headerlink" title="3.4 碎片整理的三个参数"></a>3.4 碎片整理的三个参数</h3><table>
+<thead>
+<tr>
+<th>参数</th>
+<th>实测默认</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>activedefrag</code></td>
+<td><strong>no</strong></td>
+<td>总开关，默认关闭</td>
+</tr>
+<tr>
+<td><code>active-defrag-ignore-bytes</code></td>
+<td>100 MB</td>
+<td>碎片小于这个量不整理</td>
+</tr>
+<tr>
+<td><code>active-defrag-threshold-lower</code></td>
+<td>10%</td>
+<td>碎片率超过它才开始整理</td>
+</tr>
+<tr>
+<td><code>active-defrag-threshold-upper</code></td>
+<td>100%</td>
+<td>超过它全力整理</td>
+</tr>
+<tr>
+<td><code>active-defrag-cycle-min</code> &#x2F; <code>-max</code></td>
+<td>5 &#x2F; 75</td>
+<td>每轮占用的 CPU 百分比上下限</td>
+</tr>
+<tr>
+<td><code>lazyfree-lazy-eviction</code></td>
+<td><strong>no</strong></td>
+<td>淘汰时是否异步释放（默认同步）</td>
+</tr>
+<tr>
+<td><code>lazyfree-lazy-expire</code></td>
+<td><strong>no</strong></td>
+<td>过期时是否异步释放</td>
+</tr>
+<tr>
+<td><code>lazyfree-lazy-user-flush</code></td>
+<td><strong>no</strong></td>
+<td><code>FLUSHALL</code> 是否异步</td>
+</tr>
+</tbody></table>
+<p><strong>代价</strong>：<code>activedefrag</code> 会消耗 CPU（单线程！），在高峰期开要小心；<code>lazyfree-*</code> 打开会把释放操作放到后台线程，降低主线程阻塞，但也让内存回收更「慢半拍」。</p>
+<h3 id="3-5-动手验证：制造碎片再收回去"><a href="#3-5-动手验证：制造碎片再收回去" class="headerlink" title="3.5 动手验证：制造碎片再收回去"></a>3.5 动手验证：制造碎片再收回去</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 1) 灌混合大小的 key</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli EVAL <span class="string">&quot;</span></span><br><span class="line"><span class="string">local s=&#123;64,256,1024,4096&#125;</span></span><br><span class="line"><span class="string">for i=1,100000 do redis.call(&#x27;set&#x27;,&#x27;f:&#x27;..i,string.rep(&#x27;a&#x27;,s[(i%4)+1])) end</span></span><br><span class="line"><span class="string">return redis.call(&#x27;dbsize&#x27;)&quot;</span> 0</span><br><span class="line"></span><br><span class="line"><span class="comment"># 2) 删一半</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli EVAL <span class="string">&quot;</span></span><br><span class="line"><span class="string">for i=1,100000,2 do redis.call(&#x27;del&#x27;,&#x27;f:&#x27;..i) end return 1&quot;</span> 0</span><br><span class="line"></span><br><span class="line"><span class="comment"># 3) 看碎片率</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli INFO memory | grep -E <span class="string">&quot;used_memory_human|used_memory_rss_human|mem_fragmentation_ratio&quot;</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 4) 开整理，观察 RSS 下降</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli CONFIG SET activedefrag <span class="built_in">yes</span></span><br><span class="line"><span class="keyword">for</span> i <span class="keyword">in</span> 1 2 3 4; <span class="keyword">do</span> <span class="built_in">sleep</span> 5; docker <span class="built_in">exec</span> redis-lab redis-cli INFO memory | grep mem_fragmentation_ratio; <span class="keyword">done</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：删一半后 ratio 会跳到 4 以上；开整理后 RSS 逐步下降，ratio 收敛到 1.5 附近。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>ratio 长期 &gt; 1.5 且 used &gt; 100MB → 开 <code>activedefrag</code>；</li>
+<li>开了之后 ratio 不降 → 检查 <code>active-defrag-ignore-bytes</code>（碎片量不到 100MB 不会动）；</li>
+<li>生产高峰期不要开（会抢单线程 CPU）。</li>
+</ul>
+<h2 id="4-容量治理：把三层串起来"><a href="#4-容量治理：把三层串起来" class="headerlink" title="4. 容量治理：把三层串起来"></a>4. 容量治理：把三层串起来</h2><h3 id="4-1-三层排查顺序"><a href="#4-1-三层排查顺序" class="headerlink" title="4.1 三层排查顺序"></a>4.1 三层排查顺序</h3><pre class="mermaid">flowchart TD
+    A["Redis memory alert"] --> B{"used_memory near maxmemory?"}
+    B -- yes --> C["Eviction layer:&lt;br/>policy + TTL coverage"]
+    B -- no --> D{"used_memory much lower&lt;br/>than rss?"}
+    D -- yes --> E["Fragmentation layer:&lt;br/>activedefrag / migrate"]
+    D -- no --> F["Expiry layer:&lt;br/>TTL missing? lazy free?"]
+    C --> G["Fix: policy, TTL, capacity"]
+    E --> G
+    F --> G</pre>
+
+<h3 id="4-2-一张配置表（缓存场景可直接抄）"><a href="#4-2-一张配置表（缓存场景可直接抄）" class="headerlink" title="4.2 一张配置表（缓存场景可直接抄）"></a>4.2 一张配置表（缓存场景可直接抄）</h3><table>
+<thead>
+<tr>
+<th>参数</th>
+<th>建议值</th>
+<th>理由</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>maxmemory</code></td>
+<td>物理内存 60%~70%</td>
+<td>留空间给 fork&#x2F;COW（⑦）与碎片</td>
+</tr>
+<tr>
+<td><code>maxmemory-policy</code></td>
+<td><code>allkeys-lru</code></td>
+<td>本文实测 87.9%，比 random 高 11 个百分点</td>
+</tr>
+<tr>
+<td><code>maxmemory-samples</code></td>
+<td>5~10</td>
+<td>默认 5，调大更准但更耗 CPU</td>
+</tr>
+<tr>
+<td><code>activedefrag</code></td>
+<td>视情况开</td>
+<td>碎片率长期 &gt; 1.5 时开，避开高峰</td>
+</tr>
+<tr>
+<td><code>lazyfree-lazy-expire</code></td>
+<td><code>yes</code></td>
+<td>大 key 过期不阻塞主线程</td>
+</tr>
+<tr>
+<td><code>lazyfree-lazy-eviction</code></td>
+<td><code>yes</code></td>
+<td>同上（淘汰大 key 时）</td>
+</tr>
+</tbody></table>
+<h3 id="4-3-与-MySQL-系列的对照"><a href="#4-3-与-MySQL-系列的对照" class="headerlink" title="4.3 与 MySQL 系列的对照"></a>4.3 与 MySQL 系列的对照</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>MySQL（⑦）</th>
+<th>Redis（本文）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>容量上限</td>
+<td>磁盘 + Buffer Pool</td>
+<td>内存（<code>maxmemory</code>）</td>
+</tr>
+<tr>
+<td>超限行为</td>
+<td>报错 <code>No space left</code> &#x2F; 写失败</td>
+<td><code>OOM command not allowed</code> 或淘汰</td>
+</tr>
+<tr>
+<td>「内存没还回去」</td>
+<td>Buffer Pool 不缩</td>
+<td>jemalloc arena 不还</td>
+</tr>
+<tr>
+<td>整理手段</td>
+<td>反碎片（表重建）</td>
+<td><code>activedefrag</code></td>
+</tr>
+<tr>
+<td>最贵的错误</td>
+<td>把 <code>flush=0</code> 当优化</td>
+<td>把 <code>volatile-lru</code> 用在没 TTL 的 key 上</td>
+</tr>
+</tbody></table>
+<h2 id="6-动手验证：四个可复现实验"><a href="#6-动手验证：四个可复现实验" class="headerlink" title="6. 动手验证：四个可复现实验"></a>6. 动手验证：四个可复现实验</h2><h3 id="6-1-动手验证：验证写满时是报错还是淘汰"><a href="#6-1-动手验证：验证写满时是报错还是淘汰" class="headerlink" title="6.1 动手验证：验证写满时是报错还是淘汰"></a>6.1 动手验证：验证写满时是报错还是淘汰</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli CONFIG SET maxmemory 2mb</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli CONFIG SET maxmemory-policy noeviction</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli FLUSHALL</span><br><span class="line">python3 -c <span class="string">&quot;print(&#x27;\n&#x27;.join(f&#x27;SET n&#123;i&#125; &#x27; + &#x27;x&#x27;*100 for i in range(1,3000)))&quot;</span> | docker <span class="built_in">exec</span> -i redis-lab redis-cli | grep -c OOM</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli INFO stats | grep -E <span class="string">&quot;evicted_keys|total_error_replies&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：<code>noeviction</code> 下出现大量 <code>OOM</code>，<code>evicted_keys</code> 为 0；换成 <code>allkeys-lru</code> 重跑，<code>grep -c OOM</code> 为 0、<code>evicted_keys</code> 持续增长。</p>
+<p><strong>判定标准</strong>：报错条数 ≈ 超出容量的写入数；如果一条 OOM 都没有，说明 <code>maxmemory</code> 没生效或 key 太小没打满。</p>
+<h3 id="6-2-动手验证：命中率实验必须带预热"><a href="#6-2-动手验证：命中率实验必须带预热" class="headerlink" title="6.2 动手验证：命中率实验必须带预热"></a>6.2 动手验证：命中率实验必须带预热</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli CONFIG SET maxmemory 4mb</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli CONFIG SET maxmemory-policy allkeys-lru</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli FLUSHALL</span><br><span class="line"><span class="comment"># 灌冷数据 → 预热热 key → 重置统计 → 打流量</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli CONFIG RESETSTAT</span><br><span class="line"><span class="comment"># 打完之后看命中率</span></span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli INFO stats | grep -E <span class="string">&quot;keyspace_hits|keyspace_misses|evicted_keys&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：命中率 &#x3D; hits&#x2F;(hits+misses)，本文在 87% 左右；<code>evicted_keys</code> 应为正数。</p>
+<p><strong>判定标准</strong>：命中率 &lt; 60% 说明容量不足或访问太散；如果命中率异常低（如 5%），检查是否漏了「预热」这一步。</p>
+<h3 id="6-3-动手验证：验证-TTL-过期与内存回收"><a href="#6-3-动手验证：验证-TTL-过期与内存回收" class="headerlink" title="6.3 动手验证：验证 TTL 过期与内存回收"></a>6.3 动手验证：验证 TTL 过期与内存回收</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli FLUSHALL</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli EVAL <span class="string">&quot;for i=1,100000 do redis.call(&#x27;set&#x27;,&#x27;t:&#x27;..i,string.rep(&#x27;b&#x27;,128),&#x27;EX&#x27;,5) end return 1&quot;</span> 0</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli INFO memory | grep -E <span class="string">&quot;used_memory_human|used_memory_rss_human&quot;</span></span><br><span class="line"><span class="built_in">sleep</span> 6</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli DBSIZE</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli INFO stats | grep expired_keys</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli INFO memory | grep -E <span class="string">&quot;used_memory_human|used_memory_rss_human&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：6 秒后 <code>DBSIZE</code> 为 0、<code>expired_keys</code> ≈ 100000、<code>used_memory</code> 大幅下降，但 <code>used_memory_rss</code> 基本不动。</p>
+<p><strong>判定标准</strong>：used 降而 rss 不降是正常现象（jemalloc 不归还）；如果 used 也没降，说明过期删除被阻塞（查 <code>lazyfree</code> 与大 key）。</p>
+<h3 id="6-4-动手验证：制造碎片再收回去"><a href="#6-4-动手验证：制造碎片再收回去" class="headerlink" title="6.4 动手验证：制造碎片再收回去"></a>6.4 动手验证：制造碎片再收回去</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli FLUSHALL</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli EVAL <span class="string">&quot;local s=&#123;64,256,1024,4096&#125; for i=1,100000 do redis.call(&#x27;set&#x27;,&#x27;f:&#x27;..i,string.rep(&#x27;a&#x27;,s[(i%4)+1])) end return 1&quot;</span> 0</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli EVAL <span class="string">&quot;for i=1,100000,2 do redis.call(&#x27;del&#x27;,&#x27;f:&#x27;..i) end return 1&quot;</span> 0</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli INFO memory | grep mem_fragmentation_ratio</span><br><span class="line">docker <span class="built_in">exec</span> redis-lab redis-cli CONFIG SET activedefrag <span class="built_in">yes</span></span><br><span class="line"><span class="keyword">for</span> i <span class="keyword">in</span> 1 2 3 4; <span class="keyword">do</span> <span class="built_in">sleep</span> 5; docker <span class="built_in">exec</span> redis-lab redis-cli INFO memory | grep mem_fragmentation_ratio; <span class="keyword">done</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：删一半后 ratio 会跳到 4 以上；开 <code>activedefrag</code> 后 RSS 逐步下降、ratio 收敛到 1.5 附近。</p>
+<p><strong>判定标准</strong>：ratio 不降 → 检查 <code>active-defrag-ignore-bytes</code>（默认 100MB）是否把这次整理挡在门外。</p>
+<h2 id="5-总结"><a href="#5-总结" class="headerlink" title="5. 总结"></a>5. 总结</h2><h3 id="5-1-面试速答表"><a href="#5-1-面试速答表" class="headerlink" title="5.1 面试速答表"></a>5.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>maxmemory</code> 设了为什么还会 OOM</td>
+<td>策略是 <code>noeviction</code>，写满直接拒绝；Lua 脚本还能绕过检查（实测 2MB 上限写出 34MB）</td>
+</tr>
+<tr>
+<td><code>volatile-lru</code> 和 <code>allkeys-lru</code> 区别</td>
+<td>前者只淘汰有 TTL 的 key；没 TTL 时退化成 noeviction</td>
+</tr>
+<tr>
+<td>淘汰策略怎么选</td>
+<td>缓存用 <code>allkeys-lru</code>；热点长期稳定可用 <code>allkeys-lfu</code>；<code>random</code> 实测命中率低 11 个百分点</td>
+</tr>
+<tr>
+<td>LRU 和 LFU 差多少</td>
+<td>本文 80&#x2F;20 场景差 2.3 个百分点（87.9% vs 85.6%），LRU 略好</td>
+</tr>
+<tr>
+<td>Redis 的 LRU 是精确的吗</td>
+<td>不是，采样 <code>maxmemory-samples</code>（默认 5）个 key 近似</td>
+</tr>
+<tr>
+<td>过期 key 是立刻删吗</td>
+<td>惰性删除 + 定期抽样删除；10 万 key TTL 5 秒实测 6 秒内清空</td>
+</tr>
+<tr>
+<td>为什么删了数据 RSS 不降</td>
+<td>jemalloc 把内存留在 arena，不还给 OS；要 <code>activedefrag</code> 或重启</td>
+</tr>
+<tr>
+<td>碎片率多少该处理</td>
+<td>ratio &gt; 1.5 且 <code>used_memory</code> 足够大（&gt;100MB）；空实例的 34.85 是噪声</td>
+</tr>
+<tr>
+<td><code>activedefrag</code> 有效吗</td>
+<td>实测把 RSS 从 184MB 降到 56MB，ratio 4.96 → 1.51</td>
+</tr>
+<tr>
+<td><code>activedefrag</code> 有什么代价</td>
+<td>抢单线程 CPU（<code>active-defrag-cycle-*</code> 控制），高峰期慎开</td>
+</tr>
+<tr>
+<td><code>lazyfree-*</code> 有什么用</td>
+<td>把释放操作放后台线程，避免大 key 删除阻塞主线程</td>
+</tr>
+</tbody></table>
+<h3 id="5-2-实战避坑表"><a href="#5-2-实战避坑表" class="headerlink" title="5.2 实战避坑表"></a>5.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>写入偶发失败，应用报 OOM</td>
+<td><code>noeviction</code> + 内存满</td>
+<td>改 <code>allkeys-lru</code>，或扩内存</td>
+</tr>
+<tr>
+<td>淘汰数一直是 0</td>
+<td>策略是 <code>volatile-*</code> 但 key 没 TTL</td>
+<td>补 TTL 或换 <code>allkeys-*</code></td>
+</tr>
+<tr>
+<td>命中率突然掉一半</td>
+<td>批量任务把热数据冲掉</td>
+<td>给批量 key 单独实例，或调 <code>maxmemory-samples</code></td>
+</tr>
+<tr>
+<td>RSS 只涨不降</td>
+<td>碎片 + arena 不归还</td>
+<td>开 <code>activedefrag</code>，或滚动迁移</td>
+</tr>
+<tr>
+<td>一段脚本把内存打爆</td>
+<td>Lua 绕过 maxmemory 检查</td>
+<td>脚本限制迭代数，应用分批</td>
+</tr>
+<tr>
+<td>删大 key 时卡顿</td>
+<td>同步释放（<code>lazyfree</code> 关）</td>
+<td>开 <code>lazyfree-lazy-*</code>，或 <code>UNLINK</code></td>
+</tr>
+</tbody></table>
+<h3 id="5-3-工具速查表"><a href="#5-3-工具速查表" class="headerlink" title="5.3 工具速查表"></a>5.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>判定标准</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>INFO memory</code></td>
+<td>used &#x2F; rss &#x2F; ratio</td>
+<td>ratio &gt; 1.5 且 used 大 → 处理</td>
+</tr>
+<tr>
+<td><code>INFO stats</code></td>
+<td><code>evicted_keys</code>、<code>expired_keys</code></td>
+<td>持续增长 &#x3D; 容量或 TTL 问题</td>
+</tr>
+<tr>
+<td><code>CONFIG GET maxmemory-policy</code></td>
+<td>当前策略</td>
+<td><code>volatile-*</code> 要确认 TTL 覆盖率</td>
+</tr>
+<tr>
+<td><code>MEMORY USAGE</code></td>
+<td>单 key 开销</td>
+<td>③ 的方法</td>
+</tr>
+<tr>
+<td><code>--bigkeys</code></td>
+<td>大 key</td>
+<td>大 key 是碎片与阻塞的双重来源</td>
+</tr>
+<tr>
+<td><code>INFO memory</code> 的 <code>active_defrag_running</code></td>
+<td>整理是否在跑</td>
+<td>1 &#x3D; 正在整理</td>
+</tr>
+</tbody></table>
+<h3 id="5-4-实操建议"><a href="#5-4-实操建议" class="headerlink" title="5.4 实操建议"></a>5.4 实操建议</h3><ol>
+<li><strong><code>maxmemory</code> 与策略一起设</strong>，只设前者不设后者等于留了个 <code>noeviction</code> 的雷。</li>
+<li><strong>缓存 key 必须有 TTL</strong>，否则 <code>volatile-*</code> 策略失效——这条比选哪个策略更重要。</li>
+<li><strong>别在 Lua 里做无界写入</strong>，<code>maxmemory</code> 拦不住它（本文实测）。</li>
+<li><strong>碎片率要结合 <code>used_memory</code> 看</strong>，空实例的 34.85 是噪声；<code>used</code> 过百 MB 且 ratio &gt; 1.5 才动手。</li>
+<li><strong><code>activedefrag</code> 放在低峰开</strong>，它是单线程的，抢的是命令执行的 CPU。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告</strong>：⑤《单线程：为什么快，什么时候会卡》。本文的「一段 Lua 能写出 34MB」已经露了苗头：Redis 只有一个线程，任何一条慢命令都会让所有请求排队。下一篇用一个客户端跑 <code>KEYS *</code>、另一个客户端测延迟，把「阻塞」量化成毫秒，并给出 6 种阻塞源（大 key 删除、<code>KEYS</code>、Lua、fork、AOF rewrite、swap）的识别方法。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/%E9%9D%A2%E8%AF%95/" rel="tag"># 面试</a>
+              <a href="/tags/Redis/" rel="tag"># Redis</a>
+              <a href="/tags/%E5%86%85%E5%AD%98/" rel="tag"># 内存</a>
+              <a href="/tags/%E6%B7%98%E6%B1%B0%E7%AD%96%E7%95%A5/" rel="tag"># 淘汰策略</a>
+              <a href="/tags/%E5%86%85%E5%AD%98%E7%A2%8E%E7%89%87/" rel="tag"># 内存碎片</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/342c4932.html" rel="prev" title="数据结构：编码阈值与复杂度的真实代价">
+                  <i class="fa fa-angle-left"></i> 数据结构：编码阈值与复杂度的真实代价
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/post/d9138e00.html" rel="next" title="单线程：为什么快，什么时候会卡">
+                  单线程：为什么快，什么时候会卡 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">740k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">44:51</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
+</html>

@@ -1,0 +1,1150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="Redis 的主从切换没有「秒级」这么模糊的说法，实测是 3.33 秒（哨兵）和 6.9 秒（Cluster）。这两个数字都由同一个参数决定：多久判定一个节点「死了」。 本文搭了三套真实环境：一主一从、三哨兵、六节点 Cluster（3 主 3 从），把全量同步、部分重同步、故障转移、槽路由全部跑了一遍。  系列地图（Redis 实战路线，12 篇） ① 实验台与基线 → ② 一次请求的成本账 →">
+<meta property="og:type" content="article">
+<meta property="og:title" content="复制、哨兵与 Cluster：切一次主要多久">
+<meta property="og:url" content="http://timewait7.github.io/post/63c21b5b.html">
+<meta property="og:site_name" content="知行栈">
+<meta property="og:description" content="Redis 的主从切换没有「秒级」这么模糊的说法，实测是 3.33 秒（哨兵）和 6.9 秒（Cluster）。这两个数字都由同一个参数决定：多久判定一个节点「死了」。 本文搭了三套真实环境：一主一从、三哨兵、六节点 Cluster（3 主 3 从），把全量同步、部分重同步、故障转移、槽路由全部跑了一遍。  系列地图（Redis 实战路线，12 篇） ① 实验台与基线 → ② 一次请求的成本账 →">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-10-25T08:00:00.000Z">
+<meta property="article:modified_time" content="2026-10-24T14:40:51.281Z">
+<meta property="article:tag" content="面试">
+<meta property="article:tag" content="主从复制">
+<meta property="article:tag" content="高可用">
+<meta property="article:tag" content="Redis">
+<meta property="article:tag" content="哨兵">
+<meta property="article:tag" content="Cluster">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/63c21b5b.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/63c21b5b.html","path":"post/63c21b5b.html","title":"复制、哨兵与 Cluster：切一次主要多久"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>复制、哨兵与 Cluster：切一次主要多久 | 知行栈</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<!-- hexo injector head_end start --><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
+</style><style>
+/* 菜单链高亮：sub-menu 祖先（同主题 .menu-item-active 的 Pisces 规则） */
+.sub-menu .menu-item a.menu-chain-active {
+  border-bottom-color: #fc6423;
+  color: #fc6423;
+}
+.sub-menu .menu-item a.menu-chain-active:hover {
+  border-bottom-color: #fc6423;
+}
+/* 菜单链高亮：main-menu 祖先（同主题 hover/active 的背景规则） */
+.main-menu .menu-item a.menu-chain-active {
+  background: var(--menu-item-bg-color);
+}
+</style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">知行栈</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section" class="menu-chain-active"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>Categories</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-%E5%A4%8D%E5%88%B6%EF%BC%9A%E5%85%A8%E9%87%8F%E5%90%8C%E6%AD%A5%E4%B8%8E%E9%83%A8%E5%88%86%E9%87%8D%E5%90%8C%E6%AD%A5"><span class="nav-text">1. 复制：全量同步与部分重同步</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-PSYNC-%E7%9A%84%E6%B5%81%E7%A8%8B"><span class="nav-text">1.1 PSYNC 的流程</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-2-%E5%AE%9E%E6%B5%8B%EF%BC%9A%E5%85%A8%E9%87%8F%E5%90%8C%E6%AD%A5%E4%B8%8E%E9%83%A8%E5%88%86%E9%87%8D%E5%90%8C%E6%AD%A5"><span class="nav-text">1.2 实测：全量同步与部分重同步</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-3-%E5%A4%8D%E5%88%B6%E5%BB%B6%E8%BF%9F%E7%9A%84%E4%B8%89%E7%A7%8D%E6%9D%A5%E6%BA%90"><span class="nav-text">1.3 复制延迟的三种来源</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E5%93%A8%E5%85%B5%EF%BC%9A%E6%8A%8A%E3%80%8C%E4%B8%BB%E4%BB%8E%E3%80%8D%E5%8F%98%E6%88%90%E3%80%8C%E9%AB%98%E5%8F%AF%E7%94%A8%E3%80%8D"><span class="nav-text">2. 哨兵：把「主从」变成「高可用」</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E5%88%A4%E5%AE%9A%E4%B8%8E%E6%8A%95%E7%A5%A8"><span class="nav-text">2.1 判定与投票</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E5%AE%9E%E6%B5%8B%EF%BC%9A3-%E5%93%A8%E5%85%B5%EF%BC%8C3-33-%E7%A7%92%E5%AE%8C%E6%88%90%E5%88%87%E6%8D%A2"><span class="nav-text">2.2 实测：3 哨兵，3.33 秒完成切换</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-%E4%B8%80%E4%B8%AA%E7%9C%9F%E5%AE%9E%E7%9A%84%E5%9D%91%EF%BC%9A%E5%93%A8%E5%85%B5%E5%90%AF%E5%8A%A8%E6%97%B6%E8%A7%A3%E6%9E%90%E4%B8%8D%E4%BA%86%E4%B8%BB%E6%9C%BA%E5%90%8D"><span class="nav-text">2.3 一个真实的坑：哨兵启动时解析不了主机名</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-4-%E5%93%A8%E5%85%B5%E7%9A%84%E4%B8%89%E4%B8%AA%E5%8F%82%E6%95%B0"><span class="nav-text">2.4 哨兵的三个参数</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-Cluster%EF%BC%9A16384-%E4%B8%AA%E6%A7%BD"><span class="nav-text">3. Cluster：16384 个槽</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E6%A7%BD%E4%B8%8E%E9%87%8D%E5%AE%9A%E5%90%91"><span class="nav-text">3.1 槽与重定向</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E5%AE%9E%E6%B5%8B%EF%BC%9A3-%E4%B8%BB-3-%E4%BB%8E"><span class="nav-text">3.2 实测：3 主 3 从</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-%E5%AE%9E%E6%B5%8B%EF%BC%9ACluster-%E6%95%85%E9%9A%9C%E8%BD%AC%E7%A7%BB-6-9-%E7%A7%92"><span class="nav-text">3.3 实测：Cluster 故障转移 6.9 秒</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-4-%E4%B8%89%E7%A7%8D%E9%AB%98%E5%8F%AF%E7%94%A8%E6%96%B9%E6%A1%88%E5%AF%B9%E6%AF%94"><span class="nav-text">3.4 三种高可用方案对比</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E4%B8%80%E8%87%B4%E6%80%A7%E4%BB%A3%E4%BB%B7"><span class="nav-text">4. 一致性代价</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-%E5%BC%82%E6%AD%A5%E5%A4%8D%E5%88%B6%E7%9A%84%E4%B8%A2%E5%A4%B1%E7%AA%97%E5%8F%A3"><span class="nav-text">4.1 异步复制的丢失窗口</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-%E5%88%87%E6%8D%A2%E7%9E%AC%E9%97%B4%E4%BC%9A%E4%B8%A2%E9%94%81%EF%BC%88%E2%91%AA-%E7%9A%84%E4%BC%8F%E7%AC%94%EF%BC%89"><span class="nav-text">4.2 切换瞬间会丢锁（⑪ 的伏笔）</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#6-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%9B%9B%E4%B8%AA%E5%8F%AF%E5%A4%8D%E7%8E%B0%E5%AE%9E%E9%AA%8C"><span class="nav-text">6. 动手验证：四个可复现实验</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#6-1-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E6%90%AD%E4%B8%80%E4%B8%BB%E4%B8%80%E4%BB%8E%E5%B9%B6%E9%AA%8C%E8%AF%81%E8%BF%BD%E5%B9%B3"><span class="nav-text">6.1 动手验证：搭一主一从并验证追平</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-2-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E9%AA%8C%E8%AF%81%E9%83%A8%E5%88%86%E9%87%8D%E5%90%8C%E6%AD%A5"><span class="nav-text">6.2 动手验证：验证部分重同步</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-3-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%93%A8%E5%85%B5%E5%88%87%E6%8D%A2%E8%AE%A1%E6%97%B6"><span class="nav-text">6.3 动手验证：哨兵切换计时</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E9%AA%8C%E8%AF%81-Cluster-%E9%87%8D%E5%AE%9A%E5%90%91"><span class="nav-text">6.4 动手验证：验证 Cluster 重定向</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E6%80%BB%E7%BB%93"><span class="nav-text">5. 总结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E9%9D%A2%E8%AF%95%E9%80%9F%E7%AD%94%E8%A1%A8"><span class="nav-text">5.1 面试速答表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E5%AE%9E%E6%88%98%E9%81%BF%E5%9D%91%E8%A1%A8"><span class="nav-text">5.2 实战避坑表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-%E5%B7%A5%E5%85%B7%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">5.3 工具速查表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-%E5%AE%9E%E6%93%8D%E5%BB%BA%E8%AE%AE"><span class="nav-text">5.4 实操建议</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">104</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">14</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">175</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+    <div class="sidebar-inner sidebar-blogroll">
+      <div class="links-of-blogroll animated">
+        <div class="links-of-blogroll-title"><i class="fa fa-globe fa-fw"></i>
+          Links
+        </div>
+        <ul class="links-of-blogroll-list">
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9wYXVsZ3JhaGFtLmNvbS9hcnRpY2xlcy5odG1s" title="https:&#x2F;&#x2F;paulgraham.com&#x2F;articles.html">paulgraham</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly93d3cuam9lbG9uc29mdHdhcmUuY29tLw==" title="https:&#x2F;&#x2F;www.joelonsoftware.com&#x2F;">Joel on Software</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9tYXJ0aW5mb3dsZXIuY29tLw==" title="https:&#x2F;&#x2F;martinfowler.com&#x2F;">Martin Flower</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly96aGFuZ3RpZWxlaS5jb20v" title="https:&#x2F;&#x2F;zhangtielei.com&#x2F;">zhangtielei</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhLWRlc2lnbi1wYXR0ZXJucy5jb20vemgv" title="https:&#x2F;&#x2F;java-design-patterns.com&#x2F;zh&#x2F;">Java Design Patterns</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9taWNyb3NlcnZpY2VzLmlvLw==" title="https:&#x2F;&#x2F;microservices.io&#x2F;">Microservice Architecture</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhZ3VpZGUuY24v" title="https:&#x2F;&#x2F;javaguide.cn&#x2F;">JavaGuide</span>
+            </li>
+        </ul>
+      </div>
+    </div>
+        <div class="pjax">
+        
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-后端开发"><a href="/docs/nav/backend-dev-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-code fa-fw"></i>后端开发</a></li>
+
+
+      
+  <li class="menu-item menu-item-计算机基础"><a href="/docs/nav/cs-foundation-nav.html" rel="section"><i class="fa fa-desktop fa-fw"></i>计算机基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-ai-学习"><a href="/docs/nav/ai-learning-nav.html" rel="section"><i class="fa fa-robot fa-fw"></i>AI 学习</a></li>
+
+
+      
+  <li class="menu-item menu-item-项目实战"><a href="/docs/nav/5964f4da.html" rel="section"><i class="fa fa-flask fa-fw"></i>项目实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-misc"><a href="/docs/nav/misc-nav.html" rel="section"><i class="fa fa-box fa-fw"></i>Misc</a></li>
+
+
+      
+  <li class="menu-item menu-item-随笔·生活"><a href="/docs/nav/life-nav.html" rel="section"><i class="fa fa-feather fa-fw"></i>随笔·生活</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java"><a href="/docs/nav/java-nav.html" rel="section"><i class="fa fa-coffee fa-fw"></i>Java</a></li>
+
+
+      
+  <li class="menu-item menu-item-框架"><a href="/docs/nav/framework-nav.html" rel="section"><i class="fa fa-th-large fa-fw"></i>框架</a></li>
+
+
+      
+  <li class="menu-item menu-item-数据存储"><a href="/docs/nav/data-storage-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-hdd fa-fw"></i>数据存储</a></li>
+
+
+      
+  <li class="menu-item menu-item-中间件"><a href="/docs/nav/middleware-nav.html" rel="section"><i class="fa fa-cubes fa-fw"></i>中间件</a></li>
+
+
+      
+  <li class="menu-item menu-item-分布式与微服务"><a href="/docs/nav/distributed-nav.html" rel="section"><i class="fa fa-sitemap fa-fw"></i>分布式与微服务</a></li>
+
+
+      
+  <li class="menu-item menu-item-系统设计"><a href="/docs/nav/system-design-nav.html" rel="section"><i class="fa fa-pencil-ruler fa-fw"></i>系统设计</a></li>
+
+
+      
+  <li class="menu-item menu-item-部署运维"><a href="/docs/nav/devops-nav.html" rel="section"><i class="fa fa-terminal fa-fw"></i>部署运维</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-mysql"><a href="/docs/nav/mysql-nav.html" rel="section"><i class="fa fa-database fa-fw"></i>MySQL</a></li>
+
+
+      
+  <li class="menu-item menu-item-redis"><a href="/docs/nav/redis-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-bolt fa-fw"></i>Redis</a></li>
+
+
+      
+  <li class="menu-item menu-item-elasticsearch"><a href="/docs/nav/es-nav.html" rel="section"><i class="fa fa-search fa-fw"></i>ElasticSearch</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-redis-深度解析：从原理到精通"><a href="/post/bae4ff13.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Redis 深度解析：从原理到精通</a></li>
+
+
+      
+  <li class="menu-item menu-item-①-从这里开始：把-redis-变成你的实验台"><a href="/post/fb7bfeea.html" rel="section"><i class="fa fa-file-text fa-fw"></i>① 从这里开始：把 Redis 变成你的实验台</a></li>
+
+
+      
+  <li class="menu-item menu-item-②-一次请求的成本账：rtt、事件循环与命令执行"><a href="/post/d0aa1ba2.html" rel="section"><i class="fa fa-file-text fa-fw"></i>② 一次请求的成本账：RTT、事件循环与命令执行</a></li>
+
+
+      
+  <li class="menu-item menu-item-③-数据结构：编码阈值与复杂度的真实代价"><a href="/post/342c4932.html" rel="section"><i class="fa fa-file-text fa-fw"></i>③ 数据结构：编码阈值与复杂度的真实代价</a></li>
+
+
+      
+  <li class="menu-item menu-item-④-内存、淘汰与碎片：maxmemory-设了为什么还会-oom"><a href="/post/b28e7721.html" rel="section"><i class="fa fa-file-text fa-fw"></i>④ 内存、淘汰与碎片：maxmemory 设了为什么还会 OOM</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑤-单线程：为什么快，什么时候会卡"><a href="/post/d9138e00.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑤ 单线程：为什么快，什么时候会卡</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑥-pipeline、事务与-lua：原子性和-rtt-怎么兼得"><a href="/post/884c75a8.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑥ Pipeline、事务与 Lua：原子性和 RTT 怎么兼得</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑦-持久化：rdb、aof-与丢失窗口"><a href="/post/6a7a58b3.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑦ 持久化：RDB、AOF 与丢失窗口</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑧-复制、哨兵与-cluster：切一次主要多久"><a href="/post/63c21b5b.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑧ 复制、哨兵与 Cluster：切一次主要多久</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑨-缓存三大问题：穿透、击穿、雪崩的量化与解法"><a href="/post/1d7a96da.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑨ 缓存三大问题：穿透、击穿、雪崩的量化与解法</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑩-缓存与数据库一致性：更新顺序与不一致窗口"><a href="/post/35ae94a8.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑩ 缓存与数据库一致性：更新顺序与不一致窗口</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑪-分布式锁与限流：从-set-nx-到-redisson"><a href="/post/cb07eb8d.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑪ 分布式锁与限流：从 SET NX 到 Redisson</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑫-容量规划与分片：什么时候才该上-cluster"><a href="/post/b815463e.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑫ 容量规划与分片：什么时候才该上 Cluster</a></li>
+
+
+    </ul>
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/63c21b5b.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="复制、哨兵与 Cluster：切一次主要多久 | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          复制、哨兵与 Cluster：切一次主要多久
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-10-25 16:00:00" itemprop="dateCreated datePublished" datetime="2026-10-25T16:00:00+08:00">2026-10-25</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/%E6%95%B0%E6%8D%AE%E5%AD%98%E5%82%A8/" itemprop="url" rel="index"><span itemprop="name">数据存储</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>3.3k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>12 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><p><strong>Redis 的主从切换没有「秒级」这么模糊的说法，实测是 3.33 秒（哨兵）和 6.9 秒（Cluster）</strong>。这两个数字都由同一个参数决定：多久判定一个节点「死了」。</p>
+<p>本文搭了三套真实环境：一主一从、三哨兵、六节点 Cluster（3 主 3 从），把全量同步、部分重同步、故障转移、槽路由全部跑了一遍。</p>
+<blockquote>
+<p><strong>系列地图（Redis 实战路线，12 篇）</strong></p>
+<p>① 实验台与基线 → ② 一次请求的成本账 → ③ 数据结构与编码 → ④ 内存、淘汰与碎片 → ⑤ 单线程与阻塞 → ⑥ Pipeline、事务与 Lua → ⑦ 持久化与丢失窗口 → ⑧ <strong>复制、哨兵与 Cluster（本文）</strong> → ⑨ 缓存三大问题 → ⑩ 缓存与数据库一致性 → ⑪ 分布式锁与限流 → ⑫ 容量规划与分片</p>
+<p>与前后篇的关系：⑦ 的 AOF 是「单机的后悔药」，本文的复制是「跨机器的副本」；本文的「切换窗口」是 ⑪ 分布式锁丢锁的根因，也是 ⑩ 缓存不一致的一个来源。</p>
+</blockquote>
+<h2 id="1-复制：全量同步与部分重同步"><a href="#1-复制：全量同步与部分重同步" class="headerlink" title="1. 复制：全量同步与部分重同步"></a>1. 复制：全量同步与部分重同步</h2><h3 id="1-1-PSYNC-的流程"><a href="#1-1-PSYNC-的流程" class="headerlink" title="1.1 PSYNC 的流程"></a>1.1 <code>PSYNC</code> 的流程</h3><pre class="mermaid">sequenceDiagram
+    participant S as Replica
+    participant M as Master
+    S->>M: PSYNC ? -1（首次连接）
+    M-->>S: FULLRESYNC replid offset
+    M->>M: BGSAVE 生成 RDB
+    M-->>S: RDB 文件
+    M-->>S: 期间的写命令（repl buffer）
+    S->>S: 加载 RDB + 重放缓冲
+    S->>M: PSYNC replid offset（断线重连）
+    M-->>S: CONTINUE（增量，不传 RDB）</pre>
+
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>结果</th>
+<th>代价</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>首次连接</td>
+<td><code>FULLRESYNC</code>：传整个 RDB</td>
+<td>与数据量成正比</td>
+</tr>
+<tr>
+<td>短暂断线后重连</td>
+<td><code>CONTINUE</code>：只补 offset 之后的命令</td>
+<td>极小</td>
+</tr>
+<tr>
+<td>断线太久（超出 backlog）</td>
+<td>又变成全量</td>
+<td>大</td>
+</tr>
+</tbody></table>
+<h3 id="1-2-实测：全量同步与部分重同步"><a href="#1-2-实测：全量同步与部分重同步" class="headerlink" title="1.2 实测：全量同步与部分重同步"></a>1.2 实测：全量同步与部分重同步</h3><p>搭一主一从（<code>--replicaof r-master 6379</code>），写入 10000 个 key：</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>主库</th>
+<th>从库</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>role</td>
+<td>master</td>
+<td>slave</td>
+</tr>
+<tr>
+<td>connected_slaves</td>
+<td>1</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>master_link_status</code></td>
+<td>—</td>
+<td><strong>up</strong></td>
+</tr>
+<tr>
+<td>dbsize</td>
+<td>10,000</td>
+<td><strong>10,000</strong></td>
+</tr>
+<tr>
+<td><code>master_repl_offset</code></td>
+<td>535,669</td>
+<td>535,669（<code>slave_repl_offset</code>）</td>
+</tr>
+<tr>
+<td><code>sync_full</code> &#x2F; <code>sync_partial_ok</code></td>
+<td><strong>1 &#x2F; 0</strong></td>
+<td>—</td>
+</tr>
+</tbody></table>
+<p><strong>offset 相等就代表追平</strong>——这是比 <code>lag</code> 更硬的判据（<code>lag</code> 是秒级粒度，offset 是字节级）。</p>
+<p>然后重启从库，观察重连行为：</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>重启前</th>
+<th>重启后</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>sync_full</code></td>
+<td>1</td>
+<td><strong>1</strong>（没增加）</td>
+</tr>
+<tr>
+<td><code>sync_partial_ok</code></td>
+<td>0</td>
+<td><strong>1</strong></td>
+</tr>
+<tr>
+<td>链路恢复耗时</td>
+<td>—</td>
+<td><strong>0.31 s</strong></td>
+</tr>
+<tr>
+<td>从库数据</td>
+<td>10,000</td>
+<td>10,000（无损）</td>
+</tr>
+</tbody></table>
+<p><strong>结论</strong>：短时间断线走的是部分重同步，没有重新传 RDB。这依赖 <code>repl-backlog-size</code>（默认 1 MB）能覆盖断线期间的写入量——如果你的写入很猛、断线又久，backlog 撑不住就会退化成全量同步。</p>
+<h3 id="1-3-复制延迟的三种来源"><a href="#1-3-复制延迟的三种来源" class="headerlink" title="1.3 复制延迟的三种来源"></a>1.3 复制延迟的三种来源</h3><table>
+<thead>
+<tr>
+<th>来源</th>
+<th>表现</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>网络</td>
+<td><code>master_link_status</code> 抖动、offset 差距波动</td>
+<td>同机房部署</td>
+</tr>
+<tr>
+<td>从库负载</td>
+<td>从库在跑 <code>BGSAVE</code>&#x2F;大查询</td>
+<td>持久化放到专用从库（⑦）</td>
+</tr>
+<tr>
+<td>主库写入过猛</td>
+<td>offset 持续落后</td>
+<td>分批写、限流</td>
+</tr>
+</tbody></table>
+<h2 id="2-哨兵：把「主从」变成「高可用」"><a href="#2-哨兵：把「主从」变成「高可用」" class="headerlink" title="2. 哨兵：把「主从」变成「高可用」"></a>2. 哨兵：把「主从」变成「高可用」</h2><h3 id="2-1-判定与投票"><a href="#2-1-判定与投票" class="headerlink" title="2.1 判定与投票"></a>2.1 判定与投票</h3><pre class="mermaid">flowchart TD
+    A["Sentinel 每秒 PING master"] --> B{"超时 > down-after?"}
+    B -- yes --> C["主观下线 s-down"]
+    C --> D{"quorum 个哨兵&lt;br/>都认为下线?"}
+    D -- yes --> E["客观下线 o-down"]
+    E --> F["选 leader 哨兵"]
+    F --> G["提升某个 replica"]
+    G --> H["其余 replica 改指向新主"]
+    H --> I["通知客户端（新地址）"]</pre>
+
+<h3 id="2-2-实测：3-哨兵，3-33-秒完成切换"><a href="#2-2-实测：3-哨兵，3-33-秒完成切换" class="headerlink" title="2.2 实测：3 哨兵，3.33 秒完成切换"></a>2.2 实测：3 哨兵，3.33 秒完成切换</h3><p>配置：<code>quorum 2</code>、<code>down-after-milliseconds 2000</code>、<code>failover-timeout 10000</code>，3 个哨兵 + 1 主 1 从。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 3 个哨兵的配置（用 IP，原因见 2.3）</span></span><br><span class="line">sentinel monitor mymaster 172.19.0.2 6379 2</span><br><span class="line">sentinel down-after-milliseconds mymaster 2000</span><br><span class="line">sentinel failover-timeout mymaster 10000</span><br></pre></td></tr></table></figure>
+
+<p>实测流程：</p>
+<table>
+<thead>
+<tr>
+<th>步骤</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>3 个哨兵都认到 master</td>
+<td><code>SENTINEL get-master-addr-by-name mymaster</code> → 172.19.0.2</td>
+</tr>
+<tr>
+<td>已知副本数</td>
+<td>1</td>
+</tr>
+<tr>
+<td><code>kill -9</code> 主库</td>
+<td>—</td>
+</tr>
+<tr>
+<td><strong>哨兵确认新主</strong></td>
+<td><strong>3.33 s</strong>，新主 172.19.0.3</td>
+</tr>
+<tr>
+<td>从库角色</td>
+<td><code>role:master</code></td>
+</tr>
+<tr>
+<td>写入新主</td>
+<td><code>OK</code></td>
+</tr>
+</tbody></table>
+<p><strong>3.33 秒是怎么来的</strong>：<code>down-after = 2000ms</code> 判定主观下线 + quorum 内互相确认 + 选举 leader + 提升从库 + 通知其余节点。想更快就把 <code>down-after</code> 调小，但误判风险上升（网络抖动 1 秒就被判死，代价是一次不必要的切换）。</p>
+<h3 id="2-3-一个真实的坑：哨兵启动时解析不了主机名"><a href="#2-3-一个真实的坑：哨兵启动时解析不了主机名" class="headerlink" title="2.3 一个真实的坑：哨兵启动时解析不了主机名"></a>2.3 一个真实的坑：哨兵启动时解析不了主机名</h3><p>第一次我用容器名配置：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">sentinel monitor mymaster r-master 6379 2</span><br></pre></td></tr></table></figure>
+
+<p>哨兵直接启动失败：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">*** FATAL CONFIG FILE ERROR ***</span><br><span class="line">&gt;&gt;&gt; &#x27;sentinel monitor mymaster r-master 6379 2&#x27;</span><br><span class="line">Can&#x27;t resolve instance hostname.</span><br></pre></td></tr></table></figure>
+
+<p><strong>原因</strong>：哨兵在解析配置时就要解析主机名，此时容器的 DNS 可能还没就绪。改成 IP 后立刻正常。</p>
+<p><strong>生产建议</strong>：哨兵配置里用 IP 或「启动时就一定能解析的域名」，不要依赖容器编排的动态名称。</p>
+<h3 id="2-4-哨兵的三个参数"><a href="#2-4-哨兵的三个参数" class="headerlink" title="2.4 哨兵的三个参数"></a>2.4 哨兵的三个参数</h3><table>
+<thead>
+<tr>
+<th>参数</th>
+<th>本文设置</th>
+<th>生产建议</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>quorum</code></td>
+<td>2</td>
+<td>哨兵数&#x2F;2 + 1</td>
+<td>多少个哨兵认为下线才算「客观下线」</td>
+</tr>
+<tr>
+<td><code>down-after-milliseconds</code></td>
+<td>2000</td>
+<td>5000~30000</td>
+<td>判定主观下线的超时</td>
+</tr>
+<tr>
+<td><code>failover-timeout</code></td>
+<td>10000</td>
+<td>60000+</td>
+<td>切换失败后的重试间隔与总超时</td>
+</tr>
+<tr>
+<td><code>parallel-syncs</code></td>
+<td>1</td>
+<td>1~2</td>
+<td>同时向新主同步的从库数</td>
+</tr>
+</tbody></table>
+<h2 id="3-Cluster：16384-个槽"><a href="#3-Cluster：16384-个槽" class="headerlink" title="3. Cluster：16384 个槽"></a>3. Cluster：16384 个槽</h2><h3 id="3-1-槽与重定向"><a href="#3-1-槽与重定向" class="headerlink" title="3.1 槽与重定向"></a>3.1 槽与重定向</h3><pre class="mermaid">flowchart LR
+    C["Client"] -->|"GET user:1"| N1["Node A&lt;br/>slots 0-5460"]
+    N1 -.->|"MOVED 10778 172.19.0.7"| C
+    C -->|"retry"| N2["Node B&lt;br/>slots 5461-10922&lt;br/>owns 10778"]
+    N2 --> R["value"]</pre>
+
+<h3 id="3-2-实测：3-主-3-从"><a href="#3-2-实测：3-主-3-从" class="headerlink" title="3.2 实测：3 主 3 从"></a>3.2 实测：3 主 3 从</h3><p>用 6 个节点建集群（<code>--cluster-replicas 1</code>）：</p>
+<table>
+<thead>
+<tr>
+<th>节点</th>
+<th>角色</th>
+<th>槽</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>172.19.0.2</td>
+<td>master</td>
+<td>0-5460</td>
+</tr>
+<tr>
+<td>172.19.0.7</td>
+<td>master</td>
+<td>5461-10922</td>
+</tr>
+<tr>
+<td>172.19.0.8</td>
+<td>master</td>
+<td>10923-16383</td>
+</tr>
+<tr>
+<td>172.19.0.9 &#x2F; .10 &#x2F; .11</td>
+<td>slave</td>
+<td>—</td>
+</tr>
+</tbody></table>
+<p><code>CLUSTER INFO</code> 实测：<code>cluster_state:ok</code>、<code>cluster_slots_assigned:16384</code>、<code>cluster_known_nodes:6</code>、<code>cluster_size:3</code>。</p>
+<p><strong>重定向实测</strong>：在错误的节点上写入：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># user:1 的槽是 10778，属于 172.19.0.7，但我在 172.19.0.2 上写</span></span><br><span class="line">docker <span class="built_in">exec</span> r-c1 redis-cli SET user:1 alice</span><br><span class="line"><span class="comment"># -&gt; MOVED 10778 172.19.0.7:6379</span></span><br></pre></td></tr></table></figure>
+
+<p>用 <code>-c</code> 参数（自动跟随重定向）：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> r-c2 redis-cli -c SET user:1 alice2   <span class="comment"># OK</span></span><br><span class="line">docker <span class="built_in">exec</span> r-c2 redis-cli -c GET user:1          <span class="comment"># alice2</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>跨槽操作实测</strong>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> r-c1 redis-cli CLUSTER KEYSLOT user:1   <span class="comment"># 10778</span></span><br><span class="line">docker <span class="built_in">exec</span> r-c1 redis-cli CLUSTER KEYSLOT user:2   <span class="comment"># 6777</span></span><br><span class="line">docker <span class="built_in">exec</span> r-c1 redis-cli -c MGET user:1 user:2</span><br><span class="line"><span class="comment"># -&gt; CROSSSLOT Keys in request don&#x27;t hash to the same slot</span></span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>单 key 操作</td>
+<td>自动重定向</td>
+</tr>
+<tr>
+<td>跨槽 <code>MGET</code> &#x2F; <code>MSET</code></td>
+<td><strong>CROSSSLOT 错误</strong></td>
+</tr>
+<tr>
+<td>跨槽 Lua（⑥ 实测）</td>
+<td><strong>CROSSSLOT 错误</strong></td>
+</tr>
+<tr>
+<td>需要跨槽</td>
+<td>用 <code>&#123;&#125;</code> hash tag，或应用侧拆分</td>
+</tr>
+</tbody></table>
+<h3 id="3-3-实测：Cluster-故障转移-6-9-秒"><a href="#3-3-实测：Cluster-故障转移-6-9-秒" class="headerlink" title="3.3 实测：Cluster 故障转移 6.9 秒"></a>3.3 实测：Cluster 故障转移 6.9 秒</h3><p>杀掉持有 <code>5461-10922</code> 的主节点（<code>--cluster-node-timeout 5000</code>）：</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>实测</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>从库被提升为新主</td>
+<td><strong>6.9 s</strong></td>
+</tr>
+<tr>
+<td>集群状态</td>
+<td>回到 <code>cluster_state:ok</code></td>
+</tr>
+<tr>
+<td>槽覆盖</td>
+<td>16384 全部 ok</td>
+</tr>
+<tr>
+<td>写入</td>
+<td><code>OK</code></td>
+</tr>
+</tbody></table>
+<p><strong>为什么比哨兵慢</strong>：Cluster 的故障判定依赖 <code>cluster-node-timeout</code>（本文 5 秒）+ gossip 传播 + 选举，天然比「哨兵专门盯一个主」慢一截。</p>
+<pre class="mermaid">flowchart LR
+    A["master killed"] --> B["node-timeout 5s&lt;br/>mark pfail"]
+    B --> C["gossip: majority fail"]
+    C --> D["replica election"]
+    D --> E["promote + take slots&lt;br/>6.9s total"]
+    E --> F["cluster_state ok"]</pre>
+
+<h3 id="3-4-三种高可用方案对比"><a href="#3-4-三种高可用方案对比" class="headerlink" title="3.4 三种高可用方案对比"></a>3.4 三种高可用方案对比</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>主从（手工切换）</th>
+<th>哨兵</th>
+<th>Cluster</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>自动故障转移</td>
+<td>❌</td>
+<td>✅ 3.33 s（本文）</td>
+<td>✅ 6.9 s（本文）</td>
+</tr>
+<tr>
+<td>分片能力</td>
+<td>❌</td>
+<td>❌</td>
+<td>✅ 16384 槽</td>
+</tr>
+<tr>
+<td>客户端复杂度</td>
+<td>低</td>
+<td>中（要问哨兵要地址）</td>
+<td>高（要处理 MOVED&#x2F;ASK）</td>
+</tr>
+<tr>
+<td>多 key 操作</td>
+<td>随意</td>
+<td>随意</td>
+<td>受槽限制</td>
+</tr>
+<tr>
+<td>适用数据量</td>
+<td>单机内存内</td>
+<td>单机内存内</td>
+<td>超过单机内存</td>
+</tr>
+<tr>
+<td>运维复杂度</td>
+<td>低</td>
+<td>中</td>
+<td>高</td>
+</tr>
+</tbody></table>
+<p><strong>选型顺序</strong>：主从 → 哨兵 → Cluster。只有当<strong>数据量超过单机内存</strong>时才该上 Cluster——很多人为了「高可用」直接上 Cluster，结果是给自己加了一堆槽限制。</p>
+<h2 id="4-一致性代价"><a href="#4-一致性代价" class="headerlink" title="4. 一致性代价"></a>4. 一致性代价</h2><h3 id="4-1-异步复制的丢失窗口"><a href="#4-1-异步复制的丢失窗口" class="headerlink" title="4.1 异步复制的丢失窗口"></a>4.1 异步复制的丢失窗口</h3><p>Redis 复制是<strong>异步</strong>的：主库写完就回客户端，不等从库确认。所以：</p>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>会丢什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>主库宕机，从库未收到最后 N 条</td>
+<td>丢掉这 N 条（N 由网络与负载决定）</td>
+</tr>
+<tr>
+<td>主库磁盘坏 + AOF 也没了</td>
+<td>丢到上次 RDB&#x2F;AOF</td>
+</tr>
+<tr>
+<td>切换后旧主恢复</td>
+<td>旧主上的数据可能被丢弃（新主成为权威）</td>
+</tr>
+</tbody></table>
+<p><strong>缓解手段</strong>：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 至少 1 个从库在线才允许写（牺牲可用性换一致性）</span></span><br><span class="line">min-replicas-to-write 1</span><br><span class="line">min-replicas-max-lag 10</span><br></pre></td></tr></table></figure>
+
+<p>代价很直接：从库全挂时主库会拒绝写入。<strong>这是「可用性 vs 一致性」的显式选择</strong>，不是免费的。</p>
+<h3 id="4-2-切换瞬间会丢锁（⑪-的伏笔）"><a href="#4-2-切换瞬间会丢锁（⑪-的伏笔）" class="headerlink" title="4.2 切换瞬间会丢锁（⑪ 的伏笔）"></a>4.2 切换瞬间会丢锁（⑪ 的伏笔）</h3><p>一个具体的连锁反应：</p>
+<ol>
+<li>客户端 A 用 <code>SET lock:order 1 NX PX 30000</code> 拿到了锁（写在主库）；</li>
+<li>主库在把这条命令同步给从库前宕机；</li>
+<li>哨兵把从库提升为新主——<strong>这把锁不存在了</strong>；</li>
+<li>客户端 B 用同样的 key 加锁，成功。</li>
+</ol>
+<p>于是 A 和 B 同时认为自己持有锁。这就是 ⑪ 要讲的「RedLock 争议」的现实版。</p>
+<h2 id="6-动手验证：四个可复现实验"><a href="#6-动手验证：四个可复现实验" class="headerlink" title="6. 动手验证：四个可复现实验"></a>6. 动手验证：四个可复现实验</h2><h3 id="6-1-动手验证：搭一主一从并验证追平"><a href="#6-1-动手验证：搭一主一从并验证追平" class="headerlink" title="6.1 动手验证：搭一主一从并验证追平"></a>6.1 动手验证：搭一主一从并验证追平</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">docker network create repl-net2</span><br><span class="line">docker run -d --name r-master --network repl-net2 redis:7.4-alpine</span><br><span class="line">docker run -d --name r-replica --network repl-net2 redis:7.4-alpine --replicaof r-master 6379</span><br><span class="line"><span class="built_in">sleep</span> 4</span><br><span class="line">docker <span class="built_in">exec</span> r-master redis-cli INFO replication | grep -E <span class="string">&quot;connected_slaves|master_repl_offset&quot;</span></span><br><span class="line">docker <span class="built_in">exec</span> r-replica redis-cli INFO replication | grep -E <span class="string">&quot;master_link_status|slave_repl_offset&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：<code>master_link_status:up</code>，两边 offset 相等。</p>
+<p><strong>判定标准</strong>：offset 持续不相等 → 有复制阻塞；<code>link_status:down</code> 查网络与 <code>Last_IO_Error</code>。</p>
+<h3 id="6-2-动手验证：验证部分重同步"><a href="#6-2-动手验证：验证部分重同步" class="headerlink" title="6.2 动手验证：验证部分重同步"></a>6.2 动手验证：验证部分重同步</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">docker <span class="built_in">exec</span> r-master redis-cli INFO stats | grep -E <span class="string">&quot;sync_full|sync_partial_ok&quot;</span></span><br><span class="line">docker restart r-replica; <span class="built_in">sleep</span> 3</span><br><span class="line">docker <span class="built_in">exec</span> r-master redis-cli INFO stats | grep -E <span class="string">&quot;sync_full|sync_partial_ok&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：<code>sync_full</code> 不变（仍为 1），<code>sync_partial_ok</code> 变成 1，说明走的是增量同步。</p>
+<p><strong>判定标准</strong>：<code>sync_full</code> 变成 2 → 退化成全量同步，检查 <code>repl-backlog-size</code> 是否太小。</p>
+<h3 id="6-3-动手验证：哨兵切换计时"><a href="#6-3-动手验证：哨兵切换计时" class="headerlink" title="6.3 动手验证：哨兵切换计时"></a>6.3 动手验证：哨兵切换计时</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 3 个哨兵（用 IP，别用容器名）</span></span><br><span class="line"><span class="keyword">for</span> i <span class="keyword">in</span> 1 2 3; <span class="keyword">do</span> docker run -d --name r-sent<span class="variable">$i</span> --network repl-net2 redis:7.4-alpine sh -c <span class="string">&quot;printf &#x27;port 26379\nsentinel monitor mymaster &lt;MASTER_IP&gt; 6379 2\nsentinel down-after-milliseconds mymaster 2000\n&#x27; &gt; /tmp/s.conf &amp;&amp; redis-sentinel /tmp/s.conf&quot;</span>; <span class="keyword">done</span></span><br><span class="line"><span class="built_in">sleep</span> 5</span><br><span class="line">S=$(<span class="built_in">date</span> +%s); docker <span class="built_in">kill</span> -s KILL r-master</span><br><span class="line"><span class="keyword">until</span> docker <span class="built_in">exec</span> r-sent1 redis-cli -p 26379 SENTINEL get-master-addr-by-name mymaster | grep -q <span class="string">&quot;&lt;REPLICA_IP&gt;&quot;</span>; <span class="keyword">do</span> <span class="built_in">sleep</span> 0.2; <span class="keyword">done</span></span><br><span class="line"><span class="built_in">echo</span> <span class="string">&quot;failover <span class="subst">$(( $(date +%s)</span> - S ))s&quot;</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：本文 3.33 s 完成切换；新主 <code>role:master</code> 且可写。</p>
+<p><strong>判定标准</strong>：超过 10 s → 检查 quorum 是否满足、哨兵数量是否够、<code>down-after</code> 是否过大。</p>
+<h3 id="6-4-动手验证：验证-Cluster-重定向"><a href="#6-4-动手验证：验证-Cluster-重定向" class="headerlink" title="6.4 动手验证：验证 Cluster 重定向"></a>6.4 动手验证：验证 Cluster 重定向</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 6 节点集群（3 主 3 从）</span></span><br><span class="line">docker <span class="built_in">exec</span> r-c1 redis-cli --cluster create &lt;IP1&gt;:6379 &lt;IP2&gt;:6379 &lt;IP3&gt;:6379 &lt;IP4&gt;:6379 &lt;IP5&gt;:6379 &lt;IP6&gt;:6379 --cluster-replicas 1 --cluster-yes</span><br><span class="line">docker <span class="built_in">exec</span> r-c1 redis-cli CLUSTER INFO | grep cluster_state</span><br><span class="line">docker <span class="built_in">exec</span> r-c1 redis-cli SET user:1 alice      <span class="comment"># 错误节点 -&gt; MOVED</span></span><br><span class="line">docker <span class="built_in">exec</span> r-c1 redis-cli -c SET user:1 alice   <span class="comment"># -c 自动跟随</span></span><br><span class="line">docker <span class="built_in">exec</span> r-c1 redis-cli -c MGET user:1 user:2 <span class="comment"># 跨槽 -&gt; CROSSSLOT</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：错误节点返回 <code>MOVED &lt;slot&gt; &lt;ip:port&gt;</code>；<code>-c</code> 自动跟随成功；跨槽 <code>MGET</code> 报 <code>CROSSSLOT</code>。</p>
+<p><strong>判定标准</strong>：集群刚创建时 <code>cluster_state</code> 可能是 <code>fail</code>，等几秒收敛；长时间 fail 查 <code>CLUSTER NODES</code> 是否有节点没握手。</p>
+<h2 id="5-总结"><a href="#5-总结" class="headerlink" title="5. 总结"></a>5. 总结</h2><h3 id="5-1-面试速答表"><a href="#5-1-面试速答表" class="headerlink" title="5.1 面试速答表"></a>5.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Redis 复制的流程</td>
+<td><code>PSYNC</code> → 首次 <code>FULLRESYNC</code> 传 RDB + 缓冲命令；断线重连 <code>CONTINUE</code> 增量同步</td>
+</tr>
+<tr>
+<td>全量同步什么时候发生</td>
+<td>首次连接，或断线超出 <code>repl-backlog-size</code>（默认 1 MB）</td>
+</tr>
+<tr>
+<td>怎么判断从库追平了</td>
+<td><code>master_repl_offset</code> 与 <code>slave_repl_offset</code> 相等（比 <code>lag</code> 精确）</td>
+</tr>
+<tr>
+<td>哨兵怎么判定主库挂了</td>
+<td>超时 <code>down-after</code> → 主观下线；达到 <code>quorum</code> → 客观下线 → 选 leader 切换</td>
+</tr>
+<tr>
+<td>哨兵切换要多久</td>
+<td>本文 3.33 s（down-after 2 s、quorum 2）</td>
+</tr>
+<tr>
+<td>哨兵配置的坑</td>
+<td>启动时要能解析主机名，否则 FATAL；用 IP 或稳定域名</td>
+</tr>
+<tr>
+<td>Cluster 有多少槽</td>
+<td>16384，3 主各分 ~5461 个</td>
+</tr>
+<tr>
+<td>客户端请求错节点会怎样</td>
+<td>返回 <code>MOVED &lt;slot&gt; &lt;ip:port&gt;</code>，客户端需重定向</td>
+</tr>
+<tr>
+<td>跨槽多 key 操作</td>
+<td>报 <code>CROSSSLOT</code>，用 <code>&#123;&#125;</code> hash tag 让 key 同槽</td>
+</tr>
+<tr>
+<td>Cluster failover 多久</td>
+<td>本文 6.9 s（node-timeout 5 s）</td>
+</tr>
+<tr>
+<td>为什么 Cluster 比哨兵慢</td>
+<td>判定依赖 <code>cluster-node-timeout</code> + gossip + 选举</td>
+</tr>
+<tr>
+<td>什么时候该上 Cluster</td>
+<td>数据量超过单机内存时；只是为了高可用用哨兵就够</td>
+</tr>
+<tr>
+<td>Redis 复制是同步的吗</td>
+<td>异步，主库不等从库确认；可用 <code>min-replicas-to-write</code> 换一致性</td>
+</tr>
+</tbody></table>
+<h3 id="5-2-实战避坑表"><a href="#5-2-实战避坑表" class="headerlink" title="5.2 实战避坑表"></a>5.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>从库频繁全量同步</td>
+<td>backlog 太小 &#x2F; 断线太久</td>
+<td>调大 <code>repl-backlog-size</code></td>
+</tr>
+<tr>
+<td>哨兵不切换</td>
+<td>quorum 不满足 &#x2F; 只部署了 1 个哨兵</td>
+<td>至少 3 个哨兵，奇数</td>
+</tr>
+<tr>
+<td>哨兵启动失败</td>
+<td>主机名解析不了</td>
+<td>用 IP 或稳定域名</td>
+</tr>
+<tr>
+<td>客户端切换后连不上</td>
+<td>客户端缓存了旧主地址</td>
+<td>用支持哨兵&#x2F;集群的客户端（Jedis&#x2F;Lettuce 的 sentinel 模式）</td>
+</tr>
+<tr>
+<td>Cluster 里 MGET 报错</td>
+<td>跨槽</td>
+<td>hash tag 或拆分</td>
+</tr>
+<tr>
+<td>切换后数据少了</td>
+<td>异步复制丢失窗口</td>
+<td><code>min-replicas-to-write</code> 或接受</td>
+</tr>
+<tr>
+<td>切换后出现双写</td>
+<td>旧主未彻底下线</td>
+<td>旧主降级为从库，<code>REPLICAOF</code> 新主</td>
+</tr>
+</tbody></table>
+<h3 id="5-3-工具速查表"><a href="#5-3-工具速查表" class="headerlink" title="5.3 工具速查表"></a>5.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>判定标准</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>INFO replication</code></td>
+<td>role、link_status、offset</td>
+<td>offset 相等 &#x3D; 追平</td>
+</tr>
+<tr>
+<td><code>SENTINEL get-master-addr-by-name</code></td>
+<td>当前主地址</td>
+<td>切换后应返回新主</td>
+</tr>
+<tr>
+<td><code>SENTINEL replicas</code></td>
+<td>已知副本</td>
+<td>数量要与部署一致</td>
+</tr>
+<tr>
+<td><code>CLUSTER INFO</code></td>
+<td>cluster_state、slots_ok</td>
+<td><code>ok</code> 且 16384 全覆盖</td>
+</tr>
+<tr>
+<td><code>CLUSTER SLOTS</code></td>
+<td>槽与节点映射</td>
+<td>用于排查重定向</td>
+</tr>
+<tr>
+<td><code>CLUSTER NODES</code></td>
+<td>拓扑与角色</td>
+<td>看谁 fail、谁被提升</td>
+</tr>
+</tbody></table>
+<h3 id="5-4-实操建议"><a href="#5-4-实操建议" class="headerlink" title="5.4 实操建议"></a>5.4 实操建议</h3><ol>
+<li><strong>先算清你是否真的需要 Cluster</strong>。数据装得下就哨兵，装不下才 Cluster。</li>
+<li><strong>哨兵部署 3 个以上且奇数</strong>，<code>quorum</code> 取多数；配置里用 IP。</li>
+<li><strong>监控 offset 差</strong>而不是只看 <code>lag</code>，前者能提前发现复制阻塞。</li>
+<li><strong><code>min-replicas-to-write</code> 是显式取舍</strong>，开了就别抱怨「从库挂了主库不能写」。</li>
+<li><strong>切换演练每季度一次</strong>，并验证客户端能自动发现新主（很多故障卡在客户端缓存）。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告</strong>：⑨《缓存三大问题：穿透、击穿、雪崩》。前八篇都在讲 Redis 自己，下一篇讲它和数据库的配合：缓存挂了 MySQL 会怎样（会用 MySQL 容器实测 QPS 被打到多少）、互斥重建与逻辑过期哪个更抗打、热点 key 怎么发现与拆分。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/%E9%9D%A2%E8%AF%95/" rel="tag"># 面试</a>
+              <a href="/tags/%E4%B8%BB%E4%BB%8E%E5%A4%8D%E5%88%B6/" rel="tag"># 主从复制</a>
+              <a href="/tags/%E9%AB%98%E5%8F%AF%E7%94%A8/" rel="tag"># 高可用</a>
+              <a href="/tags/Redis/" rel="tag"># Redis</a>
+              <a href="/tags/%E5%93%A8%E5%85%B5/" rel="tag"># 哨兵</a>
+              <a href="/tags/Cluster/" rel="tag"># Cluster</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/6a7a58b3.html" rel="prev" title="持久化：RDB、AOF 与丢失窗口">
+                  <i class="fa fa-angle-left"></i> 持久化：RDB、AOF 与丢失窗口
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/post/1d7a96da.html" rel="next" title="缓存三大问题：穿透、击穿、雪崩的量化与解法">
+                  缓存三大问题：穿透、击穿、雪崩的量化与解法 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">740k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">44:51</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
+</html>
