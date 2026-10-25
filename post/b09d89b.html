@@ -1,0 +1,1125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="core&#x3D;2, max&#x3D;10 的线程池，提交 50 个阻塞任务后，线程数只有 2。因为队列是 LinkedBlockingQueue（无界），任务全进了队列，maximumPoolSize 永远不会生效——实测 getLargestPoolSize()&#x3D;2。 这篇把线程池的三个陷阱量成数字：无界队列让 max 失效、拒绝策略静默丢任务（10 个任务只执行 3 个且不报错）、shutdownNow(">
+<meta property="og:type" content="article">
+<meta property="og:title" content="线程池：core、max、queue 的组合陷阱">
+<meta property="og:url" content="http://timewait7.github.io/post/b09d89b.html">
+<meta property="og:site_name" content="知行栈">
+<meta property="og:description" content="core&#x3D;2, max&#x3D;10 的线程池，提交 50 个阻塞任务后，线程数只有 2。因为队列是 LinkedBlockingQueue（无界），任务全进了队列，maximumPoolSize 永远不会生效——实测 getLargestPoolSize()&#x3D;2。 这篇把线程池的三个陷阱量成数字：无界队列让 max 失效、拒绝策略静默丢任务（10 个任务只执行 3 个且不报错）、shutdownNow(">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-10-25T20:00:00.000Z">
+<meta property="article:modified_time" content="2026-10-25T06:13:18.119Z">
+<meta property="article:tag" content="Java">
+<meta property="article:tag" content="面试">
+<meta property="article:tag" content="并发">
+<meta property="article:tag" content="线程池">
+<meta property="article:tag" content="ThreadPoolExecutor">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/b09d89b.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/b09d89b.html","path":"post/b09d89b.html","title":"线程池：core、max、queue 的组合陷阱"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>线程池：core、max、queue 的组合陷阱 | 知行栈</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<!-- hexo injector head_end start --><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
+</style><style>
+/* 菜单链高亮：sub-menu 祖先（同主题 .menu-item-active 的 Pisces 规则） */
+.sub-menu .menu-item a.menu-chain-active {
+  border-bottom-color: #fc6423;
+  color: #fc6423;
+}
+.sub-menu .menu-item a.menu-chain-active:hover {
+  border-bottom-color: #fc6423;
+}
+/* 菜单链高亮：main-menu 祖先（同主题 hover/active 的背景规则） */
+.main-menu .menu-item a.menu-chain-active {
+  background: var(--menu-item-bg-color);
+}
+</style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">知行栈</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section" class="menu-chain-active"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>Categories</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-%E4%B8%83%E4%B8%AA%E5%8F%82%E6%95%B0%E4%B8%8E%E6%89%A7%E8%A1%8C%E6%B5%81%E7%A8%8B"><span class="nav-text">1. 七个参数与执行流程</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E9%99%B7%E9%98%B1%E4%B8%80%EF%BC%9A%E6%97%A0%E7%95%8C%E9%98%9F%E5%88%97%E8%AE%A9-max-%E5%A4%B1%E6%95%88"><span class="nav-text">2. 陷阱一：无界队列让 max 失效</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E5%AE%9E%E6%B5%8B%E5%AF%B9%E6%AF%94"><span class="nav-text">2.1 实测对比</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E9%99%B7%E9%98%B1%E4%BA%8C%EF%BC%9A%E6%8B%92%E7%BB%9D%E7%AD%96%E7%95%A5%E4%BC%9A%E9%9D%99%E9%BB%98%E4%B8%A2%E4%BB%BB%E5%8A%A1"><span class="nav-text">3. 陷阱二：拒绝策略会静默丢任务</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E5%9B%9B%E7%A7%8D%E7%AD%96%E7%95%A5%E5%AE%9E%E6%B5%8B%EF%BC%88%E6%B1%A0-1%E3%80%81%E9%98%9F%E5%88%97-2%E3%80%81%E6%8F%90%E4%BA%A4-10-%E4%B8%AA%E4%BB%BB%E5%8A%A1%EF%BC%89"><span class="nav-text">3.1 四种策略实测（池 1、队列 2、提交 10 个任务）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E9%80%89%E5%9E%8B"><span class="nav-text">3.2 选型</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E6%B1%A0%E5%A4%A7%E5%B0%8F%E6%80%8E%E4%B9%88%E7%AE%97%EF%BC%9A%E4%B8%A4%E6%9D%A1%E6%9B%B2%E7%BA%BF"><span class="nav-text">4. 池大小怎么算：两条曲线</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-CPU-%E5%AF%86%E9%9B%86%EF%BC%9A%E5%B3%B0%E5%80%BC%E5%9C%A8%E6%A0%B8%E6%95%B0"><span class="nav-text">4.1 CPU 密集：峰值在核数</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-IO-%E5%AF%86%E9%9B%86%EF%BC%9A%E5%8F%AF%E4%BB%A5%E8%BF%9C%E8%B6%85%E6%A0%B8%E6%95%B0"><span class="nav-text">4.2 IO 密集：可以远超核数</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-%E6%B1%A0%E5%A4%A7%E5%B0%8F%E7%9A%84%E4%B8%89%E6%AD%A5%E5%AE%9A%E6%B3%95"><span class="nav-text">4.3 池大小的三步定法</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E9%99%B7%E9%98%B1%E4%B8%89%EF%BC%9A%E5%85%B3%E9%97%AD%E7%BA%BF%E7%A8%8B%E6%B1%A0%E4%BC%9A%E4%B8%A2%E4%BB%BB%E5%8A%A1"><span class="nav-text">5. 陷阱三：关闭线程池会丢任务</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#6-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%9B%9B%E4%B8%AA%E5%8F%AF%E5%A4%8D%E7%8E%B0%E5%AE%9E%E9%AA%8C"><span class="nav-text">6. 动手验证：四个可复现实验</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#6-1-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E6%97%A0%E7%95%8C%E9%98%9F%E5%88%97%E8%AE%A9-max-%E5%A4%B1%E6%95%88"><span class="nav-text">6.1 动手验证：无界队列让 max 失效</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-2-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%9B%9B%E7%A7%8D%E6%8B%92%E7%BB%9D%E7%AD%96%E7%95%A5%E7%9A%84%E8%A1%8C%E4%B8%BA"><span class="nav-text">6.2 动手验证：四种拒绝策略的行为</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-3-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E6%B1%A0%E5%A4%A7%E5%B0%8F%E4%B8%8E%E5%90%9E%E5%90%90"><span class="nav-text">6.3 动手验证：池大小与吞吐</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9Ashutdown-%E4%B8%8E-shutdownNow-%E7%9A%84%E5%8C%BA%E5%88%AB"><span class="nav-text">6.4 动手验证：shutdown 与 shutdownNow 的区别</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#7-%E6%80%BB%E7%BB%93"><span class="nav-text">7. 总结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#7-1-%E9%9D%A2%E8%AF%95%E9%80%9F%E7%AD%94%E8%A1%A8"><span class="nav-text">7.1 面试速答表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-2-%E5%AE%9E%E6%88%98%E9%81%BF%E5%9D%91%E8%A1%A8"><span class="nav-text">7.2 实战避坑表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-3-%E5%B7%A5%E5%85%B7%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">7.3 工具速查表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-4-%E5%AE%9E%E6%93%8D%E5%BB%BA%E8%AE%AE"><span class="nav-text">7.4 实操建议</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">116</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">14</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">205</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+    <div class="sidebar-inner sidebar-blogroll">
+      <div class="links-of-blogroll animated">
+        <div class="links-of-blogroll-title"><i class="fa fa-globe fa-fw"></i>
+          Links
+        </div>
+        <ul class="links-of-blogroll-list">
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9wYXVsZ3JhaGFtLmNvbS9hcnRpY2xlcy5odG1s" title="https:&#x2F;&#x2F;paulgraham.com&#x2F;articles.html">paulgraham</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly93d3cuam9lbG9uc29mdHdhcmUuY29tLw==" title="https:&#x2F;&#x2F;www.joelonsoftware.com&#x2F;">Joel on Software</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9tYXJ0aW5mb3dsZXIuY29tLw==" title="https:&#x2F;&#x2F;martinfowler.com&#x2F;">Martin Flower</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly96aGFuZ3RpZWxlaS5jb20v" title="https:&#x2F;&#x2F;zhangtielei.com&#x2F;">zhangtielei</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhLWRlc2lnbi1wYXR0ZXJucy5jb20vemgv" title="https:&#x2F;&#x2F;java-design-patterns.com&#x2F;zh&#x2F;">Java Design Patterns</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9taWNyb3NlcnZpY2VzLmlvLw==" title="https:&#x2F;&#x2F;microservices.io&#x2F;">Microservice Architecture</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhZ3VpZGUuY24v" title="https:&#x2F;&#x2F;javaguide.cn&#x2F;">JavaGuide</span>
+            </li>
+        </ul>
+      </div>
+    </div>
+        <div class="pjax">
+        
+        <div class="sidebar-inner sidebar-post-related">
+          <div class="animated">
+              <div class="links-of-blogroll-title"><i class="fa fa-signs-post fa-fw"></i>
+    Related Posts
+  </div>
+  <ul class="popular-posts">
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/4f3149da.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-25</time>
+        <br>
+      线程与调度：一次上下文切换值多少钱
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/8ac324cd.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-25</time>
+        <br>
+      从这里开始：把并发 bug 变成可复现的实验
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/aa676f55.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-26</time>
+        <br>
+      虚拟线程：pinning、吞吐与迁移代价
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/953dd446.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-26</time>
+        <br>
+      并发性能工程：容量、压测与全系列总表
+      </a>
+    </li>
+  </ul>
+
+          </div>
+        </div>
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-后端开发"><a href="/docs/nav/backend-dev-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-code fa-fw"></i>后端开发</a></li>
+
+
+      
+  <li class="menu-item menu-item-计算机基础"><a href="/docs/nav/cs-foundation-nav.html" rel="section"><i class="fa fa-desktop fa-fw"></i>计算机基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-ai-学习"><a href="/docs/nav/ai-learning-nav.html" rel="section"><i class="fa fa-robot fa-fw"></i>AI 学习</a></li>
+
+
+      
+  <li class="menu-item menu-item-项目实战"><a href="/docs/nav/5964f4da.html" rel="section"><i class="fa fa-flask fa-fw"></i>项目实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-misc"><a href="/docs/nav/misc-nav.html" rel="section"><i class="fa fa-box fa-fw"></i>Misc</a></li>
+
+
+      
+  <li class="menu-item menu-item-随笔·生活"><a href="/docs/nav/life-nav.html" rel="section"><i class="fa fa-feather fa-fw"></i>随笔·生活</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java"><a href="/docs/nav/java-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-coffee fa-fw"></i>Java</a></li>
+
+
+      
+  <li class="menu-item menu-item-框架"><a href="/docs/nav/framework-nav.html" rel="section"><i class="fa fa-th-large fa-fw"></i>框架</a></li>
+
+
+      
+  <li class="menu-item menu-item-数据存储"><a href="/docs/nav/data-storage-nav.html" rel="section"><i class="fa fa-hdd fa-fw"></i>数据存储</a></li>
+
+
+      
+  <li class="menu-item menu-item-中间件"><a href="/docs/nav/middleware-nav.html" rel="section"><i class="fa fa-cubes fa-fw"></i>中间件</a></li>
+
+
+      
+  <li class="menu-item menu-item-分布式与微服务"><a href="/docs/nav/distributed-nav.html" rel="section"><i class="fa fa-sitemap fa-fw"></i>分布式与微服务</a></li>
+
+
+      
+  <li class="menu-item menu-item-系统设计"><a href="/docs/nav/system-design-nav.html" rel="section"><i class="fa fa-pencil-ruler fa-fw"></i>系统设计</a></li>
+
+
+      
+  <li class="menu-item menu-item-部署运维"><a href="/docs/nav/devops-nav.html" rel="section"><i class="fa fa-terminal fa-fw"></i>部署运维</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java-核心基础"><a href="/post/6a6e612d.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Java 核心基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-java-并发编程"><a href="/docs/nav/java-concurrency-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-tasks fa-fw"></i>Java 并发编程</a></li>
+
+
+      
+  <li class="menu-item menu-item-jvm-原理与调优"><a href="/post/4e153c5e.html" rel="section"><i class="fa fa-file-text fa-fw"></i>JVM 原理与调优</a></li>
+
+
+      
+  <li class="menu-item menu-item-设计模式：15-个高频模式的实战内化"><a href="/post/67126.html" rel="section"><i class="fa fa-file-text fa-fw"></i>设计模式：15 个高频模式的实战内化</a></li>
+
+
+      
+  <li class="menu-item menu-item-java-开发实战速查"><a href="/post/be1f55d9.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Java 开发实战速查</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java-并发编程：从-jmm-到虚拟线程的系统化实战"><a href="/post/a3f81c2d.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Java 并发编程：从 JMM 到虚拟线程的系统化实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-①-从这里开始：把并发-bug-变成可复现的实验"><a href="/post/8ac324cd.html" rel="section"><i class="fa fa-file-text fa-fw"></i>① 从这里开始：把并发 bug 变成可复现的实验</a></li>
+
+
+      
+  <li class="menu-item menu-item-②-线程与调度：一次上下文切换值多少钱"><a href="/post/4f3149da.html" rel="section"><i class="fa fa-file-text fa-fw"></i>② 线程与调度：一次上下文切换值多少钱</a></li>
+
+
+      
+  <li class="menu-item menu-item-③-jmm：把「不可见」和「重排」亲手复现"><a href="/post/f092fe4.html" rel="section"><i class="fa fa-file-text fa-fw"></i>③ JMM：把「不可见」和「重排」亲手复现</a></li>
+
+
+      
+  <li class="menu-item menu-item-④-伪共享与缓存行：一个-@contended-的-4-倍差距"><a href="/post/311a2032.html" rel="section"><i class="fa fa-file-text fa-fw"></i>④ 伪共享与缓存行：一个 @Contended 的 4 倍差距</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑤-原子性：i++-的丢失与-cas-的代价"><a href="/post/ef5a2176.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑤ 原子性：i++ 的丢失与 CAS 的代价</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑥-锁的演化：偏向锁移除之后，synchronized-还慢吗"><a href="/post/347698f8.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑥ 锁的演化：偏向锁移除之后，synchronized 还慢吗</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑦-aqs-与并发容器：size()-为什么不准"><a href="/post/42dc269f.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑦ AQS 与并发容器：size() 为什么不准</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑧-线程池：core、max、queue-的组合陷阱"><a href="/post/b09d89b.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑧ 线程池：core、max、queue 的组合陷阱</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑨-并发工具与异步编排：completablefuture-的五个坑"><a href="/post/5489c9d2.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑨ 并发工具与异步编排：CompletableFuture 的五个坑</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑩-死锁与线程泄漏：从-jstack-到-jfr"><a href="/post/93f5ed7a.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑩ 死锁与线程泄漏：从 jstack 到 JFR</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑪-虚拟线程：pinning、吞吐与迁移代价"><a href="/post/aa676f55.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑪ 虚拟线程：pinning、吞吐与迁移代价</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑫-并发性能工程：容量、压测与全系列总表"><a href="/post/953dd446.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑫ 并发性能工程：容量、压测与全系列总表</a></li>
+
+
+    </ul>
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/b09d89b.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="线程池：core、max、queue 的组合陷阱 | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          线程池：core、max、queue 的组合陷阱
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-10-26 04:00:00" itemprop="dateCreated datePublished" datetime="2026-10-26T04:00:00+08:00">2026-10-26</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/Java/" itemprop="url" rel="index"><span itemprop="name">Java</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>2.9k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>11 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><p><strong><code>core=2, max=10</code> 的线程池，提交 50 个阻塞任务后，线程数只有 2</strong>。因为队列是 <code>LinkedBlockingQueue</code>（无界），任务全进了队列，<code>maximumPoolSize</code> 永远不会生效——实测 <code>getLargestPoolSize()=2</code>。</p>
+<p>这篇把线程池的三个陷阱量成数字：无界队列让 max 失效、拒绝策略静默丢任务（10 个任务只执行 3 个且不报错）、<code>shutdownNow()</code> 会中断正在跑的任务并丢弃排队任务。</p>
+<blockquote>
+<p><strong>系列地图（Java 并发实战路线，12 篇）</strong></p>
+<p>① 实验台与基线 → ② 线程与调度 → ③ JMM → ④ 伪共享 → ⑤ 原子性与 CAS → ⑥ 锁的演化 → ⑦ AQS 与并发容器 → ⑧ <strong>线程池参数（本文）</strong> → ⑨ 并发工具与异步编排 → ⑩ 死锁与线程泄漏 → ⑪ 虚拟线程 → ⑫ 并发性能工程</p>
+<p>与前后篇的关系：② 的「线程数-吞吐曲线」是本文的公式依据；⑦ 的阻塞队列是本文队列参数的实现；⑪ 会讲虚拟线程如何替代「大池 + 阻塞」。</p>
+</blockquote>
+<h2 id="1-七个参数与执行流程"><a href="#1-七个参数与执行流程" class="headerlink" title="1. 七个参数与执行流程"></a>1. 七个参数与执行流程</h2><table>
+<thead>
+<tr>
+<th>参数</th>
+<th>作用</th>
+<th>常见坑</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>corePoolSize</code></td>
+<td>常驻线程数</td>
+<td>设太小，任务排队</td>
+</tr>
+<tr>
+<td><code>maximumPoolSize</code></td>
+<td>最大线程数</td>
+<td>配合无界队列时<strong>永远不生效</strong></td>
+</tr>
+<tr>
+<td><code>keepAliveTime</code></td>
+<td>超过 core 的线程空闲存活时间</td>
+<td>设太短，线程反复创建</td>
+</tr>
+<tr>
+<td><code>workQueue</code></td>
+<td>任务队列</td>
+<td>无界队列是「max 失效」的元凶</td>
+</tr>
+<tr>
+<td><code>threadFactory</code></td>
+<td>线程创建</td>
+<td>不命名，出问题难排查</td>
+</tr>
+<tr>
+<td><code>handler</code></td>
+<td>拒绝策略</td>
+<td><code>Discard</code> 会静默丢任务</td>
+</tr>
+<tr>
+<td><code>allowCoreThreadTimeOut</code></td>
+<td>core 线程是否超时回收</td>
+<td>低频服务可开</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart TD
+    A["execute(task)"] --> B{"running &lt; core?"}
+    B -- yes --> C["create core thread"]
+    B -- no --> D{"queue offer ok?"}
+    D -- yes --> E["enqueue, wait for a thread"]
+    D -- no --> F{"running &lt; max?"}
+    F -- yes --> G["create new thread"]
+    F -- no --> H["reject: handler"]</pre>
+
+<p><strong>注意流程顺序</strong>：先 core → 再队列 → 最后才扩到 max。<strong>队列不满就不会扩线程</strong>，这是理解所有陷阱的钥匙。</p>
+<h2 id="2-陷阱一：无界队列让-max-失效"><a href="#2-陷阱一：无界队列让-max-失效" class="headerlink" title="2. 陷阱一：无界队列让 max 失效"></a>2. 陷阱一：无界队列让 max 失效</h2><h3 id="2-1-实测对比"><a href="#2-1-实测对比" class="headerlink" title="2.1 实测对比"></a>2.1 实测对比</h3><p>同样提交 50 个「睡 200ms」的任务：</p>
+<table>
+<thead>
+<tr>
+<th>配置</th>
+<th>poolSize</th>
+<th>active</th>
+<th>queue</th>
+<th>曾达最大线程</th>
+<th>拒绝数</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>core=2, max=10, LinkedBlockingQueue()</code>（无界）</td>
+<td><strong>2</strong></td>
+<td>2</td>
+<td><strong>48</strong></td>
+<td><strong>2</strong></td>
+<td>0</td>
+</tr>
+<tr>
+<td><code>core=2, max=10, ArrayBlockingQueue(5)</code></td>
+<td><strong>10</strong></td>
+<td>10</td>
+<td>5</td>
+<td>10</td>
+<td><strong>35</strong></td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart LR
+    subgraph UB["Unbounded queue"]
+        U1["core 2 threads busy"] --> U2["48 tasks queued"] --> U3["max=10 never used"]
+    end
+    subgraph BB["Bounded queue(5)"]
+        B1["core 2 busy"] --> B2["5 queued"] --> B3["grow to max=10"] --> B4["35 rejected"]
+    end</pre>
+
+<p><strong>结论</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>你想要</th>
+<th>队列怎么选</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>任务不丢、慢慢排</td>
+<td>无界队列（但要接受 max 失效）</td>
+</tr>
+<tr>
+<td>背压、快速失败</td>
+<td>有界队列 + 明确的拒绝策略</td>
+</tr>
+<tr>
+<td>固定并发度</td>
+<td><code>core = max</code>，队列容量自己定</td>
+</tr>
+</tbody></table>
+<p><strong>生产建议</strong>：<code>Executors.newFixedThreadPool(n)</code> 内部就是 <code>LinkedBlockingQueue()</code> + <code>core=max=n</code>——它靠「core 已经等于 max」绕开了这个坑；而 <code>newCachedThreadPool</code> 用的是 <code>SynchronousQueue</code>，<code>max=Integer.MAX_VALUE</code>，高并发下会疯狂建线程（① 实测创建 32 µs&#x2F;个）。</p>
+<h2 id="3-陷阱二：拒绝策略会静默丢任务"><a href="#3-陷阱二：拒绝策略会静默丢任务" class="headerlink" title="3. 陷阱二：拒绝策略会静默丢任务"></a>3. 陷阱二：拒绝策略会静默丢任务</h2><h3 id="3-1-四种策略实测（池-1、队列-2、提交-10-个任务）"><a href="#3-1-四种策略实测（池-1、队列-2、提交-10-个任务）" class="headerlink" title="3.1 四种策略实测（池 1、队列 2、提交 10 个任务）"></a>3.1 四种策略实测（池 1、队列 2、提交 10 个任务）</h3><table>
+<thead>
+<tr>
+<th>策略</th>
+<th>执行数</th>
+<th>拒绝数</th>
+<th>总耗时</th>
+<th>行为</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>AbortPolicy</code>（默认）</td>
+<td><strong>3</strong></td>
+<td><strong>7</strong></td>
+<td>163 ms</td>
+<td>抛 <code>RejectedExecutionException</code></td>
+</tr>
+<tr>
+<td><code>CallerRunsPolicy</code></td>
+<td><strong>10</strong></td>
+<td>0</td>
+<td><strong>322 ms</strong></td>
+<td>调用线程自己跑，<strong>变慢 2 倍</strong></td>
+</tr>
+<tr>
+<td><code>DiscardPolicy</code></td>
+<td><strong>3</strong></td>
+<td><strong>0</strong></td>
+<td>158 ms</td>
+<td><strong>静默丢弃，不报错</strong></td>
+</tr>
+<tr>
+<td><code>DiscardOldestPolicy</code></td>
+<td><strong>3</strong></td>
+<td><strong>0</strong></td>
+<td>160 ms</td>
+<td>丢掉队列里最老的，也不报错</td>
+</tr>
+</tbody></table>
+<p><strong>最危险的是 <code>DiscardPolicy</code> 和 <code>DiscardOldestPolicy</code><strong>：<code>rejected=0</code>，看起来「没被拒绝」，实际 10 个任务只执行了 3 个，剩下 7 个</strong>凭空消失</strong>。如果你的日志里没有任何异常，根本发现不了。</p>
+<h3 id="3-2-选型"><a href="#3-2-选型" class="headerlink" title="3.2 选型"></a>3.2 选型</h3><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>策略</th>
+<th>理由</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>不能丢任务</td>
+<td><code>CallerRunsPolicy</code> 或自定义（落库&#x2F;重试）</td>
+<td>用调用线程的阻塞换取不丢</td>
+</tr>
+<tr>
+<td>可以丢（如监控埋点）</td>
+<td><code>DiscardPolicy</code></td>
+<td>但要打日志&#x2F;计数</td>
+</tr>
+<tr>
+<td>快速失败</td>
+<td><code>AbortPolicy</code> + 上层重试</td>
+<td>默认策略，行为最明确</td>
+</tr>
+<tr>
+<td>宁可丢老任务</td>
+<td><code>DiscardOldestPolicy</code></td>
+<td>少用，行为隐晦</td>
+</tr>
+</tbody></table>
+<p><strong>自定义拒绝策略的最小实现</strong>（建议生产用）：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">new</span> <span class="title class_">RejectedExecutionHandler</span>() &#123;</span><br><span class="line">    <span class="keyword">public</span> <span class="keyword">void</span> <span class="title function_">rejectedExecution</span><span class="params">(Runnable r, ThreadPoolExecutor e)</span> &#123;</span><br><span class="line">        log.warn(<span class="string">&quot;pool rejected, size=&#123;&#125;, queue=&#123;&#125;&quot;</span>, e.getPoolSize(), e.getQueue().size());</span><br><span class="line">        metrics.counter(<span class="string">&quot;pool.rejected&quot;</span>).increment();</span><br><span class="line">        <span class="keyword">throw</span> <span class="keyword">new</span> <span class="title class_">RejectedExecutionException</span>(<span class="string">&quot;pool saturated&quot;</span>);   <span class="comment">// 或落库/重试</span></span><br><span class="line">    &#125;</span><br><span class="line">&#125;;</span><br></pre></td></tr></table></figure>
+
+<h2 id="4-池大小怎么算：两条曲线"><a href="#4-池大小怎么算：两条曲线" class="headerlink" title="4. 池大小怎么算：两条曲线"></a>4. 池大小怎么算：两条曲线</h2><h3 id="4-1-CPU-密集：峰值在核数"><a href="#4-1-CPU-密集：峰值在核数" class="headerlink" title="4.1 CPU 密集：峰值在核数"></a>4.1 CPU 密集：峰值在核数</h3><p>固定总工作量，池大小从 1 到 64：</p>
+<table>
+<thead>
+<tr>
+<th>池大小</th>
+<th>耗时</th>
+<th>加速比</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>550 ms</td>
+<td>1.00×</td>
+</tr>
+<tr>
+<td>4</td>
+<td>148 ms</td>
+<td>3.72×</td>
+</tr>
+<tr>
+<td>8</td>
+<td>73 ms</td>
+<td>7.53×</td>
+</tr>
+<tr>
+<td><strong>15</strong></td>
+<td><strong>39 ms</strong></td>
+<td><strong>14.10×（峰值）</strong></td>
+</tr>
+<tr>
+<td>16</td>
+<td>45 ms</td>
+<td>12.22×</td>
+</tr>
+<tr>
+<td>32</td>
+<td>42 ms</td>
+<td>13.10×</td>
+</tr>
+<tr>
+<td>64</td>
+<td>41 ms</td>
+<td>13.41×</td>
+</tr>
+</tbody></table>
+<p>和 ② 的结论一致：<strong>池大小 ≈ 核数</strong>，再大只是增加切换。</p>
+<h3 id="4-2-IO-密集：可以远超核数"><a href="#4-2-IO-密集：可以远超核数" class="headerlink" title="4.2 IO 密集：可以远超核数"></a>4.2 IO 密集：可以远超核数</h3><p>每个任务睡 5 ms，共 400 个：</p>
+<table>
+<thead>
+<tr>
+<th>池大小</th>
+<th>耗时</th>
+<th>吞吐</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>2,426 ms</td>
+<td>165 tasks&#x2F;s</td>
+</tr>
+<tr>
+<td>8</td>
+<td>303 ms</td>
+<td>1,320 tasks&#x2F;s</td>
+</tr>
+<tr>
+<td>16</td>
+<td>152 ms</td>
+<td>2,632 tasks&#x2F;s</td>
+</tr>
+<tr>
+<td>32</td>
+<td>78 ms</td>
+<td>5,128 tasks&#x2F;s</td>
+</tr>
+<tr>
+<td>64</td>
+<td>42 ms</td>
+<td>9,524 tasks&#x2F;s</td>
+</tr>
+<tr>
+<td><strong>128</strong></td>
+<td><strong>24 ms</strong></td>
+<td><strong>16,667 tasks&#x2F;s</strong></td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart LR
+    A["CPU-bound&lt;br/>pool = cores + 1"] --> B["15 cores -> peak 14.1x"]
+    C["IO-bound&lt;br/>pool = cores x (1 + W/C)"] --> D["W/C=5ms/0 -> unbounded&lt;br/>limited by memory/downstream"]
+    D --> E["measured: 128 threads&lt;br/>16,667 tasks/s"]</pre>
+
+<p><strong>公式验证</strong>：IO 密集的理论值是 <code>核数 × (1 + 等待/计算)</code>，等待 5 ms、计算几乎为 0 → 理论上限很高；实测到 128 线程仍在增长（165 → 16,667，约 100 倍），说明此时瓶颈不是 CPU，而是<strong>内存（1 MB 栈&#x2F;线程）与下游</strong>。</p>
+<h3 id="4-3-池大小的三步定法"><a href="#4-3-池大小的三步定法" class="headerlink" title="4.3 池大小的三步定法"></a>4.3 池大小的三步定法</h3><table>
+<thead>
+<tr>
+<th>步骤</th>
+<th>做法</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1 算</td>
+<td>CPU 密集：<code>核数+1</code>；IO 密集：<code>核数×(1+W/C)</code></td>
+</tr>
+<tr>
+<td>2 测</td>
+<td>压测画「池大小-吞吐」曲线，找拐点</td>
+</tr>
+<tr>
+<td>3 限</td>
+<td>用有界队列 + 明确拒绝策略兜底</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart TD
+    A["Task type?"] -->|CPU-bound| B["pool = cores + 1&lt;br/>bounded queue small"]
+    A -->|IO-bound| C["pool = cores x (1 + W/C)"]
+    C --> D{"memory ok?&lt;br/>1MB per thread"}
+    D -- no --> E["reduce -Xss&lt;br/>or virtual threads"]
+    D -- yes --> F{"downstream ok?"}
+    F -- no --> G["add rate limit / backpressure"]
+    F -- yes --> H["bounded queue +&lt;br/>Abort/CallerRuns"]
+    B --> I["measure curve, take the knee"]
+    H --> I</pre>
+
+<h2 id="5-陷阱三：关闭线程池会丢任务"><a href="#5-陷阱三：关闭线程池会丢任务" class="headerlink" title="5. 陷阱三：关闭线程池会丢任务"></a>5. 陷阱三：关闭线程池会丢任务</h2><p><code>shutdown()</code> 与 <code>shutdownNow()</code> 的实测（池 1、10 个 50ms 任务、提交后立刻关闭）：</p>
+<table>
+<thead>
+<tr>
+<th>方法</th>
+<th>启动数</th>
+<th>完成数</th>
+<th>被中断</th>
+<th>3 秒内终止</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>shutdown()</code></td>
+<td>10</td>
+<td><strong>10</strong></td>
+<td>0</td>
+<td>true</td>
+</tr>
+<tr>
+<td><code>shutdownNow()</code></td>
+<td><strong>1</strong></td>
+<td><strong>0</strong></td>
+<td><strong>1</strong></td>
+<td>true</td>
+</tr>
+</tbody></table>
+<ul>
+<li><code>shutdown()</code>：不再接受新任务，<strong>队列里已有的任务会跑完</strong>；</li>
+<li><code>shutdownNow()</code>：<strong>中断正在运行的任务</strong>，并返回队列里未执行的任务列表（这 9 个任务不会被执行）。</li>
+</ul>
+<p><strong>生产建议</strong>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">pool.shutdown();                                   <span class="comment">// 先温和关闭</span></span><br><span class="line"><span class="keyword">if</span> (!pool.awaitTermination(<span class="number">30</span>, TimeUnit.SECONDS)) &#123; <span class="comment">// 给业务一个收尾窗口</span></span><br><span class="line">    List&lt;Runnable&gt; dropped = pool.shutdownNow();    <span class="comment">// 超时才强杀</span></span><br><span class="line">    log.warn(<span class="string">&quot;forced shutdown, dropped &#123;&#125; tasks&quot;</span>, dropped.size());</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h2 id="6-动手验证：四个可复现实验"><a href="#6-动手验证：四个可复现实验" class="headerlink" title="6. 动手验证：四个可复现实验"></a>6. 动手验证：四个可复现实验</h2><h3 id="6-1-动手验证：无界队列让-max-失效"><a href="#6-1-动手验证：无界队列让-max-失效" class="headerlink" title="6.1 动手验证：无界队列让 max 失效"></a>6.1 动手验证：无界队列让 max 失效</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">mkdir</span> -p /tmp/conc &amp;&amp; <span class="built_in">cd</span> /tmp/conc</span><br><span class="line"><span class="built_in">cat</span> &gt; PoolTrap.java &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line">import java.util.concurrent.*;</span><br><span class="line">public class PoolTrap &#123;</span><br><span class="line">    public static void main(String[] a) throws Exception &#123;</span><br><span class="line">        Thread wd = new Thread(() -&gt; &#123; try &#123; Thread.sleep(<span class="number">30</span>_000); &#125; catch (Exception e) &#123;&#125; System.out.println(&quot;WATCHDOG&quot;); System.exit(<span class="number">2</span>); &#125;);</span><br><span class="line">        wd.setDaemon(true); wd.start();</span><br><span class="line">        ThreadPoolExecutor tp = new ThreadPoolExecutor(<span class="number">2</span>, <span class="number">10</span>, <span class="number">60</span>, TimeUnit.SECONDS, new LinkedBlockingQueue&lt;&gt;());</span><br><span class="line">        <span class="keyword">for</span> (int i = 0; i &lt; 50; i++) tp.execute(() -&gt; &#123; try &#123; Thread.sleep(<span class="number">200</span>); &#125; catch (Exception e) &#123;&#125; &#125;);</span><br><span class="line">        Thread.sleep(<span class="number">50</span>);</span><br><span class="line">        System.out.printf(&quot;pool=%d active=%d queue=%d largestPool=%d%n&quot;,</span><br><span class="line">                tp.getPoolSize(), tp.getActiveCount(), tp.getQueue().size(), tp.getLargestPoolSize());</span><br><span class="line">        tp.shutdownNow();</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line">EOF</span><br><span class="line">javac PoolTrap.java &amp;&amp; java PoolTrap</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：<code>pool=2 queue=48 largestPool=2</code>（max&#x3D;10 完全没用到）。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li><code>largestPool</code> 达到 10 → 你用的不是无界队列，或有 <code>core=max</code>；</li>
+<li><code>queue=0</code> → 队列被设成了 <code>SynchronousQueue</code>。</li>
+</ul>
+<h3 id="6-2-动手验证：四种拒绝策略的行为"><a href="#6-2-动手验证：四种拒绝策略的行为" class="headerlink" title="6.2 动手验证：四种拒绝策略的行为"></a>6.2 动手验证：四种拒绝策略的行为</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> /tmp/conc</span><br><span class="line"><span class="built_in">cat</span> &gt; Reject.java &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line">import java.util.concurrent.*;</span><br><span class="line">import java.util.concurrent.atomic.*;</span><br><span class="line">public class Reject &#123;</span><br><span class="line">    public static void main(String[] a) throws Exception &#123;</span><br><span class="line">        <span class="keyword">for</span> (String pol : new String[]&#123;<span class="string">&quot;Abort&quot;</span>,<span class="string">&quot;CallerRuns&quot;</span>,<span class="string">&quot;Discard&quot;</span>,<span class="string">&quot;DiscardOldest&quot;</span>&#125;) &#123;</span><br><span class="line">            AtomicInteger <span class="keyword">done</span>=new AtomicInteger(), rej=new AtomicInteger();</span><br><span class="line">            RejectedExecutionHandler h = switch (pol) &#123;</span><br><span class="line">                <span class="keyword">case</span> <span class="string">&quot;Abort&quot;</span> -&gt; new ThreadPoolExecutor.AbortPolicy();</span><br><span class="line">                <span class="keyword">case</span> <span class="string">&quot;CallerRuns&quot;</span> -&gt; new ThreadPoolExecutor.CallerRunsPolicy();</span><br><span class="line">                <span class="keyword">case</span> <span class="string">&quot;Discard&quot;</span> -&gt; new ThreadPoolExecutor.DiscardPolicy();</span><br><span class="line">                default -&gt; new ThreadPoolExecutor.DiscardOldestPolicy();</span><br><span class="line">            &#125;;</span><br><span class="line">            ThreadPoolExecutor tp=new ThreadPoolExecutor(1,1,0,TimeUnit.SECONDS,new ArrayBlockingQueue&lt;&gt;(2),h);</span><br><span class="line">            long s=System.nanoTime();</span><br><span class="line">            <span class="keyword">for</span>(int i=0;i&lt;10;i++)&#123;</span><br><span class="line">                try &#123; tp.execute(()-&gt;&#123; done.incrementAndGet(); try&#123;Thread.sleep(<span class="number">50</span>);&#125;catch(Exception e)&#123;&#125; &#125;); &#125;</span><br><span class="line">                catch (RejectedExecutionException e) &#123; rej.incrementAndGet(); &#125;</span><br><span class="line">            &#125;</span><br><span class="line">            tp.shutdown(); tp.awaitTermination(<span class="number">5</span>,TimeUnit.SECONDS);</span><br><span class="line">            System.out.printf(&quot;%-<span class="number">14</span>s done=%d rejected=%d elapsed=%dms%n&quot;, pol, done.get(), rej.get(), (System.nanoTime()-s)/<span class="number">1</span>_000_000);</span><br><span class="line">        &#125;</span><br><span class="line">        System.exit(<span class="number">0</span>);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line">EOF</span><br><span class="line">javac Reject.java &amp;&amp; java Reject</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：<code>CallerRuns</code> 执行 10 个但更慢；<code>Discard</code>&#x2F;<code>DiscardOldest</code> 只执行 3 个且 <code>rejected=0</code>。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li><code>Discard</code> 的 <code>rejected</code> 大于 0 → 你用的是自定义策略，不是 JDK 的 Discard；</li>
+<li>所有策略都执行 10 个 → 队列容量给大了，减少容量再试。</li>
+</ul>
+<h3 id="6-3-动手验证：池大小与吞吐"><a href="#6-3-动手验证：池大小与吞吐" class="headerlink" title="6.3 动手验证：池大小与吞吐"></a>6.3 动手验证：池大小与吞吐</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> /tmp/conc</span><br><span class="line"><span class="built_in">cat</span> &gt; PoolSize.java &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line">import java.util.concurrent.*;</span><br><span class="line">public class PoolSize &#123;</span><br><span class="line">    static volatile double SINK;</span><br><span class="line">    public static void main(String[] a) throws Exception &#123;</span><br><span class="line">        Thread wd=new Thread(()-&gt;&#123; try&#123;Thread.sleep(<span class="number">60</span>_000);&#125;catch(Exception e)&#123;&#125; System.out.println(&quot;WATCHDOG&quot;); System.exit(<span class="number">2</span>);&#125;);</span><br><span class="line">        wd.setDaemon(true); wd.start();</span><br><span class="line">        long total=<span class="number">1</span>_200_000_000L; double base=<span class="number">0</span>;</span><br><span class="line">        for(int size:new int[]&#123;<span class="number">1</span>,<span class="number">4</span>,<span class="number">8</span>,<span class="number">15</span>,<span class="number">16</span>,<span class="number">32</span>,<span class="number">64</span>&#125;)&#123;</span><br><span class="line">            ThreadPoolExecutor tp=new ThreadPoolExecutor(size,size,<span class="number">0</span>,TimeUnit.SECONDS,new LinkedBlockingQueue&lt;&gt;());</span><br><span class="line">            int chunks=size*4; CountDownLatch d=new CountDownLatch(chunks);</span><br><span class="line">            long s=System.nanoTime();</span><br><span class="line">            <span class="keyword">for</span>(int i=0;i&lt;chunks;i++) tp.execute(()-&gt;&#123; work(total/chunks); d.countDown(); &#125;);</span><br><span class="line">            d.await(<span class="number">30</span>,TimeUnit.SECONDS);</span><br><span class="line">            long ms=(System.nanoTime()-s)/<span class="number">1</span>_000_000;</span><br><span class="line">            if(size==<span class="number">1</span>) base=ms;</span><br><span class="line">            System.out.printf(&quot;pool=%-<span class="number">3</span>d %<span class="number">5</span>dms speedup=%.<span class="number">2</span>fx%n&quot;, size, ms, base/ms);</span><br><span class="line">            tp.shutdownNow();</span><br><span class="line">        &#125;</span><br><span class="line">        System.exit(<span class="number">0</span>);</span><br><span class="line">    &#125;</span><br><span class="line">    static double work(long n)&#123; double s=<span class="number">0</span>; for(long i=<span class="number">1</span>;i&lt;=n;i++) s+=Math.sqrt(i); return s; &#125;</span><br><span class="line">&#125;</span><br><span class="line">EOF</span><br><span class="line">javac PoolSize.java &amp;&amp; java PoolSize</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：加速比在 <code>池大小 = 核数</code> 处见顶（本文 15 → 14.10×）。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>峰值远低于核数 → 任务里有隐式锁竞争；</li>
+<li>超过核数后还持续上升 → 任务其实是 IO 密集（有阻塞）。</li>
+</ul>
+<h3 id="6-4-动手验证：shutdown-与-shutdownNow-的区别"><a href="#6-4-动手验证：shutdown-与-shutdownNow-的区别" class="headerlink" title="6.4 动手验证：shutdown 与 shutdownNow 的区别"></a>6.4 动手验证：shutdown 与 shutdownNow 的区别</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> /tmp/conc</span><br><span class="line"><span class="built_in">cat</span> &gt; CloseTest.java &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line">import java.util.concurrent.*;</span><br><span class="line">import java.util.concurrent.atomic.*;</span><br><span class="line">public class CloseTest &#123;</span><br><span class="line">    public static void main(String[] a) throws Exception &#123;</span><br><span class="line">        <span class="keyword">for</span> (String mode : new String[]&#123;<span class="string">&quot;shutdown&quot;</span>,<span class="string">&quot;shutdownNow&quot;</span>&#125;) &#123;</span><br><span class="line">            AtomicInteger started=new AtomicInteger(), finished=new AtomicInteger(), interrupted=new AtomicInteger();</span><br><span class="line">            ThreadPoolExecutor tp=new ThreadPoolExecutor(1,1,0,TimeUnit.SECONDS,new LinkedBlockingQueue&lt;&gt;());</span><br><span class="line">            <span class="keyword">for</span>(int i=0;i&lt;10;i++) tp.execute(()-&gt;&#123; started.incrementAndGet();</span><br><span class="line">                try&#123; Thread.sleep(<span class="number">50</span>); finished.incrementAndGet(); &#125;catch(InterruptedException e)&#123; interrupted.incrementAndGet(); &#125; &#125;);</span><br><span class="line">            Thread.sleep(<span class="number">10</span>);</span><br><span class="line">            if (mode.equals(&quot;shutdown&quot;)) tp.shutdown(); <span class="keyword">else</span> tp.shutdownNow();</span><br><span class="line">            tp.awaitTermination(3,TimeUnit.SECONDS);</span><br><span class="line">            System.out.printf(<span class="string">&quot;%-12s started=%d finished=%d interrupted=%d%n&quot;</span>, mode, started.get(), finished.get(), interrupted.get());</span><br><span class="line">        &#125;</span><br><span class="line">        System.<span class="built_in">exit</span>(0);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line">EOF</span><br><span class="line">javac CloseTest.java &amp;&amp; java CloseTest</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：<code>shutdown</code> 完成 10 个；<code>shutdownNow</code> 只启动 1 个、被中断 1 个、完成 0 个。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>两者都完成 10 个 → 你关闭时任务已经跑完了，缩短任务时间或提前关闭；</li>
+<li><code>interrupted</code> 为 0 → 任务没有响应中断（<code>catch</code> 里没检查），这也是常见 bug。</li>
+</ul>
+<h2 id="7-总结"><a href="#7-总结" class="headerlink" title="7. 总结"></a>7. 总结</h2><h3 id="7-1-面试速答表"><a href="#7-1-面试速答表" class="headerlink" title="7.1 面试速答表"></a>7.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>线程池的执行流程</td>
+<td>core → 队列 → max → 拒绝策略</td>
+</tr>
+<tr>
+<td>为什么 max 不生效</td>
+<td>队列无界，任务永远排得进去，不会扩到 max（实测 largestPool&#x3D;2）</td>
+</tr>
+<tr>
+<td>四种拒绝策略</td>
+<td>Abort（抛异常）、CallerRuns（调用线程跑）、Discard（静默丢）、DiscardOldest（丢最老的）</td>
+</tr>
+<tr>
+<td>哪个策略最危险</td>
+<td><code>Discard</code>&#x2F;<code>DiscardOldest</code>：不报错但任务消失</td>
+</tr>
+<tr>
+<td>池大小怎么定</td>
+<td>CPU 密集 &#x3D; 核数+1；IO 密集 &#x3D; 核数×(1+W&#x2F;C)，再用压测校准</td>
+</tr>
+<tr>
+<td>CPU 密集池开大会怎样</td>
+<td>15 核峰值 14.10×，16 线程掉到 12.22×</td>
+</tr>
+<tr>
+<td>IO 密集能开多少</td>
+<td>实测 128 线程仍有 16,667 tasks&#x2F;s，瓶颈变成内存与下游</td>
+</tr>
+<tr>
+<td><code>shutdown</code> 与 <code>shutdownNow</code> 区别</td>
+<td>前者跑完队列，后者中断运行中任务并丢弃队列</td>
+</tr>
+<tr>
+<td>线程池为什么不能用 <code>Executors</code> 默认工厂</td>
+<td>无界队列（OOM 风险）或无界 max（线程爆炸）</td>
+</tr>
+<tr>
+<td>队列满了怎么办</td>
+<td>有界队列 + 明确拒绝策略（落库&#x2F;重试&#x2F;降级）</td>
+</tr>
+</tbody></table>
+<h3 id="7-2-实战避坑表"><a href="#7-2-实战避坑表" class="headerlink" title="7.2 实战避坑表"></a>7.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>并发上不去、CPU 很低</td>
+<td>无界队列导致只有 core 个线程</td>
+<td>改有界队列或 <code>core=max</code></td>
+</tr>
+<tr>
+<td>任务莫名丢失</td>
+<td><code>Discard</code> 策略</td>
+<td>换 Abort&#x2F;CallerRuns，或自定义</td>
+</tr>
+<tr>
+<td>服务重启后任务全丢</td>
+<td><code>shutdownNow</code> 强杀</td>
+<td>先 <code>shutdown</code> + <code>awaitTermination</code></td>
+</tr>
+<tr>
+<td>线程池 OOM</td>
+<td><code>newCachedThreadPool</code> 无上限</td>
+<td>设 <code>max</code> + 有界队列</td>
+</tr>
+<tr>
+<td>排查困难</td>
+<td>线程没有命名</td>
+<td>自定义 <code>ThreadFactory</code> 加前缀</td>
+</tr>
+<tr>
+<td>池大小拍脑袋</td>
+<td>没算 W&#x2F;C 也没压测</td>
+<td>用 4.3 的三步法</td>
+</tr>
+</tbody></table>
+<h3 id="7-3-工具速查表"><a href="#7-3-工具速查表" class="headerlink" title="7.3 工具速查表"></a>7.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>判定标准</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>getPoolSize()</code> &#x2F; <code>getActiveCount()</code></td>
+<td>实际线程数</td>
+<td>远小于 max &#x3D; 队列在拦</td>
+</tr>
+<tr>
+<td><code>getQueue().size()</code></td>
+<td>积压</td>
+<td>持续增长 &#x3D; 处理能力不足</td>
+</tr>
+<tr>
+<td><code>getLargestPoolSize()</code></td>
+<td>历史峰值</td>
+<td>等于 core 说明 max 没生效</td>
+</tr>
+<tr>
+<td><code>getCompletedTaskCount()</code></td>
+<td>完成数</td>
+<td>与提交数对比看丢失</td>
+</tr>
+<tr>
+<td>JFR <code>jdk.ThreadPoolExecutor</code> 事件</td>
+<td>任务提交与执行</td>
+<td>结合 ② 读法</td>
+</tr>
+</tbody></table>
+<h3 id="7-4-实操建议"><a href="#7-4-实操建议" class="headerlink" title="7.4 实操建议"></a>7.4 实操建议</h3><ol>
+<li><strong>别用 <code>Executors</code> 的默认工厂</strong>，手工 new <code>ThreadPoolExecutor</code> 并显式给队列与拒绝策略。</li>
+<li><strong>队列必须有界</strong>，否则 max 是摆设；容量按「能容忍的积压时间 × 处理速率」定。</li>
+<li><strong>拒绝策略优先 <code>AbortPolicy</code> + 上层兜底</strong>，<code>CallerRuns</code> 次之；<code>Discard</code> 只能用于可丢数据。</li>
+<li>**关闭用 <code>shutdown</code> + <code>awaitTermination</code>**，超时才 <code>shutdownNow</code>，并记录丢弃数。</li>
+<li><strong>给线程命名</strong>，排查时 <code>jstack</code> 一眼就能看出是哪个池。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告</strong>：⑨《并发工具与异步编排：CompletableFuture 的五个坑》。本文讲的是「任务怎么执行」，下一篇讲「任务怎么组合」：<code>CompletableFuture</code> 的异常被吞、默认线程池 <code>commonPool</code>、串行化执行、没有超时，以及 <code>CountDownLatch</code>&#x2F;<code>Semaphore</code> 的误用。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/Java/" rel="tag"># Java</a>
+              <a href="/tags/%E9%9D%A2%E8%AF%95/" rel="tag"># 面试</a>
+              <a href="/tags/%E5%B9%B6%E5%8F%91/" rel="tag"># 并发</a>
+              <a href="/tags/%E7%BA%BF%E7%A8%8B%E6%B1%A0/" rel="tag"># 线程池</a>
+              <a href="/tags/ThreadPoolExecutor/" rel="tag"># ThreadPoolExecutor</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/42dc269f.html" rel="prev" title="AQS 与并发容器：size() 为什么不准">
+                  <i class="fa fa-angle-left"></i> AQS 与并发容器：size() 为什么不准
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/post/5489c9d2.html" rel="next" title="并发工具与异步编排：CompletableFuture 的五个坑">
+                  并发工具与异步编排：CompletableFuture 的五个坑 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">778k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">47:09</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
+</html>

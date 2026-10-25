@@ -1,0 +1,1048 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="JDK 21 里已经没有偏向锁了：-XX:+PrintFlagsFinal | grep -i biased 是空的，加 -XX:+UseBiasedLocking 直接报 Unrecognized VM option。这意味着「无竞争时 synchronized 几乎免费」这条老经验，在 21 上要重新校准。 用 JOL 能看到锁的三个真实状态：未加锁是 non-biasable、synchro">
+<meta property="og:type" content="article">
+<meta property="og:title" content="锁的演化：偏向锁移除之后，synchronized 还慢吗">
+<meta property="og:url" content="http://timewait7.github.io/post/347698f8.html">
+<meta property="og:site_name" content="知行栈">
+<meta property="og:description" content="JDK 21 里已经没有偏向锁了：-XX:+PrintFlagsFinal | grep -i biased 是空的，加 -XX:+UseBiasedLocking 直接报 Unrecognized VM option。这意味着「无竞争时 synchronized 几乎免费」这条老经验，在 21 上要重新校准。 用 JOL 能看到锁的三个真实状态：未加锁是 non-biasable、synchro">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-10-25T18:00:00.000Z">
+<meta property="article:modified_time" content="2026-10-25T06:13:18.119Z">
+<meta property="article:tag" content="Java">
+<meta property="article:tag" content="面试">
+<meta property="article:tag" content="并发">
+<meta property="article:tag" content="synchronized">
+<meta property="article:tag" content="锁升级">
+<meta property="article:tag" content="JOL">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/347698f8.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/347698f8.html","path":"post/347698f8.html","title":"锁的演化：偏向锁移除之后，synchronized 还慢吗"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>锁的演化：偏向锁移除之后，synchronized 还慢吗 | 知行栈</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<!-- hexo injector head_end start --><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
+</style><style>
+/* 菜单链高亮：sub-menu 祖先（同主题 .menu-item-active 的 Pisces 规则） */
+.sub-menu .menu-item a.menu-chain-active {
+  border-bottom-color: #fc6423;
+  color: #fc6423;
+}
+.sub-menu .menu-item a.menu-chain-active:hover {
+  border-bottom-color: #fc6423;
+}
+/* 菜单链高亮：main-menu 祖先（同主题 hover/active 的背景规则） */
+.main-menu .menu-item a.menu-chain-active {
+  background: var(--menu-item-bg-color);
+}
+</style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">知行栈</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section" class="menu-chain-active"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>Categories</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-%E5%9B%9B%E7%A7%8D%E7%8A%B6%E6%80%81%EF%BC%9AJOL-%E5%AE%9E%E6%B5%8B"><span class="nav-text">1. 四种状态：JOL 实测</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-%E3%80%8Cnon-biasable%E3%80%8D%E6%98%AF%E4%BB%80%E4%B9%88%E6%84%8F%E6%80%9D"><span class="nav-text">1.1 「non-biasable」是什么意思</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E6%97%A0%E7%AB%9E%E4%BA%89%E6%97%B6%EF%BC%8Csynchronized-%E5%88%B0%E5%BA%95%E5%A4%9A%E8%B4%B5"><span class="nav-text">2. 无竞争时，synchronized 到底多贵</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E5%AE%9E%E6%B5%8B%EF%BC%9A%E5%9B%9B%E7%A7%8D%E5%86%99%E6%B3%95%EF%BC%88ns-op%EF%BC%8C%E6%AF%8F%E7%BA%BF%E7%A8%8B-100-%E4%B8%87%E6%AC%A1%EF%BC%8C3-%E8%BD%AE%E5%8F%96%E6%9C%80%E4%BC%98%EF%BC%89"><span class="nav-text">2.1 实测：四种写法（ns&#x2F;op，每线程 100 万次，3 轮取最优）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E6%B7%B1%E6%8C%96%EF%BC%9A%E4%B8%BA%E4%BB%80%E4%B9%88-ReentrantLock-%E6%97%A0%E7%AB%9E%E4%BA%89%E4%B9%9F%E6%85%A2-3-%E5%80%8D"><span class="nav-text">2.2 深挖：为什么 ReentrantLock 无竞争也慢 3 倍</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E6%B7%B1%E6%8C%96%EF%BC%9A%E4%B8%BA%E4%BB%80%E4%B9%88-ReentrantLock-%E6%97%A0%E7%AB%9E%E4%BA%89%E4%B9%9F%E6%85%A2-3-%E5%80%8D-1"><span class="nav-text">2.2 深挖：为什么 ReentrantLock 无竞争也慢 3 倍</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E6%9C%89%E7%AB%9E%E4%BA%89%E6%97%B6%EF%BC%9A%E9%A6%96%E6%AC%A1%E8%86%A8%E8%83%80-31-ns%EF%BC%8C%E4%B9%8B%E5%90%8E-6-ns"><span class="nav-text">3. 有竞争时：首次膨胀 31 ns，之后 6 ns</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E5%AE%9E%E6%B5%8B%EF%BC%9A%E5%90%8C%E4%B8%80%E4%B8%AA%E5%9F%BA%E5%87%86%E8%BF%9E%E8%B7%91-5-%E8%BD%AE"><span class="nav-text">3.1 实测：同一个基准连跑 5 轮</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E5%92%8C-%E2%91%A4-%E7%9A%84%E6%95%B0%E6%8D%AE%E5%AF%B9%E4%B8%8A%E4%BA%86"><span class="nav-text">3.2 和 ⑤ 的数据对上了</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E5%85%AC%E5%B9%B3%E9%94%81%EF%BC%9A2-7-%E5%BE%AE%E7%A7%92%E4%B8%80%E6%AC%A1%EF%BC%88%E6%85%A2-340-%E5%80%8D%EF%BC%89"><span class="nav-text">4. 公平锁：2.7 微秒一次（慢 340 倍）</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E9%94%81%E6%B6%88%E9%99%A4%EF%BC%9AJIT-%E8%83%BD%E6%8A%8A%E9%94%81%E5%8F%98%E6%B2%A1"><span class="nav-text">5. 锁消除：JIT 能把锁变没</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#6-%E9%80%89%E5%9E%8B%E4%B8%8E%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81"><span class="nav-text">6. 选型与动手验证</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#6-1-%E4%B8%80%E5%BC%A0%E9%80%89%E5%9E%8B%E8%A1%A8"><span class="nav-text">6.1 一张选型表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-2-%E9%94%81%E9%80%89%E5%9E%8B%E7%9A%84%E5%88%A4%E6%96%AD%E6%A0%91"><span class="nav-text">6.2 锁选型的判断树</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-3-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E7%94%A8-JOL-%E7%9C%8B-mark-word"><span class="nav-text">6.3 动手验证：用 JOL 看 mark word</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E7%A1%AE%E8%AE%A4%E5%81%8F%E5%90%91%E9%94%81%E5%B7%B2%E7%A7%BB%E9%99%A4"><span class="nav-text">6.4 动手验证：确认偏向锁已移除</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-5-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E9%87%8F%E6%97%A0%E7%AB%9E%E4%BA%89%E4%B8%8E%E7%AB%9E%E4%BA%89%E7%9A%84%E9%94%81%E6%88%90%E6%9C%AC"><span class="nav-text">6.5 动手验证：量无竞争与竞争的锁成本</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#7-%E6%80%BB%E7%BB%93"><span class="nav-text">7. 总结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#7-1-%E9%9D%A2%E8%AF%95%E9%80%9F%E7%AD%94%E8%A1%A8"><span class="nav-text">7.1 面试速答表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-2-%E5%AE%9E%E6%88%98%E9%81%BF%E5%9D%91%E8%A1%A8"><span class="nav-text">7.2 实战避坑表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-3-%E5%B7%A5%E5%85%B7%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">7.3 工具速查表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-4-%E5%AE%9E%E6%93%8D%E5%BB%BA%E8%AE%AE"><span class="nav-text">7.4 实操建议</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">116</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">14</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">205</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+    <div class="sidebar-inner sidebar-blogroll">
+      <div class="links-of-blogroll animated">
+        <div class="links-of-blogroll-title"><i class="fa fa-globe fa-fw"></i>
+          Links
+        </div>
+        <ul class="links-of-blogroll-list">
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9wYXVsZ3JhaGFtLmNvbS9hcnRpY2xlcy5odG1s" title="https:&#x2F;&#x2F;paulgraham.com&#x2F;articles.html">paulgraham</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly93d3cuam9lbG9uc29mdHdhcmUuY29tLw==" title="https:&#x2F;&#x2F;www.joelonsoftware.com&#x2F;">Joel on Software</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9tYXJ0aW5mb3dsZXIuY29tLw==" title="https:&#x2F;&#x2F;martinfowler.com&#x2F;">Martin Flower</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly96aGFuZ3RpZWxlaS5jb20v" title="https:&#x2F;&#x2F;zhangtielei.com&#x2F;">zhangtielei</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhLWRlc2lnbi1wYXR0ZXJucy5jb20vemgv" title="https:&#x2F;&#x2F;java-design-patterns.com&#x2F;zh&#x2F;">Java Design Patterns</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9taWNyb3NlcnZpY2VzLmlvLw==" title="https:&#x2F;&#x2F;microservices.io&#x2F;">Microservice Architecture</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhZ3VpZGUuY24v" title="https:&#x2F;&#x2F;javaguide.cn&#x2F;">JavaGuide</span>
+            </li>
+        </ul>
+      </div>
+    </div>
+        <div class="pjax">
+        
+        <div class="sidebar-inner sidebar-post-related">
+          <div class="animated">
+              <div class="links-of-blogroll-title"><i class="fa fa-signs-post fa-fw"></i>
+    Related Posts
+  </div>
+  <ul class="popular-posts">
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/42dc269f.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-26</time>
+        <br>
+      AQS 与并发容器：size() 为什么不准
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/311a2032.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-26</time>
+        <br>
+      伪共享与缓存行：一个 @Contended 的 4 倍差距
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/ef5a2176.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-26</time>
+        <br>
+      原子性：i++ 的丢失与 CAS 的代价
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/4f3149da.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-25</time>
+        <br>
+      线程与调度：一次上下文切换值多少钱
+      </a>
+    </li>
+  </ul>
+
+          </div>
+        </div>
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-后端开发"><a href="/docs/nav/backend-dev-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-code fa-fw"></i>后端开发</a></li>
+
+
+      
+  <li class="menu-item menu-item-计算机基础"><a href="/docs/nav/cs-foundation-nav.html" rel="section"><i class="fa fa-desktop fa-fw"></i>计算机基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-ai-学习"><a href="/docs/nav/ai-learning-nav.html" rel="section"><i class="fa fa-robot fa-fw"></i>AI 学习</a></li>
+
+
+      
+  <li class="menu-item menu-item-项目实战"><a href="/docs/nav/5964f4da.html" rel="section"><i class="fa fa-flask fa-fw"></i>项目实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-misc"><a href="/docs/nav/misc-nav.html" rel="section"><i class="fa fa-box fa-fw"></i>Misc</a></li>
+
+
+      
+  <li class="menu-item menu-item-随笔·生活"><a href="/docs/nav/life-nav.html" rel="section"><i class="fa fa-feather fa-fw"></i>随笔·生活</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java"><a href="/docs/nav/java-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-coffee fa-fw"></i>Java</a></li>
+
+
+      
+  <li class="menu-item menu-item-框架"><a href="/docs/nav/framework-nav.html" rel="section"><i class="fa fa-th-large fa-fw"></i>框架</a></li>
+
+
+      
+  <li class="menu-item menu-item-数据存储"><a href="/docs/nav/data-storage-nav.html" rel="section"><i class="fa fa-hdd fa-fw"></i>数据存储</a></li>
+
+
+      
+  <li class="menu-item menu-item-中间件"><a href="/docs/nav/middleware-nav.html" rel="section"><i class="fa fa-cubes fa-fw"></i>中间件</a></li>
+
+
+      
+  <li class="menu-item menu-item-分布式与微服务"><a href="/docs/nav/distributed-nav.html" rel="section"><i class="fa fa-sitemap fa-fw"></i>分布式与微服务</a></li>
+
+
+      
+  <li class="menu-item menu-item-系统设计"><a href="/docs/nav/system-design-nav.html" rel="section"><i class="fa fa-pencil-ruler fa-fw"></i>系统设计</a></li>
+
+
+      
+  <li class="menu-item menu-item-部署运维"><a href="/docs/nav/devops-nav.html" rel="section"><i class="fa fa-terminal fa-fw"></i>部署运维</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java-核心基础"><a href="/post/6a6e612d.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Java 核心基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-java-并发编程"><a href="/docs/nav/java-concurrency-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-tasks fa-fw"></i>Java 并发编程</a></li>
+
+
+      
+  <li class="menu-item menu-item-jvm-原理与调优"><a href="/post/4e153c5e.html" rel="section"><i class="fa fa-file-text fa-fw"></i>JVM 原理与调优</a></li>
+
+
+      
+  <li class="menu-item menu-item-设计模式：15-个高频模式的实战内化"><a href="/post/67126.html" rel="section"><i class="fa fa-file-text fa-fw"></i>设计模式：15 个高频模式的实战内化</a></li>
+
+
+      
+  <li class="menu-item menu-item-java-开发实战速查"><a href="/post/be1f55d9.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Java 开发实战速查</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java-并发编程：从-jmm-到虚拟线程的系统化实战"><a href="/post/a3f81c2d.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Java 并发编程：从 JMM 到虚拟线程的系统化实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-①-从这里开始：把并发-bug-变成可复现的实验"><a href="/post/8ac324cd.html" rel="section"><i class="fa fa-file-text fa-fw"></i>① 从这里开始：把并发 bug 变成可复现的实验</a></li>
+
+
+      
+  <li class="menu-item menu-item-②-线程与调度：一次上下文切换值多少钱"><a href="/post/4f3149da.html" rel="section"><i class="fa fa-file-text fa-fw"></i>② 线程与调度：一次上下文切换值多少钱</a></li>
+
+
+      
+  <li class="menu-item menu-item-③-jmm：把「不可见」和「重排」亲手复现"><a href="/post/f092fe4.html" rel="section"><i class="fa fa-file-text fa-fw"></i>③ JMM：把「不可见」和「重排」亲手复现</a></li>
+
+
+      
+  <li class="menu-item menu-item-④-伪共享与缓存行：一个-@contended-的-4-倍差距"><a href="/post/311a2032.html" rel="section"><i class="fa fa-file-text fa-fw"></i>④ 伪共享与缓存行：一个 @Contended 的 4 倍差距</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑤-原子性：i++-的丢失与-cas-的代价"><a href="/post/ef5a2176.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑤ 原子性：i++ 的丢失与 CAS 的代价</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑥-锁的演化：偏向锁移除之后，synchronized-还慢吗"><a href="/post/347698f8.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑥ 锁的演化：偏向锁移除之后，synchronized 还慢吗</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑦-aqs-与并发容器：size()-为什么不准"><a href="/post/42dc269f.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑦ AQS 与并发容器：size() 为什么不准</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑧-线程池：core、max、queue-的组合陷阱"><a href="/post/b09d89b.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑧ 线程池：core、max、queue 的组合陷阱</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑨-并发工具与异步编排：completablefuture-的五个坑"><a href="/post/5489c9d2.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑨ 并发工具与异步编排：CompletableFuture 的五个坑</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑩-死锁与线程泄漏：从-jstack-到-jfr"><a href="/post/93f5ed7a.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑩ 死锁与线程泄漏：从 jstack 到 JFR</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑪-虚拟线程：pinning、吞吐与迁移代价"><a href="/post/aa676f55.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑪ 虚拟线程：pinning、吞吐与迁移代价</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑫-并发性能工程：容量、压测与全系列总表"><a href="/post/953dd446.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑫ 并发性能工程：容量、压测与全系列总表</a></li>
+
+
+    </ul>
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/347698f8.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="锁的演化：偏向锁移除之后，synchronized 还慢吗 | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          锁的演化：偏向锁移除之后，synchronized 还慢吗
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-10-26 02:00:00" itemprop="dateCreated datePublished" datetime="2026-10-26T02:00:00+08:00">2026-10-26</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/Java/" itemprop="url" rel="index"><span itemprop="name">Java</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>2.9k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>10 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><p><strong>JDK 21 里已经没有偏向锁了</strong>：<code>-XX:+PrintFlagsFinal | grep -i biased</code> 是空的，加 <code>-XX:+UseBiasedLocking</code> 直接报 <code>Unrecognized VM option</code>。这意味着「无竞争时 synchronized 几乎免费」这条老经验，在 21 上要重新校准。</p>
+<p>用 JOL 能看到锁的三个真实状态：未加锁是 <code>non-biasable</code>、<code>synchronized</code> 内是 <strong>thin lock</strong>（指向 Lock Record 的指针）、有竞争后膨胀成 <strong>fat lock</strong>（ObjectMonitor）——而且<strong>膨胀之后不会退回去</strong>。</p>
+<blockquote>
+<p><strong>系列地图（Java 并发实战路线，12 篇）</strong></p>
+<p>① 实验台与基线 → ② 线程与调度 → ③ JMM：可见性与重排 → ④ 伪共享与缓存行 → ⑤ 原子性与 CAS → ⑥ <strong>锁的演化（本文）</strong> → ⑦ AQS 与并发容器 → ⑧ 线程池参数 → ⑨ 并发工具与异步编排 → ⑩ 死锁与线程泄漏 → ⑪ 虚拟线程 → ⑫ 并发性能工程</p>
+<p>与前后篇的关系：⑤ 的「64 线程下 synchronized 与 AtomicLong 打平」本文给出解释（都卡在缓存行争用）；⑦ 会接着讲 AQS 与 <code>ReentrantLock</code> 的内部。</p>
+</blockquote>
+<h2 id="1-四种状态：JOL-实测"><a href="#1-四种状态：JOL-实测" class="headerlink" title="1. 四种状态：JOL 实测"></a>1. 四种状态：JOL 实测</h2><p>用 <code>jol-core 0.17</code> 打印对象头（mark word）：</p>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>Mark Word</th>
+<th>JOL 解读</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>新建对象</td>
+<td><code>0x0000000000000001</code></td>
+<td><strong>non-biasable</strong>；age: 0</td>
+</tr>
+<tr>
+<td><code>synchronized</code> 内（无竞争）</td>
+<td><code>0x000000016d892ad0</code></td>
+<td><strong>thin lock</strong>（指向 Lock Record）</td>
+</tr>
+<tr>
+<td>调用过 <code>hashCode()</code></td>
+<td><code>0x0000000066d33a01</code></td>
+<td>hash: <code>0x0066d33a</code></td>
+</tr>
+<tr>
+<td>有竞争时</td>
+<td><code>0x00000009fcd1f1e2</code></td>
+<td><strong>fat lock</strong>（ObjectMonitor）</td>
+</tr>
+<tr>
+<td>竞争结束后</td>
+<td><code>0x00000009fcd1f1e2</code></td>
+<td><strong>仍是 fat lock，不回退</strong></td>
+</tr>
+</tbody></table>
+<pre class="mermaid">stateDiagram-v2
+    [*] --> Unlocked: new Object()
+    Unlocked --> Thin: synchronized (no contention)
+    Thin --> Fat: contention detected
+    Fat --> Fat: never reverts
+    Unlocked --> Hashed: hashCode()
+    Thin --> Fat: hashCode() + contention
+    note right of Unlocked: non-biasable (JDK 21)</pre>
+
+<h3 id="1-1-「non-biasable」是什么意思"><a href="#1-1-「non-biasable」是什么意思" class="headerlink" title="1.1 「non-biasable」是什么意思"></a>1.1 「non-biasable」是什么意思</h3><p>JOL 输出的 <code>non-biasable</code> 直接说明这个 JVM 的 mark word 里<strong>没有偏向锁位</strong>。</p>
+<table>
+<thead>
+<tr>
+<th>版本</th>
+<th>偏向锁状态</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>JDK 8~14</td>
+<td>默认开启（<code>-XX:+UseBiasedLocking</code>）</td>
+</tr>
+<tr>
+<td>JDK 15</td>
+<td>标记废弃（JEP 374）</td>
+</tr>
+<tr>
+<td><strong>JDK 18+</strong></td>
+<td><strong>移除</strong></td>
+</tr>
+<tr>
+<td>JDK 21</td>
+<td>参数都不存在（本文实测）</td>
+</tr>
+</tbody></table>
+<p><strong>影响</strong>：以前「始终只有一个线程访问的锁」几乎零成本；现在每次 <code>synchronized</code> 至少要走一次 CAS 把 mark word 换成 thin lock。</p>
+<h2 id="2-无竞争时，synchronized-到底多贵"><a href="#2-无竞争时，synchronized-到底多贵" class="headerlink" title="2. 无竞争时，synchronized 到底多贵"></a>2. 无竞争时，synchronized 到底多贵</h2><h3 id="2-1-实测：四种写法（ns-op，每线程-100-万次，3-轮取最优）"><a href="#2-1-实测：四种写法（ns-op，每线程-100-万次，3-轮取最优）" class="headerlink" title="2.1 实测：四种写法（ns&#x2F;op，每线程 100 万次，3 轮取最优）"></a>2.1 实测：四种写法（ns&#x2F;op，每线程 100 万次，3 轮取最优）</h3><table>
+<thead>
+<tr>
+<th>线程数</th>
+<th><code>synchronized</code></th>
+<th><code>ReentrantLock</code>（非公平）</th>
+<th>无锁（对照）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td><strong>1.10</strong></td>
+<td>3.40</td>
+<td>0.05</td>
+</tr>
+<tr>
+<td>4</td>
+<td>5.80~6.5（稳定后）</td>
+<td>7.94</td>
+<td>0.03</td>
+</tr>
+<tr>
+<td>16</td>
+<td>6.46</td>
+<td>7.95</td>
+<td>0.02</td>
+</tr>
+<tr>
+<td>64</td>
+<td>5.94</td>
+<td>6.93</td>
+<td>0.02</td>
+</tr>
+</tbody></table>
+<p><strong>三个结论</strong>：</p>
+<ol>
+<li><strong>无竞争时 <code>synchronized</code> 只要 1.10 ns</strong>——比 <code>ReentrantLock</code> 快 3 倍（后者每次 lock&#x2F;unlock 都要一次 AQS CAS）；</li>
+<li><strong>有竞争后两者打平</strong>（6~8 ns），瓶颈变成缓存行争用（④ 的机制）；</li>
+<li><strong>无锁是 0.02~0.05 ns</strong>，因为它被 JIT 折叠了（不代表真实成本，只作为对照）。</li>
+</ol>
+<h3 id="2-2-深挖：为什么-ReentrantLock-无竞争也慢-3-倍"><a href="#2-2-深挖：为什么-ReentrantLock-无竞争也慢-3-倍" class="headerlink" title="2.2 深挖：为什么 ReentrantLock 无竞争也慢 3 倍"></a>2.2 深挖：为什么 <code>ReentrantLock</code> 无竞争也慢 3 倍</h3><pre class="mermaid">flowchart LR
+    S["synchronized&lt;br/>lock"] --> S1["CAS mark word&lt;br/>(thin lock)"] --> S2["CAS restore"]
+    R["ReentrantLock&lt;br/>lock"] --> R1["AQS CAS state&lt;br/>+ owner check"] --> R2["setState +&lt;br/>unparkSuccessor check"]</pre>
+
+<h3 id="2-2-深挖：为什么-ReentrantLock-无竞争也慢-3-倍-1"><a href="#2-2-深挖：为什么-ReentrantLock-无竞争也慢-3-倍-1" class="headerlink" title="2.2 深挖：为什么 ReentrantLock 无竞争也慢 3 倍"></a>2.2 深挖：为什么 <code>ReentrantLock</code> 无竞争也慢 3 倍</h3><table>
+<thead>
+<tr>
+<th>步骤</th>
+<th><code>synchronized</code></th>
+<th><code>ReentrantLock</code></th>
+</tr>
+</thead>
+<tbody><tr>
+<td>加锁</td>
+<td>一次 CAS（thin lock）</td>
+<td><code>compareAndSetState</code> + 检查持有者</td>
+</tr>
+<tr>
+<td>解锁</td>
+<td>一次 CAS（恢复 mark word）</td>
+<td><code>setState</code> + <code>unparkSuccessor</code> 检查</td>
+</tr>
+<tr>
+<td>对象开销</td>
+<td>0（复用对象头）</td>
+<td>一个 <code>Sync</code> 对象 + state + 队列节点</td>
+</tr>
+</tbody></table>
+<p><strong>所以「<code>ReentrantLock</code> 比 <code>synchronized</code> 快」是 JDK 5 时代的话</strong>。JDK 6 之后 <code>synchronized</code> 做了大量优化，无竞争场景反而更轻。</p>
+<h2 id="3-有竞争时：首次膨胀-31-ns，之后-6-ns"><a href="#3-有竞争时：首次膨胀-31-ns，之后-6-ns" class="headerlink" title="3. 有竞争时：首次膨胀 31 ns，之后 6 ns"></a>3. 有竞争时：首次膨胀 31 ns，之后 6 ns</h2><h3 id="3-1-实测：同一个基准连跑-5-轮"><a href="#3-1-实测：同一个基准连跑-5-轮" class="headerlink" title="3.1 实测：同一个基准连跑 5 轮"></a>3.1 实测：同一个基准连跑 5 轮</h3><figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">threads=4  synchronized 5 轮: 30.88  33.25  6.46  5.78  5.80 ns/op</span><br><span class="line">threads=16 synchronized 5 轮:  6.13   6.53  6.46  5.99  6.36 ns/op</span><br></pre></td></tr></table></figure>
+
+<p><strong>前两轮 30 ns，之后掉到 6 ns</strong>。原因是<strong>锁膨胀（thin → fat）</strong>：第一次遇到真正竞争时，JVM 要分配一个 ObjectMonitor、把等待线程挂到队列上，这一步是一次性成本；膨胀完成后（JOL 实测第 5 步仍是 fat lock），后续都走轻量路径。</p>
+<pre class="mermaid">sequenceDiagram
+    participant T1
+    participant T2
+    participant L as ObjectMonitor
+    T1->>T1: thin lock (CAS mark word)
+    T2->>T2: CAS fails, spins
+    T2->>L: inflate (allocate monitor)
+    Note over L: 一次性成本 ~25 ns
+    T1->>L: release, wake T2
+    T2->>L: acquire
+    Note over L: 之后稳定 ~6 ns/op</pre>
+
+<p><strong>生产含义</strong>：锁膨胀是「一次性」的，不用担心；但它<strong>不会退回</strong>——一个曾经竞争激烈的锁，之后即使没人抢也走 fat lock 路径（比 thin 慢一点点）。这也是为什么「先把热点锁拆掉，再谈优化」比「反复调 JVM 参数」有效。</p>
+<h3 id="3-2-和-⑤-的数据对上了"><a href="#3-2-和-⑤-的数据对上了" class="headerlink" title="3.2 和 ⑤ 的数据对上了"></a>3.2 和 ⑤ 的数据对上了</h3><p>⑤ 测出 64 线程下 <code>synchronized</code>（5.98）与 <code>AtomicLong</code>（5.54）打平。这里能解释：<strong>两者的瓶颈都是「多个核争抢同一条缓存行」</strong>，锁和 CAS 只是不同包装。</p>
+<h2 id="4-公平锁：2-7-微秒一次（慢-340-倍）"><a href="#4-公平锁：2-7-微秒一次（慢-340-倍）" class="headerlink" title="4. 公平锁：2.7 微秒一次（慢 340 倍）"></a>4. 公平锁：2.7 微秒一次（慢 340 倍）</h2><table>
+<thead>
+<tr>
+<th>锁类型</th>
+<th>4 线程（ns&#x2F;op）</th>
+<th>16 线程（ns&#x2F;op）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>ReentrantLock(false)</code>（非公平）</td>
+<td>7.94</td>
+<td>7.95</td>
+</tr>
+<tr>
+<td><strong><code>ReentrantLock(true)</code>（公平）</strong></td>
+<td><strong>2,683</strong></td>
+<td><strong>2,800</strong></td>
+</tr>
+</tbody></table>
+<p><strong>公平锁比非公平锁慢约 340 倍</strong>。原因是公平锁每次解锁都要「把锁交给队列里的下一个线程」并唤醒它（涉及 <code>LockSupport.unpark</code> 与内核调度），相当于每次加锁都做一次线程切换（①实测切换 2.43 µs）。</p>
+<table>
+<thead>
+<tr>
+<th>选择</th>
+<th>建议</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>绝大多数业务</td>
+<td><strong>非公平锁</strong>（默认）</td>
+</tr>
+<tr>
+<td>严格 FIFO 需求的场景</td>
+<td>公平锁，但要接受 300+ 倍开销</td>
+</tr>
+<tr>
+<td>想「减少饥饿」</td>
+<td>用非公平锁 + 合理超时，而不是公平锁</td>
+</tr>
+</tbody></table>
+<h2 id="5-锁消除：JIT-能把锁变没"><a href="#5-锁消除：JIT-能把锁变没" class="headerlink" title="5. 锁消除：JIT 能把锁变没"></a>5. 锁消除：JIT 能把锁变没</h2><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; <span class="number">20_000_000</span>; i++) &#123;</span><br><span class="line">    <span class="type">Object</span> <span class="variable">o</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">Object</span>();     <span class="comment">// 不逃逸</span></span><br><span class="line">    <span class="keyword">synchronized</span> (o) &#123; plain++; &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>实测</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>2000 万次耗时</td>
+<td><strong>3 ms</strong></td>
+</tr>
+<tr>
+<td>折算</td>
+<td><strong>0.20 ns&#x2F;op</strong></td>
+</tr>
+</tbody></table>
+<p><strong>JIT 做了什么</strong>：逃逸分析发现 <code>o</code> 不会逃出方法，于是把「加锁&#x2F;解锁」直接删掉，连对象分配都可能被标量替换。<strong>这就是「锁消除」</strong>——代码里写了 <code>synchronized</code>，机器码里却没有。</p>
+<table>
+<thead>
+<tr>
+<th>能消除的前提</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>对象不逃逸</td>
+<td>只在方法内使用</td>
+</tr>
+<tr>
+<td>锁对象唯一</td>
+<td>每个迭代新建</td>
+</tr>
+<tr>
+<td>没有同步副作用</td>
+<td>临界区里没有 <code>wait/notify</code></td>
+</tr>
+</tbody></table>
+<p><strong>反例</strong>：如果 <code>o</code> 是成员变量或传给了别的方法，锁就消除不了。</p>
+<h2 id="6-选型与动手验证"><a href="#6-选型与动手验证" class="headerlink" title="6. 选型与动手验证"></a>6. 选型与动手验证</h2><h3 id="6-1-一张选型表"><a href="#6-1-一张选型表" class="headerlink" title="6.1 一张选型表"></a>6.1 一张选型表</h3><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>选择</th>
+<th>依据（本文实测）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>无竞争或低竞争</td>
+<td><code>synchronized</code></td>
+<td>1.10 ns&#x2F;op，最轻</td>
+</tr>
+<tr>
+<td>需要超时&#x2F;可中断&#x2F;公平</td>
+<td><code>ReentrantLock</code></td>
+<td>支持 <code>tryLock(timeout)</code>，但无竞争慢 3 倍</td>
+</tr>
+<tr>
+<td>需要读写分离</td>
+<td><code>ReentrantReadWriteLock</code> &#x2F; <code>StampedLock</code></td>
+<td>⑦ 会讲</td>
+</tr>
+<tr>
+<td>竞争激烈的计数</td>
+<td><code>LongAdder</code>（⑤）</td>
+<td>64 线程 0.34 ns&#x2F;op</td>
+</tr>
+<tr>
+<td>严格 FIFO</td>
+<td>公平锁</td>
+<td><strong>2.7 µs&#x2F;次，谨慎</strong></td>
+</tr>
+</tbody></table>
+<h3 id="6-2-锁选型的判断树"><a href="#6-2-锁选型的判断树" class="headerlink" title="6.2 锁选型的判断树"></a>6.2 锁选型的判断树</h3><pre class="mermaid">flowchart TD
+    A["Need mutual exclusion"] --> B{"low contention?"}
+    B -- yes --> C["synchronized&lt;br/>1.1 ns/op"]
+    B -- no --> D{"need tryLock /&lt;br/>timeout / Condition?"}
+    D -- yes --> E["ReentrantLock (unfair)&lt;br/>~7 ns/op"]
+    D -- no --> F["synchronized&lt;br/>~6 ns/op after inflation"]
+    E --> G{"strict FIFO?"}
+    G -- yes --> H["fair lock&lt;br/>2.7 us/op (340x)"]
+    G -- no --> I["keep unfair"]</pre>
+
+<h3 id="6-3-动手验证：用-JOL-看-mark-word"><a href="#6-3-动手验证：用-JOL-看-mark-word" class="headerlink" title="6.3 动手验证：用 JOL 看 mark word"></a>6.3 动手验证：用 JOL 看 mark word</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">mkdir</span> -p /tmp/conc &amp;&amp; <span class="built_in">cd</span> /tmp/conc</span><br><span class="line">JOL=$(<span class="built_in">ls</span> ~/.m2/repository/org/openjdk/jol/jol-core/0.17/jol-core-0.17.jar)</span><br><span class="line"><span class="built_in">cat</span> &gt; Jol.java &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line">import org.openjdk.jol.info.ClassLayout;</span><br><span class="line">public class Jol &#123;</span><br><span class="line">    static void show(String tag, Object o) &#123;</span><br><span class="line">        <span class="keyword">for</span> (String l : ClassLayout.parseInstance(o).toPrintable().<span class="built_in">split</span>(<span class="string">&quot;\n&quot;</span>))</span><br><span class="line">            <span class="keyword">if</span> (l.contains(<span class="string">&quot;object header: mark&quot;</span>)) System.out.println(tag + <span class="string">&quot; -&gt; &quot;</span> + l.trim());</span><br><span class="line">    &#125;</span><br><span class="line">    public static void main(String[] a) throws Exception &#123;</span><br><span class="line">        Object o = new Object();</span><br><span class="line">        show(<span class="string">&quot;新建      &quot;</span>, o);</span><br><span class="line">        synchronized (o) &#123; show(<span class="string">&quot;sync 内   &quot;</span>, o); &#125;</span><br><span class="line">        o.hashCode();</span><br><span class="line">        show(<span class="string">&quot;hashCode后&quot;</span>, o);</span><br><span class="line">        Object lock = new Object();</span><br><span class="line">        Thread t = new Thread(() -&gt; &#123; synchronized (lock) &#123; try &#123; Thread.sleep(<span class="number">300</span>); &#125; catch (Exception e) &#123;&#125; &#125; &#125;);</span><br><span class="line">        t.start(); Thread.sleep(<span class="number">50</span>);</span><br><span class="line">        Thread t2 = new Thread(() -&gt; &#123; synchronized (lock) &#123; &#125; &#125;);</span><br><span class="line">        t2.start(); Thread.sleep(<span class="number">50</span>);</span><br><span class="line">        show(&quot;竞争时    &quot;, lock);</span><br><span class="line">        t.join(); t2.join();</span><br><span class="line">        show(&quot;竞争结束后&quot;, lock);</span><br><span class="line">        System.exit(<span class="number">0</span>);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line">EOF</span><br><span class="line">javac -cp &quot;<span class="variable">$JOL</span>&quot; Jol.java &amp;&amp; java -cp &quot;.:<span class="variable">$JOL</span>&quot; Jol <span class="number">2</span>&gt;&amp;<span class="number">1</span> | grep &quot;-&gt;&quot;</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：新建是 <code>non-biasable</code>；<code>synchronized</code> 内是 <code>thin lock</code>；有竞争后变 <code>fat lock</code>；竞争结束后**还是 <code>fat lock</code>**。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>看到 <code>biased</code> 字样 → 你的 JDK ≤ 17，本文结论需要重新校准；</li>
+<li>竞争后仍是 <code>thin lock</code> → 竞争没造出来（两个线程没真正重叠），加长持有时间再试。</li>
+</ul>
+<h3 id="6-4-动手验证：确认偏向锁已移除"><a href="#6-4-动手验证：确认偏向锁已移除" class="headerlink" title="6.4 动手验证：确认偏向锁已移除"></a>6.4 动手验证：确认偏向锁已移除</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">java -XX:+PrintFlagsFinal -version 2&gt;/dev/null | grep -i biased        <span class="comment"># 期望：无输出</span></span><br><span class="line">java -XX:+UseBiasedLocking -version 2&gt;&amp;1 | <span class="built_in">head</span> -2                      <span class="comment"># 期望：Unrecognized VM option</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：第一条空输出，第二条报错。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>第一条能查到 <code>UseBiasedLocking</code> → JDK 15~17，还能用参数开关；</li>
+<li>两条都正常（无输出 + 报错）→ JDK 18+，偏向锁彻底移除。</li>
+</ul>
+<h3 id="6-5-动手验证：量无竞争与竞争的锁成本"><a href="#6-5-动手验证：量无竞争与竞争的锁成本" class="headerlink" title="6.5 动手验证：量无竞争与竞争的锁成本"></a>6.5 动手验证：量无竞争与竞争的锁成本</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br><span class="line">39</span><br><span class="line">40</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> /tmp/conc</span><br><span class="line"><span class="built_in">cat</span> &gt; LockCost.java &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line">import java.util.concurrent.*;</span><br><span class="line">import java.util.concurrent.locks.*;</span><br><span class="line">public class LockCost &#123;</span><br><span class="line">    static long plain; static final Object L = new Object(); static volatile long SINK;</span><br><span class="line">    static final ReentrantLock RL = new ReentrantLock();</span><br><span class="line">    public static void main(String[] a) throws Exception &#123;</span><br><span class="line">        Thread wd = new Thread(() -&gt; &#123; try &#123; Thread.sleep(<span class="number">60</span>_000); &#125; catch (Exception e) &#123;&#125; System.out.println(&quot;WATCHDOG&quot;); System.exit(<span class="number">2</span>); &#125;);</span><br><span class="line">        wd.setDaemon(true); wd.start();</span><br><span class="line">        int ops = <span class="number">1</span>_000_000;</span><br><span class="line">        System.out.printf(&quot;%-<span class="number">8</span>s %-<span class="number">14</span>s %-<span class="number">14</span>s%n&quot;, &quot;threads&quot;, &quot;synchronized&quot;, &quot;ReentrantLock&quot;);</span><br><span class="line">        for (int th : new int[]&#123;<span class="number">1</span>, <span class="number">4</span>, <span class="number">16</span>&#125;) &#123;</span><br><span class="line">            System.out.printf(&quot;%-<span class="number">8</span>d %-<span class="number">14.2</span>f %-<span class="number">14.2</span>f%n&quot;, th, run(th, ops, true), run(th, ops, false));</span><br><span class="line">        &#125;</span><br><span class="line">        SINK = plain; System.<span class="built_in">exit</span>(0);</span><br><span class="line">    &#125;</span><br><span class="line">    static double run(int th, int ops, boolean useSync) throws Exception &#123;</span><br><span class="line">        long best = Long.MAX_VALUE;</span><br><span class="line">        <span class="keyword">for</span> (int r = 0; r &lt; 3; r++) &#123;</span><br><span class="line">            CyclicBarrier b = new CyclicBarrier(th);</span><br><span class="line">            Thread[] ts = new Thread[th];</span><br><span class="line">            <span class="keyword">for</span> (int i = 0; i &lt; th; i++) &#123;</span><br><span class="line">                ts[i] = new Thread(() -&gt; &#123;</span><br><span class="line">                    try &#123; b.await(); &#125; catch (Exception e) &#123;&#125;</span><br><span class="line">                    if (useSync) &#123; for (int k = <span class="number">0</span>; k &lt; ops; k++) synchronized (L) &#123; plain++; &#125; &#125;</span><br><span class="line">                    else &#123; for (int k = <span class="number">0</span>; k &lt; ops; k++) &#123; RL.lock(); try &#123; plain++; &#125; finally &#123; RL.unlock(); &#125; &#125; &#125;</span><br><span class="line">                &#125;);</span><br><span class="line">                ts[i].start();</span><br><span class="line">            &#125;</span><br><span class="line">            long s = System.nanoTime();</span><br><span class="line">            for (Thread t : ts) t.join(<span class="number">20</span>_000);</span><br><span class="line">            best = Math.min(best, System.nanoTime() - s);</span><br><span class="line">        &#125;</span><br><span class="line">        SINK = plain;</span><br><span class="line">        return best / ((double) th * ops);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line">EOF</span><br><span class="line">javac LockCost.java &amp;&amp; java LockCost</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：1 线程 <code>synchronized</code> 约 1 ns，<code>ReentrantLock</code> 约 3 ns；16 线程两者都到 6~8 ns。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>1 线程就 &gt; 20 ns → 你的机器在省电降频，或 JIT 没编译到；</li>
+<li>高线程数下某个值异常高（&gt;100 ns）→ 可能发生了锁膨胀的过渡期，多跑几轮取稳定值。</li>
+</ul>
+<h2 id="7-总结"><a href="#7-总结" class="headerlink" title="7. 总结"></a>7. 总结</h2><h3 id="7-1-面试速答表"><a href="#7-1-面试速答表" class="headerlink" title="7.1 面试速答表"></a>7.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>synchronized 的锁升级过程</td>
+<td>无锁 → 偏向锁（已移除）→ 轻量级锁（thin lock）→ 重量级锁（fat lock）</td>
+</tr>
+<tr>
+<td>JDK 21 还有偏向锁吗</td>
+<td>没有，JDK 18 移除，参数都不存在（本文实测）</td>
+</tr>
+<tr>
+<td>mark word 里能看到什么</td>
+<td>锁状态、hashCode、GC age、是否偏向（21 上显示 non-biasable）</td>
+</tr>
+<tr>
+<td>锁膨胀后能退回吗</td>
+<td>不能，实测竞争结束后仍是 fat lock</td>
+</tr>
+<tr>
+<td>synchronized 无竞争多贵</td>
+<td>1.10 ns&#x2F;op（本文），比 ReentrantLock 快 3 倍</td>
+</tr>
+<tr>
+<td>有竞争时呢</td>
+<td>6~8 ns&#x2F;op，与 ReentrantLock 打平</td>
+</tr>
+<tr>
+<td>公平锁为什么慢</td>
+<td>每次解锁要唤醒队列里的下一个线程，实测 2.7 µs&#x2F;次（340 倍）</td>
+</tr>
+<tr>
+<td>锁消除是什么</td>
+<td>JIT 通过逃逸分析把不必要的人为锁直接删掉，实测 0.20 ns&#x2F;op</td>
+</tr>
+<tr>
+<td>什么时候用 ReentrantLock</td>
+<td>需要超时、可中断、公平或 Condition</td>
+</tr>
+<tr>
+<td>为什么 4 线程首次测出 30 ns</td>
+<td>锁膨胀一次性成本，之后稳定在 6 ns</td>
+</tr>
+</tbody></table>
+<h3 id="7-2-实战避坑表"><a href="#7-2-实战避坑表" class="headerlink" title="7.2 实战避坑表"></a>7.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>以为 synchronized 很慢就换 ReentrantLock</td>
+<td>沿用 JDK 5 的结论</td>
+<td>JDK 6+ 无竞争时 synchronized 更快</td>
+</tr>
+<tr>
+<td>用了公平锁后吞吐暴跌</td>
+<td>公平锁要线程交接</td>
+<td>改非公平锁，用超时缓解饥饿</td>
+</tr>
+<tr>
+<td>锁竞争导致 CPU 高</td>
+<td>自旋 + 缓存行争用</td>
+<td>缩小临界区，或换 LongAdder&#x2F;分段</td>
+</tr>
+<tr>
+<td>热点锁一直慢</td>
+<td>已膨胀成 fat lock 且不回退</td>
+<td>拆锁、减小粒度，别指望参数拯救</td>
+</tr>
+<tr>
+<td>写了 <code>synchronized</code> 但没生效</td>
+<td>锁对象不唯一&#x2F;不逃逸被消除</td>
+<td>检查锁对象是否真的共享</td>
+</tr>
+</tbody></table>
+<h3 id="7-3-工具速查表"><a href="#7-3-工具速查表" class="headerlink" title="7.3 工具速查表"></a>7.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>判定标准</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>jol-core</code></td>
+<td>mark word 与对象布局</td>
+<td>thin&#x2F;fat&#x2F;non-biasable</td>
+</tr>
+<tr>
+<td><code>-XX:+PrintFlagsFinal | grep biased</code></td>
+<td>偏向锁参数</td>
+<td>空 &#x3D; 已移除</td>
+</tr>
+<tr>
+<td>JFR <code>jdk.JavaMonitorEnter</code></td>
+<td>等锁事件与时长</td>
+<td>duration 到 ms 级要处理</td>
+</tr>
+<tr>
+<td><code>jcmd Thread.print</code></td>
+<td>BLOCKED 线程</td>
+<td>大量 BLOCKED &#x3D; 锁竞争</td>
+</tr>
+</tbody></table>
+<h3 id="7-4-实操建议"><a href="#7-4-实操建议" class="headerlink" title="7.4 实操建议"></a>7.4 实操建议</h3><ol>
+<li>**默认用 <code>synchronized</code>**，除非你需要超时&#x2F;可中断&#x2F;Condition。</li>
+<li><strong>别用公平锁</strong>，除非业务真的要求 FIFO——代价是 340 倍。</li>
+<li><strong>锁膨胀不可逆</strong>，热点锁膨胀后一直是 fat，优化方向是「拆锁」而不是「调参数」。</li>
+<li><strong>临界区里不要有 IO&#x2F;日志</strong>，那会把 6 ns 的锁变成毫秒级。</li>
+<li><strong>用 JOL 看一次真实状态</strong>，比背「锁升级」的文字描述有用得多。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告</strong>：⑦《AQS 与并发容器：<code>size()</code> 为什么不准》。本文的 <code>ReentrantLock</code> 背后就是 AQS，下一篇拆开它：state + CLH 队列怎么工作、为什么 <code>ConcurrentHashMap.size()</code> 只是一个估计值、<code>CopyOnWriteArrayList</code> 适合什么场景（以及它的写放大有多少）。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/Java/" rel="tag"># Java</a>
+              <a href="/tags/%E9%9D%A2%E8%AF%95/" rel="tag"># 面试</a>
+              <a href="/tags/%E5%B9%B6%E5%8F%91/" rel="tag"># 并发</a>
+              <a href="/tags/synchronized/" rel="tag"># synchronized</a>
+              <a href="/tags/%E9%94%81%E5%8D%87%E7%BA%A7/" rel="tag"># 锁升级</a>
+              <a href="/tags/JOL/" rel="tag"># JOL</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/ef5a2176.html" rel="prev" title="原子性：i++ 的丢失与 CAS 的代价">
+                  <i class="fa fa-angle-left"></i> 原子性：i++ 的丢失与 CAS 的代价
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/post/42dc269f.html" rel="next" title="AQS 与并发容器：size() 为什么不准">
+                  AQS 与并发容器：size() 为什么不准 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">778k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">47:09</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
+</html>

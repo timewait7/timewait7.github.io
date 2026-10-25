@@ -1,0 +1,1055 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="死锁能被 JVM 直接检测出来：ThreadMXBean.findDeadlockedThreads() 返回 2 个线程，jcmd Thread.print 直接打印 Found one Java-level deadlock 和完整的「谁在等谁」链条。但JFR 抓不到已经发生的死锁（实测 jdk.JavaMonitorEnter 0 事件），因为它只记录「从录制开始后新发生的等待」。 这篇把两">
+<meta property="og:type" content="article">
+<meta property="og:title" content="死锁与线程泄漏：从 jstack 到 JFR">
+<meta property="og:url" content="http://timewait7.github.io/post/93f5ed7a.html">
+<meta property="og:site_name" content="知行栈">
+<meta property="og:description" content="死锁能被 JVM 直接检测出来：ThreadMXBean.findDeadlockedThreads() 返回 2 个线程，jcmd Thread.print 直接打印 Found one Java-level deadlock 和完整的「谁在等谁」链条。但JFR 抓不到已经发生的死锁（实测 jdk.JavaMonitorEnter 0 事件），因为它只记录「从录制开始后新发生的等待」。 这篇把两">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-10-25T22:00:00.000Z">
+<meta property="article:modified_time" content="2026-10-25T06:13:18.120Z">
+<meta property="article:tag" content="Java">
+<meta property="article:tag" content="面试">
+<meta property="article:tag" content="死锁">
+<meta property="article:tag" content="并发">
+<meta property="article:tag" content="JFR">
+<meta property="article:tag" content="ThreadLocal">
+<meta property="article:tag" content="jstack">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/93f5ed7a.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/93f5ed7a.html","path":"post/93f5ed7a.html","title":"死锁与线程泄漏：从 jstack 到 JFR"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>死锁与线程泄漏：从 jstack 到 JFR | 知行栈</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<!-- hexo injector head_end start --><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
+</style><style>
+/* 菜单链高亮：sub-menu 祖先（同主题 .menu-item-active 的 Pisces 规则） */
+.sub-menu .menu-item a.menu-chain-active {
+  border-bottom-color: #fc6423;
+  color: #fc6423;
+}
+.sub-menu .menu-item a.menu-chain-active:hover {
+  border-bottom-color: #fc6423;
+}
+/* 菜单链高亮：main-menu 祖先（同主题 hover/active 的背景规则） */
+.main-menu .menu-item a.menu-chain-active {
+  background: var(--menu-item-bg-color);
+}
+</style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">知行栈</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section" class="menu-chain-active"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>Categories</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-%E4%B8%A4%E7%B1%BB%E4%BA%8B%E6%95%85%EF%BC%8C%E4%B8%80%E7%9C%BC%E5%8C%BA%E5%88%86"><span class="nav-text">1. 两类事故，一眼区分</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E6%AD%BB%E9%94%81%EF%BC%9A%E4%B8%A4%E6%8A%8A%E9%94%81%E4%BA%92%E7%9B%B8%E7%AD%89"><span class="nav-text">2. 死锁：两把锁互相等</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E5%A4%8D%E7%8E%B0"><span class="nav-text">2.1 复现</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E4%B8%89%E7%A7%8D%E6%A3%80%E6%B5%8B%E6%89%8B%E6%AE%B5"><span class="nav-text">2.2 三种检测手段</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-%E6%AD%BB%E9%94%81%E5%BD%A2%E6%88%90%E7%9A%84%E6%97%B6%E5%BA%8F"><span class="nav-text">2.3 死锁形成的时序</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-4-JFR-%E4%B8%BA%E4%BB%80%E4%B9%88%E6%8A%93%E4%B8%8D%E5%88%B0"><span class="nav-text">2.4 JFR 为什么抓不到</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-5-%E4%B8%89%E7%A7%8D%E8%A7%A3%E6%B3%95"><span class="nav-text">2.5 三种解法</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E7%BA%BF%E7%A8%8B%E6%B3%84%E6%BC%8F%EF%BC%9A%E6%B1%A0%E5%A4%96%E5%BB%BA%E7%BA%BF%E7%A8%8B"><span class="nav-text">3. 线程泄漏：池外建线程</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E5%AE%9E%E6%B5%8B%EF%BC%9A300-%E4%B8%AA%E7%BA%BF%E7%A8%8B"><span class="nav-text">3.1 实测：300 个线程</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E4%B8%89%E7%A7%8D%E6%B3%84%E6%BC%8F%E6%BA%90"><span class="nav-text">3.2 三种泄漏源</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-ThreadLocal-%E6%B3%84%E6%BC%8F%EF%BC%9A%E6%B1%A0%E7%BA%BF%E7%A8%8B%E4%B8%B2%E6%95%B0%E6%8D%AE"><span class="nav-text">3.3 ThreadLocal 泄漏：池线程串数据</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-5-%E5%88%86%E9%92%9F%E5%AE%9A%E4%BD%8D%E9%93%BE%E6%9D%A1"><span class="nav-text">4. 5 分钟定位链条</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%9B%9B%E4%B8%AA%E5%8F%AF%E5%A4%8D%E7%8E%B0%E5%AE%9E%E9%AA%8C"><span class="nav-text">5. 动手验证：四个可复现实验</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%A4%8D%E7%8E%B0%E5%B9%B6%E6%A3%80%E6%B5%8B%E6%AD%BB%E9%94%81"><span class="nav-text">5.1 动手验证：复现并检测死锁</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E7%BB%9F%E4%B8%80%E9%94%81%E9%A1%BA%E5%BA%8F%E8%A7%A3%E5%86%B3%E6%AD%BB%E9%94%81"><span class="nav-text">5.2 动手验证：统一锁顺序解决死锁</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E7%BA%BF%E7%A8%8B%E6%B3%84%E6%BC%8F%E4%B8%8E-ThreadLocal-%E4%B8%B2%E6%95%B0%E6%8D%AE"><span class="nav-text">5.3 动手验证：线程泄漏与 ThreadLocal 串数据</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E4%B8%89%E6%AC%A1%E9%87%87%E6%A0%B7%E5%AE%9A%E4%BD%8D%E5%8D%A1%E7%82%B9"><span class="nav-text">5.4 动手验证：三次采样定位卡点</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#6-%E6%80%BB%E7%BB%93"><span class="nav-text">6. 总结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#6-1-%E9%9D%A2%E8%AF%95%E9%80%9F%E7%AD%94%E8%A1%A8"><span class="nav-text">6.1 面试速答表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-2-%E5%AE%9E%E6%88%98%E9%81%BF%E5%9D%91%E8%A1%A8"><span class="nav-text">6.2 实战避坑表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-3-%E5%B7%A5%E5%85%B7%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">6.3 工具速查表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-4-%E5%AE%9E%E6%93%8D%E5%BB%BA%E8%AE%AE"><span class="nav-text">6.4 实操建议</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">116</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">14</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">205</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+    <div class="sidebar-inner sidebar-blogroll">
+      <div class="links-of-blogroll animated">
+        <div class="links-of-blogroll-title"><i class="fa fa-globe fa-fw"></i>
+          Links
+        </div>
+        <ul class="links-of-blogroll-list">
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9wYXVsZ3JhaGFtLmNvbS9hcnRpY2xlcy5odG1s" title="https:&#x2F;&#x2F;paulgraham.com&#x2F;articles.html">paulgraham</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly93d3cuam9lbG9uc29mdHdhcmUuY29tLw==" title="https:&#x2F;&#x2F;www.joelonsoftware.com&#x2F;">Joel on Software</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9tYXJ0aW5mb3dsZXIuY29tLw==" title="https:&#x2F;&#x2F;martinfowler.com&#x2F;">Martin Flower</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly96aGFuZ3RpZWxlaS5jb20v" title="https:&#x2F;&#x2F;zhangtielei.com&#x2F;">zhangtielei</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhLWRlc2lnbi1wYXR0ZXJucy5jb20vemgv" title="https:&#x2F;&#x2F;java-design-patterns.com&#x2F;zh&#x2F;">Java Design Patterns</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9taWNyb3NlcnZpY2VzLmlvLw==" title="https:&#x2F;&#x2F;microservices.io&#x2F;">Microservice Architecture</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhZ3VpZGUuY24v" title="https:&#x2F;&#x2F;javaguide.cn&#x2F;">JavaGuide</span>
+            </li>
+        </ul>
+      </div>
+    </div>
+        <div class="pjax">
+        
+        <div class="sidebar-inner sidebar-post-related">
+          <div class="animated">
+              <div class="links-of-blogroll-title"><i class="fa fa-signs-post fa-fw"></i>
+    Related Posts
+  </div>
+  <ul class="popular-posts">
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/42dc269f.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-26</time>
+        <br>
+      AQS 与并发容器：size() 为什么不准
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/4f3149da.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-25</time>
+        <br>
+      线程与调度：一次上下文切换值多少钱
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/347698f8.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-26</time>
+        <br>
+      锁的演化：偏向锁移除之后，synchronized 还慢吗
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/311a2032.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-26</time>
+        <br>
+      伪共享与缓存行：一个 @Contended 的 4 倍差距
+      </a>
+    </li>
+  </ul>
+
+          </div>
+        </div>
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-后端开发"><a href="/docs/nav/backend-dev-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-code fa-fw"></i>后端开发</a></li>
+
+
+      
+  <li class="menu-item menu-item-计算机基础"><a href="/docs/nav/cs-foundation-nav.html" rel="section"><i class="fa fa-desktop fa-fw"></i>计算机基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-ai-学习"><a href="/docs/nav/ai-learning-nav.html" rel="section"><i class="fa fa-robot fa-fw"></i>AI 学习</a></li>
+
+
+      
+  <li class="menu-item menu-item-项目实战"><a href="/docs/nav/5964f4da.html" rel="section"><i class="fa fa-flask fa-fw"></i>项目实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-misc"><a href="/docs/nav/misc-nav.html" rel="section"><i class="fa fa-box fa-fw"></i>Misc</a></li>
+
+
+      
+  <li class="menu-item menu-item-随笔·生活"><a href="/docs/nav/life-nav.html" rel="section"><i class="fa fa-feather fa-fw"></i>随笔·生活</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java"><a href="/docs/nav/java-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-coffee fa-fw"></i>Java</a></li>
+
+
+      
+  <li class="menu-item menu-item-框架"><a href="/docs/nav/framework-nav.html" rel="section"><i class="fa fa-th-large fa-fw"></i>框架</a></li>
+
+
+      
+  <li class="menu-item menu-item-数据存储"><a href="/docs/nav/data-storage-nav.html" rel="section"><i class="fa fa-hdd fa-fw"></i>数据存储</a></li>
+
+
+      
+  <li class="menu-item menu-item-中间件"><a href="/docs/nav/middleware-nav.html" rel="section"><i class="fa fa-cubes fa-fw"></i>中间件</a></li>
+
+
+      
+  <li class="menu-item menu-item-分布式与微服务"><a href="/docs/nav/distributed-nav.html" rel="section"><i class="fa fa-sitemap fa-fw"></i>分布式与微服务</a></li>
+
+
+      
+  <li class="menu-item menu-item-系统设计"><a href="/docs/nav/system-design-nav.html" rel="section"><i class="fa fa-pencil-ruler fa-fw"></i>系统设计</a></li>
+
+
+      
+  <li class="menu-item menu-item-部署运维"><a href="/docs/nav/devops-nav.html" rel="section"><i class="fa fa-terminal fa-fw"></i>部署运维</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java-核心基础"><a href="/post/6a6e612d.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Java 核心基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-java-并发编程"><a href="/docs/nav/java-concurrency-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-tasks fa-fw"></i>Java 并发编程</a></li>
+
+
+      
+  <li class="menu-item menu-item-jvm-原理与调优"><a href="/post/4e153c5e.html" rel="section"><i class="fa fa-file-text fa-fw"></i>JVM 原理与调优</a></li>
+
+
+      
+  <li class="menu-item menu-item-设计模式：15-个高频模式的实战内化"><a href="/post/67126.html" rel="section"><i class="fa fa-file-text fa-fw"></i>设计模式：15 个高频模式的实战内化</a></li>
+
+
+      
+  <li class="menu-item menu-item-java-开发实战速查"><a href="/post/be1f55d9.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Java 开发实战速查</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java-并发编程：从-jmm-到虚拟线程的系统化实战"><a href="/post/a3f81c2d.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Java 并发编程：从 JMM 到虚拟线程的系统化实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-①-从这里开始：把并发-bug-变成可复现的实验"><a href="/post/8ac324cd.html" rel="section"><i class="fa fa-file-text fa-fw"></i>① 从这里开始：把并发 bug 变成可复现的实验</a></li>
+
+
+      
+  <li class="menu-item menu-item-②-线程与调度：一次上下文切换值多少钱"><a href="/post/4f3149da.html" rel="section"><i class="fa fa-file-text fa-fw"></i>② 线程与调度：一次上下文切换值多少钱</a></li>
+
+
+      
+  <li class="menu-item menu-item-③-jmm：把「不可见」和「重排」亲手复现"><a href="/post/f092fe4.html" rel="section"><i class="fa fa-file-text fa-fw"></i>③ JMM：把「不可见」和「重排」亲手复现</a></li>
+
+
+      
+  <li class="menu-item menu-item-④-伪共享与缓存行：一个-@contended-的-4-倍差距"><a href="/post/311a2032.html" rel="section"><i class="fa fa-file-text fa-fw"></i>④ 伪共享与缓存行：一个 @Contended 的 4 倍差距</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑤-原子性：i++-的丢失与-cas-的代价"><a href="/post/ef5a2176.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑤ 原子性：i++ 的丢失与 CAS 的代价</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑥-锁的演化：偏向锁移除之后，synchronized-还慢吗"><a href="/post/347698f8.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑥ 锁的演化：偏向锁移除之后，synchronized 还慢吗</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑦-aqs-与并发容器：size()-为什么不准"><a href="/post/42dc269f.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑦ AQS 与并发容器：size() 为什么不准</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑧-线程池：core、max、queue-的组合陷阱"><a href="/post/b09d89b.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑧ 线程池：core、max、queue 的组合陷阱</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑨-并发工具与异步编排：completablefuture-的五个坑"><a href="/post/5489c9d2.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑨ 并发工具与异步编排：CompletableFuture 的五个坑</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑩-死锁与线程泄漏：从-jstack-到-jfr"><a href="/post/93f5ed7a.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑩ 死锁与线程泄漏：从 jstack 到 JFR</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑪-虚拟线程：pinning、吞吐与迁移代价"><a href="/post/aa676f55.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑪ 虚拟线程：pinning、吞吐与迁移代价</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑫-并发性能工程：容量、压测与全系列总表"><a href="/post/953dd446.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑫ 并发性能工程：容量、压测与全系列总表</a></li>
+
+
+    </ul>
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/93f5ed7a.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="死锁与线程泄漏：从 jstack 到 JFR | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          死锁与线程泄漏：从 jstack 到 JFR
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-10-26 06:00:00" itemprop="dateCreated datePublished" datetime="2026-10-26T06:00:00+08:00">2026-10-26</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/Java/" itemprop="url" rel="index"><span itemprop="name">Java</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>2.8k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>10 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><p><strong>死锁能被 JVM 直接检测出来</strong>：<code>ThreadMXBean.findDeadlockedThreads()</code> 返回 2 个线程，<code>jcmd Thread.print</code> 直接打印 <code>Found one Java-level deadlock</code> 和完整的「谁在等谁」链条。但<strong>JFR 抓不到已经发生的死锁</strong>（实测 <code>jdk.JavaMonitorEnter</code> 0 事件），因为它只记录「从录制开始后新发生的等待」。</p>
+<p>这篇把两类事故做成可复现实验：<strong>死锁</strong>（两锁反序）和<strong>线程泄漏</strong>（池外建线程、<code>ThreadLocal</code> 不 remove），并给出 5 分钟内定位的完整链条。</p>
+<blockquote>
+<p><strong>系列地图（Java 并发实战路线，12 篇）</strong></p>
+<p>① 实验台与基线 → ② 线程与调度 → ③ JMM → ④ 伪共享 → ⑤ 原子性与 CAS → ⑥ 锁的演化 → ⑦ AQS 与并发容器 → ⑧ 线程池参数 → ⑨ 并发工具与异步编排 → ⑩ <strong>死锁与线程泄漏（本文）</strong> → ⑪ 虚拟线程 → ⑫ 并发性能工程</p>
+<p>与前后篇的关系：⑧ 讲「池怎么配」，本文讲「池用错会怎样」；⑨ 的 <code>await()</code> 无超时是同一类「无限等待」。</p>
+</blockquote>
+<h2 id="1-两类事故，一眼区分"><a href="#1-两类事故，一眼区分" class="headerlink" title="1. 两类事故，一眼区分"></a>1. 两类事故，一眼区分</h2><table>
+<thead>
+<tr>
+<th>事故</th>
+<th>表现</th>
+<th>关键证据</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>死锁</td>
+<td>服务卡住、CPU 不高、线程不结束</td>
+<td><code>Thread.print</code> 里的 <code>Found one Java-level deadlock</code></td>
+</tr>
+<tr>
+<td>线程泄漏</td>
+<td>线程数持续上涨、内存上涨</td>
+<td><code>ThreadCount</code> 增长、<code>jcmd Thread.print</code> 里同名线程成百上千</td>
+</tr>
+<tr>
+<td>ThreadLocal 泄漏</td>
+<td>请求间数据串了、内存不释放</td>
+<td>池线程复用后读到上个任务的值</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart TD
+    A["Service hang or slow"] --> B{"CPU high?"}
+    B -- no --> C["thread dump: BLOCKED?"]
+    C -- yes --> D["deadlock or lock contention"]
+    C -- no --> E["WAITING / TIMED_WAITING&lt;br/>(await, park, IO)"]
+    B -- yes --> F["thread count growing?"]
+    F -- yes --> G["thread leak / pool explosion"]
+    F -- no --> H["GC / spin / contention"]</pre>
+
+<h2 id="2-死锁：两把锁互相等"><a href="#2-死锁：两把锁互相等" class="headerlink" title="2. 死锁：两把锁互相等"></a>2. 死锁：两把锁互相等</h2><h3 id="2-1-复现"><a href="#2-1-复现" class="headerlink" title="2.1 复现"></a>2.1 复现</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">Thread t1: <span class="keyword">synchronized</span> (A) &#123; sleep(<span class="number">100</span>); <span class="keyword">synchronized</span> (B) &#123;&#125; &#125;</span><br><span class="line">Thread t2: <span class="keyword">synchronized</span> (B) &#123; sleep(<span class="number">100</span>); <span class="keyword">synchronized</span> (A) &#123;&#125; &#125;</span><br></pre></td></tr></table></figure>
+
+<h3 id="2-2-三种检测手段"><a href="#2-2-三种检测手段" class="headerlink" title="2.2 三种检测手段"></a>2.2 三种检测手段</h3><table>
+<thead>
+<tr>
+<th>手段</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>ThreadMXBean.findDeadlockedThreads()</code></td>
+<td>返回 <strong>2 个线程</strong>（<code>worker-1</code>、<code>worker-2</code>）</td>
+</tr>
+<tr>
+<td><code>jcmd &lt;pid&gt; Thread.print</code></td>
+<td>打印 <code>Found one Java-level deadlock</code> + 谁持有谁等待</td>
+</tr>
+<tr>
+<td>JFR <code>jdk.JavaMonitorEnter</code></td>
+<td><strong>0 事件</strong>（抓不到已经发生的死锁）</td>
+</tr>
+</tbody></table>
+<p><code>jcmd Thread.print</code> 的实际输出：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br></pre></td><td class="code"><pre><span class="line">Found one Java-level deadlock:</span><br><span class="line">=============================</span><br><span class="line">&quot;worker-1&quot;:</span><br><span class="line">  waiting to lock monitor 0x...4740 (a java.lang.Object),</span><br><span class="line">  which is held by &quot;worker-2&quot;</span><br><span class="line"></span><br><span class="line">&quot;worker-2&quot;:</span><br><span class="line">  waiting to lock monitor 0x...4730 (a java.lang.Object),</span><br><span class="line">  which is held by &quot;worker-1&quot;</span><br></pre></td></tr></table></figure>
+
+<p><strong>这段输出直接给出了「谁在等谁」，不需要读代码就能定位。</strong></p>
+<h3 id="2-3-死锁形成的时序"><a href="#2-3-死锁形成的时序" class="headerlink" title="2.3 死锁形成的时序"></a>2.3 死锁形成的时序</h3><pre class="mermaid">sequenceDiagram
+    participant T1 as worker-1
+    participant A as Lock A
+    participant B as Lock B
+    participant T2 as worker-2
+    T1->>A: lock A (ok)
+    T2->>B: lock B (ok)
+    T1->>B: lock B -> BLOCKED
+    T2->>A: lock A -> BLOCKED
+    Note over T1,T2: circular wait = deadlock</pre>
+
+<h3 id="2-4-JFR-为什么抓不到"><a href="#2-4-JFR-为什么抓不到" class="headerlink" title="2.4 JFR 为什么抓不到"></a>2.4 JFR 为什么抓不到</h3><table>
+<thead>
+<tr>
+<th>事实</th>
+<th>解释</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>JFR 录制 3 秒，<code>JavaMonitorEnter</code> 0 事件</td>
+<td>事件在<strong>阻塞开始</strong>时记录；线程在录制开始前就已经阻塞</td>
+</tr>
+<tr>
+<td>死锁是「永不结束的阻塞」</td>
+<td>事件要等阻塞结束才会被完整写出</td>
+</tr>
+</tbody></table>
+<p><strong>结论</strong>：<strong>死锁用 jstack&#x2F;<code>Thread.print</code>，JFR 用来看「还没死」的慢等待</strong>。这是两套互补的工具，不是替代关系。</p>
+<h3 id="2-5-三种解法"><a href="#2-5-三种解法" class="headerlink" title="2.5 三种解法"></a>2.5 三种解法</h3><table>
+<thead>
+<tr>
+<th>解法</th>
+<th>做法</th>
+<th>代价</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>统一锁顺序</td>
+<td>所有线程按同一顺序加锁</td>
+<td>需要全局约定，跨模块难统一</td>
+</tr>
+<tr>
+<td>超时放弃</td>
+<td><code>tryLock(timeout)</code>，失败就回滚重试</td>
+<td>需要业务能回滚</td>
+</tr>
+<tr>
+<td>减少锁嵌套</td>
+<td>只锁一个资源；用无锁结构</td>
+<td>需要重构</td>
+</tr>
+</tbody></table>
+<p>实测「统一锁顺序」：</p>
+<table>
+<thead>
+<tr>
+<th>版本</th>
+<th>检测结果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>反序加锁</td>
+<td><code>findDeadlockedThreads</code> 返回 2 个线程，两线程都不结束</td>
+</tr>
+<tr>
+<td>统一先 A 后 B</td>
+<td><code>findDeadlockedThreads</code> 返回 <code>null</code>，两线程正常结束</td>
+</tr>
+</tbody></table>
+<h2 id="3-线程泄漏：池外建线程"><a href="#3-线程泄漏：池外建线程" class="headerlink" title="3. 线程泄漏：池外建线程"></a>3. 线程泄漏：池外建线程</h2><h3 id="3-1-实测：300-个线程"><a href="#3-1-实测：300-个线程" class="headerlink" title="3.1 实测：300 个线程"></a>3.1 实测：300 个线程</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; <span class="number">300</span>; i++) &#123;</span><br><span class="line">    <span class="keyword">new</span> <span class="title class_">Thread</span>(() -&gt; &#123; sleep(<span class="number">30_000</span>); &#125;, <span class="string">&quot;leak-&quot;</span> + i).start();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th>已建线程</th>
+<th>JVM 线程总数</th>
+<th>基线</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>100</td>
+<td><strong>107</strong></td>
+<td>7</td>
+</tr>
+<tr>
+<td>200</td>
+<td><strong>207</strong></td>
+<td>7</td>
+</tr>
+<tr>
+<td>300</td>
+<td><strong>307</strong></td>
+<td>7</td>
+</tr>
+</tbody></table>
+<p><strong>每个线程 1 MB 栈</strong>（②实测）→ 300 个线程约 <strong>300 MB</strong> 内存，且都在 <code>sleep</code>，什么也没干。如果持续创建（比如每个请求 <code>new Thread</code>），几小时内就会 <code>unable to create native thread</code>。</p>
+<h3 id="3-2-三种泄漏源"><a href="#3-2-三种泄漏源" class="headerlink" title="3.2 三种泄漏源"></a>3.2 三种泄漏源</h3><table>
+<thead>
+<tr>
+<th>泄漏源</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>池外 <code>new Thread</code></td>
+<td>每个请求&#x2F;任务新建</td>
+<td>全部改为线程池提交</td>
+</tr>
+<tr>
+<td><code>Executors.newCachedThreadPool</code></td>
+<td><code>max=Integer.MAX_VALUE</code>，无界</td>
+<td>换固定池 + 有界队列（⑧）</td>
+</tr>
+<tr>
+<td><code>ScheduledExecutorService</code> 未关闭</td>
+<td>定时任务持续创建</td>
+<td>服务关闭时 <code>shutdown</code></td>
+</tr>
+</tbody></table>
+<h3 id="3-3-ThreadLocal-泄漏：池线程串数据"><a href="#3-3-ThreadLocal-泄漏：池线程串数据" class="headerlink" title="3.3 ThreadLocal 泄漏：池线程串数据"></a>3.3 ThreadLocal 泄漏：池线程串数据</h3><p>这是最隐蔽的一种，因为<strong>线程数不会涨</strong>，但会「读到别人的数据」：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">static</span> <span class="keyword">final</span> ThreadLocal&lt;String&gt; USER = <span class="keyword">new</span> <span class="title class_">ThreadLocal</span>&lt;&gt;();</span><br><span class="line"></span><br><span class="line">pool.submit(() -&gt; USER.set(<span class="string">&quot;user-1&quot;</span>)).get();       <span class="comment">// 任务 1 设置，没 remove</span></span><br><span class="line">pool.submit(USER::get).get();                      <span class="comment">// 任务 2（同一线程）读到？</span></span><br></pre></td></tr></table></figure>
+
+<p>实测：</p>
+<table>
+<thead>
+<tr>
+<th>步骤</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>任务 1 设置 <code>user-1</code>，不 remove</td>
+<td>—</td>
+</tr>
+<tr>
+<td>任务 2（同一池线程）读取</td>
+<td><strong><code>user-1</code>（串数据）</strong></td>
+</tr>
+<tr>
+<td>正确做法：<code>finally &#123; USER.remove(); &#125;</code> 后</td>
+<td>下一个任务读到 <strong><code>null</code></strong></td>
+</tr>
+</tbody></table>
+<pre class="mermaid">sequenceDiagram
+    participant P as pool thread
+    participant TL as ThreadLocalMap
+    P->>TL: task1: set("user-1")
+    Note over TL: no remove
+    P->>TL: task2: get() -> "user-1" (leak!)
+    Note over P: same thread, same map
+    P->>TL: task3: set + finally remove
+    P->>TL: task4: get() -> null</pre>
+
+<p><strong>为什么危险</strong>：在 Web 应用里，池线程被复用，<code>user-1</code> 的上下文会泄漏到下一个用户的请求上——<strong>越权</strong>就是这么来的。</p>
+<h2 id="4-5-分钟定位链条"><a href="#4-5-分钟定位链条" class="headerlink" title="4. 5 分钟定位链条"></a>4. 5 分钟定位链条</h2><pre class="mermaid">flowchart LR
+    A["alert: hang or slow"] --> B["jcmd Thread.print&lt;br/>grep deadlock"]
+    B -->|found| C["fix lock order / tryLock"]
+    B -->|not found| D["grep BLOCKED count"]
+    D -->|many| E["reduce critical section"]
+    D -->|none| F["grep thread count by name"]
+    F -->|growing| G["find new Thread() calls"]
+    F -->|stable| H["JFR: ThreadPark / monitor enter"]
+    H --> I["3x jstack sampling"]</pre>
+
+
+<table>
+<thead>
+<tr>
+<th>步骤</th>
+<th>命令</th>
+<th>看什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td><code>jcmd &lt;pid&gt; Thread.print</code></td>
+<td>是否 <code>Found one Java-level deadlock</code></td>
+</tr>
+<tr>
+<td>2</td>
+<td><code>jcmd &lt;pid&gt; Thread.print | grep &quot;BLOCKED&quot;</code></td>
+<td>大量 BLOCKED &#x3D; 锁竞争</td>
+</tr>
+<tr>
+<td>3</td>
+<td><code>jcmd &lt;pid&gt; Thread.print | grep -c &quot;leak-&quot;</code></td>
+<td>同名线程成百上千 &#x3D; 泄漏</td>
+</tr>
+<tr>
+<td>4</td>
+<td><code>jcmd &lt;pid&gt; JFR.start duration=30s filename=x.jfr</code></td>
+<td>慢等待（<code>ThreadPark</code>、<code>JavaMonitorEnter</code>）</td>
+</tr>
+<tr>
+<td>5</td>
+<td><code>jstack</code> 三次采样（间隔 5s）</td>
+<td>哪个栈帧一直不变 &#x3D; 卡住的位置</td>
+</tr>
+</tbody></table>
+<p><strong>「三次采样」是最实用的技巧</strong>：如果某个线程在三次 dump 里都在同一行等待，基本可以确定卡在那里。</p>
+<h2 id="5-动手验证：四个可复现实验"><a href="#5-动手验证：四个可复现实验" class="headerlink" title="5. 动手验证：四个可复现实验"></a>5. 动手验证：四个可复现实验</h2><h3 id="5-1-动手验证：复现并检测死锁"><a href="#5-1-动手验证：复现并检测死锁" class="headerlink" title="5.1 动手验证：复现并检测死锁"></a>5.1 动手验证：复现并检测死锁</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">mkdir</span> -p /tmp/conc &amp;&amp; <span class="built_in">cd</span> /tmp/conc</span><br><span class="line"><span class="built_in">cat</span> &gt; Dead.java &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line">public class Dead &#123;</span><br><span class="line">    static final Object A = new Object(), B = new Object();</span><br><span class="line">    public static void main(String[] x) throws Exception &#123;</span><br><span class="line">        new Thread(() -&gt; &#123; synchronized (A) &#123; sleep(<span class="number">100</span>); synchronized (B) &#123;&#125; &#125; &#125;, &quot;worker-<span class="number">1</span>&quot;).start();</span><br><span class="line">        new Thread(() -&gt; &#123; synchronized (B) &#123; sleep(<span class="number">100</span>); synchronized (A) &#123;&#125; &#125; &#125;, &quot;worker-<span class="number">2</span>&quot;).start();</span><br><span class="line">        java.lang.management.ThreadMXBean mx = java.lang.management.ManagementFactory.getThreadMXBean();</span><br><span class="line">        Thread.sleep(<span class="number">1500</span>);</span><br><span class="line">        long[] ids = mx.findDeadlockedThreads();</span><br><span class="line">        System.out.println(&quot;deadlocked=&quot; + (ids == null ? &quot;null&quot; : ids.length));</span><br><span class="line">        <span class="keyword">if</span> (ids != null) <span class="keyword">for</span> (long <span class="built_in">id</span> : ids) System.out.println(<span class="string">&quot;  &quot;</span> + mx.getThreadInfo(<span class="built_in">id</span>).getThreadName());</span><br><span class="line">        Thread.<span class="built_in">sleep</span>(60000);</span><br><span class="line">    &#125;</span><br><span class="line">    static void <span class="built_in">sleep</span>(long ms)&#123; try &#123; Thread.<span class="built_in">sleep</span>(ms); &#125; catch (Exception e) &#123;&#125; &#125;</span><br><span class="line">&#125;</span><br><span class="line">EOF</span><br><span class="line">javac Dead.java &amp;&amp; (java Dead &gt; dead.out 2&gt;&amp;1 &amp;) &amp;&amp; <span class="built_in">sleep</span> 4</span><br><span class="line">PID=$(jcmd -l | grep <span class="string">&quot; Dead&quot;</span> | awk <span class="string">&#x27;&#123;print $1&#125;&#x27;</span> | <span class="built_in">head</span> -1)</span><br><span class="line"><span class="built_in">cat</span> dead.out</span><br><span class="line">jcmd <span class="variable">$PID</span> Thread.<span class="built_in">print</span> | grep -A12 <span class="string">&quot;Found one Java-level deadlock&quot;</span></span><br><span class="line"><span class="built_in">kill</span> -9 <span class="variable">$PID</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：<code>deadlocked=2</code>，输出两个线程名；<code>Thread.print</code> 打印「谁持有谁等待」。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li><code>deadlocked=null</code> → 两个线程没有真正交叉（加长 sleep）；</li>
+<li><code>Thread.print</code> 没有死锁段 → 你抓的时间点太早，等 2 秒再抓。</li>
+</ul>
+<h3 id="5-2-动手验证：统一锁顺序解决死锁"><a href="#5-2-动手验证：统一锁顺序解决死锁" class="headerlink" title="5.2 动手验证：统一锁顺序解决死锁"></a>5.2 动手验证：统一锁顺序解决死锁</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> /tmp/conc</span><br><span class="line"><span class="built_in">cat</span> &gt; NoDead.java &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line">public class NoDead &#123;</span><br><span class="line">    static final Object A = new Object(), B = new Object();</span><br><span class="line">    public static void main(String[] x) throws Exception &#123;</span><br><span class="line">        Runnable r = () -&gt; &#123; synchronized (A) &#123; <span class="built_in">sleep</span>(100); synchronized (B) &#123;&#125; &#125; &#125;;</span><br><span class="line">        Thread t1 = new Thread(r, <span class="string">&quot;w1&quot;</span>), t2 = new Thread(r, <span class="string">&quot;w2&quot;</span>);</span><br><span class="line">        t1.start(); t2.start(); t1.join(3000); t2.join(3000);</span><br><span class="line">        java.lang.management.ThreadMXBean mx = java.lang.management.ManagementFactory.getThreadMXBean();</span><br><span class="line">        System.out.println(<span class="string">&quot;deadlocked=&quot;</span> + (mx.findDeadlockedThreads() == null ? <span class="string">&quot;null&quot;</span> : <span class="string">&quot;found&quot;</span>));</span><br><span class="line">        System.out.println(<span class="string">&quot;both finished=&quot;</span> + (!t1.isAlive() &amp;&amp; !t2.isAlive()));</span><br><span class="line">    &#125;</span><br><span class="line">    static void <span class="built_in">sleep</span>(long ms)&#123; try &#123; Thread.<span class="built_in">sleep</span>(ms); &#125; catch (Exception e) &#123;&#125; &#125;</span><br><span class="line">&#125;</span><br><span class="line">EOF</span><br><span class="line">javac NoDead.java &amp;&amp; java NoDead</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：<code>deadlocked=null</code>，<code>both finished=true</code>。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>仍检测到死锁 → 两个线程的加锁顺序还是不一致，检查 Runnable 是否被两处复用同一顺序。</li>
+</ul>
+<h3 id="5-3-动手验证：线程泄漏与-ThreadLocal-串数据"><a href="#5-3-动手验证：线程泄漏与-ThreadLocal-串数据" class="headerlink" title="5.3 动手验证：线程泄漏与 ThreadLocal 串数据"></a>5.3 动手验证：线程泄漏与 ThreadLocal 串数据</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> /tmp/conc</span><br><span class="line"><span class="built_in">cat</span> &gt; Leak.java &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line">import java.util.concurrent.*;</span><br><span class="line">import java.util.concurrent.atomic.*;</span><br><span class="line">public class Leak &#123;</span><br><span class="line">    static final ThreadLocal&lt;String&gt; USER = new ThreadLocal&lt;&gt;();</span><br><span class="line">    public static void main(String[] x) throws Exception &#123;</span><br><span class="line">        Thread wd = new Thread(() -&gt; &#123; try &#123; Thread.sleep(<span class="number">40</span>_000); &#125; catch (Exception e) &#123;&#125; System.out.println(&quot;WATCHDOG&quot;); System.exit(<span class="number">2</span>); &#125;);</span><br><span class="line">        wd.setDaemon(true); wd.start();</span><br><span class="line"></span><br><span class="line">        ExecutorService pool = Executors.newFixedThreadPool(<span class="number">1</span>);</span><br><span class="line">        pool.submit(() -&gt; USER.set(&quot;user-<span class="number">1</span>&quot;)).get();</span><br><span class="line">        System.out.println(<span class="string">&quot;未 remove，下一个任务读到: &quot;</span> + pool.submit(USER::get).get());</span><br><span class="line">        pool.submit(() -&gt; &#123; try &#123; USER.set(&quot;user-<span class="number">2</span>&quot;); &#125; finally &#123; USER.remove(); &#125; &#125;).get();</span><br><span class="line">        System.out.println(&quot;remove 之后，下一个任务读到: &quot; + pool.submit(USER::get).get());</span><br><span class="line">        pool.shutdown();</span><br><span class="line"></span><br><span class="line">        java.lang.management.ThreadMXBean mx = java.lang.management.ManagementFactory.getThreadMXBean();</span><br><span class="line">        int base = mx.getThreadCount();</span><br><span class="line">        AtomicInteger n = new AtomicInteger();</span><br><span class="line">        <span class="keyword">for</span> (int i = 0; i &lt; 300; i++) &#123;</span><br><span class="line">            new Thread(() -&gt; &#123; n.incrementAndGet(); try &#123; Thread.sleep(<span class="number">30000</span>); &#125; catch (Exception e) &#123;&#125; &#125;).start();</span><br><span class="line">            if (i % <span class="number">100</span> == <span class="number">99</span>) &#123; Thread.sleep(<span class="number">100</span>); System.out.printf(&quot;created=%d threadCount=%d (base %d)%n&quot;, n.get(), mx.getThreadCount(), base); &#125;</span><br><span class="line">        &#125;</span><br><span class="line">        System.exit(<span class="number">0</span>);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line">EOF</span><br><span class="line">javac Leak.java &amp;&amp; java Leak</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：未 <code>remove</code> 时读到 <code>user-1</code>（串数据）；remove 后读到 <code>null</code>；线程数随创建数线性上涨。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>读到 <code>null</code> → 你的池线程是新建的（池大小 &gt; 任务数），把池设为 1 再试；</li>
+<li>线程数不涨 → 你可能用了虚拟线程（⑪），它们不占平台线程。</li>
+</ul>
+<h3 id="5-4-动手验证：三次采样定位卡点"><a href="#5-4-动手验证：三次采样定位卡点" class="headerlink" title="5.4 动手验证：三次采样定位卡点"></a>5.4 动手验证：三次采样定位卡点</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> /tmp/conc</span><br><span class="line"><span class="comment"># 起一个卡住的进程</span></span><br><span class="line">(java Dead &gt; /dev/null 2&gt;&amp;1 &amp;) ; <span class="built_in">sleep</span> 3</span><br><span class="line">PID=$(jcmd -l | grep <span class="string">&quot; Dead&quot;</span> | awk <span class="string">&#x27;&#123;print $1&#125;&#x27;</span> | <span class="built_in">head</span> -1)</span><br><span class="line"><span class="keyword">for</span> i <span class="keyword">in</span> 1 2 3; <span class="keyword">do</span></span><br><span class="line">  <span class="built_in">echo</span> <span class="string">&quot;--- sample <span class="variable">$i</span> ---&quot;</span></span><br><span class="line">  jcmd <span class="variable">$PID</span> Thread.<span class="built_in">print</span> | grep -A3 <span class="string">&#x27;&quot;worker-1&quot;&#x27;</span> | <span class="built_in">head</span> -4</span><br><span class="line">  <span class="built_in">sleep</span> 3</span><br><span class="line"><span class="keyword">done</span></span><br><span class="line"><span class="built_in">kill</span> -9 <span class="variable">$PID</span></span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：三次采样里 <code>worker-1</code> 都停在同一个 <code>waiting to lock</code> 行。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>三次栈不同 → 线程在正常干活，不是卡死；</li>
+<li>栈里出现 <code>Object.wait</code> → 那是 <code>wait/notify</code> 等通知，不是死锁，检查是否漏了 <code>notify</code>。</li>
+</ul>
+<h2 id="6-总结"><a href="#6-总结" class="headerlink" title="6. 总结"></a>6. 总结</h2><h3 id="6-1-面试速答表"><a href="#6-1-面试速答表" class="headerlink" title="6.1 面试速答表"></a>6.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>死锁的四个必要条件</td>
+<td>互斥、持有并等待、不可剥夺、循环等待</td>
+</tr>
+<tr>
+<td>怎么检测死锁</td>
+<td><code>ThreadMXBean.findDeadlockedThreads()</code> 或 <code>jcmd Thread.print</code></td>
+</tr>
+<tr>
+<td><code>jcmd</code> 输出里怎么看死锁</td>
+<td>搜 <code>Found one Java-level deadlock</code>，看「held by」链条</td>
+</tr>
+<tr>
+<td>JFR 能抓死锁吗</td>
+<td>抓不到已经发生的死锁（本文实测 0 事件），只能看新的慢等待</td>
+</tr>
+<tr>
+<td>怎么避免死锁</td>
+<td>统一锁顺序、<code>tryLock</code> 超时、减少锁嵌套</td>
+</tr>
+<tr>
+<td>线程泄漏怎么发现</td>
+<td><code>ThreadCount</code> 持续上涨、<code>Thread.print</code> 同名线程成百上千</td>
+</tr>
+<tr>
+<td>300 个线程占多少内存</td>
+<td>约 300 MB 栈（1 MB&#x2F;线程，本文实测）</td>
+</tr>
+<tr>
+<td>ThreadLocal 为什么要 remove</td>
+<td>池线程复用会串数据（实测读到上个任务的 <code>user-1</code>）</td>
+</tr>
+<tr>
+<td><code>ThreadLocal</code> 会内存泄漏吗</td>
+<td>会，key 是弱引用但 value 强引用，线程不结束就不释放</td>
+</tr>
+<tr>
+<td>三次采样有什么用</td>
+<td>三次 dump 在同一行 &#x3D; 确定卡死位置</td>
+</tr>
+<tr>
+<td><code>wait</code> 与 <code>BLOCKED</code> 的区别</td>
+<td><code>wait</code> 等通知（WAITING），<code>BLOCKED</code> 等锁</td>
+</tr>
+<tr>
+<td>死锁和活锁的区别</td>
+<td>死锁互相等，活锁互相让（都在跑但没进展）</td>
+</tr>
+</tbody></table>
+<h3 id="6-2-实战避坑表"><a href="#6-2-实战避坑表" class="headerlink" title="6.2 实战避坑表"></a>6.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>服务卡住、CPU 低</td>
+<td>死锁或无限 <code>await</code></td>
+<td><code>Thread.print</code> 抓死锁</td>
+</tr>
+<tr>
+<td>线程数缓慢上涨</td>
+<td>池外建线程 &#x2F; 缓存池无界</td>
+<td>改固定池 + 有界队列</td>
+</tr>
+<tr>
+<td>请求间数据串了</td>
+<td><code>ThreadLocal</code> 没 remove</td>
+<td><code>finally</code> 里 <code>remove</code></td>
+</tr>
+<tr>
+<td><code>OutOfMemoryError: unable to create native thread</code></td>
+<td>线程数 × 栈超限</td>
+<td>减线程、降 <code>-Xss</code>、用虚拟线程</td>
+</tr>
+<tr>
+<td><code>await()</code> 永不返回</td>
+<td>计数不匹配</td>
+<td>加超时 + 检查计数</td>
+</tr>
+<tr>
+<td>死锁偶发、无法复现</td>
+<td>锁顺序依赖执行时序</td>
+<td>统一顺序 + <code>tryLock</code> 超时</td>
+</tr>
+</tbody></table>
+<h3 id="6-3-工具速查表"><a href="#6-3-工具速查表" class="headerlink" title="6.3 工具速查表"></a>6.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>判定标准</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>ThreadMXBean.findDeadlockedThreads()</code></td>
+<td>死锁线程 id</td>
+<td>非 null 即死锁</td>
+</tr>
+<tr>
+<td><code>jcmd &lt;pid&gt; Thread.print</code></td>
+<td>死锁段、BLOCKED</td>
+<td>有 <code>Found one Java-level deadlock</code></td>
+</tr>
+<tr>
+<td><code>jcmd &lt;pid&gt; JFR.start</code></td>
+<td>慢等待事件</td>
+<td>只对「录制开始后」的等待有效</td>
+</tr>
+<tr>
+<td>三次 <code>jstack</code> 采样</td>
+<td>是否卡在同一帧</td>
+<td>三次相同 &#x3D; 卡死</td>
+</tr>
+<tr>
+<td><code>jcmd &lt;pid&gt; VM.native_memory summary</code></td>
+<td>Thread 区域</td>
+<td>2 中实测 1 MB&#x2F;线程</td>
+</tr>
+</tbody></table>
+<h3 id="6-4-实操建议"><a href="#6-4-实操建议" class="headerlink" title="6.4 实操建议"></a>6.4 实操建议</h3><ol>
+<li><strong>上线前做一次「锁顺序审计」</strong>，所有多锁路径统一顺序。</li>
+<li>**禁止池外 <code>new Thread</code>**，代码扫描规则就能拦住。</li>
+<li>**<code>ThreadLocal</code> 必须 <code>finally remove</code>**，或用 <code>ScopedValue</code>（JDK 21 预览）。</li>
+<li><strong><code>Thread.print</code> 存三份</strong>，间隔 5 秒，比对栈帧是最快的定位方法。</li>
+<li><strong>JFR 用来抓「慢」而不是「死」</strong>，死锁用 <code>Thread.print</code>。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告</strong>：⑪《虚拟线程：pinning、吞吐与迁移代价》。本文的线程泄漏在虚拟线程里会变成另一种问题：虚拟线程不占平台线程，但**<code>synchronized</code> 里的阻塞会 pin 住载体线程**，实测吞吐会掉回平台线程水平。下篇会量虚拟线程 vs 平台线程在 IO&#x2F;CPU 两类负载下的差距。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/Java/" rel="tag"># Java</a>
+              <a href="/tags/%E9%9D%A2%E8%AF%95/" rel="tag"># 面试</a>
+              <a href="/tags/%E6%AD%BB%E9%94%81/" rel="tag"># 死锁</a>
+              <a href="/tags/%E5%B9%B6%E5%8F%91/" rel="tag"># 并发</a>
+              <a href="/tags/JFR/" rel="tag"># JFR</a>
+              <a href="/tags/ThreadLocal/" rel="tag"># ThreadLocal</a>
+              <a href="/tags/jstack/" rel="tag"># jstack</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/5489c9d2.html" rel="prev" title="并发工具与异步编排：CompletableFuture 的五个坑">
+                  <i class="fa fa-angle-left"></i> 并发工具与异步编排：CompletableFuture 的五个坑
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/post/aa676f55.html" rel="next" title="虚拟线程：pinning、吞吐与迁移代价">
+                  虚拟线程：pinning、吞吐与迁移代价 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">778k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">47:09</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
+</html>

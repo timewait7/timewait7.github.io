@@ -1,0 +1,1129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="i++ 不是原子操作，它是三步：读、加、写。三个线程同时执行时，两个线程会读到同一个旧值，最后只加了一次。③ 已经量过 volatile++ 丢 61.4%；这一篇把「怎么修」算成账：**LongAdder 在 1 个线程时比 AtomicLong 慢 2.7 倍，在 64 个线程时快 16 倍**。 还有一个反直觉的实测：synchronized 与 AtomicLong 在 4&#x2F;16">
+<meta property="og:type" content="article">
+<meta property="og:title" content="原子性：i++ 的丢失与 CAS 的代价">
+<meta property="og:url" content="http://timewait7.github.io/post/ef5a2176.html">
+<meta property="og:site_name" content="知行栈">
+<meta property="og:description" content="i++ 不是原子操作，它是三步：读、加、写。三个线程同时执行时，两个线程会读到同一个旧值，最后只加了一次。③ 已经量过 volatile++ 丢 61.4%；这一篇把「怎么修」算成账：**LongAdder 在 1 个线程时比 AtomicLong 慢 2.7 倍，在 64 个线程时快 16 倍**。 还有一个反直觉的实测：synchronized 与 AtomicLong 在 4&#x2F;16">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-10-25T17:00:00.000Z">
+<meta property="article:modified_time" content="2026-10-25T06:13:18.118Z">
+<meta property="article:tag" content="Java">
+<meta property="article:tag" content="面试">
+<meta property="article:tag" content="并发">
+<meta property="article:tag" content="CAS">
+<meta property="article:tag" content="Atomic">
+<meta property="article:tag" content="LongAdder">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/ef5a2176.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/ef5a2176.html","path":"post/ef5a2176.html","title":"原子性：i++ 的丢失与 CAS 的代价"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>原子性：i++ 的丢失与 CAS 的代价 | 知行栈</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<!-- hexo injector head_end start --><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
+</style><style>
+/* 菜单链高亮：sub-menu 祖先（同主题 .menu-item-active 的 Pisces 规则） */
+.sub-menu .menu-item a.menu-chain-active {
+  border-bottom-color: #fc6423;
+  color: #fc6423;
+}
+.sub-menu .menu-item a.menu-chain-active:hover {
+  border-bottom-color: #fc6423;
+}
+/* 菜单链高亮：main-menu 祖先（同主题 hover/active 的背景规则） */
+.main-menu .menu-item a.menu-chain-active {
+  background: var(--menu-item-bg-color);
+}
+</style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">知行栈</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section" class="menu-chain-active"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>Categories</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-i-%E4%B8%BA%E4%BB%80%E4%B9%88%E4%B8%8D%E6%98%AF%E5%8E%9F%E5%AD%90%E7%9A%84"><span class="nav-text">1. i++ 为什么不是原子的</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E5%9B%9B%E7%A7%8D%E5%86%99%E6%B3%95%EF%BC%8C%E5%9B%9B%E7%A7%8D%E5%B9%B6%E5%8F%91%E5%BA%A6"><span class="nav-text">2. 四种写法，四种并发度</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E5%AE%9E%E6%B5%8B%EF%BC%9Ans-op%EF%BC%88%E6%AF%8F%E7%BA%BF%E7%A8%8B-200-%E4%B8%87%E6%AC%A1%EF%BC%8C3-%E8%BD%AE%E5%8F%96%E6%9C%80%E4%BC%98%EF%BC%89"><span class="nav-text">2.1 实测：ns&#x2F;op（每线程 200 万次，3 轮取最优）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E6%B7%B1%E6%8C%96%EF%BC%9ALongAdder-%E4%B8%BA%E4%BB%80%E4%B9%88%E8%B6%8A%E5%B9%B6%E5%8F%91%E8%B6%8A%E5%BF%AB"><span class="nav-text">2.2 深挖：LongAdder 为什么越并发越快</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-CAS-%E7%9A%84%E4%BB%A3%E4%BB%B7%EF%BC%9A%E9%87%8D%E8%AF%95%E7%8E%87"><span class="nav-text">3. CAS 的代价：重试率</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E5%AE%9E%E6%B5%8B%EF%BC%9A%E4%B8%80%E6%AC%A1%E6%88%90%E5%8A%9F%E8%A6%81%E5%B0%9D%E8%AF%95%E5%87%A0%E6%AC%A1"><span class="nav-text">3.1 实测：一次成功要尝试几次</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E5%8D%95%E7%BA%BF%E7%A8%8B%E4%B8%8B%E7%9A%84-CAS-%E6%88%90%E6%9C%AC"><span class="nav-text">3.2 单线程下的 CAS 成本</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-%E4%B8%89%E7%A7%8D%E9%99%8D%E4%BD%8E%E9%87%8D%E8%AF%95%E7%9A%84%E6%89%8B%E6%AE%B5"><span class="nav-text">3.3 三种降低重试的手段</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-ABA%EF%BC%9ACAS-%E6%9C%80%E7%BB%8F%E5%85%B8%E7%9A%84%E5%9D%91"><span class="nav-text">4. ABA：CAS 最经典的坑</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-%E5%A4%8D%E7%8E%B0%EF%BC%9ATreiber-%E6%A0%88%E4%B8%A2%E4%BA%86%E4%B8%80%E4%B8%AA%E8%8A%82%E7%82%B9"><span class="nav-text">4.1 复现：Treiber 栈丢了一个节点</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-%E4%BF%AE%E5%A4%8D%EF%BC%9A%E5%8A%A0%E7%89%88%E6%9C%AC%E5%8F%B7"><span class="nav-text">4.2 修复：加版本号</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E4%BC%9A%E8%B8%A9-ABA"><span class="nav-text">4.3 什么时候会踩 ABA</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E9%80%89%E5%9E%8B%E4%B8%8E%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81"><span class="nav-text">5. 选型与动手验证</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E4%B8%80%E5%BC%A0%E9%80%89%E5%9E%8B%E8%A1%A8"><span class="nav-text">5.1 一张选型表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%9B%9B%E7%A7%8D%E5%86%99%E6%B3%95%E7%9A%84%E6%9B%B2%E7%BA%BF"><span class="nav-text">5.2 动手验证：四种写法的曲线</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E9%87%8F-CAS-%E9%87%8D%E8%AF%95%E7%8E%87"><span class="nav-text">5.3 动手验证：量 CAS 重试率</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%A4%8D%E7%8E%B0-ABA"><span class="nav-text">5.4 动手验证：复现 ABA</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-5-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9Astamp-%E4%BF%AE%E5%A4%8D-ABA"><span class="nav-text">5.5 动手验证：stamp 修复 ABA</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#6-%E6%80%BB%E7%BB%93"><span class="nav-text">6. 总结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#6-1-%E9%9D%A2%E8%AF%95%E9%80%9F%E7%AD%94%E8%A1%A8"><span class="nav-text">6.1 面试速答表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-2-%E5%AE%9E%E6%88%98%E9%81%BF%E5%9D%91%E8%A1%A8"><span class="nav-text">6.2 实战避坑表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-3-%E5%B7%A5%E5%85%B7%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">6.3 工具速查表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-4-%E5%AE%9E%E6%93%8D%E5%BB%BA%E8%AE%AE"><span class="nav-text">6.4 实操建议</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">116</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">14</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">205</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+    <div class="sidebar-inner sidebar-blogroll">
+      <div class="links-of-blogroll animated">
+        <div class="links-of-blogroll-title"><i class="fa fa-globe fa-fw"></i>
+          Links
+        </div>
+        <ul class="links-of-blogroll-list">
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9wYXVsZ3JhaGFtLmNvbS9hcnRpY2xlcy5odG1s" title="https:&#x2F;&#x2F;paulgraham.com&#x2F;articles.html">paulgraham</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly93d3cuam9lbG9uc29mdHdhcmUuY29tLw==" title="https:&#x2F;&#x2F;www.joelonsoftware.com&#x2F;">Joel on Software</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9tYXJ0aW5mb3dsZXIuY29tLw==" title="https:&#x2F;&#x2F;martinfowler.com&#x2F;">Martin Flower</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly96aGFuZ3RpZWxlaS5jb20v" title="https:&#x2F;&#x2F;zhangtielei.com&#x2F;">zhangtielei</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhLWRlc2lnbi1wYXR0ZXJucy5jb20vemgv" title="https:&#x2F;&#x2F;java-design-patterns.com&#x2F;zh&#x2F;">Java Design Patterns</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9taWNyb3NlcnZpY2VzLmlvLw==" title="https:&#x2F;&#x2F;microservices.io&#x2F;">Microservice Architecture</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhZ3VpZGUuY24v" title="https:&#x2F;&#x2F;javaguide.cn&#x2F;">JavaGuide</span>
+            </li>
+        </ul>
+      </div>
+    </div>
+        <div class="pjax">
+        
+        <div class="sidebar-inner sidebar-post-related">
+          <div class="animated">
+              <div class="links-of-blogroll-title"><i class="fa fa-signs-post fa-fw"></i>
+    Related Posts
+  </div>
+  <ul class="popular-posts">
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/311a2032.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-26</time>
+        <br>
+      伪共享与缓存行：一个 @Contended 的 4 倍差距
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/42dc269f.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-26</time>
+        <br>
+      AQS 与并发容器：size() 为什么不准
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/f092fe4.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-25</time>
+        <br>
+      JMM：把「不可见」和「重排」亲手复现
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/953dd446.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-26</time>
+        <br>
+      并发性能工程：容量、压测与全系列总表
+      </a>
+    </li>
+  </ul>
+
+          </div>
+        </div>
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-后端开发"><a href="/docs/nav/backend-dev-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-code fa-fw"></i>后端开发</a></li>
+
+
+      
+  <li class="menu-item menu-item-计算机基础"><a href="/docs/nav/cs-foundation-nav.html" rel="section"><i class="fa fa-desktop fa-fw"></i>计算机基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-ai-学习"><a href="/docs/nav/ai-learning-nav.html" rel="section"><i class="fa fa-robot fa-fw"></i>AI 学习</a></li>
+
+
+      
+  <li class="menu-item menu-item-项目实战"><a href="/docs/nav/5964f4da.html" rel="section"><i class="fa fa-flask fa-fw"></i>项目实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-misc"><a href="/docs/nav/misc-nav.html" rel="section"><i class="fa fa-box fa-fw"></i>Misc</a></li>
+
+
+      
+  <li class="menu-item menu-item-随笔·生活"><a href="/docs/nav/life-nav.html" rel="section"><i class="fa fa-feather fa-fw"></i>随笔·生活</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java"><a href="/docs/nav/java-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-coffee fa-fw"></i>Java</a></li>
+
+
+      
+  <li class="menu-item menu-item-框架"><a href="/docs/nav/framework-nav.html" rel="section"><i class="fa fa-th-large fa-fw"></i>框架</a></li>
+
+
+      
+  <li class="menu-item menu-item-数据存储"><a href="/docs/nav/data-storage-nav.html" rel="section"><i class="fa fa-hdd fa-fw"></i>数据存储</a></li>
+
+
+      
+  <li class="menu-item menu-item-中间件"><a href="/docs/nav/middleware-nav.html" rel="section"><i class="fa fa-cubes fa-fw"></i>中间件</a></li>
+
+
+      
+  <li class="menu-item menu-item-分布式与微服务"><a href="/docs/nav/distributed-nav.html" rel="section"><i class="fa fa-sitemap fa-fw"></i>分布式与微服务</a></li>
+
+
+      
+  <li class="menu-item menu-item-系统设计"><a href="/docs/nav/system-design-nav.html" rel="section"><i class="fa fa-pencil-ruler fa-fw"></i>系统设计</a></li>
+
+
+      
+  <li class="menu-item menu-item-部署运维"><a href="/docs/nav/devops-nav.html" rel="section"><i class="fa fa-terminal fa-fw"></i>部署运维</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java-核心基础"><a href="/post/6a6e612d.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Java 核心基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-java-并发编程"><a href="/docs/nav/java-concurrency-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-tasks fa-fw"></i>Java 并发编程</a></li>
+
+
+      
+  <li class="menu-item menu-item-jvm-原理与调优"><a href="/post/4e153c5e.html" rel="section"><i class="fa fa-file-text fa-fw"></i>JVM 原理与调优</a></li>
+
+
+      
+  <li class="menu-item menu-item-设计模式：15-个高频模式的实战内化"><a href="/post/67126.html" rel="section"><i class="fa fa-file-text fa-fw"></i>设计模式：15 个高频模式的实战内化</a></li>
+
+
+      
+  <li class="menu-item menu-item-java-开发实战速查"><a href="/post/be1f55d9.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Java 开发实战速查</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java-并发编程：从-jmm-到虚拟线程的系统化实战"><a href="/post/a3f81c2d.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Java 并发编程：从 JMM 到虚拟线程的系统化实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-①-从这里开始：把并发-bug-变成可复现的实验"><a href="/post/8ac324cd.html" rel="section"><i class="fa fa-file-text fa-fw"></i>① 从这里开始：把并发 bug 变成可复现的实验</a></li>
+
+
+      
+  <li class="menu-item menu-item-②-线程与调度：一次上下文切换值多少钱"><a href="/post/4f3149da.html" rel="section"><i class="fa fa-file-text fa-fw"></i>② 线程与调度：一次上下文切换值多少钱</a></li>
+
+
+      
+  <li class="menu-item menu-item-③-jmm：把「不可见」和「重排」亲手复现"><a href="/post/f092fe4.html" rel="section"><i class="fa fa-file-text fa-fw"></i>③ JMM：把「不可见」和「重排」亲手复现</a></li>
+
+
+      
+  <li class="menu-item menu-item-④-伪共享与缓存行：一个-@contended-的-4-倍差距"><a href="/post/311a2032.html" rel="section"><i class="fa fa-file-text fa-fw"></i>④ 伪共享与缓存行：一个 @Contended 的 4 倍差距</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑤-原子性：i++-的丢失与-cas-的代价"><a href="/post/ef5a2176.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑤ 原子性：i++ 的丢失与 CAS 的代价</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑥-锁的演化：偏向锁移除之后，synchronized-还慢吗"><a href="/post/347698f8.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑥ 锁的演化：偏向锁移除之后，synchronized 还慢吗</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑦-aqs-与并发容器：size()-为什么不准"><a href="/post/42dc269f.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑦ AQS 与并发容器：size() 为什么不准</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑧-线程池：core、max、queue-的组合陷阱"><a href="/post/b09d89b.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑧ 线程池：core、max、queue 的组合陷阱</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑨-并发工具与异步编排：completablefuture-的五个坑"><a href="/post/5489c9d2.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑨ 并发工具与异步编排：CompletableFuture 的五个坑</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑩-死锁与线程泄漏：从-jstack-到-jfr"><a href="/post/93f5ed7a.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑩ 死锁与线程泄漏：从 jstack 到 JFR</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑪-虚拟线程：pinning、吞吐与迁移代价"><a href="/post/aa676f55.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑪ 虚拟线程：pinning、吞吐与迁移代价</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑫-并发性能工程：容量、压测与全系列总表"><a href="/post/953dd446.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑫ 并发性能工程：容量、压测与全系列总表</a></li>
+
+
+    </ul>
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/ef5a2176.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="原子性：i++ 的丢失与 CAS 的代价 | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          原子性：i++ 的丢失与 CAS 的代价
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-10-26 01:00:00" itemprop="dateCreated datePublished" datetime="2026-10-26T01:00:00+08:00">2026-10-26</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/Java/" itemprop="url" rel="index"><span itemprop="name">Java</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>3k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>11 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><p><strong><code>i++</code> 不是原子操作，它是三步</strong>：读、加、写。三个线程同时执行时，两个线程会读到同一个旧值，最后只加了一次。③ 已经量过 <code>volatile++</code> 丢 61.4%；这一篇把「怎么修」算成账：**<code>LongAdder</code> 在 1 个线程时比 <code>AtomicLong</code> 慢 2.7 倍，在 64 个线程时快 16 倍**。</p>
+<p>还有一个反直觉的实测：<code>synchronized</code> 与 <code>AtomicLong</code> 在 4&#x2F;16&#x2F;64 线程下几乎一样（6 ns&#x2F;op 左右），谁也没赢——因为瓶颈都变成了「缓存行争用」。真正的赢家是把写分散开的 <code>LongAdder</code>。</p>
+<blockquote>
+<p><strong>系列地图（Java 并发实战路线，12 篇）</strong></p>
+<p>① 实验台与基线 → ② 线程与调度 → ③ JMM：可见性与重排 → ④ 伪共享与缓存行 → ⑤ <strong>原子性与 CAS（本文）</strong> → ⑥ 锁的演化 → ⑦ AQS 与并发容器 → ⑧ 线程池参数 → ⑨ 并发工具与异步编排 → ⑩ 死锁与线程泄漏 → ⑪ 虚拟线程 → ⑫ 并发性能工程</p>
+<p>与前后篇的关系：③ 的「volatile++ 丢 61.4%」是本文的起点；④ 的伪共享解释了「为什么 LongAdder 快」；⑥ 会接着讲锁的实现。</p>
+</blockquote>
+<h2 id="1-i-为什么不是原子的"><a href="#1-i-为什么不是原子的" class="headerlink" title="1. i++ 为什么不是原子的"></a>1. i++ 为什么不是原子的</h2><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">i++;    <span class="comment">// 编译成三条指令：</span></span><br><span class="line">        <span class="comment">// 1. 读 i 到寄存器</span></span><br><span class="line">        <span class="comment">// 2. 寄存器 +1</span></span><br><span class="line">        <span class="comment">// 3. 写回 i</span></span><br></pre></td></tr></table></figure>
+
+<pre class="mermaid">sequenceDiagram
+    participant T1
+    participant T2
+    participant M as Memory (i=100)
+    T1->>M: read i -> 100
+    T2->>M: read i -> 100
+    T1->>M: write 101
+    T2->>M: write 101
+    Note over M: two increments, result 101 (lost 1)</pre>
+
+<table>
+<thead>
+<tr>
+<th>操作</th>
+<th>是否原子</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>i = 1</code></td>
+<td>是（32 位以内）</td>
+<td>单次写</td>
+</tr>
+<tr>
+<td><code>i++</code></td>
+<td><strong>否</strong></td>
+<td>读-改-写三步</td>
+</tr>
+<tr>
+<td><code>volatile i++</code></td>
+<td><strong>否</strong></td>
+<td>volatile 只保证可见性，不保证三步整体</td>
+</tr>
+<tr>
+<td><code>AtomicInteger.incrementAndGet()</code></td>
+<td>是</td>
+<td>CAS 循环</td>
+</tr>
+<tr>
+<td><code>synchronized &#123; i++ &#125;</code></td>
+<td>是</td>
+<td>互斥</td>
+</tr>
+</tbody></table>
+<h2 id="2-四种写法，四种并发度"><a href="#2-四种写法，四种并发度" class="headerlink" title="2. 四种写法，四种并发度"></a>2. 四种写法，四种并发度</h2><h3 id="2-1-实测：ns-op（每线程-200-万次，3-轮取最优）"><a href="#2-1-实测：ns-op（每线程-200-万次，3-轮取最优）" class="headerlink" title="2.1 实测：ns&#x2F;op（每线程 200 万次，3 轮取最优）"></a>2.1 实测：ns&#x2F;op（每线程 200 万次，3 轮取最优）</h3><table>
+<thead>
+<tr>
+<th>线程数</th>
+<th><code>synchronized</code></th>
+<th><code>AtomicLong</code></th>
+<th><code>LongAdder</code></th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td><strong>1.19</strong></td>
+<td>1.55</td>
+<td>4.14</td>
+</tr>
+<tr>
+<td>4</td>
+<td>6.11</td>
+<td>5.82</td>
+<td><strong>1.11</strong></td>
+</tr>
+<tr>
+<td>16</td>
+<td>6.16</td>
+<td>5.53</td>
+<td><strong>0.52</strong></td>
+</tr>
+<tr>
+<td>64</td>
+<td>5.98</td>
+<td>5.54</td>
+<td><strong>0.34</strong></td>
+</tr>
+</tbody></table>
+<p><strong>这张表有三个反直觉点</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>反直觉</th>
+<th>数据</th>
+<th>原因</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>单线程下 <code>LongAdder</code> 最慢</td>
+<td>4.14 vs 1.19（3.5 倍）</td>
+<td>它要做 Cell 探测、哈希、分段写入，开销比一个 CAS 大</td>
+</tr>
+<tr>
+<td>高并发下 <code>synchronized</code> 与 <code>AtomicLong</code> 打平</td>
+<td>6.0 vs 5.5（64 线程）</td>
+<td>瓶颈都是<strong>缓存行争用</strong>，不是锁本身</td>
+</tr>
+<tr>
+<td><code>LongAdder</code> 越并发越快</td>
+<td>4.14 → 1.11 → 0.52 → 0.34</td>
+<td>写分散到多个 Cell，每个核改自己的行</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart LR
+    A["LongAdder&lt;br/>base + Cell[]"] --> B["thread 1 -> Cell 0"]
+    A --> C["thread 2 -> Cell 1"]
+    A --> D["thread 3 -> Cell 2"]
+    B -.->|"each cell padded&lt;br/>to own cache line"| E["no contention"]
+    C -.-> E
+    D -.-> E</pre>
+
+<h3 id="2-2-深挖：LongAdder-为什么越并发越快"><a href="#2-2-深挖：LongAdder-为什么越并发越快" class="headerlink" title="2.2 深挖：LongAdder 为什么越并发越快"></a>2.2 深挖：<code>LongAdder</code> 为什么越并发越快</h3><p><code>LongAdder</code> 维护一个 <code>base</code> 和一个 <code>Cell[]</code> 数组：</p>
+<table>
+<thead>
+<tr>
+<th>机制</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>按线程哈希选 Cell</td>
+<td>不同线程写不同 Cell，避免同一变量争用</td>
+</tr>
+<tr>
+<td>Cell 内部有 <code>@Contended</code> 填充</td>
+<td>不同 Cell 不共享缓存行（④ 的机制）</td>
+</tr>
+<tr>
+<td>读时求和 <code>sum()</code></td>
+<td>牺牲「读的实时精确性」换「写的扩展性」</td>
+</tr>
+</tbody></table>
+<table>
+<thead>
+<tr>
+<th>特性</th>
+<th><code>AtomicLong</code></th>
+<th><code>LongAdder</code></th>
+</tr>
+</thead>
+<tbody><tr>
+<td>写扩展性</td>
+<td>差（单点）</td>
+<td>好（分段）</td>
+</tr>
+<tr>
+<td>读开销</td>
+<td>O(1)</td>
+<td>O(Cell 数)</td>
+</tr>
+<tr>
+<td>读的精确性</td>
+<td>强（读到最新）</td>
+<td>弱（并发写时 sum 可能不准）</td>
+</tr>
+<tr>
+<td>适用</td>
+<td>需要精确值、序列号</td>
+<td>统计计数（QPS、访问量）</td>
+</tr>
+</tbody></table>
+<p><strong>结论</strong>：**统计类计数用 <code>LongAdder</code>，需要精确读值的用 <code>AtomicLong</code>**。本文 64 线程下差 16 倍，但如果你要「读一个精确的总数做判断」，<code>LongAdder</code> 的 <code>sum()</code> 在并发写时可能少算。</p>
+<h2 id="3-CAS-的代价：重试率"><a href="#3-CAS-的代价：重试率" class="headerlink" title="3. CAS 的代价：重试率"></a>3. CAS 的代价：重试率</h2><h3 id="3-1-实测：一次成功要尝试几次"><a href="#3-1-实测：一次成功要尝试几次" class="headerlink" title="3.1 实测：一次成功要尝试几次"></a>3.1 实测：一次成功要尝试几次</h3><p>自己实现 <code>increment</code>（<code>get</code> + <code>compareAndSet</code> 循环），统计尝试次数：</p>
+<table>
+<thead>
+<tr>
+<th>线程数</th>
+<th>总尝试次数</th>
+<th>尝试&#x2F;成功</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>500,000</td>
+<td><strong>1.00</strong></td>
+</tr>
+<tr>
+<td>4</td>
+<td>6,262,092</td>
+<td><strong>3.13</strong></td>
+</tr>
+<tr>
+<td>16</td>
+<td>57,727,878</td>
+<td>7.22</td>
+</tr>
+<tr>
+<td>64</td>
+<td>224,723,365</td>
+<td>7.02</td>
+</tr>
+</tbody></table>
+<p><strong>4 个线程就要试 3 次以上</strong>——因为一条 CAS 成功会让其他核的缓存行失效，其他线程的 CAS 全部失败重试。这就是「无退避的 CAS 惊群」。</p>
+<pre class="mermaid">flowchart TD
+    A["read cur"] --> B["compute next = cur+1"]
+    B --> C{"CAS(cur, next)?"}
+    C -- success --> D["done"]
+    C -- fail --> A
+    D -.->|"invalidates&lt;br/>other cores' line"| A</pre>
+
+<h3 id="3-2-单线程下的-CAS-成本"><a href="#3-2-单线程下的-CAS-成本" class="headerlink" title="3.2 单线程下的 CAS 成本"></a>3.2 单线程下的 CAS 成本</h3><table>
+<thead>
+<tr>
+<th>操作</th>
+<th>5000 万次耗时</th>
+<th>折算</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>plain++</code></td>
+<td><strong>0 ms</strong></td>
+<td>JIT 折叠成一次加法</td>
+</tr>
+<tr>
+<td><code>AtomicLong.incrementAndGet()</code></td>
+<td><strong>78 ms</strong></td>
+<td><strong>1.57 ns&#x2F;op</strong></td>
+</tr>
+</tbody></table>
+<p>单线程下 CAS 只要 1.57 ns——<strong>CAS 本身不慢，慢的是竞争</strong>。</p>
+<h3 id="3-3-三种降低重试的手段"><a href="#3-3-三种降低重试的手段" class="headerlink" title="3.3 三种降低重试的手段"></a>3.3 三种降低重试的手段</h3><table>
+<thead>
+<tr>
+<th>手段</th>
+<th>做法</th>
+<th>效果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>分段</td>
+<td><code>LongAdder</code> &#x2F; <code>ConcurrentHashMap</code> 的分段计数</td>
+<td>写分散，重试率趋近 1</td>
+</tr>
+<tr>
+<td>退避</td>
+<td>失败后 <code>Thread.onSpinWait()</code> 或短暂 <code>park</code></td>
+<td>减少无效抢</td>
+</tr>
+<tr>
+<td>换算法</td>
+<td>不需要精确值时用采样&#x2F;批量</td>
+<td>彻底绕开热点</td>
+</tr>
+</tbody></table>
+<h2 id="4-ABA：CAS-最经典的坑"><a href="#4-ABA：CAS-最经典的坑" class="headerlink" title="4. ABA：CAS 最经典的坑"></a>4. ABA：CAS 最经典的坑</h2><h3 id="4-1-复现：Treiber-栈丢了一个节点"><a href="#4-1-复现：Treiber-栈丢了一个节点" class="headerlink" title="4.1 复现：Treiber 栈丢了一个节点"></a>4.1 复现：Treiber 栈丢了一个节点</h3><p>初始栈 <code>B -&gt; A</code>，T1 准备 push 新节点 C，T2 把 B、A 都弹出再把 B 压回：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">T1: 读到 top = B，准备 C -&gt; B</span><br><span class="line">T2: pop B（top=A）、pop A（top=null）、再 push B（top=B）</span><br><span class="line">T1: CAS(top, B, C)  -&gt;  成功（top 又变回 B 了）</span><br></pre></td></tr></table></figure>
+
+<p>实测输出：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">T2 完成: 弹出 B、A 后再压回 B</span><br><span class="line">T1 CAS 成功? true</span><br><span class="line">最终栈: C -&gt; B -&gt; null</span><br><span class="line">期望栈: C -&gt; B -&gt; A -&gt; null（实际 A 丢了）</span><br></pre></td></tr></table></figure>
+
+<p><strong>问题</strong>：CAS 只比较「值」，不比较「这段时间里发生过什么」。值从 A 变回 A，CAS 就以为什么都没变。</p>
+<h3 id="4-2-修复：加版本号"><a href="#4-2-修复：加版本号" class="headerlink" title="4.2 修复：加版本号"></a>4.2 修复：加版本号</h3><p><code>AtomicStampedReference</code> 给值配一个 stamp，CAS 时同时比较：</p>
+<table>
+<thead>
+<tr>
+<th>操作</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>AtomicInteger.compareAndSet(100, 80)</code>（经历 100→50→100）</td>
+<td><strong>true</strong>（被骗了）</td>
+</tr>
+<tr>
+<td><code>AtomicStampedReference.compareAndSet(100, 80, stamp=1, 2)</code></td>
+<td><strong>false</strong>（stamp 已变成 3）</td>
+</tr>
+</tbody></table>
+<h3 id="4-3-什么时候会踩-ABA"><a href="#4-3-什么时候会踩-ABA" class="headerlink" title="4.3 什么时候会踩 ABA"></a>4.3 什么时候会踩 ABA</h3><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>风险</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>对象池 &#x2F; 连接池复用</td>
+<td>同一个对象被借出、归还、再借出</td>
+</tr>
+<tr>
+<td>无锁栈 &#x2F; 链表节点复用</td>
+<td>节点被弹出再压回，指针被复用</td>
+</tr>
+<tr>
+<td>余额、库存这类数值</td>
+<td>低（值从 100 变回 100 通常无害）</td>
+</tr>
+</tbody></table>
+<p><strong>判断</strong>：只有「值的身份」重要（指针、引用）时才需要 stamp；纯数值计数通常不需要。</p>
+<pre class="mermaid">flowchart TD
+    A["Need atomic update"] --> B{"single variable?"}
+    B -- no --> C["use lock&lt;br/>(synchronized / ReentrantLock)"]
+    B -- yes --> D{"read must be exact?"}
+    D -- yes --> E["AtomicLong / AtomicReference"]
+    D -- no --> F{"high contention?"}
+    F -- yes --> G["LongAdder"]
+    F -- no --> E
+    E --> H{"pointer reuse?"}
+    H -- yes --> I["add stamp&lt;br/>AtomicStampedReference"]</pre>
+
+<h2 id="5-选型与动手验证"><a href="#5-选型与动手验证" class="headerlink" title="5. 选型与动手验证"></a>5. 选型与动手验证</h2><h3 id="5-1-一张选型表"><a href="#5-1-一张选型表" class="headerlink" title="5.1 一张选型表"></a>5.1 一张选型表</h3><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>选择</th>
+<th>依据（本文实测）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>统计计数（QPS、PV）</td>
+<td><code>LongAdder</code></td>
+<td>64 线程 0.34 ns&#x2F;op</td>
+</tr>
+<tr>
+<td>需要精确读值</td>
+<td><code>AtomicLong</code></td>
+<td>读是 O(1) 且精确</td>
+</tr>
+<tr>
+<td>序列号 &#x2F; ID 生成</td>
+<td><code>AtomicLong</code></td>
+<td>需要严格递增</td>
+</tr>
+<tr>
+<td>临界区有多步操作</td>
+<td><code>synchronized</code> &#x2F; 锁</td>
+<td>CAS 只能保证单变量</td>
+</tr>
+<tr>
+<td>无锁数据结构</td>
+<td><code>AtomicReference</code> + stamp</td>
+<td>防 ABA</td>
+</tr>
+<tr>
+<td>低并发（1~4 线程）</td>
+<td><code>synchronized</code> 就够</td>
+<td>1.19 ns&#x2F;op，实现最简单</td>
+</tr>
+</tbody></table>
+<h3 id="5-2-动手验证：四种写法的曲线"><a href="#5-2-动手验证：四种写法的曲线" class="headerlink" title="5.2 动手验证：四种写法的曲线"></a>5.2 动手验证：四种写法的曲线</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">mkdir</span> -p /tmp/conc &amp;&amp; <span class="built_in">cd</span> /tmp/conc</span><br><span class="line"><span class="built_in">cat</span> &gt; Counter.java &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line">import java.util.concurrent.atomic.*;</span><br><span class="line">public class Counter &#123;</span><br><span class="line">    static long plain; static final Object LOCK = new Object();</span><br><span class="line">    static final AtomicLong ATOM = new AtomicLong(); static final LongAdder ADDER = new LongAdder();</span><br><span class="line">    static volatile long SINK;</span><br><span class="line">    public static void main(String[] a) throws Exception &#123;</span><br><span class="line">        int ops = 2_000_000;</span><br><span class="line">        System.out.printf(<span class="string">&quot;%-8s %-14s %-14s %-14s%n&quot;</span>,<span class="string">&quot;threads&quot;</span>,<span class="string">&quot;synchronized&quot;</span>,<span class="string">&quot;AtomicLong&quot;</span>,<span class="string">&quot;LongAdder&quot;</span>);</span><br><span class="line">        <span class="keyword">for</span> (int th : new int[]&#123;1,4,16,64&#125;) &#123;</span><br><span class="line">            System.out.printf(<span class="string">&quot;%-8d %-14.2f %-14.2f %-14.2f%n&quot;</span>, th, run(th,ops,<span class="string">&quot;sync&quot;</span>), run(th,ops,<span class="string">&quot;atom&quot;</span>), run(th,ops,<span class="string">&quot;adder&quot;</span>));</span><br><span class="line">        &#125;</span><br><span class="line">        System.out.println(<span class="string">&quot;SINK=&quot;</span>+SINK);</span><br><span class="line">    &#125;</span><br><span class="line">    static double run(int th,int ops,String kind) throws Exception &#123;</span><br><span class="line">        long best=Long.MAX_VALUE;</span><br><span class="line">        <span class="keyword">for</span> (int r=0;r&lt;3;r++)&#123;</span><br><span class="line">            java.util.concurrent.CyclicBarrier b=new java.util.concurrent.CyclicBarrier(th);</span><br><span class="line">            Thread[] ts=new Thread[th];</span><br><span class="line">            <span class="keyword">for</span>(int i=0;i&lt;th;i++)&#123; ts[i]=new Thread(()-&gt;&#123; try&#123;b.await();&#125;catch(Exception e)&#123;&#125;</span><br><span class="line">                switch(kind)&#123;</span><br><span class="line">                    case &quot;sync&quot;-&gt;&#123;for(int k=<span class="number">0</span>;k&lt;ops;k++) synchronized(LOCK)&#123;plain++;&#125;&#125;</span><br><span class="line">                    case &quot;atom&quot;-&gt;&#123;for(int k=<span class="number">0</span>;k&lt;ops;k++) ATOM.incrementAndGet();&#125;</span><br><span class="line">                    case &quot;adder&quot;-&gt;&#123;for(int k=<span class="number">0</span>;k&lt;ops;k++) ADDER.increment();&#125;</span><br><span class="line">                &#125;&#125;); ts[i].start(); &#125;</span><br><span class="line">            long s=System.nanoTime(); for(Thread t:ts)t.join();</span><br><span class="line">            best=Math.min(best,System.nanoTime()-s);</span><br><span class="line">        &#125;</span><br><span class="line">        SINK = plain+ATOM.get()+ADDER.sum();</span><br><span class="line">        return best/((double)th*ops);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line">EOF</span><br><span class="line">javac Counter.java &amp;&amp; java Counter</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：单线程 <code>LongAdder</code> 最慢；64 线程 <code>LongAdder</code> 最快（本文 0.34 vs 5.5 ns&#x2F;op）。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>三个数字都接近 0 → JIT 把循环优化掉了，加大 ops 或检查是否有 <code>SINK</code> 消费；</li>
+<li><code>LongAdder</code> 在高并发下没有优势 → 线程数不够（&lt;4）或 CPU 核数太少。</li>
+</ul>
+<h3 id="5-3-动手验证：量-CAS-重试率"><a href="#5-3-动手验证：量-CAS-重试率" class="headerlink" title="5.3 动手验证：量 CAS 重试率"></a>5.3 动手验证：量 CAS 重试率</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> /tmp/conc</span><br><span class="line"><span class="built_in">cat</span> &gt; Retry.java &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line">import java.util.concurrent.atomic.*;</span><br><span class="line">public class Retry &#123;</span><br><span class="line">    public static void main(String[] a) throws Exception &#123;</span><br><span class="line">        int ops=500_000;</span><br><span class="line">        System.out.printf(<span class="string">&quot;%-8s %-16s %-12s%n&quot;</span>,<span class="string">&quot;threads&quot;</span>,<span class="string">&quot;attempts&quot;</span>,<span class="string">&quot;per-success&quot;</span>);</span><br><span class="line">        <span class="keyword">for</span> (int th : new int[]&#123;1,4,16,64&#125;) &#123;</span><br><span class="line">            AtomicLong c=new AtomicLong(); LongAdder att=new LongAdder();</span><br><span class="line">            java.util.concurrent.CyclicBarrier b=new java.util.concurrent.CyclicBarrier(th);</span><br><span class="line">            Thread[] ts=new Thread[th];</span><br><span class="line">            <span class="keyword">for</span>(int i=0;i&lt;th;i++)&#123; ts[i]=new Thread(()-&gt;&#123; try&#123;b.await();&#125;catch(Exception e)&#123;&#125;</span><br><span class="line">                for(int k=<span class="number">0</span>;k&lt;ops;k++)&#123; long cur; do&#123; cur=c.get(); att.increment(); &#125;while(!c.compareAndSet(cur,cur+<span class="number">1</span>)); &#125;&#125;);</span><br><span class="line">                ts[i].start(); &#125;</span><br><span class="line">            <span class="keyword">for</span>(Thread t:ts)t.join();</span><br><span class="line">            System.out.printf(<span class="string">&quot;%-8d %-16d %-12.2f%n&quot;</span>, th, att.sum(), (double)att.sum()/((long)th*ops));</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line">EOF</span><br><span class="line">javac Retry.java &amp;&amp; java Retry</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：1 线程 1.00，4 线程 &gt; 2，16 线程接近 7（本文 7.22）。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>所有线程数都是 1.00 → 你的线程没有真正并发（屏障没用上，或 CPU 只有 1 核）；</li>
+<li>16 线程重试率超过 20 → 竞争极度激烈，必须换 <code>LongAdder</code> 或分段。</li>
+</ul>
+<h3 id="5-4-动手验证：复现-ABA"><a href="#5-4-动手验证：复现-ABA" class="headerlink" title="5.4 动手验证：复现 ABA"></a>5.4 动手验证：复现 ABA</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> /tmp/conc</span><br><span class="line"><span class="built_in">cat</span> &gt; Aba.java &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line">import java.util.concurrent.*;</span><br><span class="line">import java.util.concurrent.atomic.*;</span><br><span class="line">public class Aba &#123;</span><br><span class="line">    static class Node &#123; final String n; Node next; Node(String n)&#123;this.n=n;&#125; public String <span class="function"><span class="title">toString</span></span>()&#123;<span class="built_in">return</span> n;&#125; &#125;</span><br><span class="line">    public static void main(String[] a) throws Exception &#123;</span><br><span class="line">        Node A=new Node(<span class="string">&quot;A&quot;</span>), B=new Node(<span class="string">&quot;B&quot;</span>); B.next=A;</span><br><span class="line">        AtomicReference&lt;Node&gt; top=new AtomicReference&lt;&gt;(B);</span><br><span class="line">        CountDownLatch <span class="built_in">read</span>=new CountDownLatch(1), <span class="keyword">done</span>=new CountDownLatch(1);</span><br><span class="line">        Thread t1=new Thread(()-&gt;&#123; Node old=top.get(); Node c=new Node(&quot;C&quot;); c.next=old;</span><br><span class="line">            read.countDown(); try&#123;done.await();&#125;catch(Exception e)&#123;&#125;</span><br><span class="line">            System.out.println(&quot;T1 CAS: &quot;+top.compareAndSet(old,c)); &#125;);</span><br><span class="line">        Thread t2=new Thread(()-&gt;&#123; try&#123;read.await();&#125;catch(Exception e)&#123;&#125;</span><br><span class="line">            Node x=top.get(); top.compareAndSet(x,x.next);</span><br><span class="line">            Node y=top.get(); top.compareAndSet(y,y.next);</span><br><span class="line">            B.next=null; top.set(B); System.out.println(&quot;T2: pop B, pop A, push B&quot;); done.countDown(); &#125;);</span><br><span class="line">        t1.start(); t2.start(); t1.join(); t2.join();</span><br><span class="line">        StringBuilder sb=new StringBuilder();</span><br><span class="line">        for(Node n=top.get(); n!=null; n=n.next) sb.append(n).append(&quot; -&gt; &quot;);</span><br><span class="line">        System.out.println(&quot;final stack: &quot;+sb+&quot;null  (expected C -&gt; B -&gt; A)&quot;);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line">EOF</span><br><span class="line">javac Aba.java &amp;&amp; java Aba</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：<code>T1 CAS: true</code>，最终栈是 <code>C -&gt; B -&gt; null</code>，A 丢失。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>CAS 返回 false → 你的时序没构造对（T2 必须在 T1 读完之后、CAS 之前完成）；</li>
+<li>用 <code>AtomicStampedReference</code> 替换后 CAS 变 false → 修复生效（见 5.5）。</li>
+</ul>
+<h3 id="5-5-动手验证：stamp-修复-ABA"><a href="#5-5-动手验证：stamp-修复-ABA" class="headerlink" title="5.5 动手验证：stamp 修复 ABA"></a>5.5 动手验证：stamp 修复 ABA</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> /tmp/conc</span><br><span class="line"><span class="built_in">cat</span> &gt; Stamp.java &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line">import java.util.concurrent.atomic.*;</span><br><span class="line">public class Stamp &#123;</span><br><span class="line">    public static void main(String[] a) &#123;</span><br><span class="line">        AtomicInteger plain=new AtomicInteger(100);</span><br><span class="line">        AtomicStampedReference&lt;Integer&gt; stamped=new AtomicStampedReference&lt;&gt;(100,1);</span><br><span class="line">        int expStamp=stamped.getStamp();</span><br><span class="line">        plain.compareAndSet(100,50); plain.compareAndSet(50,100);</span><br><span class="line">        stamped.compareAndSet(100,50,expStamp,expStamp+1);</span><br><span class="line">        stamped.compareAndSet(50,100,expStamp+1,expStamp+2);</span><br><span class="line">        System.out.println(<span class="string">&quot;plain CAS:   &quot;</span>+plain.compareAndSet(100,80));</span><br><span class="line">        System.out.println(<span class="string">&quot;stamped CAS: &quot;</span>+stamped.compareAndSet(100,80,expStamp,expStamp+1));</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line">EOF</span><br><span class="line">javac Stamp.java &amp;&amp; java Stamp</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：<code>plain CAS: true</code>，<code>stamped CAS: false</code>。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>stamped 也返回 true → 你在两次 CAS 之间没更新 stamp，检查参数顺序（期望值、新值、期望 stamp、新 stamp）。</li>
+</ul>
+<h2 id="6-总结"><a href="#6-总结" class="headerlink" title="6. 总结"></a>6. 总结</h2><h3 id="6-1-面试速答表"><a href="#6-1-面试速答表" class="headerlink" title="6.1 面试速答表"></a>6.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>i++ 为什么线程不安全</td>
+<td>读-改-写三步，可能读到同一个旧值</td>
+</tr>
+<tr>
+<td>volatile 能保证 i++ 安全吗</td>
+<td>不能，只保证可见性不保证原子性（③ 实测丢 61.4%）</td>
+</tr>
+<tr>
+<td>AtomicLong 怎么实现的</td>
+<td>CAS 循环：读值、算新值、compareAndSet 失败重试</td>
+</tr>
+<tr>
+<td>CAS 有什么问题</td>
+<td>自旋消耗 CPU、ABA、只能保证单变量</td>
+</tr>
+<tr>
+<td>ABA 是什么</td>
+<td>值从 A 变 B 又变回 A，CAS 以为没变过</td>
+</tr>
+<tr>
+<td>怎么解决 ABA</td>
+<td><code>AtomicStampedReference</code> &#x2F; <code>AtomicMarkableReference</code></td>
+</tr>
+<tr>
+<td>LongAdder 为什么比 AtomicLong 快</td>
+<td>分段（Cell 数组）+ 缓存行填充，写分散到多个核</td>
+</tr>
+<tr>
+<td>LongAdder 的缺点</td>
+<td><code>sum()</code> 不是精确实时值，读开销 O(Cell)</td>
+</tr>
+<tr>
+<td>什么时候用 synchronized 而不是 Atomic</td>
+<td>临界区有多步操作，或低并发下实现更简单</td>
+</tr>
+<tr>
+<td>CAS 重试率有多高</td>
+<td>本文 4 线程 3.13 次&#x2F;成功，16 线程 7.22 次</td>
+</tr>
+<tr>
+<td>单线程下 LongAdder 和 AtomicLong 谁快</td>
+<td>AtomicLong（1.55 vs 4.14 ns&#x2F;op，本文）</td>
+</tr>
+<tr>
+<td>64 线程下差多少</td>
+<td>LongAdder 0.34 vs AtomicLong 5.54 ns&#x2F;op（16 倍）</td>
+</tr>
+</tbody></table>
+<h3 id="6-2-实战避坑表"><a href="#6-2-实战避坑表" class="headerlink" title="6.2 实战避坑表"></a>6.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>计数总是少一点</td>
+<td>用了 <code>int++</code> 或 <code>volatile++</code></td>
+<td>换 <code>AtomicLong</code>&#x2F;<code>LongAdder</code></td>
+</tr>
+<tr>
+<td>高并发下计数性能差</td>
+<td>单点 CAS 争用</td>
+<td>换 <code>LongAdder</code></td>
+</tr>
+<tr>
+<td>读到的总数不准</td>
+<td><code>LongAdder.sum()</code> 非实时精确</td>
+<td>需要精确值用 <code>AtomicLong</code>，或停写后再 sum</td>
+</tr>
+<tr>
+<td>无锁栈偶尔丢节点</td>
+<td>ABA</td>
+<td>加 stamp</td>
+</tr>
+<tr>
+<td>CAS 循环 CPU 飙高</td>
+<td>无退避自旋</td>
+<td><code>Thread.onSpinWait()</code> 或降并发</td>
+</tr>
+</tbody></table>
+<h3 id="6-3-工具速查表"><a href="#6-3-工具速查表" class="headerlink" title="6.3 工具速查表"></a>6.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>判定标准</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>AtomicLong</code> &#x2F; <code>LongAdder</code></td>
+<td>计数实现</td>
+<td>高并发统计优先 Adder</td>
+</tr>
+<tr>
+<td><code>AtomicStampedReference</code></td>
+<td>带版本号的 CAS</td>
+<td>防 ABA</td>
+</tr>
+<tr>
+<td><code>VarHandle</code></td>
+<td>更底层的原子操作</td>
+<td>JDK 9+ 替代 Unsafe</td>
+</tr>
+<tr>
+<td>JFR</td>
+<td>线程状态与竞争</td>
+<td>结合 ② 读法</td>
+</tr>
+<tr>
+<td>本文的 Retry 脚本</td>
+<td>CAS 重试率</td>
+<td>&gt; 3 就该考虑分段</td>
+</tr>
+</tbody></table>
+<h3 id="6-4-实操建议"><a href="#6-4-实操建议" class="headerlink" title="6.4 实操建议"></a>6.4 实操建议</h3><ol>
+<li>**统计计数一律 <code>LongAdder</code>**，需要精确读值的才用 <code>AtomicLong</code>。</li>
+<li><strong><code>i++</code> 出现在多线程代码里就是 bug</strong>，换成原子类或锁。</li>
+<li><strong>临界区超过一行就别用 CAS</strong>，用锁更清晰（⑥ 会讲锁的成本）。</li>
+<li><strong>无锁结构遇到「节点复用」必须加 stamp</strong>，否则 ABA 一定会在某天出现。</li>
+<li><strong>压测时观察 CAS 重试率</strong>，它是「该分段了」的早期信号。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告</strong>：⑥《锁的演化：偏向锁移除之后》。本文说「高并发下 synchronized 与 AtomicLong 打平」，下一篇拆开 <code>synchronized</code> 本身：JOL 观察 Mark Word 在无锁&#x2F;偏向&#x2F;轻量&#x2F;重量四种状态下的变化、JDK 21 移除偏向锁后到底影响了什么、以及无竞争时锁的开销究竟是多少。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/Java/" rel="tag"># Java</a>
+              <a href="/tags/%E9%9D%A2%E8%AF%95/" rel="tag"># 面试</a>
+              <a href="/tags/%E5%B9%B6%E5%8F%91/" rel="tag"># 并发</a>
+              <a href="/tags/CAS/" rel="tag"># CAS</a>
+              <a href="/tags/Atomic/" rel="tag"># Atomic</a>
+              <a href="/tags/LongAdder/" rel="tag"># LongAdder</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/311a2032.html" rel="prev" title="伪共享与缓存行：一个 @Contended 的 4 倍差距">
+                  <i class="fa fa-angle-left"></i> 伪共享与缓存行：一个 @Contended 的 4 倍差距
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/post/347698f8.html" rel="next" title="锁的演化：偏向锁移除之后，synchronized 还慢吗">
+                  锁的演化：偏向锁移除之后，synchronized 还慢吗 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">778k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">47:09</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
+</html>

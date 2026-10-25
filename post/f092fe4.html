@@ -1,0 +1,1143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="一个 boolean 就能让整个服务挂死，而且日志里什么都看不到。实测：把 stop 声明成普通字段，另一个线程把 stop &#x3D; true 之后，读线程3 秒都没退出——JIT 把 stop 的读取提到了寄存器里，再也不去内存看。加上 volatile，同样的代码 500 毫秒内正常退出。 这篇逐个复现 JMM 的三个问题：可见性（复现了）、有序性（没复现，但要讲清为什么）、原子性（61.4% 的">
+<meta property="og:type" content="article">
+<meta property="og:title" content="JMM：把「不可见」和「重排」亲手复现">
+<meta property="og:url" content="http://timewait7.github.io/post/f092fe4.html">
+<meta property="og:site_name" content="知行栈">
+<meta property="og:description" content="一个 boolean 就能让整个服务挂死，而且日志里什么都看不到。实测：把 stop 声明成普通字段，另一个线程把 stop &#x3D; true 之后，读线程3 秒都没退出——JIT 把 stop 的读取提到了寄存器里，再也不去内存看。加上 volatile，同样的代码 500 毫秒内正常退出。 这篇逐个复现 JMM 的三个问题：可见性（复现了）、有序性（没复现，但要讲清为什么）、原子性（61.4% 的">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-10-25T15:00:00.000Z">
+<meta property="article:modified_time" content="2026-10-25T06:13:18.117Z">
+<meta property="article:tag" content="Java">
+<meta property="article:tag" content="面试">
+<meta property="article:tag" content="并发">
+<meta property="article:tag" content="JMM">
+<meta property="article:tag" content="volatile">
+<meta property="article:tag" content="内存屏障">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/f092fe4.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/f092fe4.html","path":"post/f092fe4.html","title":"JMM：把「不可见」和「重排」亲手复现"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>JMM：把「不可见」和「重排」亲手复现 | 知行栈</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<!-- hexo injector head_end start --><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
+</style><style>
+/* 菜单链高亮：sub-menu 祖先（同主题 .menu-item-active 的 Pisces 规则） */
+.sub-menu .menu-item a.menu-chain-active {
+  border-bottom-color: #fc6423;
+  color: #fc6423;
+}
+.sub-menu .menu-item a.menu-chain-active:hover {
+  border-bottom-color: #fc6423;
+}
+/* 菜单链高亮：main-menu 祖先（同主题 hover/active 的背景规则） */
+.main-menu .menu-item a.menu-chain-active {
+  background: var(--menu-item-bg-color);
+}
+</style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">知行栈</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section" class="menu-chain-active"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>Categories</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-%E4%B8%89%E4%B8%AA%E9%97%AE%E9%A2%98%EF%BC%8C%E4%B8%80%E5%BC%A0%E8%A1%A8"><span class="nav-text">1. 三个问题，一张表</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E5%8F%AF%E8%A7%81%E6%80%A7%EF%BC%9A%E4%B8%80%E4%B8%AA-boolean-%E5%B0%B1%E8%83%BD%E8%AE%A9%E7%A8%8B%E5%BA%8F%E6%8C%82%E6%AD%BB"><span class="nav-text">2. 可见性：一个 boolean 就能让程序挂死</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E5%AE%9E%E6%B5%8B%EF%BC%9A%E6%99%AE%E9%80%9A%E5%AD%97%E6%AE%B5-vs-volatile"><span class="nav-text">2.1 实测：普通字段 vs volatile</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E6%B7%B1%E6%8C%96%EF%BC%9A%E8%BF%99%E6%98%AF-JIT-%E5%B9%B2%E7%9A%84%EF%BC%8C%E4%B8%8D%E6%98%AF-CPU"><span class="nav-text">2.2 深挖：这是 JIT 干的，不是 CPU</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-%E6%AD%A3%E7%A1%AE%E7%9A%84%E5%86%99%E6%B3%95"><span class="nav-text">2.3 正确的写法</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E6%9C%89%E5%BA%8F%E6%80%A7%EF%BC%9A%E9%87%8D%E6%8E%92%E7%9C%9F%E7%9A%84%E4%BC%9A%E5%8F%91%E7%94%9F%E5%90%97"><span class="nav-text">3. 有序性：重排真的会发生吗</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E5%AE%9E%E9%AA%8C%E8%AE%BE%E8%AE%A1%EF%BC%88litmus-test%EF%BC%89"><span class="nav-text">3.1 实验设计（litmus test）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E5%AE%9E%E6%B5%8B%EF%BC%9A10-%E4%B8%87%E8%BD%AE%EF%BC%8C0-%E6%AC%A1"><span class="nav-text">3.2 实测：10 万轮，0 次</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-%E6%B7%B1%E6%8C%96%EF%BC%9A%E6%B2%A1%E5%A4%8D%E7%8E%B0-%E2%89%A0-%E4%B8%8D%E4%BC%9A%E5%8F%91%E7%94%9F"><span class="nav-text">3.3 深挖：没复现 ≠ 不会发生</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-4-%E6%80%8E%E4%B9%88%E7%9C%9F%E6%AD%A3%E9%AA%8C%E8%AF%81%E9%87%8D%E6%8E%92"><span class="nav-text">3.4 怎么真正验证重排</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E5%8E%9F%E5%AD%90%E6%80%A7%EF%BC%9Avolatile-%E6%95%91%E4%B8%8D%E4%BA%86-i"><span class="nav-text">4. 原子性：volatile 救不了 i++</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-%E5%AE%9E%E6%B5%8B%EF%BC%9A4-%E7%BA%BF%E7%A8%8B%E4%B8%A2-61-4"><span class="nav-text">4.1 实测：4 线程丢 61.4%</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-%E4%B8%89%E7%A7%8D%E4%BF%AE%E6%B3%95%E7%9A%84%E9%87%8F%E7%BA%A7%EF%BC%88%E2%91%A4-%E4%BC%9A%E5%B1%95%E5%BC%80%EF%BC%89"><span class="nav-text">4.2 三种修法的量级（⑤ 会展开）</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-volatile-%E7%9A%84%E6%88%90%E6%9C%AC%EF%BC%9A1-56-ns-op"><span class="nav-text">5. volatile 的成本：1.56 ns&#x2F;op</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E5%AE%9E%E6%B5%8B"><span class="nav-text">5.1 实测</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-happens-before-%E7%9A%84%E5%85%AD%E6%9D%A1%E8%A7%84%E5%88%99%EF%BC%88%E9%80%9F%E6%9F%A5%EF%BC%89"><span class="nav-text">5.2 happens-before 的六条规则（速查）</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#6-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%9B%9B%E4%B8%AA%E5%8F%AF%E5%A4%8D%E7%8E%B0%E5%AE%9E%E9%AA%8C"><span class="nav-text">6. 动手验证：四个可复现实验</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#6-1-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%A4%8D%E7%8E%B0%E5%8F%AF%E8%A7%81%E6%80%A7-bug"><span class="nav-text">6.1 动手验证：复现可见性 bug</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-2-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E9%87%8D%E6%8E%92-litmus-%E6%B5%8B%E8%AF%95"><span class="nav-text">6.2 动手验证：重排 litmus 测试</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-3-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9Avolatile-%E7%9A%84%E4%B8%A2%E6%9B%B4%E6%96%B0"><span class="nav-text">6.3 动手验证：volatile 的丢更新</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E9%87%8F-volatile-%E7%9A%84%E5%86%99%E6%88%90%E6%9C%AC"><span class="nav-text">6.4 动手验证：量 volatile 的写成本</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#7-%E6%80%BB%E7%BB%93"><span class="nav-text">7. 总结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#7-1-%E9%9D%A2%E8%AF%95%E9%80%9F%E7%AD%94%E8%A1%A8"><span class="nav-text">7.1 面试速答表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-2-%E5%AE%9E%E6%88%98%E9%81%BF%E5%9D%91%E8%A1%A8"><span class="nav-text">7.2 实战避坑表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-3-%E5%B7%A5%E5%85%B7%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">7.3 工具速查表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-4-%E5%AE%9E%E6%93%8D%E5%BB%BA%E8%AE%AE"><span class="nav-text">7.4 实操建议</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">116</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">14</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">205</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+    <div class="sidebar-inner sidebar-blogroll">
+      <div class="links-of-blogroll animated">
+        <div class="links-of-blogroll-title"><i class="fa fa-globe fa-fw"></i>
+          Links
+        </div>
+        <ul class="links-of-blogroll-list">
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9wYXVsZ3JhaGFtLmNvbS9hcnRpY2xlcy5odG1s" title="https:&#x2F;&#x2F;paulgraham.com&#x2F;articles.html">paulgraham</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly93d3cuam9lbG9uc29mdHdhcmUuY29tLw==" title="https:&#x2F;&#x2F;www.joelonsoftware.com&#x2F;">Joel on Software</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9tYXJ0aW5mb3dsZXIuY29tLw==" title="https:&#x2F;&#x2F;martinfowler.com&#x2F;">Martin Flower</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly96aGFuZ3RpZWxlaS5jb20v" title="https:&#x2F;&#x2F;zhangtielei.com&#x2F;">zhangtielei</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhLWRlc2lnbi1wYXR0ZXJucy5jb20vemgv" title="https:&#x2F;&#x2F;java-design-patterns.com&#x2F;zh&#x2F;">Java Design Patterns</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9taWNyb3NlcnZpY2VzLmlvLw==" title="https:&#x2F;&#x2F;microservices.io&#x2F;">Microservice Architecture</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhZ3VpZGUuY24v" title="https:&#x2F;&#x2F;javaguide.cn&#x2F;">JavaGuide</span>
+            </li>
+        </ul>
+      </div>
+    </div>
+        <div class="pjax">
+        
+        <div class="sidebar-inner sidebar-post-related">
+          <div class="animated">
+              <div class="links-of-blogroll-title"><i class="fa fa-signs-post fa-fw"></i>
+    Related Posts
+  </div>
+  <ul class="popular-posts">
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/8ac324cd.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-25</time>
+        <br>
+      从这里开始：把并发 bug 变成可复现的实验
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/311a2032.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-26</time>
+        <br>
+      伪共享与缓存行：一个 @Contended 的 4 倍差距
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/ef5a2176.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-26</time>
+        <br>
+      原子性：i++ 的丢失与 CAS 的代价
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/4f3149da.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-25</time>
+        <br>
+      线程与调度：一次上下文切换值多少钱
+      </a>
+    </li>
+  </ul>
+
+          </div>
+        </div>
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-后端开发"><a href="/docs/nav/backend-dev-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-code fa-fw"></i>后端开发</a></li>
+
+
+      
+  <li class="menu-item menu-item-计算机基础"><a href="/docs/nav/cs-foundation-nav.html" rel="section"><i class="fa fa-desktop fa-fw"></i>计算机基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-ai-学习"><a href="/docs/nav/ai-learning-nav.html" rel="section"><i class="fa fa-robot fa-fw"></i>AI 学习</a></li>
+
+
+      
+  <li class="menu-item menu-item-项目实战"><a href="/docs/nav/5964f4da.html" rel="section"><i class="fa fa-flask fa-fw"></i>项目实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-misc"><a href="/docs/nav/misc-nav.html" rel="section"><i class="fa fa-box fa-fw"></i>Misc</a></li>
+
+
+      
+  <li class="menu-item menu-item-随笔·生活"><a href="/docs/nav/life-nav.html" rel="section"><i class="fa fa-feather fa-fw"></i>随笔·生活</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java"><a href="/docs/nav/java-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-coffee fa-fw"></i>Java</a></li>
+
+
+      
+  <li class="menu-item menu-item-框架"><a href="/docs/nav/framework-nav.html" rel="section"><i class="fa fa-th-large fa-fw"></i>框架</a></li>
+
+
+      
+  <li class="menu-item menu-item-数据存储"><a href="/docs/nav/data-storage-nav.html" rel="section"><i class="fa fa-hdd fa-fw"></i>数据存储</a></li>
+
+
+      
+  <li class="menu-item menu-item-中间件"><a href="/docs/nav/middleware-nav.html" rel="section"><i class="fa fa-cubes fa-fw"></i>中间件</a></li>
+
+
+      
+  <li class="menu-item menu-item-分布式与微服务"><a href="/docs/nav/distributed-nav.html" rel="section"><i class="fa fa-sitemap fa-fw"></i>分布式与微服务</a></li>
+
+
+      
+  <li class="menu-item menu-item-系统设计"><a href="/docs/nav/system-design-nav.html" rel="section"><i class="fa fa-pencil-ruler fa-fw"></i>系统设计</a></li>
+
+
+      
+  <li class="menu-item menu-item-部署运维"><a href="/docs/nav/devops-nav.html" rel="section"><i class="fa fa-terminal fa-fw"></i>部署运维</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java-核心基础"><a href="/post/6a6e612d.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Java 核心基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-java-并发编程"><a href="/docs/nav/java-concurrency-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-tasks fa-fw"></i>Java 并发编程</a></li>
+
+
+      
+  <li class="menu-item menu-item-jvm-原理与调优"><a href="/post/4e153c5e.html" rel="section"><i class="fa fa-file-text fa-fw"></i>JVM 原理与调优</a></li>
+
+
+      
+  <li class="menu-item menu-item-设计模式：15-个高频模式的实战内化"><a href="/post/67126.html" rel="section"><i class="fa fa-file-text fa-fw"></i>设计模式：15 个高频模式的实战内化</a></li>
+
+
+      
+  <li class="menu-item menu-item-java-开发实战速查"><a href="/post/be1f55d9.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Java 开发实战速查</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java-并发编程：从-jmm-到虚拟线程的系统化实战"><a href="/post/a3f81c2d.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Java 并发编程：从 JMM 到虚拟线程的系统化实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-①-从这里开始：把并发-bug-变成可复现的实验"><a href="/post/8ac324cd.html" rel="section"><i class="fa fa-file-text fa-fw"></i>① 从这里开始：把并发 bug 变成可复现的实验</a></li>
+
+
+      
+  <li class="menu-item menu-item-②-线程与调度：一次上下文切换值多少钱"><a href="/post/4f3149da.html" rel="section"><i class="fa fa-file-text fa-fw"></i>② 线程与调度：一次上下文切换值多少钱</a></li>
+
+
+      
+  <li class="menu-item menu-item-③-jmm：把「不可见」和「重排」亲手复现"><a href="/post/f092fe4.html" rel="section"><i class="fa fa-file-text fa-fw"></i>③ JMM：把「不可见」和「重排」亲手复现</a></li>
+
+
+      
+  <li class="menu-item menu-item-④-伪共享与缓存行：一个-@contended-的-4-倍差距"><a href="/post/311a2032.html" rel="section"><i class="fa fa-file-text fa-fw"></i>④ 伪共享与缓存行：一个 @Contended 的 4 倍差距</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑤-原子性：i++-的丢失与-cas-的代价"><a href="/post/ef5a2176.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑤ 原子性：i++ 的丢失与 CAS 的代价</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑥-锁的演化：偏向锁移除之后，synchronized-还慢吗"><a href="/post/347698f8.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑥ 锁的演化：偏向锁移除之后，synchronized 还慢吗</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑦-aqs-与并发容器：size()-为什么不准"><a href="/post/42dc269f.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑦ AQS 与并发容器：size() 为什么不准</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑧-线程池：core、max、queue-的组合陷阱"><a href="/post/b09d89b.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑧ 线程池：core、max、queue 的组合陷阱</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑨-并发工具与异步编排：completablefuture-的五个坑"><a href="/post/5489c9d2.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑨ 并发工具与异步编排：CompletableFuture 的五个坑</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑩-死锁与线程泄漏：从-jstack-到-jfr"><a href="/post/93f5ed7a.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑩ 死锁与线程泄漏：从 jstack 到 JFR</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑪-虚拟线程：pinning、吞吐与迁移代价"><a href="/post/aa676f55.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑪ 虚拟线程：pinning、吞吐与迁移代价</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑫-并发性能工程：容量、压测与全系列总表"><a href="/post/953dd446.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑫ 并发性能工程：容量、压测与全系列总表</a></li>
+
+
+    </ul>
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/f092fe4.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="JMM：把「不可见」和「重排」亲手复现 | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          JMM：把「不可见」和「重排」亲手复现
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-10-25 23:00:00" itemprop="dateCreated datePublished" datetime="2026-10-25T23:00:00+08:00">2026-10-25</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/Java/" itemprop="url" rel="index"><span itemprop="name">Java</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>3.6k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>13 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><p><strong>一个 <code>boolean</code> 就能让整个服务挂死，而且日志里什么都看不到</strong>。实测：把 <code>stop</code> 声明成普通字段，另一个线程把 <code>stop = true</code> 之后，读线程<strong>3 秒都没退出</strong>——JIT 把 <code>stop</code> 的读取提到了寄存器里，再也不去内存看。加上 <code>volatile</code>，同样的代码 500 毫秒内正常退出。</p>
+<p>这篇逐个复现 JMM 的三个问题：<strong>可见性（复现了）、有序性（没复现，但要讲清为什么）、原子性（61.4% 的更新丢失）</strong>。</p>
+<blockquote>
+<p><strong>系列地图（Java 并发实战路线，12 篇）</strong></p>
+<p>① 实验台与基线 → ② 线程与调度 → ③ <strong>JMM：可见性与重排（本文）</strong> → ④ 伪共享与缓存行 → ⑤ 原子性与 CAS → ⑥ 锁的演化 → ⑦ AQS 与并发容器 → ⑧ 线程池参数 → ⑨ 并发工具与异步编排 → ⑩ 死锁与线程泄漏 → ⑪ 虚拟线程 → ⑫ 并发性能工程</p>
+<p>与前后篇的关系：① 说「基准会被 JIT 优化」，本文用它复现可见性 bug；④ 会接着讲「volatile 背后的缓存行」；⑤ 用本文的「volatile++ 丢更新」引出 CAS。</p>
+</blockquote>
+<h2 id="1-三个问题，一张表"><a href="#1-三个问题，一张表" class="headerlink" title="1. 三个问题，一张表"></a>1. 三个问题，一张表</h2><table>
+<thead>
+<tr>
+<th>问题</th>
+<th>一句话定义</th>
+<th>本文是否复现</th>
+<th>典型后果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>可见性</td>
+<td>一个线程改了，另一个线程看不到</td>
+<td>✅ 复现（3 秒未退出）</td>
+<td>死循环、优雅停机失效</td>
+</tr>
+<tr>
+<td>有序性</td>
+<td>指令重排导致执行顺序与代码不一致</td>
+<td>❌ 10 万轮未出现</td>
+<td>DCL 半初始化、初始化顺序错乱</td>
+</tr>
+<tr>
+<td>原子性</td>
+<td>复合操作被拆开执行</td>
+<td>✅ 复现（丢 61.4%）</td>
+<td>计数丢失、超卖</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart LR
+    A["Thread A writes x=1"] --> B["CPU store buffer&lt;br/>not flushed yet"]
+    B --> C["cache line in Modified state"]
+    C --> D["Thread B reads x"]
+    D --> E{"sees 0 or 1?"}
+    E -->|"no synchronization"| F["may see 0 (stale)"]
+    E -->|"volatile / lock"| G["must see 1"]</pre>
+
+<p><strong>核心认知</strong>：这三个问题都不是「代码写错了」，而是<strong>代码没有建立 happens-before 关系</strong>。JMM 只承诺：<strong>在 happens-before 关系成立的前提下，结果是对的</strong>。</p>
+<h2 id="2-可见性：一个-boolean-就能让程序挂死"><a href="#2-可见性：一个-boolean-就能让程序挂死" class="headerlink" title="2. 可见性：一个 boolean 就能让程序挂死"></a>2. 可见性：一个 boolean 就能让程序挂死</h2><h3 id="2-1-实测：普通字段-vs-volatile"><a href="#2-1-实测：普通字段-vs-volatile" class="headerlink" title="2.1 实测：普通字段 vs volatile"></a>2.1 实测：普通字段 vs volatile</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">static</span> <span class="type">boolean</span> stopPlain;             <span class="comment">// 无 volatile</span></span><br><span class="line"><span class="keyword">static</span> <span class="keyword">volatile</span> <span class="type">boolean</span> stopVolatile;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 读线程</span></span><br><span class="line"><span class="keyword">while</span> (!stopPlain) &#123; n++; &#125;           <span class="comment">// 主线：把这个字段声明改成 volatile 再跑一次</span></span><br></pre></td></tr></table></figure>
+
+<p>实测输出（JDK 21.0.12，aarch64，15 核）：</p>
+<table>
+<thead>
+<tr>
+<th>版本</th>
+<th>结果</th>
+<th>循环次数</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>普通字段</td>
+<td><strong>3 秒未退出</strong>（看门狗强制结束）</td>
+<td>—</td>
+</tr>
+<tr>
+<td><code>volatile</code></td>
+<td>0.5 秒内正常退出</td>
+<td>1,998,494,873</td>
+</tr>
+</tbody></table>
+<p><strong>为什么</strong>：JIT 编译后发现循环体里没有对 <code>stopPlain</code> 的写操作，于是把「读 <code>stopPlain</code>」提升到循环外（循环不变量提升），寄存器里的值永远是初始的 <code>false</code>。</p>
+<h3 id="2-2-深挖：这是-JIT-干的，不是-CPU"><a href="#2-2-深挖：这是-JIT-干的，不是-CPU" class="headerlink" title="2.2 深挖：这是 JIT 干的，不是 CPU"></a>2.2 深挖：这是 JIT 干的，不是 CPU</h3><p>想确认是 JIT 而不是硬件缓存的问题，用解释模式跑一次：</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">java -Xint Lab3a     <span class="comment"># 纯解释执行，不加 volatile 也会退出</span></span><br><span class="line">java Lab3a           <span class="comment"># JIT 编译后，不加 volatile 就挂住</span></span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th>运行模式</th>
+<th>不加 volatile</th>
+<th>原因</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>-Xint</code>（解释）</td>
+<td><strong>会退出</strong></td>
+<td>每次循环都真的去读字段</td>
+</tr>
+<tr>
+<td>默认（JIT）</td>
+<td><strong>不退出</strong></td>
+<td>读被提升到寄存器</td>
+</tr>
+</tbody></table>
+<p><strong>这个对照很重要</strong>：它说明「可见性 bug 是编译期优化 + 硬件缓存共同造成的」，所以在测试环境跑不出来，不代表生产不会出。</p>
+<h3 id="2-3-正确的写法"><a href="#2-3-正确的写法" class="headerlink" title="2.3 正确的写法"></a>2.3 正确的写法</h3><table>
+<thead>
+<tr>
+<th>写法</th>
+<th>适用</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>volatile</code></td>
+<td>停止标志、状态位</td>
+<td>每次读写都过内存，禁止重排</td>
+</tr>
+<tr>
+<td><code>AtomicBoolean</code></td>
+<td>停止标志 + 原子操作</td>
+<td>比 volatile 多一层 CAS 封装</td>
+</tr>
+<tr>
+<td><code>interrupt()</code></td>
+<td>线程中断</td>
+<td>JVM 内建机制，配合 <code>isInterrupted()</code></td>
+</tr>
+<tr>
+<td>锁</td>
+<td>复合状态</td>
+<td>顺带保证可见性</td>
+</tr>
+</tbody></table>
+<p>生产上更推荐 <code>volatile</code> + <code>interrupt()</code> 组合：标志位负责业务语义，<code>interrupt</code> 负责唤醒阻塞中的线程。</p>
+<pre class="mermaid">sequenceDiagram
+    participant W as Writer
+    participant M as Main Memory
+    participant R as Reader
+    R->>M: loop: read stop (hoisted to register)
+    Note over R: JIT: read once, keep in register
+    W->>M: stop = true
+    M--xR: never re-read -> infinite loop
+    Note over W,R: with volatile: every read hits memory</pre>
+
+<h2 id="3-有序性：重排真的会发生吗"><a href="#3-有序性：重排真的会发生吗" class="headerlink" title="3. 有序性：重排真的会发生吗"></a>3. 有序性：重排真的会发生吗</h2><h3 id="3-1-实验设计（litmus-test）"><a href="#3-1-实验设计（litmus-test）" class="headerlink" title="3.1 实验设计（litmus test）"></a>3.1 实验设计（litmus test）</h3><p>两个线程各自「写自己的变量、读对方的变量」：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// T1: x = 1; r1 = y;</span></span><br><span class="line"><span class="comment">// T2: y = 1; r2 = x;</span></span><br><span class="line"><span class="comment">// 如果两个线程都没有重排，结果必然是 (r1=1) 或 (r2=1)</span></span><br><span class="line"><span class="comment">// 如果观察到 r1==0 &amp;&amp; r2==0，说明两次写都被重排到了读之后</span></span><br></pre></td></tr></table></figure>
+
+<p>每轮用屏障对齐两个线程的起点，复位变量，统计 <code>(0,0)</code> 出现的次数。</p>
+<h3 id="3-2-实测：10-万轮，0-次"><a href="#3-2-实测：10-万轮，0-次" class="headerlink" title="3.2 实测：10 万轮，0 次"></a>3.2 实测：10 万轮，0 次</h3><table>
+<thead>
+<tr>
+<th>指标</th>
+<th>实测</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>CPU 架构</td>
+<td><strong>aarch64</strong>（Apple Silicon）</td>
+</tr>
+<tr>
+<td>轮数</td>
+<td>100,000</td>
+</tr>
+<tr>
+<td>观察到 <code>(0,0)</code> 重排</td>
+<td><strong>0 次</strong></td>
+</tr>
+<tr>
+<td>总耗时</td>
+<td>511 ms</td>
+</tr>
+</tbody></table>
+<p><strong>我没能复现重排。</strong> 原因有三层：</p>
+<table>
+<thead>
+<tr>
+<th>原因</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>屏障自带内存语义</td>
+<td><code>CyclicBarrier.await()</code> 内部有锁与 volatile 写，前后形成完整屏障</td>
+</tr>
+<tr>
+<td>x86&#x2F;arm64 都是强内存模型</td>
+<td>只有 store→load 允许重排，窗口极窄</td>
+</tr>
+<tr>
+<td>JIT 也可能不重排</td>
+<td>没有收益时编译器不会动</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">sequenceDiagram
+    participant T1
+    participant T2
+    Note over T1,T2: round start (barrier = full fence)
+    T1->>T1: x = 1
+    T1->>T1: r1 = y
+    T2->>T2: y = 1
+    T2->>T2: r2 = x
+    Note over T1,T2: round end (barrier again)
+    Note over T1,T2: barriers kill the reorder window</pre>
+
+<h3 id="3-3-深挖：没复现-≠-不会发生"><a href="#3-3-深挖：没复现-≠-不会发生" class="headerlink" title="3.3 深挖：没复现 ≠ 不会发生"></a>3.3 深挖：没复现 ≠ 不会发生</h3><p><strong>JMM 是规范，不是实现</strong>。规范明确允许 store 与后续 load 重排（这是 DCL 单例必须加 <code>volatile</code> 的根因）。</p>
+<table>
+<thead>
+<tr>
+<th>事实</th>
+<th>结论</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>你在自己机器上跑 10 万轮没看到</td>
+<td>只说明你的环境窗口窄</td>
+</tr>
+<tr>
+<td>换了 ARM 服务器、换了 JVM 版本</td>
+<td>窗口可能变大</td>
+</tr>
+<tr>
+<td>依赖「跑一遍没问题」上线</td>
+<td>就是在赌</td>
+</tr>
+</tbody></table>
+<p><strong>所以正确姿势是「按 happens-before 写」，而不是「跑一遍没出问题就放心」</strong>。这一条也解释了为什么有些并发 bug 只在客户现场出现。</p>
+<h3 id="3-4-怎么真正验证重排"><a href="#3-4-怎么真正验证重排" class="headerlink" title="3.4 怎么真正验证重排"></a>3.4 怎么真正验证重排</h3><table>
+<thead>
+<tr>
+<th>方法</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>-XX:+UnlockDiagnosticVMOptions -XX:+PrintAssembly</code></td>
+<td>看真实汇编顺序（需要 hsdis 插件）</td>
+</tr>
+<tr>
+<td>JSR-133 Cookbook 的 litmus 测试</td>
+<td>用更贴近硬件的写法（volatile 组合）</td>
+</tr>
+<tr>
+<td>JCStress</td>
+<td>OpenJDK 官方的并发正确性测试工具（本文未用）</td>
+</tr>
+</tbody></table>
+<p>本文没有 hsdis，也没有 JCStress，所以只给出「未复现」这个诚实的结论。</p>
+<h2 id="4-原子性：volatile-救不了-i"><a href="#4-原子性：volatile-救不了-i" class="headerlink" title="4. 原子性：volatile 救不了 i++"></a>4. 原子性：volatile 救不了 i++</h2><h3 id="4-1-实测：4-线程丢-61-4"><a href="#4-1-实测：4-线程丢-61-4" class="headerlink" title="4.1 实测：4 线程丢 61.4%"></a>4.1 实测：4 线程丢 61.4%</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">static</span> <span class="keyword">volatile</span> <span class="type">int</span> volCount;</span><br><span class="line"><span class="comment">// 4 线程各做 100 万次 volCount++</span></span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th>写法</th>
+<th>期望</th>
+<th>实际</th>
+<th>丢失</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>volatile int</code> 自增</td>
+<td>4,000,000</td>
+<td><strong>1,545,633</strong></td>
+<td><strong>2,454,367（61.4%）</strong></td>
+</tr>
+<tr>
+<td><code>synchronized</code> 自增</td>
+<td>4,000,000</td>
+<td>4,000,000</td>
+<td>0</td>
+</tr>
+</tbody></table>
+<p><strong>为什么</strong>：<code>volCount++</code> 是「读 → 加 → 写」三步，<code>volatile</code> 只保证每一步的可见性与顺序，<strong>不保证这三步整体原子</strong>。两个线程可能同时读到 100，各自加 1 写回 101。</p>
+<table>
+<thead>
+<tr>
+<th>机制</th>
+<th>保证什么</th>
+<th>不保证什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>volatile</code></td>
+<td>可见性、禁止重排、单个读&#x2F;写原子</td>
+<td><strong>复合操作不原子</strong></td>
+</tr>
+<tr>
+<td><code>synchronized</code></td>
+<td>互斥 + 可见性</td>
+<td>性能开销</td>
+</tr>
+<tr>
+<td><code>AtomicInteger</code></td>
+<td>单变量复合操作原子</td>
+<td>多变量组合不原子</td>
+</tr>
+</tbody></table>
+<h3 id="4-2-三种修法的量级（⑤-会展开）"><a href="#4-2-三种修法的量级（⑤-会展开）" class="headerlink" title="4.2 三种修法的量级（⑤ 会展开）"></a>4.2 三种修法的量级（⑤ 会展开）</h3><table>
+<thead>
+<tr>
+<th>修法</th>
+<th>4 线程 200 万次的 ns&#x2F;op（①实测口径）</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>synchronized</code></td>
+<td>6</td>
+<td>临界区简单</td>
+</tr>
+<tr>
+<td><code>AtomicLong</code></td>
+<td>5</td>
+<td>单变量计数</td>
+</tr>
+<tr>
+<td><code>LongAdder</code></td>
+<td><strong>1</strong></td>
+<td>高并发计数</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart TD
+    A["Read x in thread B"] --> B{"any happens-before&lt;br/>edge to the write?"}
+    B -- no --> C["may see stale value"]
+    B -- "volatile / lock / start / join" --> D["must see latest"]
+    C --> E["bug: loop, stale flag, half-init"]
+    D --> F["correct"]</pre>
+
+<h2 id="5-volatile-的成本：1-56-ns-op"><a href="#5-volatile-的成本：1-56-ns-op" class="headerlink" title="5. volatile 的成本：1.56 ns&#x2F;op"></a>5. volatile 的成本：1.56 ns&#x2F;op</h2><h3 id="5-1-实测"><a href="#5-1-实测" class="headerlink" title="5.1 实测"></a>5.1 实测</h3><table>
+<thead>
+<tr>
+<th>操作</th>
+<th>200,000,000 次耗时</th>
+<th>折算</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>plain++</code></td>
+<td><strong>2 ms</strong></td>
+<td>被 JIT 折叠成一次加法</td>
+</tr>
+<tr>
+<td><code>volatile++</code></td>
+<td><strong>312 ms</strong></td>
+<td><strong>1.56 ns&#x2F;op</strong></td>
+</tr>
+</tbody></table>
+<p><strong>读法</strong>：在无竞争的本地核上，一次 volatile 写约 1.56 ns；但真正的代价不在这 1.56 ns，而在<strong>竞争时</strong>——多个核同时写同一个 volatile 变量，缓存行会在核之间来回弹（④ 会量这个成本）。</p>
+<h3 id="5-2-happens-before-的六条规则（速查）"><a href="#5-2-happens-before-的六条规则（速查）" class="headerlink" title="5.2 happens-before 的六条规则（速查）"></a>5.2 happens-before 的六条规则（速查）</h3><table>
+<thead>
+<tr>
+<th>规则</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>程序顺序</td>
+<td>同一线程内，前面的操作 hb 后面的操作</td>
+</tr>
+<tr>
+<td>volatile</td>
+<td>对 volatile 变量的写 hb 后续对它的读</td>
+</tr>
+<tr>
+<td>锁</td>
+<td>解锁 hb 后续对同一把锁的加锁</td>
+</tr>
+<tr>
+<td>线程启动</td>
+<td><code>Thread.start()</code> hb 新线程里的任何操作</td>
+</tr>
+<tr>
+<td>线程终止</td>
+<td>线程里的所有操作 hb 其他线程从 <code>join()</code> 返回</td>
+</tr>
+<tr>
+<td>传递性</td>
+<td>A hb B，B hb C ⇒ A hb C</td>
+</tr>
+</tbody></table>
+<p><strong>用法</strong>：写并发代码时，逐条问「我依赖的读写之间，有哪条 hb 规则支撑？」答不上来就是 bug。</p>
+<h2 id="6-动手验证：四个可复现实验"><a href="#6-动手验证：四个可复现实验" class="headerlink" title="6. 动手验证：四个可复现实验"></a>6. 动手验证：四个可复现实验</h2><h3 id="6-1-动手验证：复现可见性-bug"><a href="#6-1-动手验证：复现可见性-bug" class="headerlink" title="6.1 动手验证：复现可见性 bug"></a>6.1 动手验证：复现可见性 bug</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">mkdir</span> -p /tmp/conc &amp;&amp; <span class="built_in">cd</span> /tmp/conc</span><br><span class="line"><span class="built_in">cat</span> &gt; Vis.java &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line">public class Vis &#123;</span><br><span class="line">    static boolean stopPlain;</span><br><span class="line">    static volatile boolean stopVolatile;</span><br><span class="line">    public static void main(String[] a) throws Exception &#123;</span><br><span class="line">        Thread t1 = new Thread(() -&gt; &#123; long n = <span class="number">0</span>; while (!stopPlain) n++; System.out.println(&quot;plain exited, n=&quot; + n); &#125;);</span><br><span class="line">        t1.start(); Thread.sleep(<span class="number">500</span>); stopPlain = true; t1.join(<span class="number">3000</span>);</span><br><span class="line">        if (t1.isAlive()) System.out.println(<span class="string">&quot;plain: 3 秒未退出 -&gt; 可见性问题复现&quot;</span>);</span><br><span class="line">        Thread t2 = new Thread(() -&gt; &#123; long n = <span class="number">0</span>; while (!stopVolatile) n++; System.out.println(&quot;volatile exited, n=&quot; + n); &#125;);</span><br><span class="line">        t2.start(); Thread.sleep(<span class="number">500</span>); stopVolatile = true; t2.join(<span class="number">3000</span>);</span><br><span class="line">        System.out.println(&quot;volatile exited? &quot; + !t2.isAlive());</span><br><span class="line">        System.<span class="built_in">exit</span>(0);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line">EOF</span><br><span class="line">javac Vis.java &amp;&amp; java Vis</span><br><span class="line">java -Xint Vis</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：默认模式下 plain 版本 3 秒不退出；<code>-Xint</code> 模式下会退出；volatile 版本两种模式都正常退出。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>两种模式都不退出 → 说明不是 JIT 提升，而是别的问题（比如字段被别处写成 true）；</li>
+<li>默认模式也退出 → 你的 JVM 参数（如 <code>-Xint</code>、<code>-XX:-TieredCompilation</code>）影响了编译，换回默认再看。</li>
+</ul>
+<h3 id="6-2-动手验证：重排-litmus-测试"><a href="#6-2-动手验证：重排-litmus-测试" class="headerlink" title="6.2 动手验证：重排 litmus 测试"></a>6.2 动手验证：重排 litmus 测试</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> /tmp/conc</span><br><span class="line"><span class="built_in">cat</span> &gt; Reorder.java &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line">import java.util.concurrent.*;</span><br><span class="line">public class Reorder &#123;</span><br><span class="line">    static int x, y, r1, r2; static volatile long reorder;</span><br><span class="line">    public static void main(String[] a) throws Exception &#123;</span><br><span class="line">        int rounds = 100_000;</span><br><span class="line">        CyclicBarrier b = new CyclicBarrier(2);</span><br><span class="line">        Thread t1 = new Thread(() -&gt; &#123; try &#123; for (int i=<span class="number">0</span>;i&lt;rounds;i++)&#123; x=<span class="number">0</span>;y=<span class="number">0</span>;r1=-<span class="number">1</span>;r2=-<span class="number">1</span>; b.await(); x=<span class="number">1</span>; r1=y; b.await(); if (r1==<span class="number">0</span>&amp;&amp;r2==<span class="number">0</span>) reorder++; &#125; &#125; catch(Exception e)&#123;&#125; &#125;);</span><br><span class="line">        Thread t2 = new Thread(() -&gt; &#123; try &#123; for (int i=<span class="number">0</span>;i&lt;rounds;i++)&#123; b.await(); y=<span class="number">1</span>; r2=x; b.await(); &#125; &#125; catch(Exception e)&#123;&#125; &#125;);</span><br><span class="line">        long t0 = System.nanoTime(); t1.start(); t2.start(); t1.join(); t2.join();</span><br><span class="line">        System.out.printf(&quot;arch=%s rounds=%d reorder=%d time=%dms%n&quot;, System.getProperty(&quot;os.arch&quot;), rounds, reorder, (System.nanoTime()-t0)/<span class="number">1</span>_000_000);</span><br><span class="line">        System.exit(<span class="number">0</span>);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line">EOF</span><br><span class="line">javac Reorder.java &amp;&amp; java Reorder</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：多数机器上 <code>reorder=0</code>（本文 aarch64 也是 0）。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li><code>reorder &gt; 0</code> → 你的 CPU&#x2F;JVM 真的重排了，这就是 DCL 必须加 volatile 的实证；</li>
+<li><code>reorder = 0</code> → 正常，不代表安全（见 3.3）。</li>
+</ul>
+<h3 id="6-3-动手验证：volatile-的丢更新"><a href="#6-3-动手验证：volatile-的丢更新" class="headerlink" title="6.3 动手验证：volatile 的丢更新"></a>6.3 动手验证：volatile 的丢更新</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> /tmp/conc</span><br><span class="line"><span class="built_in">cat</span> &gt; Lost.java &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line">public class Lost &#123;</span><br><span class="line">    static volatile int v; static int s;</span><br><span class="line">    public static void main(String[] a) throws Exception &#123;</span><br><span class="line">        int th=4, ops=1_000_000; Thread[] t=new Thread[th];</span><br><span class="line">        <span class="keyword">for</span>(int i=0;i&lt;th;i++) t[i]=new Thread(()-&gt;&#123; for(int k=<span class="number">0</span>;k&lt;ops;k++) v++; &#125;);</span><br><span class="line">        for(Thread x:t)x.start(); for(Thread x:t)x.join();</span><br><span class="line">        System.out.printf(&quot;volatile++ 期望=%d 实际=%d 丢失=%d%n&quot;, th*ops, v, th*ops-v);</span><br><span class="line">        Object L=new Object(); Thread[] u=new Thread[th];</span><br><span class="line">        for(int i=<span class="number">0</span>;i&lt;th;i++) u[i]=new Thread(()-&gt;&#123; for(int k=<span class="number">0</span>;k&lt;ops;k++) synchronized(L)&#123; s++; &#125; &#125;);</span><br><span class="line">        for(Thread x:u)x.start(); for(Thread x:u)x.join();</span><br><span class="line">        System.out.printf(&quot;synchronized++ 期望=%d 实际=%d 丢失=%d%n&quot;, th*ops, s, th*ops-s);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line">EOF</span><br><span class="line">javac Lost.java &amp;&amp; java Lost</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：<code>volatile++</code> 丢失几十个百分点（本文 61.4%），<code>synchronized++</code> 精确等于期望值。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li><code>volatile++</code> 没丢 → 线程数太少或临界区太快，加线程到 8&#x2F;16 再试；</li>
+<li><code>synchronized++</code> 也丢 → 你的 JVM 跑在 <code>-Xint</code> 之外的特殊模式，或代码里其实没加锁。</li>
+</ul>
+<h3 id="6-4-动手验证：量-volatile-的写成本"><a href="#6-4-动手验证：量-volatile-的写成本" class="headerlink" title="6.4 动手验证：量 volatile 的写成本"></a>6.4 动手验证：量 volatile 的写成本</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> /tmp/conc</span><br><span class="line"><span class="built_in">cat</span> &gt; VolCost.java &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line">public class VolCost &#123;</span><br><span class="line">    static long plain; static volatile long vol; static volatile long SINK;</span><br><span class="line">    public static void main(String[] a) &#123;</span><br><span class="line">        int N = 200_000_000;</span><br><span class="line">        long p = Long.MAX_VALUE, v = Long.MAX_VALUE;</span><br><span class="line">        <span class="keyword">for</span> (int r = 0; r &lt; 3; r++) &#123;</span><br><span class="line">            long t = System.nanoTime(); <span class="keyword">for</span> (int i=0;i&lt;N;i++) plain++; SINK = plain; p = Math.min(p, System.nanoTime()-t);</span><br><span class="line">            t = System.nanoTime(); <span class="keyword">for</span> (int i=0;i&lt;N;i++) vol++; SINK = vol; v = Math.min(v, System.nanoTime()-t);</span><br><span class="line">        &#125;</span><br><span class="line">        System.out.printf(<span class="string">&quot;plain=%dms volatile=%dms (%.2f ns/op)%n&quot;</span>, p/1_000_000, v/1_000_000, (double)v/N);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line">EOF</span><br><span class="line">javac VolCost.java &amp;&amp; java VolCost</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：<code>plain</code> 被 JIT 折叠到几毫秒，<code>volatile</code> 是几百毫秒（本文 312 ms，1.56 ns&#x2F;op）。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>两者都接近 0 → 循环被整体消除，把结果写进 <code>volatile</code> 字段再测；</li>
+<li><code>volatile</code> 超过 10 ns&#x2F;op → 有其它线程在竞争这个变量，或 JIT 没编译热路径。</li>
+</ul>
+<h2 id="7-总结"><a href="#7-总结" class="headerlink" title="7. 总结"></a>7. 总结</h2><h3 id="7-1-面试速答表"><a href="#7-1-面试速答表" class="headerlink" title="7.1 面试速答表"></a>7.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>JMM 解决什么问题</td>
+<td>定义多线程下读写的可见性与有序性规则（happens-before）</td>
+</tr>
+<tr>
+<td>可见性问题怎么复现</td>
+<td>普通 boolean 做停止标志，读线程 3 秒不退出（本文实测）</td>
+</tr>
+<tr>
+<td>为什么加了 volatile 就好</td>
+<td>每次读写都过内存 + 禁止重排</td>
+</tr>
+<tr>
+<td><code>-Xint</code> 下为什么不挂</td>
+<td>解释执行没有 JIT 的循环不变量提升</td>
+</tr>
+<tr>
+<td>重排一定会发生吗</td>
+<td>JMM 允许，但强内存模型 + 屏障会让它极难复现（本文 10 万轮 0 次）</td>
+</tr>
+<tr>
+<td><code>volatile</code> 能保证原子性吗</td>
+<td>不能，只保证单次读&#x2F;写的原子性，<code>volatile++</code> 实测丢 61.4%</td>
+</tr>
+<tr>
+<td><code>volatile++</code> 为什么丢</td>
+<td>读-改-写三步不原子，两个线程可能读到同一个旧值</td>
+</tr>
+<tr>
+<td>volatile 写有多贵</td>
+<td>本文实测 1.56 ns&#x2F;op（无竞争），竞争时会因缓存行弹跳更贵</td>
+</tr>
+<tr>
+<td>happens-before 有哪些规则</td>
+<td>程序顺序、volatile、锁、start、join、传递性</td>
+</tr>
+<tr>
+<td>为什么测试环境跑不出并发 bug</td>
+<td>JIT 优化、内存模型强度、时序窗口都不同</td>
+</tr>
+<tr>
+<td>停止线程用什么</td>
+<td><code>volatile</code> 标志 + <code>interrupt()</code></td>
+</tr>
+<tr>
+<td>DCL 单例为什么要 volatile</td>
+<td>防止「分配内存 → 赋值引用 → 初始化」被重排成「赋值引用」先发生</td>
+</tr>
+</tbody></table>
+<h3 id="7-2-实战避坑表"><a href="#7-2-实战避坑表" class="headerlink" title="7.2 实战避坑表"></a>7.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>优雅停机后线程不退出</td>
+<td>停止标志不是 volatile</td>
+<td>改 <code>volatile</code> + <code>interrupt()</code></td>
+</tr>
+<tr>
+<td>计数偶尔少几个</td>
+<td><code>volatile++</code> &#x2F; <code>int++</code> 非原子</td>
+<td>用 <code>Atomic*</code> 或锁（⑤）</td>
+</tr>
+<tr>
+<td>测试环境正常、生产偶发</td>
+<td>依赖了「跑通即正确」</td>
+<td>按 happens-before 写，别赌</td>
+</tr>
+<tr>
+<td>单例返回半初始化对象</td>
+<td>DCL 没加 volatile</td>
+<td>加 volatile 或改静态内部类</td>
+</tr>
+<tr>
+<td>加了 volatile 性能变差</td>
+<td>高频写同一变量</td>
+<td>减少写次数，或改 <code>LongAdder</code></td>
+</tr>
+</tbody></table>
+<h3 id="7-3-工具速查表"><a href="#7-3-工具速查表" class="headerlink" title="7.3 工具速查表"></a>7.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>判定标准</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>java -Xint</code></td>
+<td>对照 JIT 与解释执行</td>
+<td>行为不同 &#x3D; JIT 优化导致</td>
+</tr>
+<tr>
+<td><code>-XX:+PrintCompilation</code></td>
+<td>哪些方法被编译</td>
+<td>有编译 &#x3D; JIT 介入</td>
+</tr>
+<tr>
+<td>JCStress</td>
+<td>并发正确性测试</td>
+<td>官方工具，本文未用</td>
+</tr>
+<tr>
+<td>JFR</td>
+<td>线程阻塞与锁事件</td>
+<td>结合 ② 的方法读</td>
+</tr>
+</tbody></table>
+<h3 id="7-4-实操建议"><a href="#7-4-实操建议" class="headerlink" title="7.4 实操建议"></a>7.4 实操建议</h3><ol>
+<li>**所有跨线程共享的标志位一律 <code>volatile</code>**（或 <code>Atomic*</code>），这是最低成本的一条。</li>
+<li><strong><code>volatile</code> 只解决可见性与有序性，不解决原子性</strong>——<code>volatile++</code> 一定要换成 <code>Atomic</code> 或锁。</li>
+<li><strong>别用「跑一遍没问题」验证并发正确性</strong>，要么按 hb 规则推导，要么用 JCStress。</li>
+<li>**DCL 单例加 <code>volatile</code>**，或者干脆用静态内部类（最简单）。</li>
+<li><strong>理解 <code>-Xint</code> 对照的价值</strong>：它能把「JIT 引起的可见性 bug」和「逻辑 bug」区分开。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告</strong>：④《伪共享与缓存行：一个 <code>@Contended</code> 的 10 倍差距》。本文说「volatile 写贵在缓存行弹跳」，下一篇把这个成本量出来：两个无关变量为什么互相拖慢、64 字节缓存行怎么验证、<code>@Contended</code> 到底省了多少，以及为什么 Disruptor 要在数组里塞满 padding。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/Java/" rel="tag"># Java</a>
+              <a href="/tags/%E9%9D%A2%E8%AF%95/" rel="tag"># 面试</a>
+              <a href="/tags/%E5%B9%B6%E5%8F%91/" rel="tag"># 并发</a>
+              <a href="/tags/JMM/" rel="tag"># JMM</a>
+              <a href="/tags/volatile/" rel="tag"># volatile</a>
+              <a href="/tags/%E5%86%85%E5%AD%98%E5%B1%8F%E9%9A%9C/" rel="tag"># 内存屏障</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/4f3149da.html" rel="prev" title="线程与调度：一次上下文切换值多少钱">
+                  <i class="fa fa-angle-left"></i> 线程与调度：一次上下文切换值多少钱
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/post/311a2032.html" rel="next" title="伪共享与缓存行：一个 @Contended 的 4 倍差距">
+                  伪共享与缓存行：一个 @Contended 的 4 倍差距 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">778k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">47:09</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
+</html>

@@ -1,0 +1,1100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="ConcurrentHashMap.size() 在并发写时只是估计值。实测：4 个线程各写 20 万条，边写边采样 200 万次，其中 121 万次（60%）采样到的 size 与实际写入数不一致，最大差值 724（总量 80 万，误差 0.09%）。 这篇把 AQS 与三个并发容器量成数字：为什么自旋锁在 16 线程下比 ReentrantLock 慢 24 倍、ConcurrentHashM">
+<meta property="og:type" content="article">
+<meta property="og:title" content="AQS 与并发容器：size() 为什么不准">
+<meta property="og:url" content="http://timewait7.github.io/post/42dc269f.html">
+<meta property="og:site_name" content="知行栈">
+<meta property="og:description" content="ConcurrentHashMap.size() 在并发写时只是估计值。实测：4 个线程各写 20 万条，边写边采样 200 万次，其中 121 万次（60%）采样到的 size 与实际写入数不一致，最大差值 724（总量 80 万，误差 0.09%）。 这篇把 AQS 与三个并发容器量成数字：为什么自旋锁在 16 线程下比 ReentrantLock 慢 24 倍、ConcurrentHashM">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-10-25T19:00:00.000Z">
+<meta property="article:modified_time" content="2026-10-25T06:13:18.119Z">
+<meta property="article:tag" content="Java">
+<meta property="article:tag" content="面试">
+<meta property="article:tag" content="并发">
+<meta property="article:tag" content="AQS">
+<meta property="article:tag" content="ConcurrentHashMap">
+<meta property="article:tag" content="CopyOnWriteArrayList">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/42dc269f.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/42dc269f.html","path":"post/42dc269f.html","title":"AQS 与并发容器：size() 为什么不准"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>AQS 与并发容器：size() 为什么不准 | 知行栈</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<!-- hexo injector head_end start --><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
+</style><style>
+/* 菜单链高亮：sub-menu 祖先（同主题 .menu-item-active 的 Pisces 规则） */
+.sub-menu .menu-item a.menu-chain-active {
+  border-bottom-color: #fc6423;
+  color: #fc6423;
+}
+.sub-menu .menu-item a.menu-chain-active:hover {
+  border-bottom-color: #fc6423;
+}
+/* 菜单链高亮：main-menu 祖先（同主题 hover/active 的背景规则） */
+.main-menu .menu-item a.menu-chain-active {
+  background: var(--menu-item-bg-color);
+}
+</style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">知行栈</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section" class="menu-chain-active"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>Categories</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-AQS%EF%BC%9A%E4%B8%80%E4%B8%AA-state-%E4%B8%80%E4%B8%AA%E9%98%9F%E5%88%97"><span class="nav-text">1. AQS：一个 state + 一个队列</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-%E7%BB%93%E6%9E%84"><span class="nav-text">1.1 结构</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-2-%E4%B8%BA%E4%BB%80%E4%B9%88%E9%98%9F%E5%88%97%E6%AF%94%E8%87%AA%E6%97%8B%E5%A5%BD%EF%BC%9A24-%E5%80%8D%E5%B7%AE%E8%B7%9D"><span class="nav-text">1.2 为什么队列比自旋好：24 倍差距</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-3-%E7%8B%AC%E5%8D%A0%E4%B8%8E%E5%85%B1%E4%BA%AB"><span class="nav-text">1.3 独占与共享</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-ConcurrentHashMap"><span class="nav-text">2. ConcurrentHashMap</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E4%B8%BA%E4%BB%80%E4%B9%88%E5%BF%AB"><span class="nav-text">2.1 为什么快</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E5%AE%9E%E6%B5%8B%EF%BC%9Aput-%E7%9A%84-ns-op"><span class="nav-text">2.2 实测：put 的 ns&#x2F;op</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-size-%E4%B8%BA%E4%BB%80%E4%B9%88%E4%B8%8D%E5%87%86"><span class="nav-text">2.3 size() 为什么不准</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-CopyOnWriteArrayList"><span class="nav-text">3. CopyOnWriteArrayList</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E5%86%99%E6%94%BE%E5%A4%A7%EF%BC%9A%E6%AF%8F%E6%AC%A1-add-%E5%A4%8D%E5%88%B6%E6%95%B4%E4%B8%AA%E6%95%B0%E7%BB%84"><span class="nav-text">3.1 写放大：每次 add 复制整个数组</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E8%AF%BB%E4%B8%BA%E4%BB%80%E4%B9%88%E5%BF%AB"><span class="nav-text">3.2 读为什么快</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E5%AE%B9%E5%99%A8%E9%80%89%E5%9E%8B%E8%A1%A8"><span class="nav-text">4. 容器选型表</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%9B%9B%E4%B8%AA%E5%8F%AF%E5%A4%8D%E7%8E%B0%E5%AE%9E%E9%AA%8C"><span class="nav-text">5. 动手验证：四个可复现实验</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9ACHM-%E4%B8%8E-synchronizedMap-%E7%9A%84%E5%AF%B9%E6%AF%94"><span class="nav-text">5.1 动手验证：CHM 与 synchronizedMap 的对比</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E9%AA%8C%E8%AF%81-size-%E7%9A%84%E4%B8%8D%E5%87%86%E7%A1%AE%E6%80%A7"><span class="nav-text">5.2 动手验证：验证 size 的不准确性</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9ACOW-%E7%9A%84%E5%86%99%E6%94%BE%E5%A4%A7"><span class="nav-text">5.3 动手验证：COW 的写放大</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E8%87%AA%E6%97%8B%E9%94%81-vs-AQS"><span class="nav-text">5.4 动手验证：自旋锁 vs AQS</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#6-%E6%80%BB%E7%BB%93"><span class="nav-text">6. 总结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#6-1-%E9%9D%A2%E8%AF%95%E9%80%9F%E7%AD%94%E8%A1%A8"><span class="nav-text">6.1 面试速答表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-2-%E5%AE%9E%E6%88%98%E9%81%BF%E5%9D%91%E8%A1%A8"><span class="nav-text">6.2 实战避坑表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-3-%E5%B7%A5%E5%85%B7%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">6.3 工具速查表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-4-%E5%AE%9E%E6%93%8D%E5%BB%BA%E8%AE%AE"><span class="nav-text">6.4 实操建议</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">116</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">14</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">205</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+    <div class="sidebar-inner sidebar-blogroll">
+      <div class="links-of-blogroll animated">
+        <div class="links-of-blogroll-title"><i class="fa fa-globe fa-fw"></i>
+          Links
+        </div>
+        <ul class="links-of-blogroll-list">
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9wYXVsZ3JhaGFtLmNvbS9hcnRpY2xlcy5odG1s" title="https:&#x2F;&#x2F;paulgraham.com&#x2F;articles.html">paulgraham</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly93d3cuam9lbG9uc29mdHdhcmUuY29tLw==" title="https:&#x2F;&#x2F;www.joelonsoftware.com&#x2F;">Joel on Software</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9tYXJ0aW5mb3dsZXIuY29tLw==" title="https:&#x2F;&#x2F;martinfowler.com&#x2F;">Martin Flower</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly96aGFuZ3RpZWxlaS5jb20v" title="https:&#x2F;&#x2F;zhangtielei.com&#x2F;">zhangtielei</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhLWRlc2lnbi1wYXR0ZXJucy5jb20vemgv" title="https:&#x2F;&#x2F;java-design-patterns.com&#x2F;zh&#x2F;">Java Design Patterns</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9taWNyb3NlcnZpY2VzLmlvLw==" title="https:&#x2F;&#x2F;microservices.io&#x2F;">Microservice Architecture</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhZ3VpZGUuY24v" title="https:&#x2F;&#x2F;javaguide.cn&#x2F;">JavaGuide</span>
+            </li>
+        </ul>
+      </div>
+    </div>
+        <div class="pjax">
+        
+        <div class="sidebar-inner sidebar-post-related">
+          <div class="animated">
+              <div class="links-of-blogroll-title"><i class="fa fa-signs-post fa-fw"></i>
+    Related Posts
+  </div>
+  <ul class="popular-posts">
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/ef5a2176.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-26</time>
+        <br>
+      原子性：i++ 的丢失与 CAS 的代价
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/311a2032.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-26</time>
+        <br>
+      伪共享与缓存行：一个 @Contended 的 4 倍差距
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/953dd446.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-26</time>
+        <br>
+      并发性能工程：容量、压测与全系列总表
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/347698f8.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-26</time>
+        <br>
+      锁的演化：偏向锁移除之后，synchronized 还慢吗
+      </a>
+    </li>
+  </ul>
+
+          </div>
+        </div>
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-后端开发"><a href="/docs/nav/backend-dev-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-code fa-fw"></i>后端开发</a></li>
+
+
+      
+  <li class="menu-item menu-item-计算机基础"><a href="/docs/nav/cs-foundation-nav.html" rel="section"><i class="fa fa-desktop fa-fw"></i>计算机基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-ai-学习"><a href="/docs/nav/ai-learning-nav.html" rel="section"><i class="fa fa-robot fa-fw"></i>AI 学习</a></li>
+
+
+      
+  <li class="menu-item menu-item-项目实战"><a href="/docs/nav/5964f4da.html" rel="section"><i class="fa fa-flask fa-fw"></i>项目实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-misc"><a href="/docs/nav/misc-nav.html" rel="section"><i class="fa fa-box fa-fw"></i>Misc</a></li>
+
+
+      
+  <li class="menu-item menu-item-随笔·生活"><a href="/docs/nav/life-nav.html" rel="section"><i class="fa fa-feather fa-fw"></i>随笔·生活</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java"><a href="/docs/nav/java-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-coffee fa-fw"></i>Java</a></li>
+
+
+      
+  <li class="menu-item menu-item-框架"><a href="/docs/nav/framework-nav.html" rel="section"><i class="fa fa-th-large fa-fw"></i>框架</a></li>
+
+
+      
+  <li class="menu-item menu-item-数据存储"><a href="/docs/nav/data-storage-nav.html" rel="section"><i class="fa fa-hdd fa-fw"></i>数据存储</a></li>
+
+
+      
+  <li class="menu-item menu-item-中间件"><a href="/docs/nav/middleware-nav.html" rel="section"><i class="fa fa-cubes fa-fw"></i>中间件</a></li>
+
+
+      
+  <li class="menu-item menu-item-分布式与微服务"><a href="/docs/nav/distributed-nav.html" rel="section"><i class="fa fa-sitemap fa-fw"></i>分布式与微服务</a></li>
+
+
+      
+  <li class="menu-item menu-item-系统设计"><a href="/docs/nav/system-design-nav.html" rel="section"><i class="fa fa-pencil-ruler fa-fw"></i>系统设计</a></li>
+
+
+      
+  <li class="menu-item menu-item-部署运维"><a href="/docs/nav/devops-nav.html" rel="section"><i class="fa fa-terminal fa-fw"></i>部署运维</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java-核心基础"><a href="/post/6a6e612d.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Java 核心基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-java-并发编程"><a href="/docs/nav/java-concurrency-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-tasks fa-fw"></i>Java 并发编程</a></li>
+
+
+      
+  <li class="menu-item menu-item-jvm-原理与调优"><a href="/post/4e153c5e.html" rel="section"><i class="fa fa-file-text fa-fw"></i>JVM 原理与调优</a></li>
+
+
+      
+  <li class="menu-item menu-item-设计模式：15-个高频模式的实战内化"><a href="/post/67126.html" rel="section"><i class="fa fa-file-text fa-fw"></i>设计模式：15 个高频模式的实战内化</a></li>
+
+
+      
+  <li class="menu-item menu-item-java-开发实战速查"><a href="/post/be1f55d9.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Java 开发实战速查</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java-并发编程：从-jmm-到虚拟线程的系统化实战"><a href="/post/a3f81c2d.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Java 并发编程：从 JMM 到虚拟线程的系统化实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-①-从这里开始：把并发-bug-变成可复现的实验"><a href="/post/8ac324cd.html" rel="section"><i class="fa fa-file-text fa-fw"></i>① 从这里开始：把并发 bug 变成可复现的实验</a></li>
+
+
+      
+  <li class="menu-item menu-item-②-线程与调度：一次上下文切换值多少钱"><a href="/post/4f3149da.html" rel="section"><i class="fa fa-file-text fa-fw"></i>② 线程与调度：一次上下文切换值多少钱</a></li>
+
+
+      
+  <li class="menu-item menu-item-③-jmm：把「不可见」和「重排」亲手复现"><a href="/post/f092fe4.html" rel="section"><i class="fa fa-file-text fa-fw"></i>③ JMM：把「不可见」和「重排」亲手复现</a></li>
+
+
+      
+  <li class="menu-item menu-item-④-伪共享与缓存行：一个-@contended-的-4-倍差距"><a href="/post/311a2032.html" rel="section"><i class="fa fa-file-text fa-fw"></i>④ 伪共享与缓存行：一个 @Contended 的 4 倍差距</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑤-原子性：i++-的丢失与-cas-的代价"><a href="/post/ef5a2176.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑤ 原子性：i++ 的丢失与 CAS 的代价</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑥-锁的演化：偏向锁移除之后，synchronized-还慢吗"><a href="/post/347698f8.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑥ 锁的演化：偏向锁移除之后，synchronized 还慢吗</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑦-aqs-与并发容器：size()-为什么不准"><a href="/post/42dc269f.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑦ AQS 与并发容器：size() 为什么不准</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑧-线程池：core、max、queue-的组合陷阱"><a href="/post/b09d89b.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑧ 线程池：core、max、queue 的组合陷阱</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑨-并发工具与异步编排：completablefuture-的五个坑"><a href="/post/5489c9d2.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑨ 并发工具与异步编排：CompletableFuture 的五个坑</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑩-死锁与线程泄漏：从-jstack-到-jfr"><a href="/post/93f5ed7a.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑩ 死锁与线程泄漏：从 jstack 到 JFR</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑪-虚拟线程：pinning、吞吐与迁移代价"><a href="/post/aa676f55.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑪ 虚拟线程：pinning、吞吐与迁移代价</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑫-并发性能工程：容量、压测与全系列总表"><a href="/post/953dd446.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑫ 并发性能工程：容量、压测与全系列总表</a></li>
+
+
+    </ul>
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/42dc269f.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="AQS 与并发容器：size() 为什么不准 | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          AQS 与并发容器：size() 为什么不准
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-10-26 03:00:00" itemprop="dateCreated datePublished" datetime="2026-10-26T03:00:00+08:00">2026-10-26</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/Java/" itemprop="url" rel="index"><span itemprop="name">Java</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>3k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>11 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><p><strong><code>ConcurrentHashMap.size()</code> 在并发写时只是估计值</strong>。实测：4 个线程各写 20 万条，边写边采样 <strong>200 万次</strong>，其中 <strong>121 万次（60%）采样到的 <code>size</code> 与实际写入数不一致</strong>，最大差值 724（总量 80 万，误差 0.09%）。</p>
+<p>这篇把 AQS 与三个并发容器量成数字：为什么自旋锁在 16 线程下比 <code>ReentrantLock</code> 慢 <strong>24 倍</strong>、<code>ConcurrentHashMap</code> 在 1 线程时反而比 <code>synchronizedMap</code> 慢一倍、<code>CopyOnWriteArrayList</code> 的写放大到底有多夸张。</p>
+<blockquote>
+<p><strong>系列地图（Java 并发实战路线，12 篇）</strong></p>
+<p>① 实验台与基线 → ② 线程与调度 → ③ JMM：可见性与重排 → ④ 伪共享与缓存行 → ⑤ 原子性与 CAS → ⑥ 锁的演化 → ⑦ <strong>AQS 与并发容器（本文）</strong> → ⑧ 线程池参数 → ⑨ 并发工具与异步编排 → ⑩ 死锁与线程泄漏 → ⑪ 虚拟线程 → ⑫ 并发性能工程</p>
+<p>与前后篇的关系：⑥ 的 <code>ReentrantLock</code> 背后就是 AQS，本文拆开它；⑤ 的 <code>LongAdder</code> 与 CHM 的分段计数是同一个思路。</p>
+</blockquote>
+<h2 id="1-AQS：一个-state-一个队列"><a href="#1-AQS：一个-state-一个队列" class="headerlink" title="1. AQS：一个 state + 一个队列"></a>1. AQS：一个 state + 一个队列</h2><h3 id="1-1-结构"><a href="#1-1-结构" class="headerlink" title="1.1 结构"></a>1.1 结构</h3><p>AQS（AbstractQueuedSynchronizer）用两个东西管理所有同步器：</p>
+<table>
+<thead>
+<tr>
+<th>组件</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>volatile int state</code></td>
+<td>同步状态（锁次数、信号量许可数、读写锁的读写计数）</td>
+</tr>
+<tr>
+<td>CLH 变体队列</td>
+<td>没抢到锁的线程排队，<code>park</code> 等待</td>
+</tr>
+<tr>
+<td><code>exclusiveOwnerThread</code></td>
+<td>独占模式下的持有者</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart LR
+    A["thread calls lock()"] --> B{"CAS state 0->1?"}
+    B -- yes --> C["acquired, owner = self"]
+    B -- no --> D["enqueue node (CLH)"]
+    D --> E["LockSupport.park()"]
+    F["unlock(): state 1->0"] --> G["unpark successor"]
+    G --> E
+    E --> B</pre>
+
+<h3 id="1-2-为什么队列比自旋好：24-倍差距"><a href="#1-2-为什么队列比自旋好：24-倍差距" class="headerlink" title="1.2 为什么队列比自旋好：24 倍差距"></a>1.2 为什么队列比自旋好：24 倍差距</h3><p>自己写一个最朴素的自旋锁（<code>AtomicBoolean</code> + <code>onSpinWait</code>），和 <code>ReentrantLock</code> 对比（16 线程 × 20 万次自增）：</p>
+<table>
+<thead>
+<tr>
+<th>锁</th>
+<th>ns&#x2F;op</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>自旋锁（<code>AtomicBoolean</code>）</td>
+<td><strong>226.4</strong></td>
+<td>所有线程疯狂抢同一条缓存行</td>
+</tr>
+<tr>
+<td><code>ReentrantLock</code>（AQS 队列）</td>
+<td><strong>9.2</strong></td>
+<td>抢不到就排队 park，不再消耗 CPU</td>
+</tr>
+</tbody></table>
+<p><strong>差 24 倍</strong>。原因就是 ④ 的伪共享：自旋锁让 16 个核不停地 CAS 同一个 <code>AtomicBoolean</code>，缓存行在所有核之间来回弹；AQS 让失败的线程「睡觉」，只留一个在抢。</p>
+<h3 id="1-3-独占与共享"><a href="#1-3-独占与共享" class="headerlink" title="1.3 独占与共享"></a>1.3 独占与共享</h3><table>
+<thead>
+<tr>
+<th>模式</th>
+<th>代表</th>
+<th>state 含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>独占（Exclusive）</td>
+<td><code>ReentrantLock</code></td>
+<td>重入次数（0 &#x3D; 空闲）</td>
+</tr>
+<tr>
+<td>共享（Shared）</td>
+<td><code>Semaphore</code>、<code>CountDownLatch</code></td>
+<td>剩余许可数</td>
+</tr>
+<tr>
+<td>组合</td>
+<td><code>ReentrantReadWriteLock</code></td>
+<td>高 16 位读、低 16 位写</td>
+</tr>
+</tbody></table>
+<h2 id="2-ConcurrentHashMap"><a href="#2-ConcurrentHashMap" class="headerlink" title="2. ConcurrentHashMap"></a>2. ConcurrentHashMap</h2><h3 id="2-1-为什么快"><a href="#2-1-为什么快" class="headerlink" title="2.1 为什么快"></a>2.1 为什么快</h3><table>
+<thead>
+<tr>
+<th>机制</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>桶级锁（CAS + synchronized 单桶）</td>
+<td>只锁冲突的那个桶，不是整表</td>
+</tr>
+<tr>
+<td>分段计数（CounterCell）</td>
+<td><code>size</code> 用类似 <code>LongAdder</code> 的方式累加</td>
+</tr>
+<tr>
+<td>无锁读</td>
+<td><code>get</code> 不加锁，靠 volatile 读 + 节点不可变</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart LR
+    T1["Thread 1 put(k1)"] --> B1["bucket 1 (locked)"]
+    T2["Thread 2 put(k2)"] --> B2["bucket 2 (locked)"]
+    T3["Thread 3 get(k1)"] --> R["volatile read, no lock"]
+    B1 -.->|"different buckets&lt;br/>no contention"| B2</pre>
+
+<h3 id="2-2-实测：put-的-ns-op"><a href="#2-2-实测：put-的-ns-op" class="headerlink" title="2.2 实测：put 的 ns&#x2F;op"></a>2.2 实测：put 的 ns&#x2F;op</h3><table>
+<thead>
+<tr>
+<th>线程数</th>
+<th><code>ConcurrentHashMap</code></th>
+<th><code>Collections.synchronizedMap</code></th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>31.7</td>
+<td><strong>15.3</strong></td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>9.1</strong></td>
+<td>54.5</td>
+</tr>
+<tr>
+<td>16</td>
+<td><strong>31.2</strong></td>
+<td>79.2</td>
+</tr>
+<tr>
+<td>64</td>
+<td><strong>19.9</strong></td>
+<td>67.1</td>
+</tr>
+</tbody></table>
+<p>两个反直觉点：</p>
+<ol>
+<li><strong>单线程下 <code>synchronizedMap</code> 更快</strong>（15.3 vs 31.7）——CHM 每次 put 要做 CAS、计数、可能的扩容检查；</li>
+<li><strong>4 线程时 CHM 快 6 倍</strong>（9.1 vs 54.5），但 <strong>16 线程反而退化到 31.2</strong>——因为扩容、计数竞争、桶冲突都变多了。</li>
+</ol>
+<p><strong>结论</strong>：CHM 的优势在「多线程并发」，单线程场景用它反而多付了开销。</p>
+<h3 id="2-3-size-为什么不准"><a href="#2-3-size-为什么不准" class="headerlink" title="2.3 size() 为什么不准"></a>2.3 <code>size()</code> 为什么不准</h3><p><code>ConcurrentHashMap</code> 的 <code>size()</code> 是「base + 所有 CounterCell 的和」，而并发时这些计数是<strong>分散更新</strong>的：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line"><span class="keyword">public</span> <span class="type">long</span> <span class="title function_">mappingCount</span><span class="params">()</span> &#123;</span><br><span class="line">    <span class="type">long</span> <span class="variable">n</span> <span class="operator">=</span> sumCount();          <span class="comment">// 遍历 base + cells</span></span><br><span class="line">    <span class="keyword">return</span> (n &lt; <span class="number">0L</span>) ? <span class="number">0L</span> : n;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>实测（4 线程各写 20 万条，主线程每毫秒采样）：</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>实测</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>采样次数</td>
+<td>2,019,482</td>
+</tr>
+<tr>
+<td>size 与实际写入不一致的次数</td>
+<td><strong>1,211,162（60%）</strong></td>
+</tr>
+<tr>
+<td>最大差值</td>
+<td><strong>724</strong></td>
+</tr>
+<tr>
+<td>最终 size（写完后）</td>
+<td>800,000（准确）</td>
+</tr>
+</tbody></table>
+<p><strong>为什么</strong>：<code>sumCount</code> 遍历 Cell 数组时，其他线程正在更新 Cell，读到的是「某一瞬间的近似值」；而且 <code>size()</code> 明确不保证准确（Javadoc 写的是 estimate）。</p>
+<table>
+<thead>
+<tr>
+<th>用法</th>
+<th>是否可取</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>判断「是否为空」</td>
+<td>可以用 <code>isEmpty()</code>（也是估计，但足够）</td>
+</tr>
+<tr>
+<td>精确计数</td>
+<td>自己维护 <code>LongAdder</code>&#x2F;<code>AtomicLong</code></td>
+</tr>
+<tr>
+<td>监控&#x2F;告警</td>
+<td>可以用（误差 0.1% 以内）</td>
+</tr>
+<tr>
+<td>分页&#x2F;遍历边界</td>
+<td>不可用（遍历时也会变化）</td>
+</tr>
+</tbody></table>
+<h2 id="3-CopyOnWriteArrayList"><a href="#3-CopyOnWriteArrayList" class="headerlink" title="3. CopyOnWriteArrayList"></a>3. CopyOnWriteArrayList</h2><h3 id="3-1-写放大：每次-add-复制整个数组"><a href="#3-1-写放大：每次-add-复制整个数组" class="headerlink" title="3.1 写放大：每次 add 复制整个数组"></a>3.1 写放大：每次 add 复制整个数组</h3><table>
+<thead>
+<tr>
+<th>操作</th>
+<th><code>CopyOnWriteArrayList</code></th>
+<th><code>Collections.synchronizedList</code></th>
+</tr>
+</thead>
+<tbody><tr>
+<td>写入 2 万次</td>
+<td><strong>40 ms（2.0 µs&#x2F;次）</strong></td>
+<td>0 ms（0.04 µs&#x2F;次）</td>
+</tr>
+<tr>
+<td>读取 200 万次</td>
+<td><strong>4 ms（2.1 ns&#x2F;次）</strong></td>
+<td>16 ms（8.5 ns&#x2F;次）</td>
+</tr>
+</tbody></table>
+<p><strong>写慢 50 倍，读快 4 倍</strong>。而且写成本随列表长度增长：</p>
+<table>
+<thead>
+<tr>
+<th>add 次数</th>
+<th>总耗时</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>5,000</td>
+<td>4 ms</td>
+</tr>
+<tr>
+<td>10,000</td>
+<td>14 ms</td>
+</tr>
+<tr>
+<td>20,000</td>
+<td>34 ms</td>
+</tr>
+<tr>
+<td>40,000</td>
+<td><strong>91 ms</strong></td>
+</tr>
+</tbody></table>
+<p><strong>这是 O(n²) 的典型</strong>：第 n 次 add 要复制 n 个元素，n 次 add 总共复制 n²&#x2F;2 个元素。4 万次 add 复制了 8 亿个引用。</p>
+<pre class="mermaid">flowchart LR
+    A["old array (n elements)"] --> B["new array (n+1)"] --> C["copy all n"] --> D["swap reference (volatile)"]
+    E["readers"] -.->|"always read old or new&lt;br/>never blocked"| A
+    E -.-> D</pre>
+
+<h3 id="3-2-读为什么快"><a href="#3-2-读为什么快" class="headerlink" title="3.2 读为什么快"></a>3.2 读为什么快</h3><p>读不加锁、不复制，直接读 <code>volatile</code> 引用指向的数组快照。<strong>读多写少 + 数组小</strong>是它的适用区间：</p>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>适合吗</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>配置项列表（几乎不变，频繁读）</td>
+<td>✅ 非常适合</td>
+</tr>
+<tr>
+<td>监听器列表（注册&#x2F;注销少）</td>
+<td>✅ 适合</td>
+</tr>
+<tr>
+<td>消息队列 &#x2F; 缓存</td>
+<td>❌ 写太频繁</td>
+</tr>
+<tr>
+<td>元素很多（10 万+）</td>
+<td>❌ 一次 add 就要复制 10 万个</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart TD
+    A["Need a concurrent container"] --> B{"map or list?"}
+    B -- map --> C{"single thread?"}
+    C -- yes --> D["HashMap (fastest)"]
+    C -- no --> E["ConcurrentHashMap&lt;br/>preset capacity"]
+    B -- list --> F{"writes frequent?"}
+    F -- yes --> G["synchronizedList /&lt;br/>ConcurrentLinkedQueue"]
+    F -- no --> H{"list small?"}
+    H -- yes --> I["CopyOnWriteArrayList&lt;br/>2.1 ns read"]
+    H -- no --> G
+    E --> J{"need exact size?"}
+    J -- yes --> K["own LongAdder counter"]</pre>
+
+<h2 id="4-容器选型表"><a href="#4-容器选型表" class="headerlink" title="4. 容器选型表"></a>4. 容器选型表</h2><table>
+<thead>
+<tr>
+<th>需求</th>
+<th>选择</th>
+<th>依据（本文实测）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>高并发读写 Map</td>
+<td><code>ConcurrentHashMap</code></td>
+<td>4 线程 9.1 ns&#x2F;op</td>
+</tr>
+<tr>
+<td>单线程 Map</td>
+<td><code>HashMap</code> &#x2F; <code>synchronizedMap</code></td>
+<td>单线程 15.3 &lt; CHM 31.7</td>
+</tr>
+<tr>
+<td>读多写少的列表</td>
+<td><code>CopyOnWriteArrayList</code></td>
+<td>读 2.1 ns&#x2F;op</td>
+</tr>
+<tr>
+<td>写多的列表</td>
+<td><code>synchronizedList</code> &#x2F; <code>ConcurrentLinkedQueue</code></td>
+<td>写 0.04 µs vs 2.0 µs</td>
+</tr>
+<tr>
+<td>需要精确 size</td>
+<td>自己维护计数器</td>
+<td>CHM 的 size 60% 采样不一致</td>
+</tr>
+<tr>
+<td>队列</td>
+<td><code>ArrayBlockingQueue</code> &#x2F; <code>LinkedBlockingQueue</code></td>
+<td>⑧ 会讲</td>
+</tr>
+</tbody></table>
+<h2 id="5-动手验证：四个可复现实验"><a href="#5-动手验证：四个可复现实验" class="headerlink" title="5. 动手验证：四个可复现实验"></a>5. 动手验证：四个可复现实验</h2><h3 id="5-1-动手验证：CHM-与-synchronizedMap-的对比"><a href="#5-1-动手验证：CHM-与-synchronizedMap-的对比" class="headerlink" title="5.1 动手验证：CHM 与 synchronizedMap 的对比"></a>5.1 动手验证：CHM 与 synchronizedMap 的对比</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">mkdir</span> -p /tmp/conc &amp;&amp; <span class="built_in">cd</span> /tmp/conc</span><br><span class="line"><span class="built_in">cat</span> &gt; MapBench.java &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line">import java.util.*;</span><br><span class="line">import java.util.concurrent.*;</span><br><span class="line">public class MapBench &#123;</span><br><span class="line">    static volatile long SINK;</span><br><span class="line">    public static void main(String[] a) throws Exception &#123;</span><br><span class="line">        Thread wd = new Thread(() -&gt; &#123; try &#123; Thread.sleep(<span class="number">60</span>_000); &#125; catch (Exception e) &#123;&#125; System.out.println(&quot;WATCHDOG&quot;); System.exit(<span class="number">2</span>); &#125;);</span><br><span class="line">        wd.setDaemon(true); wd.start();</span><br><span class="line">        System.out.printf(&quot;%-<span class="number">8</span>s %-<span class="number">18</span>s %-<span class="number">20</span>s%n&quot;,&quot;threads&quot;,&quot;CHM&quot;,&quot;synchronizedMap&quot;);</span><br><span class="line">        for (int th : new int[]&#123;<span class="number">1</span>,<span class="number">4</span>,<span class="number">16</span>,<span class="number">64</span>&#125;)</span><br><span class="line">            System.out.printf(&quot;%-<span class="number">8</span>d %-<span class="number">18.1</span>f %-<span class="number">20.1</span>f%n&quot;, th, bench(th,true), bench(th,false));</span><br><span class="line">        System.out.println(<span class="string">&quot;SINK=&quot;</span>+SINK); System.<span class="built_in">exit</span>(0);</span><br><span class="line">    &#125;</span><br><span class="line">    static double bench(int th, boolean chm) throws Exception &#123;</span><br><span class="line">        long best=Long.MAX_VALUE;</span><br><span class="line">        <span class="keyword">for</span> (int r=0;r&lt;3;r++)&#123;</span><br><span class="line">            Map&lt;Integer,Integer&gt; m = chm ? new ConcurrentHashMap&lt;&gt;() : Collections.synchronizedMap(new HashMap&lt;&gt;());</span><br><span class="line">            CyclicBarrier b=new CyclicBarrier(th); Thread[] ts=new Thread[th];</span><br><span class="line">            <span class="keyword">for</span>(int i=0;i&lt;th;i++)&#123; final int <span class="built_in">id</span>=i; ts[i]=new Thread(()-&gt;&#123; try&#123;b.await();&#125;catch(Exception e)&#123;&#125;</span><br><span class="line">                for(int k=<span class="number">0</span>;k&lt;<span class="number">100</span>_000;k++) m.put(id*<span class="number">100</span>_000+k,k); &#125;); ts[i].start(); &#125;</span><br><span class="line">            long s=System.nanoTime(); for(Thread t:ts)t.join(<span class="number">20</span>_000);</span><br><span class="line">            best=Math.min(best,System.nanoTime()-s); SINK+=m.size();</span><br><span class="line">        &#125;</span><br><span class="line">        return best/((double)th*<span class="number">100</span>_000);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line">EOF</span><br><span class="line">javac MapBench.java &amp;&amp; java MapBench</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：单线程 <code>synchronizedMap</code> 更快；4&#x2F;16&#x2F;64 线程 CHM 明显更快（本文 9.1 vs 54.5）。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>CHM 在所有线程数都更快 → 你的 JDK 版本较老（8 之前 CHM 实现不同）；</li>
+<li>两者都 &gt; 200 ns&#x2F;op → 机器繁忙或 JIT 未预热，加预热轮次。</li>
+</ul>
+<h3 id="5-2-动手验证：验证-size-的不准确性"><a href="#5-2-动手验证：验证-size-的不准确性" class="headerlink" title="5.2 动手验证：验证 size 的不准确性"></a>5.2 动手验证：验证 size 的不准确性</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> /tmp/conc</span><br><span class="line"><span class="built_in">cat</span> &gt; SizeCheck.java &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line">import java.util.concurrent.*;</span><br><span class="line">import java.util.concurrent.atomic.*;</span><br><span class="line">public class SizeCheck &#123;</span><br><span class="line">    public static void main(String[] a) throws Exception &#123;</span><br><span class="line">        ConcurrentHashMap&lt;Integer,Integer&gt; m = new ConcurrentHashMap&lt;&gt;();</span><br><span class="line">        AtomicLong ins = new AtomicLong();</span><br><span class="line">        int th=4, ops=200_000; Thread[] ts=new Thread[th];</span><br><span class="line">        <span class="keyword">for</span>(int i=0;i&lt;th;i++)&#123; final int <span class="built_in">id</span>=i; ts[i]=new Thread(()-&gt;&#123; for(int k=<span class="number">0</span>;k&lt;ops;k++)&#123; m.put(id*ops+k,k); ins.incrementAndGet(); &#125; &#125;); ts[i].start(); &#125;</span><br><span class="line">        int samples=<span class="number">0</span>, mismatch=<span class="number">0</span>; long maxDiff=<span class="number">0</span>;</span><br><span class="line">        while(ts[<span class="number">0</span>].isAlive()||ts[<span class="number">1</span>].isAlive()||ts[<span class="number">2</span>].isAlive()||ts[<span class="number">3</span>].isAlive())&#123;</span><br><span class="line">            long diff=Math.abs(m.mappingCount()-ins.get());</span><br><span class="line">            <span class="keyword">if</span>(diff&gt;0)&#123; mismatch++; maxDiff=Math.max(maxDiff,diff); &#125;</span><br><span class="line">            samples++;</span><br><span class="line">        &#125;</span><br><span class="line">        <span class="keyword">for</span>(Thread t:ts)t.join(10_000);</span><br><span class="line">        System.out.printf(<span class="string">&quot;samples=%d mismatch=%d (%.1f%%) maxDiff=%d final=%d%n&quot;</span>,</span><br><span class="line">            samples, mismatch, 100.0*mismatch/samples, maxDiff, m.mappingCount());</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line">EOF</span><br><span class="line">javac SizeCheck.java &amp;&amp; java SizeCheck</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：<code>mismatch</code> 比例很高（本文 60%），<code>maxDiff</code> 在几百的量级，最终 size 准确。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li><code>mismatch=0</code> → 采样发生在写入完成之后，或线程数太少没有并发；</li>
+<li><code>maxDiff</code> 达到几千 → 你的写入速率更高，误差被放大。</li>
+</ul>
+<h3 id="5-3-动手验证：COW-的写放大"><a href="#5-3-动手验证：COW-的写放大" class="headerlink" title="5.3 动手验证：COW 的写放大"></a>5.3 动手验证：COW 的写放大</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> /tmp/conc</span><br><span class="line"><span class="built_in">cat</span> &gt; CowBench.java &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line">import java.util.*;</span><br><span class="line">import java.util.concurrent.*;</span><br><span class="line">public class CowBench &#123;</span><br><span class="line">    static volatile long SINK;</span><br><span class="line">    public static void main(String[] a) throws Exception &#123;</span><br><span class="line">        Thread wd = new Thread(() -&gt; &#123; try &#123; Thread.sleep(<span class="number">60</span>_000); &#125; catch (Exception e) &#123;&#125; System.out.println(&quot;WATCHDOG&quot;); System.exit(<span class="number">2</span>); &#125;);</span><br><span class="line">        wd.setDaemon(true); wd.start();</span><br><span class="line">        for (int n : new int[]&#123;<span class="number">5</span>_000,<span class="number">10</span>_000,<span class="number">20</span>_000,<span class="number">40</span>_000&#125;) &#123;</span><br><span class="line">            CopyOnWriteArrayList&lt;Integer&gt; cow=new CopyOnWriteArrayList&lt;&gt;();</span><br><span class="line">            long s=System.nanoTime(); for(int i=<span class="number">0</span>;i&lt;n;i++) cow.add(i);</span><br><span class="line">            System.out.printf(&quot;COW add %,<span class="number">6</span>d: %,<span class="number">5</span>d ms%n&quot;, n, (System.nanoTime()-s)/<span class="number">1</span>_000_000);</span><br><span class="line">        &#125;</span><br><span class="line">        List&lt;Integer&gt; sync=Collections.synchronizedList(new ArrayList&lt;&gt;());</span><br><span class="line">        long s=System.nanoTime(); <span class="keyword">for</span>(int i=0;i&lt;40_000;i++) sync.add(i);</span><br><span class="line">        System.out.printf(<span class="string">&quot;syncedList add 40000: %,5d ms%n&quot;</span>, (System.nanoTime()-s)/1_000_000);</span><br><span class="line">        SINK=sync.size(); System.<span class="built_in">exit</span>(0);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line">EOF</span><br><span class="line">javac CowBench.java &amp;&amp; java CowBench</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：COW 的耗时近似按平方增长（本文 4&#x2F;14&#x2F;34&#x2F;91 ms），synchronizedList 是 0 ms。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>COW 耗时线性增长 → 你的列表很小，O(n²) 还没显现；</li>
+<li>40k 次超过 1 秒 → 列表里元素更大（引用复制成本高）或机器较慢。</li>
+</ul>
+<h3 id="5-4-动手验证：自旋锁-vs-AQS"><a href="#5-4-动手验证：自旋锁-vs-AQS" class="headerlink" title="5.4 动手验证：自旋锁 vs AQS"></a>5.4 动手验证：自旋锁 vs AQS</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> /tmp/conc</span><br><span class="line"><span class="built_in">cat</span> &gt; SpinVsAqs.java &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line">import java.util.concurrent.*;</span><br><span class="line">import java.util.concurrent.atomic.*;</span><br><span class="line">import java.util.concurrent.locks.*;</span><br><span class="line">public class SpinVsAqs &#123;</span><br><span class="line">    static volatile long SINK;</span><br><span class="line">    public static void main(String[] a) throws Exception &#123;</span><br><span class="line">        AtomicBoolean spin=new AtomicBoolean(); ReentrantLock rl=new ReentrantLock();</span><br><span class="line">        long bs=Long.MAX_VALUE, br=Long.MAX_VALUE;</span><br><span class="line">        <span class="keyword">for</span>(int r=0;r&lt;3;r++)&#123;</span><br><span class="line">            long s=System.nanoTime();</span><br><span class="line">            run(16,200_000,()-&gt;&#123; <span class="keyword">while</span>(!spin.compareAndSet(<span class="literal">false</span>,<span class="literal">true</span>)) Thread.onSpinWait(); try&#123; SINK++; &#125; finally &#123; spin.set(<span class="literal">false</span>); &#125; &#125;);</span><br><span class="line">            bs=Math.min(bs,System.nanoTime()-s);</span><br><span class="line">            s=System.nanoTime();</span><br><span class="line">            run(16,200_000,()-&gt;&#123; rl.lock(); try&#123; SINK++; &#125; finally &#123; rl.unlock(); &#125; &#125;);</span><br><span class="line">            br=Math.min(br,System.nanoTime()-s);</span><br><span class="line">        &#125;</span><br><span class="line">        System.out.printf(<span class="string">&quot;spin=%.1f ns/op  ReentrantLock=%.1f ns/op%n&quot;</span>, bs/(16.0*200_000), br/(16.0*200_000));</span><br><span class="line">        System.<span class="built_in">exit</span>(0);</span><br><span class="line">    &#125;</span><br><span class="line">    static void run(int th,int ops,Runnable task) throws Exception &#123;</span><br><span class="line">        CyclicBarrier b=new CyclicBarrier(th); Thread[] ts=new Thread[th];</span><br><span class="line">        <span class="keyword">for</span>(int i=0;i&lt;th;i++)&#123; ts[i]=new Thread(()-&gt;&#123; try&#123;b.await();&#125;catch(Exception e)&#123;&#125; for(int k=<span class="number">0</span>;k&lt;ops;k++) task.run(); &#125;); ts[i].start(); &#125;</span><br><span class="line">        for(Thread t:ts)t.join(<span class="number">30</span>_000);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line">EOF</span><br><span class="line">javac SpinVsAqs.java &amp;&amp; java SpinVsAqs</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：自旋锁比 <code>ReentrantLock</code> 慢一个数量级（本文 226 vs 9.2）。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>两者接近 → 线程数太少（≤4），自旋还没产生缓存行风暴；</li>
+<li>自旋锁极慢（&gt;1000 ns）→ 核数多、竞争极端，属于正常现象。</li>
+</ul>
+<h2 id="6-总结"><a href="#6-总结" class="headerlink" title="6. 总结"></a>6. 总结</h2><h3 id="6-1-面试速答表"><a href="#6-1-面试速答表" class="headerlink" title="6.1 面试速答表"></a>6.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>AQS 的核心是什么</td>
+<td>一个 <code>volatile int state</code> + 一个 CLH 变体等待队列</td>
+</tr>
+<tr>
+<td>为什么用队列而不是自旋</td>
+<td>自旋在竞争中会打爆缓存行，实测慢 24 倍（226 vs 9.2 ns&#x2F;op）</td>
+</tr>
+<tr>
+<td><code>ConcurrentHashMap</code> 为什么快</td>
+<td>桶级锁 + CAS + 无锁读 + 分段计数</td>
+</tr>
+<tr>
+<td>单线程用 CHM 划算吗</td>
+<td>不划算，实测 31.7 vs 15.3 ns&#x2F;op</td>
+</tr>
+<tr>
+<td><code>size()</code> 准确吗</td>
+<td>不准确，并发写时实测 60% 采样不一致，最大差 724</td>
+</tr>
+<tr>
+<td>需要精确计数怎么办</td>
+<td>自己维护 <code>LongAdder</code> 或 <code>AtomicLong</code></td>
+</tr>
+<tr>
+<td><code>CopyOnWriteArrayList</code> 适合什么场景</td>
+<td>读多写少、列表小；写 2.0 µs&#x2F;次 vs 读 2.1 ns&#x2F;次</td>
+</tr>
+<tr>
+<td>COW 的写放大有多严重</td>
+<td>O(n²)：4 万次 add 耗时 91 ms（8 亿次引用复制）</td>
+</tr>
+<tr>
+<td>COW 读为什么快</td>
+<td>不加锁，读 volatile 引用指向的不可变数组</td>
+</tr>
+<tr>
+<td><code>synchronizedMap</code> 什么时候用</td>
+<td>单线程或极低并发、需要简单实现时</td>
+</tr>
+<tr>
+<td>16 线程下 CHM 为什么比 4 线程慢</td>
+<td>扩容 + 计数竞争 + 桶冲突</td>
+</tr>
+<tr>
+<td>AQS 的独占和共享区别</td>
+<td>state 语义不同：重入次数 vs 剩余许可</td>
+</tr>
+</tbody></table>
+<h3 id="6-2-实战避坑表"><a href="#6-2-实战避坑表" class="headerlink" title="6.2 实战避坑表"></a>6.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>用 CHM 的 size 做分页</td>
+<td>size 是估计值</td>
+<td>用自己维护的计数器</td>
+</tr>
+<tr>
+<td>COW 列表越写越慢</td>
+<td>O(n²) 复制</td>
+<td>换 <code>ConcurrentLinkedQueue</code> 或加锁 ArrayList</td>
+</tr>
+<tr>
+<td>单线程用 CHM 反而慢</td>
+<td>CHM 固定开销</td>
+<td>单线程用 HashMap</td>
+</tr>
+<tr>
+<td>自研自旋锁上线后 CPU 高</td>
+<td>缓存行风暴</td>
+<td>换 <code>ReentrantLock</code></td>
+</tr>
+<tr>
+<td>CHM 在 16 线程下性能下降</td>
+<td>扩容与计数竞争</td>
+<td>预设初始容量，减少扩容</td>
+</tr>
+</tbody></table>
+<h3 id="6-3-工具速查表"><a href="#6-3-工具速查表" class="headerlink" title="6.3 工具速查表"></a>6.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>判定标准</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>ConcurrentHashMap.mappingCount()</code></td>
+<td>近似 size</td>
+<td>只用于监控，不用于精确逻辑</td>
+</tr>
+<tr>
+<td>JFR</td>
+<td>锁竞争、扩容事件</td>
+<td>结合 ② 的读法</td>
+</tr>
+<tr>
+<td><code>-XX:+PrintCompilation</code></td>
+<td>容器方法是否被 JIT 编译</td>
+<td>未编译时数字偏慢</td>
+</tr>
+<tr>
+<td>本文基准脚本</td>
+<td>CHM&#x2F;COW 成本</td>
+<td>按线程数对照</td>
+</tr>
+</tbody></table>
+<h3 id="6-4-实操建议"><a href="#6-4-实操建议" class="headerlink" title="6.4 实操建议"></a>6.4 实操建议</h3><ol>
+<li><strong><code>size()</code> 只用来监控</strong>，要精确计数就自己维护 <code>LongAdder</code>。</li>
+<li><strong>COW 只用在「读多写少 + 列表小」</strong>的场景，写超过每秒几十次就别用。</li>
+<li><strong>单线程别用 CHM</strong>，固定开销是真实存在的。</li>
+<li><strong>别自研自旋锁</strong>，AQS 的 park&#x2F;unpark 已经在「CPU 消耗」和「延迟」之间做了平衡。</li>
+<li><strong>CHM 初始化时给个合理容量</strong>，减少扩容带来的抖动。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告</strong>：⑧《线程池：core&#x2F;max&#x2F;queue 的组合陷阱》。本文的容器是「数据共享」层面的并发，下一篇看「任务执行」层面：为什么无界队列会让 <code>maximumPoolSize</code> 永远不生效、拒绝策略会静默丢任务、线程池大小到底怎么算、以及优雅关闭为什么总关不干净。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/Java/" rel="tag"># Java</a>
+              <a href="/tags/%E9%9D%A2%E8%AF%95/" rel="tag"># 面试</a>
+              <a href="/tags/%E5%B9%B6%E5%8F%91/" rel="tag"># 并发</a>
+              <a href="/tags/AQS/" rel="tag"># AQS</a>
+              <a href="/tags/ConcurrentHashMap/" rel="tag"># ConcurrentHashMap</a>
+              <a href="/tags/CopyOnWriteArrayList/" rel="tag"># CopyOnWriteArrayList</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/347698f8.html" rel="prev" title="锁的演化：偏向锁移除之后，synchronized 还慢吗">
+                  <i class="fa fa-angle-left"></i> 锁的演化：偏向锁移除之后，synchronized 还慢吗
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/post/b09d89b.html" rel="next" title="线程池：core、max、queue 的组合陷阱">
+                  线程池：core、max、queue 的组合陷阱 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">778k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">47:09</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
+</html>

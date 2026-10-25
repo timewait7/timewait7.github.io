@@ -1,0 +1,1086 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="虚拟线程不是「更快的线程」，是「更便宜的阻塞」。实测 2000 个 10ms 的 IO 任务：平台线程池（200 线程）126 ms，虚拟线程 23 ms——快 5.5 倍；但如果在任务里用 synchronized 包住阻塞调用，同样的 2000 个任务要 1,571 ms，慢 68 倍。 这就是 pinning：虚拟线程在 synchronized 块里阻塞时，会把它所在的载体线程一起占住，退">
+<meta property="og:type" content="article">
+<meta property="og:title" content="虚拟线程：pinning、吞吐与迁移代价">
+<meta property="og:url" content="http://timewait7.github.io/post/aa676f55.html">
+<meta property="og:site_name" content="知行栈">
+<meta property="og:description" content="虚拟线程不是「更快的线程」，是「更便宜的阻塞」。实测 2000 个 10ms 的 IO 任务：平台线程池（200 线程）126 ms，虚拟线程 23 ms——快 5.5 倍；但如果在任务里用 synchronized 包住阻塞调用，同样的 2000 个任务要 1,571 ms，慢 68 倍。 这就是 pinning：虚拟线程在 synchronized 块里阻塞时，会把它所在的载体线程一起占住，退">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-10-25T23:00:00.000Z">
+<meta property="article:modified_time" content="2026-10-25T06:13:18.120Z">
+<meta property="article:tag" content="Java">
+<meta property="article:tag" content="面试">
+<meta property="article:tag" content="并发">
+<meta property="article:tag" content="虚拟线程">
+<meta property="article:tag" content="pinning">
+<meta property="article:tag" content="JDK21">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/aa676f55.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/aa676f55.html","path":"post/aa676f55.html","title":"虚拟线程：pinning、吞吐与迁移代价"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>虚拟线程：pinning、吞吐与迁移代价 | 知行栈</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<!-- hexo injector head_end start --><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
+</style><style>
+/* 菜单链高亮：sub-menu 祖先（同主题 .menu-item-active 的 Pisces 规则） */
+.sub-menu .menu-item a.menu-chain-active {
+  border-bottom-color: #fc6423;
+  color: #fc6423;
+}
+.sub-menu .menu-item a.menu-chain-active:hover {
+  border-bottom-color: #fc6423;
+}
+/* 菜单链高亮：main-menu 祖先（同主题 hover/active 的背景规则） */
+.main-menu .menu-item a.menu-chain-active {
+  background: var(--menu-item-bg-color);
+}
+</style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">知行栈</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section" class="menu-chain-active"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>Categories</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-%E8%99%9A%E6%8B%9F%E7%BA%BF%E7%A8%8B%E8%A7%A3%E5%86%B3%E7%9A%84%E6%98%AF%E4%BB%80%E4%B9%88%E9%97%AE%E9%A2%98"><span class="nav-text">1. 虚拟线程解决的是什么问题</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E5%AE%9E%E6%B5%8B%EF%BC%9AIO-%E4%BB%BB%E5%8A%A1%E5%BF%AB-5-%E5%80%8D"><span class="nav-text">2. 实测：IO 任务快 5 倍</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-Pinning%EF%BC%9Asynchronized-%E9%87%8C%E7%9A%84%E9%98%BB%E5%A1%9E"><span class="nav-text">3. Pinning：synchronized 里的阻塞</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E5%AE%9E%E6%B5%8B%EF%BC%9A%E6%85%A2-68-%E5%80%8D"><span class="nav-text">3.1 实测：慢 68 倍</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E4%B8%80%E4%B8%AA%E6%9B%B4%E5%AE%B9%E6%98%93%E8%B8%A9%E7%9A%84%E5%8F%98%E4%BD%93%EF%BC%9A%E6%8C%81%E5%90%8C%E4%B8%80%E6%8A%8A%E9%94%81%E7%9D%A1%E7%9C%A0"><span class="nav-text">3.2 一个更容易踩的变体：持同一把锁睡眠</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-JDK-%E7%89%88%E6%9C%AC%E5%B7%AE%E5%BC%82"><span class="nav-text">3.3 JDK 版本差异</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E8%A7%84%E6%A8%A1%EF%BC%9A10-%E4%B8%87%E8%99%9A%E6%8B%9F%E7%BA%BF%E7%A8%8B-vs-1-%E4%B8%87%E5%B9%B3%E5%8F%B0%E7%BA%BF%E7%A8%8B"><span class="nav-text">4. 规模：10 万虚拟线程 vs 1 万平台线程</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E8%BF%81%E7%A7%BB%E4%BB%A3%E4%BB%B7%EF%BC%9A%E5%9B%9B%E4%B8%AA%E5%BF%85%E9%A1%BB%E6%94%B9%E7%9A%84%E5%9C%B0%E6%96%B9"><span class="nav-text">5. 迁移代价：四个必须改的地方</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E8%BF%98%E6%9C%89%E4%B8%A4%E4%B8%AA%E9%9A%90%E5%BC%8F%E5%9D%91"><span class="nav-text">5.1 还有两个隐式坑</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#6-%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E7%94%A8%EF%BC%8C%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E4%B8%8D%E7%94%A8"><span class="nav-text">6. 什么时候用，什么时候不用</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#7-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%9B%9B%E4%B8%AA%E5%8F%AF%E5%A4%8D%E7%8E%B0%E5%AE%9E%E9%AA%8C"><span class="nav-text">7. 动手验证：四个可复现实验</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#7-1-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E8%99%9A%E6%8B%9F%E7%BA%BF%E7%A8%8B-vs-%E5%B9%B3%E5%8F%B0%E7%BA%BF%E7%A8%8B"><span class="nav-text">7.1 动手验证：虚拟线程 vs 平台线程</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-2-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%A4%8D%E7%8E%B0-pinning"><span class="nav-text">7.2 动手验证：复现 pinning</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-3-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A10-%E4%B8%87%E4%B8%AA%E8%99%9A%E6%8B%9F%E7%BA%BF%E7%A8%8B"><span class="nav-text">7.3 动手验证：10 万个虚拟线程</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#7-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E8%BF%81%E7%A7%BB%E5%90%8E%E7%9A%84%E5%AF%B9%E7%85%A7"><span class="nav-text">7.4 动手验证：迁移后的对照</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#8-%E6%80%BB%E7%BB%93"><span class="nav-text">8. 总结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#8-1-%E9%9D%A2%E8%AF%95%E9%80%9F%E7%AD%94%E8%A1%A8"><span class="nav-text">8.1 面试速答表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#8-2-%E5%AE%9E%E6%88%98%E9%81%BF%E5%9D%91%E8%A1%A8"><span class="nav-text">8.2 实战避坑表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#8-3-%E5%B7%A5%E5%85%B7%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">8.3 工具速查表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#8-4-%E5%AE%9E%E6%93%8D%E5%BB%BA%E8%AE%AE"><span class="nav-text">8.4 实操建议</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">116</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">14</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">205</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+    <div class="sidebar-inner sidebar-blogroll">
+      <div class="links-of-blogroll animated">
+        <div class="links-of-blogroll-title"><i class="fa fa-globe fa-fw"></i>
+          Links
+        </div>
+        <ul class="links-of-blogroll-list">
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9wYXVsZ3JhaGFtLmNvbS9hcnRpY2xlcy5odG1s" title="https:&#x2F;&#x2F;paulgraham.com&#x2F;articles.html">paulgraham</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly93d3cuam9lbG9uc29mdHdhcmUuY29tLw==" title="https:&#x2F;&#x2F;www.joelonsoftware.com&#x2F;">Joel on Software</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9tYXJ0aW5mb3dsZXIuY29tLw==" title="https:&#x2F;&#x2F;martinfowler.com&#x2F;">Martin Flower</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly96aGFuZ3RpZWxlaS5jb20v" title="https:&#x2F;&#x2F;zhangtielei.com&#x2F;">zhangtielei</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhLWRlc2lnbi1wYXR0ZXJucy5jb20vemgv" title="https:&#x2F;&#x2F;java-design-patterns.com&#x2F;zh&#x2F;">Java Design Patterns</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9taWNyb3NlcnZpY2VzLmlvLw==" title="https:&#x2F;&#x2F;microservices.io&#x2F;">Microservice Architecture</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhZ3VpZGUuY24v" title="https:&#x2F;&#x2F;javaguide.cn&#x2F;">JavaGuide</span>
+            </li>
+        </ul>
+      </div>
+    </div>
+        <div class="pjax">
+        
+        <div class="sidebar-inner sidebar-post-related">
+          <div class="animated">
+              <div class="links-of-blogroll-title"><i class="fa fa-signs-post fa-fw"></i>
+    Related Posts
+  </div>
+  <ul class="popular-posts">
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/8ac324cd.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-25</time>
+        <br>
+      从这里开始：把并发 bug 变成可复现的实验
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/4f3149da.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-25</time>
+        <br>
+      线程与调度：一次上下文切换值多少钱
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/b09d89b.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-26</time>
+        <br>
+      线程池：core、max、queue 的组合陷阱
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/f092fe4.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-25</time>
+        <br>
+      JMM：把「不可见」和「重排」亲手复现
+      </a>
+    </li>
+  </ul>
+
+          </div>
+        </div>
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-后端开发"><a href="/docs/nav/backend-dev-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-code fa-fw"></i>后端开发</a></li>
+
+
+      
+  <li class="menu-item menu-item-计算机基础"><a href="/docs/nav/cs-foundation-nav.html" rel="section"><i class="fa fa-desktop fa-fw"></i>计算机基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-ai-学习"><a href="/docs/nav/ai-learning-nav.html" rel="section"><i class="fa fa-robot fa-fw"></i>AI 学习</a></li>
+
+
+      
+  <li class="menu-item menu-item-项目实战"><a href="/docs/nav/5964f4da.html" rel="section"><i class="fa fa-flask fa-fw"></i>项目实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-misc"><a href="/docs/nav/misc-nav.html" rel="section"><i class="fa fa-box fa-fw"></i>Misc</a></li>
+
+
+      
+  <li class="menu-item menu-item-随笔·生活"><a href="/docs/nav/life-nav.html" rel="section"><i class="fa fa-feather fa-fw"></i>随笔·生活</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java"><a href="/docs/nav/java-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-coffee fa-fw"></i>Java</a></li>
+
+
+      
+  <li class="menu-item menu-item-框架"><a href="/docs/nav/framework-nav.html" rel="section"><i class="fa fa-th-large fa-fw"></i>框架</a></li>
+
+
+      
+  <li class="menu-item menu-item-数据存储"><a href="/docs/nav/data-storage-nav.html" rel="section"><i class="fa fa-hdd fa-fw"></i>数据存储</a></li>
+
+
+      
+  <li class="menu-item menu-item-中间件"><a href="/docs/nav/middleware-nav.html" rel="section"><i class="fa fa-cubes fa-fw"></i>中间件</a></li>
+
+
+      
+  <li class="menu-item menu-item-分布式与微服务"><a href="/docs/nav/distributed-nav.html" rel="section"><i class="fa fa-sitemap fa-fw"></i>分布式与微服务</a></li>
+
+
+      
+  <li class="menu-item menu-item-系统设计"><a href="/docs/nav/system-design-nav.html" rel="section"><i class="fa fa-pencil-ruler fa-fw"></i>系统设计</a></li>
+
+
+      
+  <li class="menu-item menu-item-部署运维"><a href="/docs/nav/devops-nav.html" rel="section"><i class="fa fa-terminal fa-fw"></i>部署运维</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java-核心基础"><a href="/post/6a6e612d.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Java 核心基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-java-并发编程"><a href="/docs/nav/java-concurrency-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-tasks fa-fw"></i>Java 并发编程</a></li>
+
+
+      
+  <li class="menu-item menu-item-jvm-原理与调优"><a href="/post/4e153c5e.html" rel="section"><i class="fa fa-file-text fa-fw"></i>JVM 原理与调优</a></li>
+
+
+      
+  <li class="menu-item menu-item-设计模式：15-个高频模式的实战内化"><a href="/post/67126.html" rel="section"><i class="fa fa-file-text fa-fw"></i>设计模式：15 个高频模式的实战内化</a></li>
+
+
+      
+  <li class="menu-item menu-item-java-开发实战速查"><a href="/post/be1f55d9.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Java 开发实战速查</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java-并发编程：从-jmm-到虚拟线程的系统化实战"><a href="/post/a3f81c2d.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Java 并发编程：从 JMM 到虚拟线程的系统化实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-①-从这里开始：把并发-bug-变成可复现的实验"><a href="/post/8ac324cd.html" rel="section"><i class="fa fa-file-text fa-fw"></i>① 从这里开始：把并发 bug 变成可复现的实验</a></li>
+
+
+      
+  <li class="menu-item menu-item-②-线程与调度：一次上下文切换值多少钱"><a href="/post/4f3149da.html" rel="section"><i class="fa fa-file-text fa-fw"></i>② 线程与调度：一次上下文切换值多少钱</a></li>
+
+
+      
+  <li class="menu-item menu-item-③-jmm：把「不可见」和「重排」亲手复现"><a href="/post/f092fe4.html" rel="section"><i class="fa fa-file-text fa-fw"></i>③ JMM：把「不可见」和「重排」亲手复现</a></li>
+
+
+      
+  <li class="menu-item menu-item-④-伪共享与缓存行：一个-@contended-的-4-倍差距"><a href="/post/311a2032.html" rel="section"><i class="fa fa-file-text fa-fw"></i>④ 伪共享与缓存行：一个 @Contended 的 4 倍差距</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑤-原子性：i++-的丢失与-cas-的代价"><a href="/post/ef5a2176.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑤ 原子性：i++ 的丢失与 CAS 的代价</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑥-锁的演化：偏向锁移除之后，synchronized-还慢吗"><a href="/post/347698f8.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑥ 锁的演化：偏向锁移除之后，synchronized 还慢吗</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑦-aqs-与并发容器：size()-为什么不准"><a href="/post/42dc269f.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑦ AQS 与并发容器：size() 为什么不准</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑧-线程池：core、max、queue-的组合陷阱"><a href="/post/b09d89b.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑧ 线程池：core、max、queue 的组合陷阱</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑨-并发工具与异步编排：completablefuture-的五个坑"><a href="/post/5489c9d2.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑨ 并发工具与异步编排：CompletableFuture 的五个坑</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑩-死锁与线程泄漏：从-jstack-到-jfr"><a href="/post/93f5ed7a.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑩ 死锁与线程泄漏：从 jstack 到 JFR</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑪-虚拟线程：pinning、吞吐与迁移代价"><a href="/post/aa676f55.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑪ 虚拟线程：pinning、吞吐与迁移代价</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑫-并发性能工程：容量、压测与全系列总表"><a href="/post/953dd446.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑫ 并发性能工程：容量、压测与全系列总表</a></li>
+
+
+    </ul>
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/aa676f55.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="虚拟线程：pinning、吞吐与迁移代价 | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          虚拟线程：pinning、吞吐与迁移代价
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-10-26 07:00:00" itemprop="dateCreated datePublished" datetime="2026-10-26T07:00:00+08:00">2026-10-26</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/Java/" itemprop="url" rel="index"><span itemprop="name">Java</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>2.8k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>10 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><p><strong>虚拟线程不是「更快的线程」，是「更便宜的阻塞」</strong>。实测 2000 个 10ms 的 IO 任务：平台线程池（200 线程）126 ms，虚拟线程 <strong>23 ms</strong>——快 5.5 倍；但如果在任务里用 <code>synchronized</code> 包住阻塞调用，同样的 2000 个任务要 <strong>1,571 ms</strong>，慢 68 倍。</p>
+<p>这就是 <strong>pinning</strong>：虚拟线程在 <code>synchronized</code> 块里阻塞时，会把它所在的<strong>载体线程</strong>一起占住，退化成平台线程。</p>
+<blockquote>
+<p><strong>系列地图（Java 并发实战路线，12 篇）</strong></p>
+<p>① 实验台与基线 → ② 线程与调度 → ③ JMM → ④ 伪共享 → ⑤ 原子性与 CAS → ⑥ 锁的演化 → ⑦ AQS 与并发容器 → ⑧ 线程池参数 → ⑨ 并发工具与异步编排 → ⑩ 死锁与线程泄漏 → ⑪ <strong>虚拟线程（本文）</strong> → ⑫ 并发性能工程</p>
+<p>与前后篇的关系：② 的「1 MB&#x2F;线程」是虚拟线程要解决的问题；⑧ 的「IO 密集池开大」在虚拟线程里换成「每个任务一个虚拟线程」。</p>
+</blockquote>
+<h2 id="1-虚拟线程解决的是什么问题"><a href="#1-虚拟线程解决的是什么问题" class="headerlink" title="1. 虚拟线程解决的是什么问题"></a>1. 虚拟线程解决的是什么问题</h2><table>
+<thead>
+<tr>
+<th>问题（平台线程）</th>
+<th>虚拟线程的做法</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1 MB 栈&#x2F;线程（②实测）</td>
+<td>栈存在堆里，按需增长，初始几百字节</td>
+</tr>
+<tr>
+<td>阻塞要占住一个 OS 线程</td>
+<td>阻塞时 <strong>unmount</strong>，把载体线程还给调度器</td>
+</tr>
+<tr>
+<td>线程数受内存限制（1000 线程 ≈ 1 GB）</td>
+<td>可以创建几十万个</td>
+</tr>
+<tr>
+<td>线程池要精细调参（⑧）</td>
+<td>每个任务一个虚拟线程，不用池</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart LR
+    A["virtual thread A"] -->|mount| C1["carrier 1"]
+    B["virtual thread B"] -->|blocked on IO| D["unmount"]
+    D -->|free| C1
+    E["virtual thread C"] -->|mount| C1
+    D -.->|堆里的栈| F["continuation"]</pre>
+
+<p><strong>关键概念</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>术语</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>虚拟线程</td>
+<td>用户态调度的轻量线程</td>
+</tr>
+<tr>
+<td>载体线程（carrier）</td>
+<td>真正执行虚拟线程的平台线程，数量默认 &#x3D; 核数</td>
+</tr>
+<tr>
+<td>mount &#x2F; unmount</td>
+<td>虚拟线程挂到载体上 &#x2F; 从载体上摘下来</td>
+</tr>
+<tr>
+<td>pinning</td>
+<td>虚拟线程阻塞时不能 unmount，把载体占住</td>
+</tr>
+</tbody></table>
+<h2 id="2-实测：IO-任务快-5-倍"><a href="#2-实测：IO-任务快-5-倍" class="headerlink" title="2. 实测：IO 任务快 5 倍"></a>2. 实测：IO 任务快 5 倍</h2><p>2000 个「睡 10 ms」的任务：</p>
+<table>
+<thead>
+<tr>
+<th>方案</th>
+<th>耗时</th>
+<th>吞吐</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>平台线程池（200 线程）</td>
+<td>126 ms</td>
+<td>15,873 tasks&#x2F;s</td>
+</tr>
+<tr>
+<td><strong>虚拟线程</strong></td>
+<td><strong>23 ms</strong></td>
+<td><strong>86,957 tasks&#x2F;s</strong></td>
+</tr>
+<tr>
+<td>虚拟线程 + <code>ReentrantLock</code>（每任务独立锁）</td>
+<td><strong>15 ms</strong></td>
+<td><strong>133,333 tasks&#x2F;s</strong></td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart TD
+    A["2000 tasks x 10ms sleep"] --> B["platform pool(200): 126ms"]
+    A --> C["virtual threads: 23ms"]
+    A --> D["virtual + per-task lock: 15ms"]
+    A --> E["virtual + synchronized: 1571ms"]</pre>
+
+<p><strong>为什么虚拟线程快</strong>：平台线程池只有 200 个线程，2000 个任务要分 10 批；虚拟线程 2000 个可以同时「挂着睡」，只要有空闲载体就继续跑。</p>
+<h2 id="3-Pinning：synchronized-里的阻塞"><a href="#3-Pinning：synchronized-里的阻塞" class="headerlink" title="3. Pinning：synchronized 里的阻塞"></a>3. Pinning：<code>synchronized</code> 里的阻塞</h2><h3 id="3-1-实测：慢-68-倍"><a href="#3-1-实测：慢-68-倍" class="headerlink" title="3.1 实测：慢 68 倍"></a>3.1 实测：慢 68 倍</h3><p>同样的 2000 个任务，只是把 <code>sleep</code> 包进 <code>synchronized</code>（每个任务用自己的 monitor，排除锁竞争）：</p>
+<table>
+<thead>
+<tr>
+<th>方案</th>
+<th>耗时</th>
+<th>吞吐</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>虚拟线程 + 普通 <code>sleep</code></td>
+<td><strong>23 ms</strong></td>
+<td>86,957 tasks&#x2F;s</td>
+</tr>
+<tr>
+<td>虚拟线程 + <code>synchronized</code> 内 <code>sleep</code></td>
+<td><strong>1,571 ms</strong></td>
+<td><strong>1,273 tasks&#x2F;s</strong></td>
+</tr>
+</tbody></table>
+<p><strong>折算</strong>：2000 个任务 × 10 ms ÷ 15 个载体 ≈ 1,333 ms，与实测 1,571 ms 吻合——<strong>虚拟线程被串行化到 15 个载体上</strong>，等于退化成平台线程池。</p>
+<pre class="mermaid">sequenceDiagram
+    participant VT as virtual thread
+    participant CR as carrier (15 total)
+    participant MON as monitor
+    VT->>MON: enter synchronized
+    VT->>CR: Thread.sleep (blocking inside monitor)
+    Note over CR: PINNED: cannot unmount
+    Note over CR: 15 carriers -> only 15 concurrent tasks
+    VT->>MON: exit, CR released</pre>
+
+<h3 id="3-2-一个更容易踩的变体：持同一把锁睡眠"><a href="#3-2-一个更容易踩的变体：持同一把锁睡眠" class="headerlink" title="3.2 一个更容易踩的变体：持同一把锁睡眠"></a>3.2 一个更容易踩的变体：持同一把锁睡眠</h3><p>如果所有任务抢<strong>同一把</strong>锁，然后在锁内睡眠，问题比 pinning 更严重：</p>
+<table>
+<thead>
+<tr>
+<th>方案</th>
+<th>耗时</th>
+<th>吞吐</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>虚拟线程 + 各自 monitor（pinning）</td>
+<td>1,571 ms</td>
+<td>1,273 tasks&#x2F;s</td>
+</tr>
+<tr>
+<td>虚拟线程 + <strong>同一把锁</strong>内睡眠</td>
+<td><strong>23,750 ms</strong></td>
+<td><strong>84 tasks&#x2F;s</strong></td>
+</tr>
+</tbody></table>
+<p><strong>23.75 秒 ≈ 2000 × 12 ms</strong>——完全串行。这不是 pinning，是<strong>锁本身把并发变成了串行</strong>。</p>
+<table>
+<thead>
+<tr>
+<th>现象</th>
+<th>根因</th>
+<th>修复</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>慢 68 倍</td>
+<td>pinning（载体被占）</td>
+<td>把 <code>synchronized</code> 换成 <code>ReentrantLock</code></td>
+</tr>
+<tr>
+<td>慢 1000 倍</td>
+<td>锁内做阻塞</td>
+<td>把阻塞移出临界区</td>
+</tr>
+</tbody></table>
+<h3 id="3-3-JDK-版本差异"><a href="#3-3-JDK-版本差异" class="headerlink" title="3.3 JDK 版本差异"></a>3.3 JDK 版本差异</h3><table>
+<thead>
+<tr>
+<th>版本</th>
+<th><code>synchronized</code> 内阻塞是否 pin</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>JDK 21（本文）</td>
+<td><strong>会</strong>（JEP 444 已知限制）</td>
+</tr>
+<tr>
+<td>JDK 24+</td>
+<td>不会（JEP 491 修复）</td>
+</tr>
+</tbody></table>
+<p><strong>在 21 上，正确做法</strong>：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 错误：阻塞在 synchronized 里 -&gt; pin</span></span><br><span class="line"><span class="keyword">synchronized</span> (lock) &#123;</span><br><span class="line">    httpClient.send(request);     <span class="comment">// 网络 IO，会 pin 住载体</span></span><br><span class="line">&#125;</span><br><span class="line"></span><br><span class="line"><span class="comment">// 正确：用 ReentrantLock，阻塞时能 unmount</span></span><br><span class="line">lock.lock();</span><br><span class="line"><span class="keyword">try</span> &#123;</span><br><span class="line">    httpClient.send(request);</span><br><span class="line">&#125; <span class="keyword">finally</span> &#123;</span><br><span class="line">    lock.unlock();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h2 id="4-规模：10-万虚拟线程-vs-1-万平台线程"><a href="#4-规模：10-万虚拟线程-vs-1-万平台线程" class="headerlink" title="4. 规模：10 万虚拟线程 vs 1 万平台线程"></a>4. 规模：10 万虚拟线程 vs 1 万平台线程</h2><table>
+<thead>
+<tr>
+<th>方案</th>
+<th>数量</th>
+<th>耗时</th>
+<th>平台线程数</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>虚拟线程（各睡 100 ms）</td>
+<td><strong>100,000</strong></td>
+<td><strong>523 ms</strong></td>
+<td><strong>2</strong></td>
+</tr>
+<tr>
+<td>平台线程</td>
+<td>2,000</td>
+<td>163 ms</td>
+<td>2,000+</td>
+</tr>
+<tr>
+<td>平台线程</td>
+<td>10,000</td>
+<td>635 ms</td>
+<td>10,000+</td>
+</tr>
+</tbody></table>
+<p><strong>10 万个虚拟线程只需要 2 个平台线程</strong>——这就是「虚拟线程不占 OS 线程」的直观证据。而 1 万个平台线程（<code>-Xss512k</code>）就要约 5 GB 虚拟内存。</p>
+<h2 id="5-迁移代价：四个必须改的地方"><a href="#5-迁移代价：四个必须改的地方" class="headerlink" title="5. 迁移代价：四个必须改的地方"></a>5. 迁移代价：四个必须改的地方</h2><table>
+<thead>
+<tr>
+<th>方面</th>
+<th>问题</th>
+<th>改法</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>线程池</td>
+<td>虚拟线程不需要池</td>
+<td><code>Executors.newVirtualThreadPerTaskExecutor()</code></td>
+</tr>
+<tr>
+<td><code>synchronized</code></td>
+<td>阻塞会 pin</td>
+<td>换 <code>ReentrantLock</code></td>
+</tr>
+<tr>
+<td><code>ThreadLocal</code></td>
+<td>每个虚拟线程一份，数量大时内存涨</td>
+<td>用 <code>ScopedValue</code>（JDK 21 预览）或减少使用</td>
+</tr>
+<tr>
+<td>监控</td>
+<td>线程 dump 里虚拟线程不在平台线程列表</td>
+<td>用 JFR 的虚拟线程事件（<code>jdk.VirtualThreadStart</code>）</td>
+</tr>
+</tbody></table>
+<h3 id="5-1-还有两个隐式坑"><a href="#5-1-还有两个隐式坑" class="headerlink" title="5.1 还有两个隐式坑"></a>5.1 还有两个隐式坑</h3><table>
+<thead>
+<tr>
+<th>坑</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>ThreadPoolExecutor</code> 里跑虚拟线程</td>
+<td>没意义（虚拟线程不需要池，池还会限制并发）</td>
+</tr>
+<tr>
+<td>用虚拟线程做 CPU 密集任务</td>
+<td>没收益（还是占载体），甚至更慢</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart TD
+    A["Migrate to virtual threads?"] --> B{"IO-bound?"}
+    B -- no --> C["stay on platform pool&lt;br/>(no benefit)"]
+    B -- yes --> D{"blocking inside synchronized?"}
+    D -- yes --> E["replace with ReentrantLock&lt;br/>JDK21 pins on monitor"]
+    D -- no --> F{"heavy ThreadLocal use?"}
+    F -- yes --> G["audit memory / use ScopedValue"]
+    F -- no --> H{"needs thread dump?"}
+    H -- yes --> I["switch monitoring to JFR"]
+    H -- no --> J["migrate: one VT per task"]</pre>
+
+<h2 id="6-什么时候用，什么时候不用"><a href="#6-什么时候用，什么时候不用" class="headerlink" title="6. 什么时候用，什么时候不用"></a>6. 什么时候用，什么时候不用</h2><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>用虚拟线程？</th>
+<th>理由</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>HTTP&#x2F;DB 等阻塞 IO</td>
+<td>✅ 强烈推荐</td>
+<td>本文实测快 5~8 倍</td>
+</tr>
+<tr>
+<td>大量并发连接（10 万级）</td>
+<td>✅</td>
+<td>523 ms 完成 10 万任务</td>
+</tr>
+<tr>
+<td>CPU 密集计算</td>
+<td>❌</td>
+<td>没有 unmount 的机会</td>
+</tr>
+<tr>
+<td>已有成熟线程池的服务</td>
+<td>⚠️ 逐步迁移</td>
+<td>要改 <code>synchronized</code> 与监控</td>
+</tr>
+<tr>
+<td>依赖 <code>ThreadLocal</code> 的框架</td>
+<td>⚠️ 先评估</td>
+<td>内存与语义都可能出问题</td>
+</tr>
+</tbody></table>
+<h2 id="7-动手验证：四个可复现实验"><a href="#7-动手验证：四个可复现实验" class="headerlink" title="7. 动手验证：四个可复现实验"></a>7. 动手验证：四个可复现实验</h2><h3 id="7-1-动手验证：虚拟线程-vs-平台线程"><a href="#7-1-动手验证：虚拟线程-vs-平台线程" class="headerlink" title="7.1 动手验证：虚拟线程 vs 平台线程"></a>7.1 动手验证：虚拟线程 vs 平台线程</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">mkdir</span> -p /tmp/conc &amp;&amp; <span class="built_in">cd</span> /tmp/conc</span><br><span class="line"><span class="built_in">cat</span> &gt; VT.java &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line">import java.util.concurrent.*;</span><br><span class="line">public class VT &#123;</span><br><span class="line">    public static void main(String[] a) throws Exception &#123;</span><br><span class="line">        Thread wd = new Thread(() -&gt; &#123; try &#123; Thread.sleep(<span class="number">60</span>_000); &#125; catch (Exception e) &#123;&#125; System.out.println(&quot;WATCHDOG&quot;); System.exit(<span class="number">2</span>); &#125;);</span><br><span class="line">        wd.setDaemon(true); wd.start();</span><br><span class="line">        int n = <span class="number">2000</span>;</span><br><span class="line">        ExecutorService pool = Executors.newFixedThreadPool(<span class="number">200</span>);</span><br><span class="line">        long s = System.nanoTime();</span><br><span class="line">        CountDownLatch d1 = new CountDownLatch(n);</span><br><span class="line">        for (int i = <span class="number">0</span>; i &lt; n; i++) pool.execute(() -&gt; &#123; sleep(<span class="number">10</span>); d1.countDown(); &#125;);</span><br><span class="line">        d1.await(<span class="number">60</span>, TimeUnit.SECONDS);</span><br><span class="line">        System.out.println(&quot;platform(<span class="number">200</span>): &quot; + (System.nanoTime()-s)/<span class="number">1</span>_000_000 + &quot; ms&quot;);</span><br><span class="line">        pool.shutdown();</span><br><span class="line"></span><br><span class="line">        s = System.nanoTime();</span><br><span class="line">        CountDownLatch d2 = new CountDownLatch(n);</span><br><span class="line">        try (ExecutorService ex = Executors.newVirtualThreadPerTaskExecutor()) &#123;</span><br><span class="line">            <span class="keyword">for</span> (int i = 0; i &lt; n; i++) ex.execute(() -&gt; &#123; sleep(<span class="number">10</span>); d2.countDown(); &#125;);</span><br><span class="line">            d2.await(<span class="number">60</span>, TimeUnit.SECONDS);</span><br><span class="line">        &#125;</span><br><span class="line">        System.out.println(&quot;virtual:       &quot; + (System.nanoTime()-s)/<span class="number">1</span>_000_000 + &quot; ms&quot;);</span><br><span class="line">        System.exit(<span class="number">0</span>);</span><br><span class="line">    &#125;</span><br><span class="line">    static void sleep(long ms)&#123; try &#123; Thread.sleep(ms); &#125; catch (Exception e) &#123;&#125; &#125;</span><br><span class="line">&#125;</span><br><span class="line">EOF</span><br><span class="line">javac VT.java &amp;&amp; java VT</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：虚拟线程耗时约为平台池的 1&#x2F;5（本文 23 vs 126 ms）。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>两者接近 → 任务太少（&lt;1000）或睡眠太短（&lt;5ms），调度开销盖过收益；</li>
+<li>虚拟线程更慢 → 任务里有 CPU 密集计算或 pinning。</li>
+</ul>
+<h3 id="7-2-动手验证：复现-pinning"><a href="#7-2-动手验证：复现-pinning" class="headerlink" title="7.2 动手验证：复现 pinning"></a>7.2 动手验证：复现 pinning</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> /tmp/conc</span><br><span class="line"><span class="built_in">cat</span> &gt; Pin.java &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line">import java.util.concurrent.*;</span><br><span class="line">public class Pin &#123;</span><br><span class="line">    public static void main(String[] a) throws Exception &#123;</span><br><span class="line">        Thread wd = new Thread(() -&gt; &#123; try &#123; Thread.sleep(<span class="number">90</span>_000); &#125; catch (Exception e) &#123;&#125; System.out.println(&quot;WATCHDOG&quot;); System.exit(<span class="number">2</span>); &#125;);</span><br><span class="line">        wd.setDaemon(true); wd.start();</span><br><span class="line">        int n = <span class="number">2000</span>;</span><br><span class="line">        long s = System.nanoTime();</span><br><span class="line">        CountDownLatch d = new CountDownLatch(n);</span><br><span class="line">        try (ExecutorService ex = Executors.newVirtualThreadPerTaskExecutor()) &#123;</span><br><span class="line">            <span class="keyword">for</span> (int i = 0; i &lt; n; i++) ex.execute(() -&gt; &#123;</span><br><span class="line">                Object m = new Object();                  // 每个任务独立 monitor，排除锁竞争</span><br><span class="line">                synchronized (m) &#123; sleep(<span class="number">10</span>); &#125;           // 阻塞在 synchronized 内 -&gt; pin</span><br><span class="line">                d.countDown();</span><br><span class="line">            &#125;);</span><br><span class="line">            d.await(<span class="number">120</span>, TimeUnit.SECONDS);</span><br><span class="line">        &#125;</span><br><span class="line">        System.out.println(&quot;pinned: &quot; + (System.nanoTime()-s)/<span class="number">1</span>_000_000 + &quot; ms&quot;);</span><br><span class="line">        System.exit(<span class="number">0</span>);</span><br><span class="line">    &#125;</span><br><span class="line">    static void sleep(long ms)&#123; try &#123; Thread.sleep(ms); &#125; catch (Exception e) &#123;&#125; &#125;</span><br><span class="line">&#125;</span><br><span class="line">EOF</span><br><span class="line">javac Pin.java &amp;&amp; java Pin</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：约 2000×10ms&#x2F;15 ≈ 1,330 ms（本文 1,571 ms），比不 pin 慢几十倍。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>耗时接近 23 ms → 你的 JDK 已修复 pinning（JDK 24+），或阻塞调用能被 unmount；</li>
+<li>耗时接近 20 秒 → 所有任务抢同一把锁，那是锁串行化而不是 pinning。</li>
+</ul>
+<h3 id="7-3-动手验证：10-万个虚拟线程"><a href="#7-3-动手验证：10-万个虚拟线程" class="headerlink" title="7.3 动手验证：10 万个虚拟线程"></a>7.3 动手验证：10 万个虚拟线程</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> /tmp/conc</span><br><span class="line"><span class="built_in">cat</span> &gt; ManyVT.java &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line">import java.util.concurrent.*;</span><br><span class="line">import java.util.concurrent.atomic.*;</span><br><span class="line">public class ManyVT &#123;</span><br><span class="line">    public static void main(String[] a) throws Exception &#123;</span><br><span class="line">        Thread wd = new Thread(() -&gt; &#123; try &#123; Thread.sleep(<span class="number">60</span>_000); &#125; catch (Exception e) &#123;&#125; System.out.println(&quot;WATCHDOG&quot;); System.exit(<span class="number">2</span>); &#125;);</span><br><span class="line">        wd.setDaemon(true); wd.start();</span><br><span class="line">        int n = <span class="number">100</span>_000; AtomicInteger done = new AtomicInteger();</span><br><span class="line">        long s = System.nanoTime();</span><br><span class="line">        try (ExecutorService ex = Executors.newVirtualThreadPerTaskExecutor()) &#123;</span><br><span class="line">            <span class="keyword">for</span> (int i = 0; i &lt; n; i++) ex.execute(() -&gt; &#123; try &#123; Thread.sleep(<span class="number">100</span>); &#125; catch (Exception e) &#123;&#125; done.incrementAndGet(); &#125;);</span><br><span class="line">        &#125;</span><br><span class="line">        System.out.printf(&quot;%d virtual threads done in %d ms, platform threads=%d%n&quot;,</span><br><span class="line">                done.get(), (System.nanoTime()-s)/<span class="number">1</span>_000_000, Thread.activeCount());</span><br><span class="line">        System.<span class="built_in">exit</span>(0);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line">EOF</span><br><span class="line">javac ManyVT.java &amp;&amp; java -Xmx256m ManyVT</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：10 万个任务约 0.5 秒完成，<code>Thread.activeCount()</code> 只有个位数。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li><code>Thread.activeCount()</code> 成千上万 → 你用的是平台线程（<code>new Thread</code>），不是虚拟线程；</li>
+<li>OOM → 堆太小，虚拟线程的栈在堆里，<code>-Xmx</code> 要给够。</li>
+</ul>
+<h3 id="7-4-动手验证：迁移后的对照"><a href="#7-4-动手验证：迁移后的对照" class="headerlink" title="7.4 动手验证：迁移后的对照"></a>7.4 动手验证：迁移后的对照</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> /tmp/conc</span><br><span class="line"><span class="comment"># 用 ReentrantLock 替换 synchronized，重复 7.2 的实验，观察耗时变化</span></span><br><span class="line">sed <span class="string">&#x27;s/synchronized (m) &#123; sleep(10); &#125;/java.util.concurrent.locks.ReentrantLock l = new java.util.concurrent.locks.ReentrantLock(); l.lock(); try &#123; sleep(10); &#125; finally &#123; l.unlock(); &#125;/&#x27;</span> Pin.java &gt; Pin2.java 2&gt;/dev/null || <span class="built_in">echo</span> <span class="string">&quot;手动替换&quot;</span></span><br><span class="line">sed -i <span class="string">&#x27;&#x27;</span> <span class="string">&#x27;s/class Pin/class Pin2/&#x27;</span> Pin2.java 2&gt;/dev/null</span><br><span class="line">javac Pin2.java &amp;&amp; java Pin2</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：换成 <code>ReentrantLock</code> 后耗时回到 15~30 ms 量级。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>仍然很慢 → 你的阻塞点不在锁内（比如 <code>Thread.sleep</code> 之外还有别的阻塞）；</li>
+<li>变快但达不到 20 ms → 有其它 pinning 源（<code>Object.wait</code>、<code> native</code> 方法）。</li>
+</ul>
+<h2 id="8-总结"><a href="#8-总结" class="headerlink" title="8. 总结"></a>8. 总结</h2><h3 id="8-1-面试速答表"><a href="#8-1-面试速答表" class="headerlink" title="8.1 面试速答表"></a>8.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>虚拟线程是什么</td>
+<td>JVM 调度的轻量线程，阻塞时 unmount，不占 OS 线程</td>
+</tr>
+<tr>
+<td>虚拟线程比平台线程快多少</td>
+<td>IO 任务本文实测快 5 倍（126 → 23 ms）</td>
+</tr>
+<tr>
+<td>能创建多少虚拟线程</td>
+<td>10 万个 100ms 任务 523 ms 完成，只需 2 个平台线程</td>
+</tr>
+<tr>
+<td>什么是 pinning</td>
+<td>虚拟线程在 <code>synchronized</code> 内阻塞时不能 unmount，占住载体</td>
+</tr>
+<tr>
+<td>pinning 的代价</td>
+<td>本文实测慢 68 倍（23 → 1,571 ms）</td>
+</tr>
+<tr>
+<td>JDK 21 上怎么避免 pinning</td>
+<td>用 <code>ReentrantLock</code> 替代 <code>synchronized</code></td>
+</tr>
+<tr>
+<td>哪个版本修复了</td>
+<td>JDK 24（JEP 491）</td>
+</tr>
+<tr>
+<td>虚拟线程适合 CPU 密集吗</td>
+<td>不适合，没有 unmount 机会</td>
+</tr>
+<tr>
+<td>虚拟线程还要线程池吗</td>
+<td>不要，用 <code>newVirtualThreadPerTaskExecutor</code></td>
+</tr>
+<tr>
+<td><code>ThreadLocal</code> 在虚拟线程上有什么问题</td>
+<td>每个虚拟线程一份，数量大时内存涨；建议 <code>ScopedValue</code></td>
+</tr>
+<tr>
+<td>持同一把锁睡眠会怎样</td>
+<td>完全串行（本文 23.75 秒 vs 1.57 秒）</td>
+</tr>
+<tr>
+<td>怎么监控虚拟线程</td>
+<td>JFR 的虚拟线程事件，<code>Thread.activeCount</code> 看不到它们</td>
+</tr>
+</tbody></table>
+<h3 id="8-2-实战避坑表"><a href="#8-2-实战避坑表" class="headerlink" title="8.2 实战避坑表"></a>8.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>换虚拟线程后没变快</td>
+<td>有 pinning 或 CPU 密集</td>
+<td>换 <code>ReentrantLock</code>、检查任务类型</td>
+</tr>
+<tr>
+<td>变慢几十倍</td>
+<td><code>synchronized</code> 内阻塞</td>
+<td>把阻塞移出临界区</td>
+</tr>
+<tr>
+<td>变慢上千倍</td>
+<td>持锁睡眠</td>
+<td>锁内不做 IO</td>
+</tr>
+<tr>
+<td>内存涨</td>
+<td>大量 <code>ThreadLocal</code> &#x2F; 虚拟线程栈</td>
+<td>用 <code>ScopedValue</code>，控制并发数</td>
+</tr>
+<tr>
+<td>监控看不到线程</td>
+<td>虚拟线程不在平台线程列表</td>
+<td>用 JFR 事件</td>
+</tr>
+<tr>
+<td>OOM</td>
+<td>堆太小（栈在堆里）</td>
+<td>提高 <code>-Xmx</code></td>
+</tr>
+</tbody></table>
+<h3 id="8-3-工具速查表"><a href="#8-3-工具速查表" class="headerlink" title="8.3 工具速查表"></a>8.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>判定标准</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>Thread.ofVirtual()</code> &#x2F; <code>newVirtualThreadPerTaskExecutor</code></td>
+<td>创建方式</td>
+<td>别用 <code>ThreadPoolExecutor</code> 装虚拟线程</td>
+</tr>
+<tr>
+<td>JFR <code>jdk.VirtualThreadStart/Park</code></td>
+<td>虚拟线程事件</td>
+<td>看 mount&#x2F;unmount 与 pin</td>
+</tr>
+<tr>
+<td><code>jcmd Thread.print</code></td>
+<td>平台线程</td>
+<td>虚拟线程不在这里显示</td>
+</tr>
+<tr>
+<td><code>-Djdk.virtualThreadScheduler.parallelism</code></td>
+<td>载体数量</td>
+<td>默认 &#x3D; 核数</td>
+</tr>
+</tbody></table>
+<h3 id="8-4-实操建议"><a href="#8-4-实操建议" class="headerlink" title="8.4 实操建议"></a>8.4 实操建议</h3><ol>
+<li><strong>IO 密集服务可以放心迁移</strong>，收益是 5 倍以上吞吐。</li>
+<li>**迁移前先搜 <code>synchronized</code>**，把包住阻塞调用的换成 <code>ReentrantLock</code>。</li>
+<li><strong>别把虚拟线程塞进线程池</strong>，直接每任务一个。</li>
+<li><strong>CPU 密集任务留在平台线程池</strong>，虚拟线程没有收益。</li>
+<li><strong>监控改用 JFR</strong>，<code>jstack</code> 看不到虚拟线程。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告</strong>：⑫《并发性能工程：容量、压测与全系列总表》（收官篇）。十一篇讲完「怎么写对、怎么量」，最后一篇回答「要多少线程、多大池、几分性能」：Little’s law 算容量、压测找拐点、GC 与并发的相互影响，以及全系列 12 篇的总表。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/Java/" rel="tag"># Java</a>
+              <a href="/tags/%E9%9D%A2%E8%AF%95/" rel="tag"># 面试</a>
+              <a href="/tags/%E5%B9%B6%E5%8F%91/" rel="tag"># 并发</a>
+              <a href="/tags/%E8%99%9A%E6%8B%9F%E7%BA%BF%E7%A8%8B/" rel="tag"># 虚拟线程</a>
+              <a href="/tags/pinning/" rel="tag"># pinning</a>
+              <a href="/tags/JDK21/" rel="tag"># JDK21</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/93f5ed7a.html" rel="prev" title="死锁与线程泄漏：从 jstack 到 JFR">
+                  <i class="fa fa-angle-left"></i> 死锁与线程泄漏：从 jstack 到 JFR
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/post/953dd446.html" rel="next" title="并发性能工程：容量、压测与全系列总表">
+                  并发性能工程：容量、压测与全系列总表 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">778k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">47:09</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
+</html>

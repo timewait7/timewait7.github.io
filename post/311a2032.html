@@ -1,0 +1,1060 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="两个线程改的是不同的变量，却因为「这两个变量恰好在同一缓存行」而互相拖慢。实测：相邻的两个 volatile long 字段，两个线程各改一个，耗时 8.60 ns&#x2F;op；把字段用 @Contended 隔开，降到 1.98 ns&#x2F;op——4.3 倍。 更有意思的是：类级 @Contended 完全没用（8.28 ns&#x2F;op），因为它只隔离「对象之间」，不隔离「同一对">
+<meta property="og:type" content="article">
+<meta property="og:title" content="伪共享与缓存行：一个 @Contended 的 4 倍差距">
+<meta property="og:url" content="http://timewait7.github.io/post/311a2032.html">
+<meta property="og:site_name" content="知行栈">
+<meta property="og:description" content="两个线程改的是不同的变量，却因为「这两个变量恰好在同一缓存行」而互相拖慢。实测：相邻的两个 volatile long 字段，两个线程各改一个，耗时 8.60 ns&#x2F;op；把字段用 @Contended 隔开，降到 1.98 ns&#x2F;op——4.3 倍。 更有意思的是：类级 @Contended 完全没用（8.28 ns&#x2F;op），因为它只隔离「对象之间」，不隔离「同一对">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-10-25T16:00:00.000Z">
+<meta property="article:modified_time" content="2026-10-25T06:13:18.117Z">
+<meta property="article:tag" content="Java">
+<meta property="article:tag" content="面试">
+<meta property="article:tag" content="并发">
+<meta property="article:tag" content="伪共享">
+<meta property="article:tag" content="缓存行">
+<meta property="article:tag" content="Contended">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/311a2032.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/311a2032.html","path":"post/311a2032.html","title":"伪共享与缓存行：一个 @Contended 的 4 倍差距"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>伪共享与缓存行：一个 @Contended 的 4 倍差距 | 知行栈</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<!-- hexo injector head_end start --><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
+</style><style>
+/* 菜单链高亮：sub-menu 祖先（同主题 .menu-item-active 的 Pisces 规则） */
+.sub-menu .menu-item a.menu-chain-active {
+  border-bottom-color: #fc6423;
+  color: #fc6423;
+}
+.sub-menu .menu-item a.menu-chain-active:hover {
+  border-bottom-color: #fc6423;
+}
+/* 菜单链高亮：main-menu 祖先（同主题 hover/active 的背景规则） */
+.main-menu .menu-item a.menu-chain-active {
+  background: var(--menu-item-bg-color);
+}
+</style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">知行栈</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section" class="menu-chain-active"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>Categories</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-%E4%BC%AA%E5%85%B1%E4%BA%AB%E6%98%AF%E4%BB%80%E4%B9%88"><span class="nav-text">1. 伪共享是什么</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E5%AE%9E%E6%B5%8B%EF%BC%9A%E4%BA%94%E7%A7%8D%E5%86%99%E6%B3%95%E7%9A%84%E5%B7%AE%E8%B7%9D"><span class="nav-text">2. 实测：五种写法的差距</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E4%B8%89%E4%B8%AA%E5%BF%85%E9%A1%BB%E7%9F%A5%E9%81%93%E7%9A%84%E7%BB%93%E8%AE%BA"><span class="nav-text">2.1 三个必须知道的结论</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-Contended-%E4%B8%8D%E6%98%AF%E5%85%8D%E8%B4%B9%E7%9A%84"><span class="nav-text">2.2 @Contended 不是免费的</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E7%BC%93%E5%AD%98%E8%A1%8C%E5%88%B0%E5%BA%95%E5%A4%9A%E5%A4%A7%EF%BC%9A%E8%87%AA%E5%B7%B1%E9%87%8F"><span class="nav-text">3. 缓存行到底多大：自己量</span></a></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E7%94%9F%E4%BA%A7%E4%B8%AD%E7%9A%84%E4%BC%AA%E5%85%B1%E4%BA%AB"><span class="nav-text">4. 生产中的伪共享</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-%E5%9B%9B%E4%B8%AA%E9%AB%98%E5%8F%91%E5%9C%BA%E6%99%AF"><span class="nav-text">4.1 四个高发场景</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-Disruptor-%E7%9A%84-padding-%E5%9C%A8%E9%98%B2%E4%BB%80%E4%B9%88"><span class="nav-text">4.2 Disruptor 的 padding 在防什么</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E8%AF%A5%E7%AE%A1%E4%BC%AA%E5%85%B1%E4%BA%AB"><span class="nav-text">4.3 什么时候该管伪共享</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-4-%E5%B9%B3%E5%8F%B0%E5%B7%AE%E5%BC%82%E5%AF%B9%E7%85%A7"><span class="nav-text">4.4 平台差异对照</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E5%9B%9B%E4%B8%AA%E5%8F%AF%E5%A4%8D%E7%8E%B0%E5%AE%9E%E9%AA%8C"><span class="nav-text">5. 动手验证：四个可复现实验</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E7%9B%B8%E9%82%BB%E5%AD%97%E6%AE%B5-vs-%E5%AD%97%E6%AE%B5%E7%BA%A7-Contended"><span class="nav-text">5.1 动手验证：相邻字段 vs 字段级 @Contended</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E6%89%AB%E7%BC%93%E5%AD%98%E8%A1%8C%E8%BE%B9%E7%95%8C"><span class="nav-text">5.2 动手验证：扫缓存行边界</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E7%B1%BB%E7%BA%A7-Contended-%E7%9A%84%E6%97%A0%E6%95%88%E6%80%A7"><span class="nav-text">5.3 动手验证：类级 @Contended 的无效性</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E6%89%8B%E5%8A%A8-padding-%E7%9A%84%E6%95%88%E6%9E%9C"><span class="nav-text">5.4 动手验证：手动 padding 的效果</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#6-%E6%80%BB%E7%BB%93"><span class="nav-text">6. 总结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#6-1-%E9%9D%A2%E8%AF%95%E9%80%9F%E7%AD%94%E8%A1%A8"><span class="nav-text">6.1 面试速答表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-2-%E5%AE%9E%E6%88%98%E9%81%BF%E5%9D%91%E8%A1%A8"><span class="nav-text">6.2 实战避坑表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-3-%E5%B7%A5%E5%85%B7%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">6.3 工具速查表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#6-4-%E5%AE%9E%E6%93%8D%E5%BB%BA%E8%AE%AE"><span class="nav-text">6.4 实操建议</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">116</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">14</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">205</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+    <div class="sidebar-inner sidebar-blogroll">
+      <div class="links-of-blogroll animated">
+        <div class="links-of-blogroll-title"><i class="fa fa-globe fa-fw"></i>
+          Links
+        </div>
+        <ul class="links-of-blogroll-list">
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9wYXVsZ3JhaGFtLmNvbS9hcnRpY2xlcy5odG1s" title="https:&#x2F;&#x2F;paulgraham.com&#x2F;articles.html">paulgraham</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly93d3cuam9lbG9uc29mdHdhcmUuY29tLw==" title="https:&#x2F;&#x2F;www.joelonsoftware.com&#x2F;">Joel on Software</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9tYXJ0aW5mb3dsZXIuY29tLw==" title="https:&#x2F;&#x2F;martinfowler.com&#x2F;">Martin Flower</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly96aGFuZ3RpZWxlaS5jb20v" title="https:&#x2F;&#x2F;zhangtielei.com&#x2F;">zhangtielei</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhLWRlc2lnbi1wYXR0ZXJucy5jb20vemgv" title="https:&#x2F;&#x2F;java-design-patterns.com&#x2F;zh&#x2F;">Java Design Patterns</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9taWNyb3NlcnZpY2VzLmlvLw==" title="https:&#x2F;&#x2F;microservices.io&#x2F;">Microservice Architecture</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhZ3VpZGUuY24v" title="https:&#x2F;&#x2F;javaguide.cn&#x2F;">JavaGuide</span>
+            </li>
+        </ul>
+      </div>
+    </div>
+        <div class="pjax">
+        
+        <div class="sidebar-inner sidebar-post-related">
+          <div class="animated">
+              <div class="links-of-blogroll-title"><i class="fa fa-signs-post fa-fw"></i>
+    Related Posts
+  </div>
+  <ul class="popular-posts">
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/ef5a2176.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-26</time>
+        <br>
+      原子性：i++ 的丢失与 CAS 的代价
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/f092fe4.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-25</time>
+        <br>
+      JMM：把「不可见」和「重排」亲手复现
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/953dd446.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-26</time>
+        <br>
+      并发性能工程：容量、压测与全系列总表
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/42dc269f.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-26</time>
+        <br>
+      AQS 与并发容器：size() 为什么不准
+      </a>
+    </li>
+  </ul>
+
+          </div>
+        </div>
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-后端开发"><a href="/docs/nav/backend-dev-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-code fa-fw"></i>后端开发</a></li>
+
+
+      
+  <li class="menu-item menu-item-计算机基础"><a href="/docs/nav/cs-foundation-nav.html" rel="section"><i class="fa fa-desktop fa-fw"></i>计算机基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-ai-学习"><a href="/docs/nav/ai-learning-nav.html" rel="section"><i class="fa fa-robot fa-fw"></i>AI 学习</a></li>
+
+
+      
+  <li class="menu-item menu-item-项目实战"><a href="/docs/nav/5964f4da.html" rel="section"><i class="fa fa-flask fa-fw"></i>项目实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-misc"><a href="/docs/nav/misc-nav.html" rel="section"><i class="fa fa-box fa-fw"></i>Misc</a></li>
+
+
+      
+  <li class="menu-item menu-item-随笔·生活"><a href="/docs/nav/life-nav.html" rel="section"><i class="fa fa-feather fa-fw"></i>随笔·生活</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java"><a href="/docs/nav/java-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-coffee fa-fw"></i>Java</a></li>
+
+
+      
+  <li class="menu-item menu-item-框架"><a href="/docs/nav/framework-nav.html" rel="section"><i class="fa fa-th-large fa-fw"></i>框架</a></li>
+
+
+      
+  <li class="menu-item menu-item-数据存储"><a href="/docs/nav/data-storage-nav.html" rel="section"><i class="fa fa-hdd fa-fw"></i>数据存储</a></li>
+
+
+      
+  <li class="menu-item menu-item-中间件"><a href="/docs/nav/middleware-nav.html" rel="section"><i class="fa fa-cubes fa-fw"></i>中间件</a></li>
+
+
+      
+  <li class="menu-item menu-item-分布式与微服务"><a href="/docs/nav/distributed-nav.html" rel="section"><i class="fa fa-sitemap fa-fw"></i>分布式与微服务</a></li>
+
+
+      
+  <li class="menu-item menu-item-系统设计"><a href="/docs/nav/system-design-nav.html" rel="section"><i class="fa fa-pencil-ruler fa-fw"></i>系统设计</a></li>
+
+
+      
+  <li class="menu-item menu-item-部署运维"><a href="/docs/nav/devops-nav.html" rel="section"><i class="fa fa-terminal fa-fw"></i>部署运维</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java-核心基础"><a href="/post/6a6e612d.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Java 核心基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-java-并发编程"><a href="/docs/nav/java-concurrency-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-tasks fa-fw"></i>Java 并发编程</a></li>
+
+
+      
+  <li class="menu-item menu-item-jvm-原理与调优"><a href="/post/4e153c5e.html" rel="section"><i class="fa fa-file-text fa-fw"></i>JVM 原理与调优</a></li>
+
+
+      
+  <li class="menu-item menu-item-设计模式：15-个高频模式的实战内化"><a href="/post/67126.html" rel="section"><i class="fa fa-file-text fa-fw"></i>设计模式：15 个高频模式的实战内化</a></li>
+
+
+      
+  <li class="menu-item menu-item-java-开发实战速查"><a href="/post/be1f55d9.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Java 开发实战速查</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java-并发编程：从-jmm-到虚拟线程的系统化实战"><a href="/post/a3f81c2d.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Java 并发编程：从 JMM 到虚拟线程的系统化实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-①-从这里开始：把并发-bug-变成可复现的实验"><a href="/post/8ac324cd.html" rel="section"><i class="fa fa-file-text fa-fw"></i>① 从这里开始：把并发 bug 变成可复现的实验</a></li>
+
+
+      
+  <li class="menu-item menu-item-②-线程与调度：一次上下文切换值多少钱"><a href="/post/4f3149da.html" rel="section"><i class="fa fa-file-text fa-fw"></i>② 线程与调度：一次上下文切换值多少钱</a></li>
+
+
+      
+  <li class="menu-item menu-item-③-jmm：把「不可见」和「重排」亲手复现"><a href="/post/f092fe4.html" rel="section"><i class="fa fa-file-text fa-fw"></i>③ JMM：把「不可见」和「重排」亲手复现</a></li>
+
+
+      
+  <li class="menu-item menu-item-④-伪共享与缓存行：一个-@contended-的-4-倍差距"><a href="/post/311a2032.html" rel="section"><i class="fa fa-file-text fa-fw"></i>④ 伪共享与缓存行：一个 @Contended 的 4 倍差距</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑤-原子性：i++-的丢失与-cas-的代价"><a href="/post/ef5a2176.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑤ 原子性：i++ 的丢失与 CAS 的代价</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑥-锁的演化：偏向锁移除之后，synchronized-还慢吗"><a href="/post/347698f8.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑥ 锁的演化：偏向锁移除之后，synchronized 还慢吗</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑦-aqs-与并发容器：size()-为什么不准"><a href="/post/42dc269f.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑦ AQS 与并发容器：size() 为什么不准</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑧-线程池：core、max、queue-的组合陷阱"><a href="/post/b09d89b.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑧ 线程池：core、max、queue 的组合陷阱</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑨-并发工具与异步编排：completablefuture-的五个坑"><a href="/post/5489c9d2.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑨ 并发工具与异步编排：CompletableFuture 的五个坑</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑩-死锁与线程泄漏：从-jstack-到-jfr"><a href="/post/93f5ed7a.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑩ 死锁与线程泄漏：从 jstack 到 JFR</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑪-虚拟线程：pinning、吞吐与迁移代价"><a href="/post/aa676f55.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑪ 虚拟线程：pinning、吞吐与迁移代价</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑫-并发性能工程：容量、压测与全系列总表"><a href="/post/953dd446.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑫ 并发性能工程：容量、压测与全系列总表</a></li>
+
+
+    </ul>
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/311a2032.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="伪共享与缓存行：一个 @Contended 的 4 倍差距 | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          伪共享与缓存行：一个 @Contended 的 4 倍差距
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-10-26 00:00:00" itemprop="dateCreated datePublished" datetime="2026-10-26T00:00:00+08:00">2026-10-26</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/Java/" itemprop="url" rel="index"><span itemprop="name">Java</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>3.6k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>13 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><p><strong>两个线程改的是不同的变量，却因为「这两个变量恰好在同一缓存行」而互相拖慢</strong>。实测：相邻的两个 <code>volatile long</code> 字段，两个线程各改一个，耗时 <strong>8.60 ns&#x2F;op</strong>；把字段用 <code>@Contended</code> 隔开，降到 <strong>1.98 ns&#x2F;op</strong>——4.3 倍。</p>
+<p>更有意思的是：<strong>类级 <code>@Contended</code> 完全没用（8.28 ns&#x2F;op）</strong>，因为它只隔离「对象之间」，不隔离「同一对象的字段之间」。这个坑很多人都踩过。</p>
+<blockquote>
+<p><strong>系列地图（Java 并发实战路线，12 篇）</strong></p>
+<p>① 实验台与基线 → ② 线程与调度 → ③ JMM：可见性与重排 → ④ <strong>伪共享与缓存行（本文）</strong> → ⑤ 原子性与 CAS → ⑥ 锁的演化 → ⑦ AQS 与并发容器 → ⑧ 线程池参数 → ⑨ 并发工具与异步编排 → ⑩ 死锁与线程泄漏 → ⑪ 虚拟线程 → ⑫ 并发性能工程</p>
+<p>与前后篇的关系：③ 说「volatile 写贵在缓存行弹跳」，本文把这个成本量出来；⑤ 的 <code>LongAdder</code> 正是靠「分散到不同缓存行」打败 <code>AtomicLong</code> 的。</p>
+</blockquote>
+<h2 id="1-伪共享是什么"><a href="#1-伪共享是什么" class="headerlink" title="1. 伪共享是什么"></a>1. 伪共享是什么</h2><p>缓存以<strong>缓存行（cache line）</strong>为单位在核之间同步。两个线程写的变量如果落在同一行里，即使逻辑上毫不相干，硬件也会让这一行在核之间来回「弹」——这就是伪共享（false sharing）。</p>
+<pre class="mermaid">flowchart LR
+    subgraph LINE["One cache line (64 or 128 bytes)"]
+        X["volatile long x&lt;br/>thread 1 writes"] --- Y["volatile long y&lt;br/>thread 2 writes"]
+    end
+    C1["Core 1"] -->|"exclusive access"| LINE
+    C2["Core 2"] -->|"invalidates line,&lt;br/>then takes it"| LINE
+    LINE -.->|"ping-pong"| P["throughput drop"]</pre>
+
+<table>
+<thead>
+<tr>
+<th>概念</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>真共享</td>
+<td>两个线程读写<strong>同一个变量</strong>，需要同步</td>
+</tr>
+<tr>
+<td><strong>伪共享</strong></td>
+<td>两个线程读写<strong>不同变量</strong>，但变量在同一缓存行</td>
+</tr>
+<tr>
+<td>缓存行大小</td>
+<td>常见 64 字节（x86），Apple Silicon 为 128 字节</td>
+</tr>
+</tbody></table>
+<h2 id="2-实测：五种写法的差距"><a href="#2-实测：五种写法的差距" class="headerlink" title="2. 实测：五种写法的差距"></a>2. 实测：五种写法的差距</h2><p>测试方法：两个线程各做 2000 万次「volatile 读 + 写」，一个改 <code>x</code>、一个改 <code>y</code>，3 轮取最优。</p>
+<table>
+<thead>
+<tr>
+<th>写法</th>
+<th>ns&#x2F;op</th>
+<th>相对</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>相邻字段（同一个对象）</td>
+<td><strong>8.60</strong></td>
+<td>1.0×</td>
+</tr>
+<tr>
+<td><strong>类级 <code>@Contended</code></strong></td>
+<td><strong>8.28</strong></td>
+<td><strong>1.0×（没用）</strong></td>
+</tr>
+<tr>
+<td>手动 padding（中间塞 15 个 long &#x3D; 120 字节）</td>
+<td><strong>3.20</strong></td>
+<td>2.7×</td>
+</tr>
+<tr>
+<td><strong>字段级 <code>@Contended</code></strong></td>
+<td><strong>1.98</strong></td>
+<td><strong>4.3×</strong></td>
+</tr>
+<tr>
+<td>字段级 <code>@Contended</code> 但<strong>没加</strong> <code>-XX:-RestrictContended</code></td>
+<td>9.54</td>
+<td>1.0×（注解被忽略）</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart TD
+    subgraph A["Adjacent (8.60 ns/op)"]
+        A1["x"] --- A2["y"]
+    end
+    subgraph B["Field @Contended (1.98 ns/op)"]
+        B1["x"] --- B2["128B padding"] --- B3["y"]
+    end
+    subgraph C["Class @Contended (8.28 ns/op)"]
+        C1["object padding"] --- C2["x + y still adjacent"] --- C3["object padding"]
+    end</pre>
+
+<h3 id="2-1-三个必须知道的结论"><a href="#2-1-三个必须知道的结论" class="headerlink" title="2.1 三个必须知道的结论"></a>2.1 三个必须知道的结论</h3><table>
+<thead>
+<tr>
+<th>结论</th>
+<th>证据</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>字段级 <code>@Contended</code> 有效</td>
+<td>8.60 → <strong>1.98</strong>（4.3×）</td>
+</tr>
+<tr>
+<td><strong>类级 <code>@Contended</code> 对「同对象多字段」无效</strong></td>
+<td>8.28，几乎等于相邻</td>
+</tr>
+<tr>
+<td>不加 <code>-XX:-RestrictContended</code> 注解会被忽略</td>
+<td>9.54，等于相邻</td>
+</tr>
+</tbody></table>
+<p><strong>为什么类级无效</strong>：类级注解给整个对象前后加 padding，让这个对象<strong>不和别的对象</strong>共享缓存行；但 <code>x</code> 和 <code>y</code> 在对象内部仍然相邻，还是同一行。要解决「对象内字段争用」，必须给<strong>字段</strong>加注解。</p>
+<p>**为什么必须加 <code>-XX:-RestrictContended</code>**：JDK 8 起 <code>@Contended</code> 默认只对 JDK 内部类生效（防止滥用），普通业务类要用就得显式关掉限制。</p>
+<h3 id="2-2-Contended-不是免费的"><a href="#2-2-Contended-不是免费的" class="headerlink" title="2.2 @Contended 不是免费的"></a>2.2 <code>@Contended</code> 不是免费的</h3><table>
+<thead>
+<tr>
+<th>代价</th>
+<th>数值</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>每个字段多占</td>
+<td>约 <strong>128 字节</strong>（两侧 padding）</td>
+</tr>
+<tr>
+<td>100 万个对象 × 2 个字段</td>
+<td>多占 <strong>256 MB</strong></td>
+</tr>
+<tr>
+<td>开启参数</td>
+<td><code>-XX:-RestrictContended</code>（JVM 启动参数，不能动态改）</td>
+</tr>
+</tbody></table>
+<p><strong>判断标准</strong>：只有当这个字段<strong>确实被多线程高频写</strong>、且实测出 3 倍以上差距时，才值得付出这个内存代价。别在 DTO 上乱加。</p>
+<h2 id="3-缓存行到底多大：自己量"><a href="#3-缓存行到底多大：自己量" class="headerlink" title="3. 缓存行到底多大：自己量"></a>3. 缓存行到底多大：自己量</h2><p>教科书说 64 字节，但<strong>你的机器不一定是</strong>。用数组做偏移扫描：</p>
+<figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 两个线程分别对 ARR[0] 和 ARR[offset] 做 volatile 读写</span></span><br><span class="line"><span class="type">VarHandle</span> <span class="variable">VH</span> <span class="operator">=</span> MethodHandles.arrayElementVarHandle(<span class="type">long</span>[].class);</span><br></pre></td></tr></table></figure>
+
+<p>实测（aarch64，Apple Silicon）：</p>
+<table>
+<thead>
+<tr>
+<th>两个下标的字节距离</th>
+<th>ns&#x2F;op</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>8 字节</strong>（相邻）</td>
+<td><strong>2.24</strong></td>
+</tr>
+<tr>
+<td>16 字节</td>
+<td>0.80</td>
+</tr>
+<tr>
+<td>32 字节</td>
+<td>0.80</td>
+</tr>
+<tr>
+<td>64 字节</td>
+<td>0.80</td>
+</tr>
+<tr>
+<td>128 字节</td>
+<td>0.80</td>
+</tr>
+<tr>
+<td>256 字节</td>
+<td>0.80</td>
+</tr>
+</tbody></table>
+<p><strong>这个结果和教科书不一致</strong>：如果缓存行是 64 字节，8&#x2F;16&#x2F;32&#x2F;64 字节距离都应该有争用；但实测只有 8 字节距离出现 2.8 倍退化。</p>
+<pre class="mermaid">flowchart LR
+    A["offset 8B&lt;br/>2.24 ns"] --> B["offset 16B+&lt;br/>0.80 ns (floor)"]
+    B -.-> C["textbook: 64B line&lt;br/>would slow 8..56B"]
+    C -.-> D["measured: only 8B&lt;br/>differs on this CPU"]</pre>
+
+<table>
+<thead>
+<tr>
+<th>可能解释</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>更强的 store buffer &#x2F; 更细的监听粒度</td>
+<td>Apple 的 L1 是 128B 行，但一致性可能按更小粒度工作</td>
+</tr>
+<tr>
+<td>两个线程可能落在同一核心簇</td>
+<td>M 系列有 P&#x2F;E 核，调度策略影响观察结果</td>
+</tr>
+<tr>
+<td>VarHandle 的 volatile 操作本身有下限</td>
+<td>0.80 ns&#x2F;op 已经是流水线地板，掩盖了部分差异</td>
+</tr>
+</tbody></table>
+<p><strong>诚实的结论</strong>：<strong>本文能可靠复现的是「对象内相邻字段」的 4.3 倍差距；数组偏移扫描在本机只看到 8 字节处的退化</strong>。要确定你平台的真实边界，用 3.3 的脚本自己扫一遍——别背 64 这个数字。</p>
+<h2 id="4-生产中的伪共享"><a href="#4-生产中的伪共享" class="headerlink" title="4. 生产中的伪共享"></a>4. 生产中的伪共享</h2><h3 id="4-1-四个高发场景"><a href="#4-1-四个高发场景" class="headerlink" title="4.1 四个高发场景"></a>4.1 四个高发场景</h3><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>为什么容易伪共享</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>计数器数组（按线程分槽）</td>
+<td>相邻槽在同一行</td>
+<td>每个槽补 padding 或 <code>@Contended</code></td>
+</tr>
+<tr>
+<td>线程本地统计汇总</td>
+<td>多线程写同一个对象的相邻字段</td>
+<td>字段级 <code>@Contended</code></td>
+</tr>
+<tr>
+<td>RingBuffer（Disruptor）</td>
+<td>生产&#x2F;消费序号相邻</td>
+<td>序列号各占一行</td>
+</tr>
+<tr>
+<td>并发容器内部计数</td>
+<td><code>size</code>、<code>modCount</code> 等相邻</td>
+<td>JDK 内部已有 padding（如 <code>LongAdder.Cell</code>）</td>
+</tr>
+</tbody></table>
+<h3 id="4-2-Disruptor-的-padding-在防什么"><a href="#4-2-Disruptor-的-padding-在防什么" class="headerlink" title="4.2 Disruptor 的 padding 在防什么"></a>4.2 Disruptor 的 padding 在防什么</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 简化后的 Disruptor 做法：序列号两侧塞满无用字段</span></span><br><span class="line"><span class="keyword">class</span> <span class="title class_">Sequence</span> &#123;</span><br><span class="line">    <span class="type">long</span> p1, p2, p3, p4, p5, p6, p7;</span><br><span class="line">    <span class="keyword">volatile</span> <span class="type">long</span> value;      <span class="comment">// 生产者写</span></span><br><span class="line">    <span class="type">long</span> p8, p9, p10, p11, p12, p13, p14;</span><br><span class="line">    <span class="keyword">volatile</span> <span class="type">long</span> cursor;     <span class="comment">// 消费者写</span></span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p><strong>目的</strong>：让 <code>value</code> 与 <code>cursor</code> 不在同一缓存行，避免生产者和消费者互相干扰。这和本文「手动 padding 120 字节 → 3.20 ns」是同一手法，只是 Disruptor 做得更彻底（两侧都补）。</p>
+<h3 id="4-3-什么时候该管伪共享"><a href="#4-3-什么时候该管伪共享" class="headerlink" title="4.3 什么时候该管伪共享"></a>4.3 什么时候该管伪共享</h3><pre class="mermaid">flowchart TD
+    A["Two threads write nearby fields"] --> B{"write rate > 1k/s?"}
+    B -- no --> C["ignore: noise"]
+    B -- yes --> D{"measured >= 2x gap?"}
+    D -- no --> C
+    D -- yes --> E["field-level @Contended&lt;br/>or manual padding"]
+    E --> F{"memory budget ok?"}
+    F -- no --> G["reduce thread-local slots"]
+    F -- yes --> H["apply + re-measure"]</pre>
+
+
+<table>
+<thead>
+<tr>
+<th>条件</th>
+<th>判断</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>多线程高频写不同字段</td>
+<td>值得查</td>
+</tr>
+<tr>
+<td>写频率低于每秒千次</td>
+<td>不用管（噪声）</td>
+</tr>
+<tr>
+<td>单线程&#x2F;只读</td>
+<td>不用管</td>
+</tr>
+<tr>
+<td>已经实测出 2 倍以上差距</td>
+<td>必须处理</td>
+</tr>
+</tbody></table>
+<p><strong>经验值</strong>：伪共享的代价在「写非常频繁」时才明显。本文 2000 万次写才把差距放大到 4.3 倍；每秒几百次的计数器，缓存行弹跳的成本完全淹没在业务逻辑里。</p>
+<h3 id="4-4-平台差异对照"><a href="#4-4-平台差异对照" class="headerlink" title="4.4 平台差异对照"></a>4.4 平台差异对照</h3><table>
+<thead>
+<tr>
+<th>平台</th>
+<th>常见缓存行</th>
+<th>本文实测边界</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>x86-64（Intel&#x2F;AMD）</td>
+<td>64 字节</td>
+<td>—</td>
+<td>文献普遍按 64B 处理</td>
+</tr>
+<tr>
+<td>Apple Silicon（M 系列）</td>
+<td>128 字节</td>
+<td><strong>8 字节处出现退化</strong></td>
+<td>一致性粒度可能更细</td>
+</tr>
+<tr>
+<td>ARM 服务器（Graviton 等）</td>
+<td>64 或 128 字节</td>
+<td>—</td>
+<td>以厂商文档 + 自测为准</td>
+</tr>
+<tr>
+<td>虚拟化&#x2F;容器</td>
+<td>透传宿主</td>
+<td>受宿主影响</td>
+<td>迁移后会变</td>
+</tr>
+</tbody></table>
+<p><strong>这张表的用法</strong>：不要背数字，用 5.2 的脚本在你的目标机器上跑一遍，把「退化消失的偏移」记下来。</p>
+<h2 id="5-动手验证：四个可复现实验"><a href="#5-动手验证：四个可复现实验" class="headerlink" title="5. 动手验证：四个可复现实验"></a>5. 动手验证：四个可复现实验</h2><h3 id="5-1-动手验证：相邻字段-vs-字段级-Contended"><a href="#5-1-动手验证：相邻字段-vs-字段级-Contended" class="headerlink" title="5.1 动手验证：相邻字段 vs 字段级 @Contended"></a>5.1 动手验证：相邻字段 vs 字段级 @Contended</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">mkdir</span> -p /tmp/conc &amp;&amp; <span class="built_in">cd</span> /tmp/conc</span><br><span class="line"><span class="built_in">cat</span> &gt; FS.java &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line">import java.lang.invoke.*;</span><br><span class="line">import jdk.internal.vm.annotation.Contended;</span><br><span class="line">public class FS &#123;</span><br><span class="line">    static class Adj &#123; volatile long x; volatile long y; &#125;</span><br><span class="line">    static class Pad &#123;</span><br><span class="line">        @Contended volatile long x;</span><br><span class="line">        @Contended volatile long y;</span><br><span class="line">    &#125;</span><br><span class="line">    static double bench(Object o, String f1, String f2, int iters) throws Exception &#123;</span><br><span class="line">        VarHandle v1 = MethodHandles.lookup().findVarHandle(o.getClass(), f1, long.class);</span><br><span class="line">        VarHandle v2 = MethodHandles.lookup().findVarHandle(o.getClass(), f2, long.class);</span><br><span class="line">        long best = Long.MAX_VALUE;</span><br><span class="line">        <span class="keyword">for</span> (int r = 0; r &lt; 3; r++) &#123;</span><br><span class="line">            Thread t1 = new Thread(() -&gt; &#123; for (int i=<span class="number">0</span>;i&lt;iters;i++)&#123; long v=(long)v1.getVolatile(o); v1.setVolatile(o,v+<span class="number">1</span>);&#125; &#125;);</span><br><span class="line">            Thread t2 = new Thread(() -&gt; &#123; for (int i=<span class="number">0</span>;i&lt;iters;i++)&#123; long v=(long)v2.getVolatile(o); v2.setVolatile(o,v+<span class="number">1</span>);&#125; &#125;);</span><br><span class="line">            long s=System.nanoTime(); t1.start(); t2.start(); t1.join(); t2.join();</span><br><span class="line">            best=Math.min(best,System.nanoTime()-s);</span><br><span class="line">        &#125;</span><br><span class="line">        return best/(<span class="number">2.0</span>*iters);</span><br><span class="line">    &#125;</span><br><span class="line">    public static void main(String[] a) throws Exception &#123;</span><br><span class="line">        int n = <span class="number">20</span>_000_000;</span><br><span class="line">        System.out.printf(&quot;adjacent : %.<span class="number">2</span>f ns/op%n&quot;, bench(new Adj(), &quot;x&quot;, &quot;y&quot;, n));</span><br><span class="line">        System.out.printf(<span class="string">&quot;@Contended: %.2f ns/op%n&quot;</span>, bench(new Pad(), <span class="string">&quot;x&quot;</span>, <span class="string">&quot;y&quot;</span>, n));</span><br><span class="line">        System.<span class="built_in">exit</span>(0);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line">EOF</span><br><span class="line">javac --add-exports java.base/jdk.internal.vm.annotation=ALL-UNNAMED FS.java</span><br><span class="line">java --add-exports java.base/jdk.internal.vm.annotation=ALL-UNNAMED -XX:-RestrictContended FS</span><br><span class="line">java --add-exports java.base/jdk.internal.vm.annotation=ALL-UNNAMED FS</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：加 <code>-XX:-RestrictContended</code> 时，<code>@Contended</code> 那行明显更快（本文 8.60 → 1.98）；不加参数时两行几乎一样。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>两行都很快（&lt; 2 ns）→ 两个线程可能跑在同一个核上，或 JIT 把循环优化了；</li>
+<li><code>@Contended</code> 没效果 → 检查是否用了字段级注解（类级无效），以及参数是否加上。</li>
+</ul>
+<h3 id="5-2-动手验证：扫缓存行边界"><a href="#5-2-动手验证：扫缓存行边界" class="headerlink" title="5.2 动手验证：扫缓存行边界"></a>5.2 动手验证：扫缓存行边界</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> /tmp/conc</span><br><span class="line"><span class="built_in">cat</span> &gt; Scan.java &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line">import java.lang.invoke.*;</span><br><span class="line">public class Scan &#123;</span><br><span class="line">    static final VarHandle VH = MethodHandles.arrayElementVarHandle(long[].class);</span><br><span class="line">    static final long[] A = new long[512];</span><br><span class="line">    static double bench(int i, int j, int n) throws Exception &#123;</span><br><span class="line">        long best = Long.MAX_VALUE;</span><br><span class="line">        <span class="keyword">for</span> (int r=0;r&lt;3;r++) &#123;</span><br><span class="line">            Thread t1 = new Thread(() -&gt; &#123; for (int k=<span class="number">0</span>;k&lt;n;k++)&#123; long v=(long)VH.getVolatile(A,i); VH.setVolatile(A,i,v+<span class="number">1</span>);&#125; &#125;);</span><br><span class="line">            Thread t2 = new Thread(() -&gt; &#123; for (int k=<span class="number">0</span>;k&lt;n;k++)&#123; long v=(long)VH.getVolatile(A,j); VH.setVolatile(A,j,v+<span class="number">1</span>);&#125; &#125;);</span><br><span class="line">            long s=System.nanoTime(); t1.start(); t2.start(); t1.join(); t2.join();</span><br><span class="line">            best=Math.min(best,System.nanoTime()-s);</span><br><span class="line">        &#125;</span><br><span class="line">        return best/(<span class="number">2.0</span>*n);</span><br><span class="line">    &#125;</span><br><span class="line">    public static void main(String[] a) throws Exception &#123;</span><br><span class="line">        for (int off : new int[]&#123;<span class="number">1</span>,<span class="number">2</span>,<span class="number">4</span>,<span class="number">8</span>,<span class="number">16</span>,<span class="number">32</span>&#125;) &#123;</span><br><span class="line">            System.out.printf(&quot;offset %<span class="number">3</span>d longs (%<span class="number">3</span>d bytes): %.<span class="number">2</span>f ns/op%n&quot;, off, off*<span class="number">8</span>, bench(<span class="number">0</span>, off, <span class="number">20</span>_000_000));</span><br><span class="line">        &#125;</span><br><span class="line">        System.<span class="built_in">exit</span>(0);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line">EOF</span><br><span class="line">javac Scan.java &amp;&amp; java Scan</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：存在一个「距离超过它就不再退化」的阈值，那个值就是你这台机器的有效边界。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>所有偏移都一样慢 → 你的测量被别的瓶颈主导（比如两个线程在同一核）；</li>
+<li>所有偏移都一样快 → 写频率不够，加迭代次数或换 volatile 写。</li>
+</ul>
+<h3 id="5-3-动手验证：类级-Contended-的无效性"><a href="#5-3-动手验证：类级-Contended-的无效性" class="headerlink" title="5.3 动手验证：类级 @Contended 的无效性"></a>5.3 动手验证：类级 @Contended 的无效性</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> /tmp/conc</span><br><span class="line"><span class="built_in">cat</span> &gt; ClassLevel.java &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line">import java.lang.invoke.*;</span><br><span class="line">import jdk.internal.vm.annotation.Contended;</span><br><span class="line">public class ClassLevel &#123;</span><br><span class="line">    static class Adj &#123; volatile long x; volatile long y; &#125;</span><br><span class="line">    @Contended static class Cls &#123; volatile long x; volatile long y; &#125;</span><br><span class="line">    static double bench(Object o, int n) throws Exception &#123;</span><br><span class="line">        VarHandle v1 = MethodHandles.lookup().findVarHandle(o.getClass(), <span class="string">&quot;x&quot;</span>, long.class);</span><br><span class="line">        VarHandle v2 = MethodHandles.lookup().findVarHandle(o.getClass(), <span class="string">&quot;y&quot;</span>, long.class);</span><br><span class="line">        long best = Long.MAX_VALUE;</span><br><span class="line">        <span class="keyword">for</span> (int r=0;r&lt;3;r++) &#123;</span><br><span class="line">            Thread t1 = new Thread(() -&gt; &#123; for (int k=<span class="number">0</span>;k&lt;n;k++)&#123; long v=(long)v1.getVolatile(o); v1.setVolatile(o,v+<span class="number">1</span>);&#125; &#125;);</span><br><span class="line">            Thread t2 = new Thread(() -&gt; &#123; for (int k=<span class="number">0</span>;k&lt;n;k++)&#123; long v=(long)v2.getVolatile(o); v2.setVolatile(o,v+<span class="number">1</span>);&#125; &#125;);</span><br><span class="line">            long s=System.nanoTime(); t1.start(); t2.start(); t1.join(); t2.join();</span><br><span class="line">            best=Math.min(best,System.nanoTime()-s);</span><br><span class="line">        &#125;</span><br><span class="line">        return best/(<span class="number">2.0</span>*n);</span><br><span class="line">    &#125;</span><br><span class="line">    public static void main(String[] a) throws Exception &#123;</span><br><span class="line">        System.out.printf(&quot;adjacent      : %.<span class="number">2</span>f ns/op%n&quot;, bench(new Adj(), <span class="number">20</span>_000_000));</span><br><span class="line">        System.out.printf(<span class="string">&quot;class @Contended: %.2f ns/op%n&quot;</span>, bench(new Cls(), 20_000_000));</span><br><span class="line">        System.<span class="built_in">exit</span>(0);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line">EOF</span><br><span class="line">javac --add-exports java.base/jdk.internal.vm.annotation=ALL-UNNAMED ClassLevel.java</span><br><span class="line">java --add-exports java.base/jdk.internal.vm.annotation=ALL-UNNAMED -XX:-RestrictContended ClassLevel</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：两者几乎一样（本文 8.60 vs 8.28），证明类级注解解决不了对象内字段的伪共享。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>类级明显更快 → 你的 JDK 版本&#x2F;实现可能对类级注解做了字段级处理，换版本核对；</li>
+<li>两者都慢 → 正常，改用字段级注解再测。</li>
+</ul>
+<h3 id="5-4-动手验证：手动-padding-的效果"><a href="#5-4-动手验证：手动-padding-的效果" class="headerlink" title="5.4 动手验证：手动 padding 的效果"></a>5.4 动手验证：手动 padding 的效果</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> /tmp/conc</span><br><span class="line"><span class="built_in">cat</span> &gt; ManualPad.java &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line">import java.lang.invoke.*;</span><br><span class="line">public class ManualPad &#123;</span><br><span class="line">    static class Adj &#123; volatile long x; volatile long y; &#125;</span><br><span class="line">    static class Padded &#123;</span><br><span class="line">        volatile long x;</span><br><span class="line">        long p1,p2,p3,p4,p5,p6,p7,p8,p9,p10,p11,p12,p13,p14,p15;</span><br><span class="line">        volatile long y;</span><br><span class="line">    &#125;</span><br><span class="line">    static double bench(Object o, int n) throws Exception &#123;</span><br><span class="line">        VarHandle v1 = MethodHandles.lookup().findVarHandle(o.getClass(), <span class="string">&quot;x&quot;</span>, long.class);</span><br><span class="line">        VarHandle v2 = MethodHandles.lookup().findVarHandle(o.getClass(), <span class="string">&quot;y&quot;</span>, long.class);</span><br><span class="line">        long best = Long.MAX_VALUE;</span><br><span class="line">        <span class="keyword">for</span> (int r=0;r&lt;3;r++) &#123;</span><br><span class="line">            Thread t1 = new Thread(() -&gt; &#123; for (int k=<span class="number">0</span>;k&lt;n;k++)&#123; long v=(long)v1.getVolatile(o); v1.setVolatile(o,v+<span class="number">1</span>);&#125; &#125;);</span><br><span class="line">            Thread t2 = new Thread(() -&gt; &#123; for (int k=<span class="number">0</span>;k&lt;n;k++)&#123; long v=(long)v2.getVolatile(o); v2.setVolatile(o,v+<span class="number">1</span>);&#125; &#125;);</span><br><span class="line">            long s=System.nanoTime(); t1.start(); t2.start(); t1.join(); t2.join();</span><br><span class="line">            best=Math.min(best,System.nanoTime()-s);</span><br><span class="line">        &#125;</span><br><span class="line">        return best/(<span class="number">2.0</span>*n);</span><br><span class="line">    &#125;</span><br><span class="line">    public static void main(String[] a) throws Exception &#123;</span><br><span class="line">        System.out.printf(&quot;adjacent : %.<span class="number">2</span>f ns/op%n&quot;, bench(new Adj(), <span class="number">20</span>_000_000));</span><br><span class="line">        System.out.printf(<span class="string">&quot;padded   : %.2f ns/op%n&quot;</span>, bench(new Padded(), 20_000_000));</span><br><span class="line">        System.<span class="built_in">exit</span>(0);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line">EOF</span><br><span class="line">javac ManualPad.java &amp;&amp; java ManualPad</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：手动 padding 后明显变快（本文 8.60 → 3.20），但不如字段级 <code>@Contended</code>（1.98）。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>padding 后没变快 → 缓存行可能更大（比如 128B 需要更多填充），加大到 31 个 long 再试；</li>
+<li>padding 后比 <code>@Contended</code> 还快 → 你的 JDK 版本 <code>@Contended</code> 实现有额外开销。</li>
+</ul>
+<h2 id="6-总结"><a href="#6-总结" class="headerlink" title="6. 总结"></a>6. 总结</h2><h3 id="6-1-面试速答表"><a href="#6-1-面试速答表" class="headerlink" title="6.1 面试速答表"></a>6.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>什么是伪共享</td>
+<td>两个线程写不同变量，但变量在同一缓存行，导致缓存行来回失效</td>
+</tr>
+<tr>
+<td>怎么解决伪共享</td>
+<td>填充（padding）或 <code>@Contended</code>（字段级）</td>
+</tr>
+<tr>
+<td><code>@Contended</code> 加在类上还是字段上</td>
+<td><strong>字段级</strong>；类级只隔离对象之间，不隔离对象内字段（本文实测 8.28 vs 1.98）</td>
+</tr>
+<tr>
+<td>为什么 <code>@Contended</code> 要用 <code>-XX:-RestrictContended</code></td>
+<td>JDK 默认只允许内部类使用，业务类需显式放开</td>
+</tr>
+<tr>
+<td>缓存行多大</td>
+<td>x86 通常 64B，Apple Silicon 128B，<strong>以实测为准</strong>（本文数组扫描只看到 8B 处退化）</td>
+</tr>
+<tr>
+<td>伪共享代价多大</td>
+<td>本文实测相邻字段 8.60 ns&#x2F;op，字段级隔离后 1.98 ns&#x2F;op（4.3×）</td>
+</tr>
+<tr>
+<td>手动 padding 与 <code>@Contended</code> 哪个好</td>
+<td><code>@Contended</code> 更彻底（1.98 vs 3.20），但都占内存</td>
+</tr>
+<tr>
+<td><code>@Contended</code> 有什么代价</td>
+<td>每字段约 128B padding；100 万对象可能多几百 MB</td>
+</tr>
+<tr>
+<td><code>LongAdder</code> 为什么快</td>
+<td>把计数分散到多个 <code>Cell</code>，每个 Cell 有 padding，避免伪共享</td>
+</tr>
+<tr>
+<td>什么时候不用管伪共享</td>
+<td>写频率低（每秒千次以下）、单线程、只读</td>
+</tr>
+</tbody></table>
+<h3 id="6-2-实战避坑表"><a href="#6-2-实战避坑表" class="headerlink" title="6.2 实战避坑表"></a>6.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>两个无关计数器互相拖慢</td>
+<td>伪共享</td>
+<td>字段级 <code>@Contended</code> 或 padding</td>
+</tr>
+<tr>
+<td>加了 <code>@Contended</code> 没效果</td>
+<td>加在类上，或没加 <code>-XX:-RestrictContended</code></td>
+<td>改成字段级 + 加参数</td>
+</tr>
+<tr>
+<td>数组按线程分槽反而更慢</td>
+<td>相邻槽在同一缓存行</td>
+<td>每槽补 8~16 个 long</td>
+</tr>
+<tr>
+<td>内存暴涨</td>
+<td><code>@Contended</code> 用多了</td>
+<td>只在热点字段加</td>
+</tr>
+<tr>
+<td>换机器后性能变化很大</td>
+<td>缓存行大小&#x2F;核簇不同</td>
+<td>用扫描脚本重测边界</td>
+</tr>
+</tbody></table>
+<h3 id="6-3-工具速查表"><a href="#6-3-工具速查表" class="headerlink" title="6.3 工具速查表"></a>6.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>判定标准</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>-XX:-RestrictContended</code></td>
+<td>放开 <code>@Contended</code></td>
+<td>不加等于没写</td>
+</tr>
+<tr>
+<td><code>jol-core</code></td>
+<td>对象布局与字段偏移</td>
+<td>看两个字段是否在同一行</td>
+</tr>
+<tr>
+<td>本文的扫描脚本</td>
+<td>缓存行边界</td>
+<td>退化消失的偏移 &#x3D; 有效边界</td>
+</tr>
+<tr>
+<td>JFR</td>
+<td>线程争用事件</td>
+<td>结合 ② 的读法</td>
+</tr>
+</tbody></table>
+<h3 id="6-4-实操建议"><a href="#6-4-实操建议" class="headerlink" title="6.4 实操建议"></a>6.4 实操建议</h3><ol>
+<li><strong>先确认真的存在伪共享</strong>：两个线程各写各的字段，实测差距 2 倍以上再动手。</li>
+<li><strong><code>@Contended</code> 加在字段上</strong>，并确认启动了 <code>-XX:-RestrictContended</code>。</li>
+<li>**<code>LongAdder</code> 优先于 <code>AtomicLong</code>**（高并发计数场景），它内部已经处理了伪共享。</li>
+<li><strong>数组按线程分槽时，每槽留 8~16 个 long 的间隔</strong>，别用 <code>arr[tid]</code> 裸数组。</li>
+<li><strong>换硬件要重测边界</strong>——本文的 aarch64 结果就和「64 字节」的教科书结论不一致。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告</strong>：⑤《原子性：i++ 的丢失与 CAS 的代价》。本文的 <code>@Contended</code> 是为了让多个核同时写不同变量；下一篇反过来，让多个核抢着写<strong>同一个</strong>变量：<code>AtomicLong</code> 在 4&#x2F;16&#x2F;64 线程下的退化曲线、<code>LongAdder</code> 为什么能扛住、CAS 的 ABA 问题怎么复现。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/Java/" rel="tag"># Java</a>
+              <a href="/tags/%E9%9D%A2%E8%AF%95/" rel="tag"># 面试</a>
+              <a href="/tags/%E5%B9%B6%E5%8F%91/" rel="tag"># 并发</a>
+              <a href="/tags/%E4%BC%AA%E5%85%B1%E4%BA%AB/" rel="tag"># 伪共享</a>
+              <a href="/tags/%E7%BC%93%E5%AD%98%E8%A1%8C/" rel="tag"># 缓存行</a>
+              <a href="/tags/Contended/" rel="tag"># Contended</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/f092fe4.html" rel="prev" title="JMM：把「不可见」和「重排」亲手复现">
+                  <i class="fa fa-angle-left"></i> JMM：把「不可见」和「重排」亲手复现
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/post/ef5a2176.html" rel="next" title="原子性：i++ 的丢失与 CAS 的代价">
+                  原子性：i++ 的丢失与 CAS 的代价 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">778k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">47:09</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
+</html>

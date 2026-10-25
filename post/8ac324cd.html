@@ -1,0 +1,1235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#222" media="(prefers-color-scheme: dark)"><meta name="generator" content="Hexo 7.3.0">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="/images/apple-touch-icon-next.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="/images/favicon-32x32-next.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/images/favicon-16x16-next.png">
+  <link rel="mask-icon" href="/images/logo.svg" color="#222">
+
+<link rel="stylesheet" href="/css/main.css">
+
+
+
+<link rel="stylesheet" href="/lib/@fortawesome/fontawesome-free/css/all.min.css">
+
+<script class="next-config" data-name="main" type="application/json">{"hostname":"timewait7.github.io","root":"/","images":"/images","scheme":"Gemini","darkmode":true,"version":"8.29.0","exturl":true,"sidebar":{"position":"left","width_expanded":320,"width_dual_column":240,"display":"post","padding":18,"offset":12},"hljswrap":true,"codeblock":{"theme":{"light":"default","dark":"stackoverflow-dark"},"prism":{"light":"prism","dark":"prism-dark"},"copy_button":{"enable":true,"style":"default"},"fold":{"enable":false,"height":500},"language":false},"bookmark":{"enable":false,"color":"#222","save":"auto"},"mediumzoom":true,"pangu":false,"comments":{"style":"tabs","active":null,"storage":true,"lazyload":true,"nav":null},"stickytabs":false,"motion":{"enable":false,"async":false,"duration":200,"transition":{"menu_item":"fadeInDown","post_block":"fadeIn","post_header":"fadeInDown","post_body":"fadeInDown","coll_header":"fadeInLeft","sidebar":"fadeInUp"}},"i18n":{"placeholder":"Searching...","empty":"We didn't find any results for the search: ${query}","hits_time":"${hits} results found in ${time} ms","hits":"${hits} results found"},"path":"/search.json","localsearch":{"enable":true,"top_n_per_article":1,"unescape":true,"preload":true}}</script><script src="/js/config.js" defer></script>
+
+    <meta name="description" content="并发问题之所以难查，是因为它们不报错、只「偶尔不对」。可见性问题跑一万次都对，第一万零一次卡死；伪共享不会让程序变慢 10 倍，只会让 CPU 使用率莫名 300%。这类问题靠读代码看不出来，只能靠可复现的实验。 本文是「Java 并发实战路线」第一篇，只做三件事：把并发的成本拆成三个变量、搭好 JDK 21 的实验台（JFR + jcmd + JOL）、跑出第一组基线数字。后面十一篇的每个结论都">
+<meta property="og:type" content="article">
+<meta property="og:title" content="从这里开始：把并发 bug 变成可复现的实验">
+<meta property="og:url" content="http://timewait7.github.io/post/8ac324cd.html">
+<meta property="og:site_name" content="知行栈">
+<meta property="og:description" content="并发问题之所以难查，是因为它们不报错、只「偶尔不对」。可见性问题跑一万次都对，第一万零一次卡死；伪共享不会让程序变慢 10 倍，只会让 CPU 使用率莫名 300%。这类问题靠读代码看不出来，只能靠可复现的实验。 本文是「Java 并发实战路线」第一篇，只做三件事：把并发的成本拆成三个变量、搭好 JDK 21 的实验台（JFR + jcmd + JOL）、跑出第一组基线数字。后面十一篇的每个结论都">
+<meta property="og:locale" content="en_US">
+<meta property="article:published_time" content="2026-10-25T13:00:00.000Z">
+<meta property="article:modified_time" content="2026-10-25T06:13:18.114Z">
+<meta property="article:tag" content="Java">
+<meta property="article:tag" content="面试">
+<meta property="article:tag" content="并发">
+<meta property="article:tag" content="JMH">
+<meta property="article:tag" content="JFR">
+<meta property="article:tag" content="性能测试">
+<meta name="twitter:card" content="summary">
+
+
+<link rel="canonical" href="http://timewait7.github.io/post/8ac324cd.html">
+
+
+<script class="next-config" data-name="page" type="application/json">{"sidebar":"","isHome":false,"isPost":true,"lang":"en","comments":true,"permalink":"http://timewait7.github.io/post/8ac324cd.html","path":"post/8ac324cd.html","title":"从这里开始：把并发 bug 变成可复现的实验"}</script>
+
+<script class="next-config" data-name="calendar" type="application/json">""</script>
+<title>从这里开始：把并发 bug 变成可复现的实验 | 知行栈</title>
+  
+
+
+
+
+
+
+
+
+  
+  <script src="/lib/@next-theme/pjax/pjax.min.js" defer></script>
+  <script src="/lib/medium-zoom/dist/medium-zoom.min.js" defer></script>
+<script src="/js/utils.js" defer></script><script src="/js/sidebar.js" defer></script><script src="/js/next-boot.js" defer></script><script src="/js/pjax.js" defer></script>
+
+  <script src="/lib/hexo-generator-searchdb/dist/search.js" defer></script>
+<script src="/js/third-party/search/local-search.js" defer></script>
+
+
+
+  <script class="next-config" data-name="wavedrom" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/wavedrom.min.js"}}</script>
+  <script class="next-config" data-name="wavedrom_skin" type="application/json">{"enable":true,"js":{"url":"/lib/wavedrom/skins/default.js"}}</script>
+  <script src="/js/third-party/tags/wavedrom.js" defer></script>
+
+
+
+
+  
+
+
+
+
+  
+
+  <script class="next-config" data-name="enableMath" type="application/json">false</script><script class="next-config" data-name="mathjax" type="application/json">{"enable":true,"tags":"none","display_overflow":"scroll","js":{"url":"/lib/mathjax/tex-mml-chtml.js"},"font_path":"/lib/@mathjax/mathjax-newcm-font"}</script>
+<script src="/js/third-party/math/mathjax.js" defer></script>
+
+
+
+  <noscript>
+    <link rel="stylesheet" href="/css/noscript.css">
+  </noscript>
+<!-- hexo injector head_end start --><style>
+.post-meta-container ul.breadcrumb { text-transform: uppercase; }
+</style><style>
+/* 菜单链高亮：sub-menu 祖先（同主题 .menu-item-active 的 Pisces 规则） */
+.sub-menu .menu-item a.menu-chain-active {
+  border-bottom-color: #fc6423;
+  color: #fc6423;
+}
+.sub-menu .menu-item a.menu-chain-active:hover {
+  border-bottom-color: #fc6423;
+}
+/* 菜单链高亮：main-menu 祖先（同主题 hover/active 的背景规则） */
+.main-menu .menu-item a.menu-chain-active {
+  background: var(--menu-item-bg-color);
+}
+</style><!-- hexo injector head_end end --><link rel="alternate" href="/atom.xml" title="知行栈" type="application/atom+xml">
+</head>
+
+<body itemscope itemtype="http://schema.org/WebPage">
+  <div class="headband"></div>
+
+  <main class="main">
+    <div class="column">
+      <header class="header" itemscope itemtype="http://schema.org/WPHeader"><div class="site-brand-container">
+  <div class="site-nav-toggle">
+    <div class="toggle" aria-label="Toggle navigation bar" role="button">
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+        <span class="toggle-line"></span>
+    </div>
+  </div>
+
+  <div class="site-meta">
+
+    <a href="/" class="brand" rel="start">
+      <i class="logo-line"></i>
+      <p class="site-title">知行栈</p>
+      <i class="logo-line"></i>
+    </a>
+  </div>
+
+  <div class="site-nav-right">
+    <div class="toggle popup-trigger" aria-label="Search" role="button">
+        <i class="fa fa-search fa-fw fa-lg"></i>
+    </div>
+  </div>
+</div>
+
+
+
+<nav class="site-nav">
+  <ul class="main-menu menu"><li class="menu-item menu-item-docs"><a href="/docs/" rel="section" class="menu-chain-active"><i class="fa fa-book fa-fw"></i>Docs</a></li><li class="menu-item menu-item-archives"><a href="/archives/" rel="section"><i class="fa fa-archive fa-fw"></i>Archives</a></li><li class="menu-item menu-item-categories"><a href="/categories/" rel="section"><i class="fa fa-th fa-fw"></i>Categories</a></li>
+      <li class="menu-item menu-item-search">
+        <a role="button" class="popup-trigger"><i class="fa fa-search fa-fw"></i>Search
+        </a>
+      </li>
+  </ul>
+</nav>
+
+
+
+  <div class="search-pop-overlay">
+    <div class="popup search-popup">
+      <div class="search-header">
+        <span class="search-icon">
+          <i class="fa fa-search"></i>
+        </span>
+        <div class="search-input-container">
+          <input autocomplete="off" autocapitalize="off" maxlength="80"
+                placeholder="Searching..." spellcheck="false"
+                type="search" class="search-input">
+        </div>
+        <span class="popup-btn-close" role="button">
+          <i class="fa fa-times-circle"></i>
+        </span>
+      </div>
+      <div class="search-result-container">
+        <div class="search-result-icon">
+          <i class="fa fa-spinner fa-pulse fa-5x"></i>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</header>
+        
+  
+  <aside class="sidebar">
+
+    <div class="sidebar-inner sidebar-nav-active sidebar-toc-active">
+      <ul class="sidebar-nav">
+        <li class="sidebar-nav-toc">
+          Table of Contents
+        </li>
+        <li class="sidebar-nav-overview">
+          Overview
+        </li>
+      </ul>
+
+      <div class="sidebar-panel-container">
+        <!--noindex-->
+        <div class="post-toc-wrap sidebar-panel">
+            <div class="post-toc animated"><ol class="nav"><li class="nav-item nav-level-2"><a class="nav-link" href="#1-%E5%B9%B6%E5%8F%91%E7%9A%84%E6%88%90%E6%9C%AC%E5%8F%AA%E6%9C%89%E4%B8%89%E4%B8%AA%E5%8F%98%E9%87%8F"><span class="nav-text">1. 并发的成本只有三个变量</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#1-1-%E4%B8%80%E5%8F%A5%E8%AF%9D%E5%AE%9A%E4%B9%89"><span class="nav-text">1.1 一句话定义</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-2-%E5%AE%9E%E6%B5%8B%E5%9F%BA%E7%BA%BF%EF%BC%88JDK-21-0-12%EF%BC%8C15-%E6%A0%B8%EF%BC%89"><span class="nav-text">1.2 实测基线（JDK 21.0.12，15 核）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#1-3-%E4%B8%89%E4%B8%AA%E6%95%B0%E5%AD%97%E8%83%BD%E6%8E%A8%E5%87%BA%E4%BB%80%E4%B9%88"><span class="nav-text">1.3 三个数字能推出什么</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#2-%E6%90%AD%E5%AE%9E%E9%AA%8C%E5%8F%B0"><span class="nav-text">2. 搭实验台</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#2-1-%E7%8E%AF%E5%A2%83%EF%BC%9A%E4%B8%80%E4%B8%AA-JDK-%E5%B0%B1%E5%A4%9F%EF%BC%8C%E5%B7%A5%E5%85%B7%E6%98%AF%E8%87%AA%E5%B8%A6%E7%9A%84"><span class="nav-text">2.1 环境：一个 JDK 就够，工具是自带的</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-2-%E5%B7%A5%E5%85%B7%E5%8F%AF%E7%94%A8%E6%80%A7%E5%AE%9E%E6%B5%8B%EF%BC%88%E5%88%AB%E5%81%87%E8%AE%BE%E6%9C%89%EF%BC%89"><span class="nav-text">2.2 工具可用性实测（别假设有）</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-3-%E6%89%8B%E5%86%99%E5%9F%BA%E5%87%86%E7%9A%84%E5%9B%9B%E6%9D%A1%E7%BA%AA%E5%BE%8B"><span class="nav-text">2.3 手写基准的四条纪律</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-4-%E5%8F%8D%E9%9D%A2%E6%95%99%E6%9D%90%EF%BC%9A%E6%88%91%E7%AC%AC%E4%B8%80%E7%89%88%E5%9F%BA%E5%87%86%E6%B5%8B%E5%87%BA%E7%9A%84%E3%80%8C10-%E5%80%8D%E5%8A%A0%E9%80%9F%E6%AF%94%E3%80%8D"><span class="nav-text">2.4 反面教材：我第一版基准测出的「10 倍加速比」</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#2-5-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E9%AA%8C%E8%AF%81%E4%BD%A0%E7%9A%84%E5%9F%BA%E5%87%86%E6%9C%89%E6%B2%A1%E6%9C%89%E8%A2%AB-JIT-%E4%BC%98%E5%8C%96"><span class="nav-text">2.5 动手验证：验证你的基准有没有被 JIT 优化</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#3-%E5%9F%BA%E7%BA%BF%E5%9B%9B%E4%BB%B6%E5%A5%97"><span class="nav-text">3. 基线四件套</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#3-1-%E5%88%9B%E5%BB%BA%EF%BC%9A%E4%B8%80%E4%B8%AA%E7%BA%BF%E7%A8%8B-32-%C2%B5s"><span class="nav-text">3.1 创建：一个线程 32 µs</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-2-%E5%88%87%E6%8D%A2%EF%BC%9A%E4%B8%80%E6%AC%A1%E7%9C%9F%E5%AE%9E%E5%88%87%E6%8D%A2-2-43-%C2%B5s"><span class="nav-text">3.2 切换：一次真实切换 2.43 µs</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-3-%E5%8A%A0%E9%80%9F%E6%AF%94%EF%BC%9A15-%E6%A0%B8%E8%83%BD%E6%8B%BF%E5%88%B0-12-68-%E5%80%8D"><span class="nav-text">3.3 加速比：15 核能拿到 12.68 倍</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-4-%E7%AB%9E%E4%BA%89%EF%BC%9A%E5%90%8C%E6%A0%B7%E7%9A%84%E5%8A%A0%E4%B8%80%EF%BC%8C%E5%B7%AE-6-%E5%80%8D"><span class="nav-text">3.4 竞争：同样的加一，差 6 倍</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-5-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E8%B7%91%E5%87%BA%E4%BD%A0%E8%87%AA%E5%B7%B1%E7%9A%84%E5%9B%9B%E4%B8%AA%E5%9F%BA%E7%BA%BF"><span class="nav-text">3.5 动手验证：跑出你自己的四个基线</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#3-6-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E9%87%8F%E4%BD%A0%E8%87%AA%E5%B7%B1%E7%9A%84%E7%BA%BF%E7%A8%8B%E5%88%9B%E5%BB%BA%E4%B8%8E%E5%88%87%E6%8D%A2"><span class="nav-text">3.6 动手验证：量你自己的线程创建与切换</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#4-%E8%BF%99%E5%A5%97%E5%9F%BA%E7%BA%BF%E6%80%8E%E4%B9%88%E7%94%A8"><span class="nav-text">4. 这套基线怎么用</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#4-1-%E5%88%A4%E6%96%AD%E8%A1%A8"><span class="nav-text">4.1 判断表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-3-%E5%8A%A8%E6%89%8B%E9%AA%8C%E8%AF%81%EF%BC%9A%E7%94%A8-JFR-%E6%8A%93%E4%B8%80%E6%AC%A1%E9%94%81%E7%AB%9E%E4%BA%89"><span class="nav-text">4.3 动手验证：用 JFR 抓一次锁竞争</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-4-%E5%88%A4%E6%96%AD%E6%A0%91%EF%BC%9A%E5%85%88%E6%9F%A5%E5%93%AA%E4%B8%80%E7%B1%BB%E6%88%90%E6%9C%AC"><span class="nav-text">4.4 判断树：先查哪一类成本</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#4-2-%E4%B8%8E-MySQL-Redis-%E7%B3%BB%E5%88%97%E7%9A%84%E5%90%8C%E4%B8%80%E5%A5%97%E6%96%B9%E6%B3%95"><span class="nav-text">4.2 与 MySQL &#x2F; Redis 系列的同一套方法</span></a></li></ol></li><li class="nav-item nav-level-2"><a class="nav-link" href="#5-%E6%80%BB%E7%BB%93"><span class="nav-text">5. 总结</span></a><ol class="nav-child"><li class="nav-item nav-level-3"><a class="nav-link" href="#5-1-%E9%9D%A2%E8%AF%95%E9%80%9F%E7%AD%94%E8%A1%A8"><span class="nav-text">5.1 面试速答表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-2-%E5%AE%9E%E6%88%98%E9%81%BF%E5%9D%91%E8%A1%A8"><span class="nav-text">5.2 实战避坑表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-3-%E5%B7%A5%E5%85%B7%E9%80%9F%E6%9F%A5%E8%A1%A8"><span class="nav-text">5.3 工具速查表</span></a></li><li class="nav-item nav-level-3"><a class="nav-link" href="#5-4-%E5%AE%9E%E6%93%8D%E5%BB%BA%E8%AE%AE"><span class="nav-text">5.4 实操建议</span></a></li></ol></li></ol></div>
+        </div>
+        <!--/noindex-->
+
+        <div class="site-overview-wrap sidebar-panel">
+          <div class="site-author animated" itemprop="author" itemscope itemtype="http://schema.org/Person">
+  <p class="site-author-name" itemprop="name"></p>
+  <div class="site-description" itemprop="description"></div>
+</div>
+<div class="site-state-wrap animated">
+  <nav class="site-state">
+      <div class="site-state-item site-state-posts">
+        <a href="/archives/">
+          <span class="site-state-item-count">116</span>
+          <span class="site-state-item-name">posts</span>
+        </a>
+      </div>
+      <div class="site-state-item site-state-categories">
+          <a href="/categories/">
+        <span class="site-state-item-count">14</span>
+        <span class="site-state-item-name">categories</span></a>
+      </div>
+      <div class="site-state-item site-state-tags">
+          <a href="/tags/">
+        <span class="site-state-item-count">205</span>
+        <span class="site-state-item-name">tags</span></a>
+      </div>
+  </nav>
+</div>
+
+        </div>
+      </div>
+        <div class="back-to-top animated" role="button" aria-label="Back to top">
+          <i class="fa fa-arrow-up"></i>
+          <span>0%</span>
+        </div>
+    </div>
+
+    
+    <div class="sidebar-inner sidebar-blogroll">
+      <div class="links-of-blogroll animated">
+        <div class="links-of-blogroll-title"><i class="fa fa-globe fa-fw"></i>
+          Links
+        </div>
+        <ul class="links-of-blogroll-list">
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9wYXVsZ3JhaGFtLmNvbS9hcnRpY2xlcy5odG1s" title="https:&#x2F;&#x2F;paulgraham.com&#x2F;articles.html">paulgraham</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly93d3cuam9lbG9uc29mdHdhcmUuY29tLw==" title="https:&#x2F;&#x2F;www.joelonsoftware.com&#x2F;">Joel on Software</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9tYXJ0aW5mb3dsZXIuY29tLw==" title="https:&#x2F;&#x2F;martinfowler.com&#x2F;">Martin Flower</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly96aGFuZ3RpZWxlaS5jb20v" title="https:&#x2F;&#x2F;zhangtielei.com&#x2F;">zhangtielei</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhLWRlc2lnbi1wYXR0ZXJucy5jb20vemgv" title="https:&#x2F;&#x2F;java-design-patterns.com&#x2F;zh&#x2F;">Java Design Patterns</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9taWNyb3NlcnZpY2VzLmlvLw==" title="https:&#x2F;&#x2F;microservices.io&#x2F;">Microservice Architecture</span>
+            </li>
+            <li class="links-of-blogroll-item">
+              <span class="exturl" data-url="aHR0cHM6Ly9qYXZhZ3VpZGUuY24v" title="https:&#x2F;&#x2F;javaguide.cn&#x2F;">JavaGuide</span>
+            </li>
+        </ul>
+      </div>
+    </div>
+        <div class="pjax">
+        
+        <div class="sidebar-inner sidebar-post-related">
+          <div class="animated">
+              <div class="links-of-blogroll-title"><i class="fa fa-signs-post fa-fw"></i>
+    Related Posts
+  </div>
+  <ul class="popular-posts">
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/f092fe4.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-25</time>
+        <br>
+      JMM：把「不可见」和「重排」亲手复现
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/4f3149da.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-25</time>
+        <br>
+      线程与调度：一次上下文切换值多少钱
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/aa676f55.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-26</time>
+        <br>
+      虚拟线程：pinning、吞吐与迁移代价
+      </a>
+    </li>
+    <li class="popular-posts-item">
+      <a class="popular-posts-link" href="/post/b09d89b.html" rel="bookmark">
+        <time class="popular-posts-time">2026-10-26</time>
+        <br>
+      线程池：core、max、queue 的组合陷阱
+      </a>
+    </li>
+  </ul>
+
+          </div>
+        </div>
+        </div>
+  </aside>
+
+
+    </div>
+
+    <div class="main-inner post posts-expand">
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-后端开发"><a href="/docs/nav/backend-dev-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-code fa-fw"></i>后端开发</a></li>
+
+
+      
+  <li class="menu-item menu-item-计算机基础"><a href="/docs/nav/cs-foundation-nav.html" rel="section"><i class="fa fa-desktop fa-fw"></i>计算机基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-ai-学习"><a href="/docs/nav/ai-learning-nav.html" rel="section"><i class="fa fa-robot fa-fw"></i>AI 学习</a></li>
+
+
+      
+  <li class="menu-item menu-item-项目实战"><a href="/docs/nav/5964f4da.html" rel="section"><i class="fa fa-flask fa-fw"></i>项目实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-misc"><a href="/docs/nav/misc-nav.html" rel="section"><i class="fa fa-box fa-fw"></i>Misc</a></li>
+
+
+      
+  <li class="menu-item menu-item-随笔·生活"><a href="/docs/nav/life-nav.html" rel="section"><i class="fa fa-feather fa-fw"></i>随笔·生活</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java"><a href="/docs/nav/java-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-coffee fa-fw"></i>Java</a></li>
+
+
+      
+  <li class="menu-item menu-item-框架"><a href="/docs/nav/framework-nav.html" rel="section"><i class="fa fa-th-large fa-fw"></i>框架</a></li>
+
+
+      
+  <li class="menu-item menu-item-数据存储"><a href="/docs/nav/data-storage-nav.html" rel="section"><i class="fa fa-hdd fa-fw"></i>数据存储</a></li>
+
+
+      
+  <li class="menu-item menu-item-中间件"><a href="/docs/nav/middleware-nav.html" rel="section"><i class="fa fa-cubes fa-fw"></i>中间件</a></li>
+
+
+      
+  <li class="menu-item menu-item-分布式与微服务"><a href="/docs/nav/distributed-nav.html" rel="section"><i class="fa fa-sitemap fa-fw"></i>分布式与微服务</a></li>
+
+
+      
+  <li class="menu-item menu-item-系统设计"><a href="/docs/nav/system-design-nav.html" rel="section"><i class="fa fa-pencil-ruler fa-fw"></i>系统设计</a></li>
+
+
+      
+  <li class="menu-item menu-item-部署运维"><a href="/docs/nav/devops-nav.html" rel="section"><i class="fa fa-terminal fa-fw"></i>部署运维</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java-核心基础"><a href="/post/6a6e612d.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Java 核心基础</a></li>
+
+
+      
+  <li class="menu-item menu-item-java-并发编程"><a href="/docs/nav/java-concurrency-nav.html" rel="section" class="menu-chain-active"><i class="fa fa-tasks fa-fw"></i>Java 并发编程</a></li>
+
+
+      
+  <li class="menu-item menu-item-jvm-原理与调优"><a href="/post/4e153c5e.html" rel="section"><i class="fa fa-file-text fa-fw"></i>JVM 原理与调优</a></li>
+
+
+      
+  <li class="menu-item menu-item-设计模式：15-个高频模式的实战内化"><a href="/post/67126.html" rel="section"><i class="fa fa-file-text fa-fw"></i>设计模式：15 个高频模式的实战内化</a></li>
+
+
+      
+  <li class="menu-item menu-item-java-开发实战速查"><a href="/post/be1f55d9.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Java 开发实战速查</a></li>
+
+
+    </ul>
+    <ul class="sub-menu menu">
+      
+  <li class="menu-item menu-item-java-并发编程：从-jmm-到虚拟线程的系统化实战"><a href="/post/a3f81c2d.html" rel="section"><i class="fa fa-file-text fa-fw"></i>Java 并发编程：从 JMM 到虚拟线程的系统化实战</a></li>
+
+
+      
+  <li class="menu-item menu-item-①-从这里开始：把并发-bug-变成可复现的实验"><a href="/post/8ac324cd.html" rel="section"><i class="fa fa-file-text fa-fw"></i>① 从这里开始：把并发 bug 变成可复现的实验</a></li>
+
+
+      
+  <li class="menu-item menu-item-②-线程与调度：一次上下文切换值多少钱"><a href="/post/4f3149da.html" rel="section"><i class="fa fa-file-text fa-fw"></i>② 线程与调度：一次上下文切换值多少钱</a></li>
+
+
+      
+  <li class="menu-item menu-item-③-jmm：把「不可见」和「重排」亲手复现"><a href="/post/f092fe4.html" rel="section"><i class="fa fa-file-text fa-fw"></i>③ JMM：把「不可见」和「重排」亲手复现</a></li>
+
+
+      
+  <li class="menu-item menu-item-④-伪共享与缓存行：一个-@contended-的-4-倍差距"><a href="/post/311a2032.html" rel="section"><i class="fa fa-file-text fa-fw"></i>④ 伪共享与缓存行：一个 @Contended 的 4 倍差距</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑤-原子性：i++-的丢失与-cas-的代价"><a href="/post/ef5a2176.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑤ 原子性：i++ 的丢失与 CAS 的代价</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑥-锁的演化：偏向锁移除之后，synchronized-还慢吗"><a href="/post/347698f8.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑥ 锁的演化：偏向锁移除之后，synchronized 还慢吗</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑦-aqs-与并发容器：size()-为什么不准"><a href="/post/42dc269f.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑦ AQS 与并发容器：size() 为什么不准</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑧-线程池：core、max、queue-的组合陷阱"><a href="/post/b09d89b.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑧ 线程池：core、max、queue 的组合陷阱</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑨-并发工具与异步编排：completablefuture-的五个坑"><a href="/post/5489c9d2.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑨ 并发工具与异步编排：CompletableFuture 的五个坑</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑩-死锁与线程泄漏：从-jstack-到-jfr"><a href="/post/93f5ed7a.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑩ 死锁与线程泄漏：从 jstack 到 JFR</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑪-虚拟线程：pinning、吞吐与迁移代价"><a href="/post/aa676f55.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑪ 虚拟线程：pinning、吞吐与迁移代价</a></li>
+
+
+      
+  <li class="menu-item menu-item-⑫-并发性能工程：容量、压测与全系列总表"><a href="/post/953dd446.html" rel="section"><i class="fa fa-file-text fa-fw"></i>⑫ 并发性能工程：容量、压测与全系列总表</a></li>
+
+
+    </ul>
+
+
+  
+
+
+<div class="post-block">
+  
+  
+
+  <article itemscope itemtype="http://schema.org/Article" class="post-content" lang="en">
+    <link itemprop="mainEntityOfPage" href="http://timewait7.github.io/post/8ac324cd.html">
+
+    <span hidden itemprop="author" itemscope itemtype="http://schema.org/Person">
+      <meta itemprop="image" content="/images/avatar.gif">
+      <meta itemprop="name" content="">
+    </span>
+
+    <span hidden itemprop="publisher" itemscope itemtype="http://schema.org/Organization">
+      <meta itemprop="name" content="知行栈">
+      <meta itemprop="description" content="">
+    </span>
+
+    <span hidden itemprop="post" itemscope itemtype="http://schema.org/CreativeWork">
+      <meta itemprop="name" content="从这里开始：把并发 bug 变成可复现的实验 | 知行栈">
+      <meta itemprop="description" content="">
+    </span>
+      <header class="post-header">
+        <h1 class="post-title" itemprop="name headline">
+          从这里开始：把并发 bug 变成可复现的实验
+        </h1>
+
+        <div class="post-meta-container">
+          <div class="post-meta">
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-calendar"></i>
+      </span>
+      <span class="post-meta-item-text">Posted on</span>
+
+      <time title="Created: 2026-10-25 21:00:00" itemprop="dateCreated datePublished" datetime="2026-10-25T21:00:00+08:00">2026-10-25</time>
+    </span>
+    <span class="post-meta-item">
+      <span class="post-meta-item-icon">
+        <i class="far fa-folder"></i>
+      </span>
+      <span class="post-meta-item-text">In</span>
+        <span itemprop="about" itemscope itemtype="http://schema.org/Thing">
+          <a href="/categories/Java/" itemprop="url" rel="index"><span itemprop="name">Java</span></a>
+        </span>
+    </span>
+
+  
+    <span class="post-meta-break"></span>
+    <span class="post-meta-item" title="Word count in article">
+      <span class="post-meta-item-icon">
+        <i class="far fa-file-word"></i>
+      </span>
+      <span class="post-meta-item-text">Word count in article: </span>
+      <span>4.3k</span>
+    </span>
+    <span class="post-meta-item" title="Reading time">
+      <span class="post-meta-item-icon">
+        <i class="far fa-clock"></i>
+      </span>
+      <span class="post-meta-item-text">Reading time &asymp;</span>
+      <span>16 mins.</span>
+    </span>
+</div>
+
+        </div>
+      </header>
+
+    
+    
+    
+    <div class="post-body" itemprop="articleBody"><p><strong>并发问题之所以难查，是因为它们不报错、只「偶尔不对」</strong>。可见性问题跑一万次都对，第一万零一次卡死；伪共享不会让程序变慢 10 倍，只会让 CPU 使用率莫名 300%。这类问题靠读代码看不出来，只能靠<strong>可复现的实验</strong>。</p>
+<p>本文是「Java 并发实战路线」第一篇，只做三件事：把并发的成本拆成三个变量、搭好 JDK 21 的实验台（JFR + jcmd + JOL）、跑出第一组基线数字。后面十一篇的每个结论都会回到这组数字上对照。</p>
+<blockquote>
+<p><strong>系列地图（Java 并发实战路线，12 篇）</strong></p>
+<p>① <strong>实验台与基线（本文）</strong> → ② 线程与调度成本 → ③ JMM：可见性与重排 → ④ 伪共享与缓存行 → ⑤ 原子性与 CAS → ⑥ 锁的演化 → ⑦ AQS 与并发容器 → ⑧ 线程池参数 → ⑨ 并发工具与异步编排 → ⑩ 死锁与线程泄漏 → ⑪ 虚拟线程 → ⑫ 并发性能工程</p>
+<p>与站内《Java 并发编程：从 JMM 到虚拟线程的系统化实战》的分工：那边是 18 章的知识地图（当字典查），这边是实验手册（按顺序练）。本文对应那边第 1 章「三个核心问题」与第 3 章「线程基础」。</p>
+</blockquote>
+<h2 id="1-并发的成本只有三个变量"><a href="#1-并发的成本只有三个变量" class="headerlink" title="1. 并发的成本只有三个变量"></a>1. 并发的成本只有三个变量</h2><h3 id="1-1-一句话定义"><a href="#1-1-一句话定义" class="headerlink" title="1.1 一句话定义"></a>1.1 一句话定义</h3><p>一个并发问题，永远落在三件事上：<strong>共享的可变状态</strong>（要不要同步）、<strong>线程的调度</strong>（切换多少钱）、<strong>内存的可见性</strong>（写得对不对）。所有优化也都是这三个方向：<strong>减少共享、减少切换、减少等待</strong>。</p>
+<table>
+<thead>
+<tr>
+<th>成本</th>
+<th>一句话定义</th>
+<th>由什么决定</th>
+<th>怎么观测</th>
+<th>详见</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>创建&#x2F;销毁</td>
+<td>每个线程都要申请栈与内核资源</td>
+<td>线程数、平台</td>
+<td><code>Thread.start()</code> 耗时、JFR 线程事件</td>
+<td>②⑧</td>
+</tr>
+<tr>
+<td>上下文切换</td>
+<td>CPU 换一个线程要保存&#x2F;恢复现场</td>
+<td>线程数 &gt; 核数、锁竞争、阻塞调用</td>
+<td>JFR <code>jdk.ThreadPark</code>、<code>perf sched</code></td>
+<td>②⑥</td>
+</tr>
+<tr>
+<td>同步&#x2F;竞争</td>
+<td>抢锁、CAS 自旋、缓存行争用</td>
+<td>共享粒度、临界区大小</td>
+<td>基准对比、<code>jstack</code> 的 BLOCKED</td>
+<td>⑤⑥</td>
+</tr>
+<tr>
+<td>可见性成本</td>
+<td>内存屏障、禁止重排</td>
+<td>volatile &#x2F; CAS &#x2F; 锁</td>
+<td>反汇编、基准对比</td>
+<td>③</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart LR
+    A["Shared mutable state"] --> B["Synchronization cost&lt;br/>lock / CAS / barrier"]
+    C["Threads > cores"] --> D["Scheduling cost&lt;br/>context switch"]
+    E["Cross-core cache"] --> F["Visibility cost&lt;br/>cache line ping-pong"]
+    B --> G["Latency &amp; throughput"]
+    D --> G
+    F --> G</pre>
+
+<p><strong>先记住一句话</strong>：并发的性能问题，本质是「同一份数据被多个核访问」。不共享，就没有成本；一共享，成本由缓存一致性协议决定，而不是由你的代码行数决定。</p>
+<h3 id="1-2-实测基线（JDK-21-0-12，15-核）"><a href="#1-2-实测基线（JDK-21-0-12，15-核）" class="headerlink" title="1.2 实测基线（JDK 21.0.12，15 核）"></a>1.2 实测基线（JDK 21.0.12，15 核）</h3><p>在一台 15 核的机器上跑出来的四个数字：</p>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>实测值</th>
+<th>怎么测的</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>创建+启动+回收一个线程</td>
+<td><strong>32 µs</strong></td>
+<td>顺序创建 1 万个线程，取 2 轮最优</td>
+</tr>
+<tr>
+<td>一次 park&#x2F;unpark 切换</td>
+<td><strong>2.43 µs</strong></td>
+<td>两线程真实阻塞&#x2F;唤醒，10 万次</td>
+</tr>
+<tr>
+<td>CPU 密集任务加速比（15 线程）</td>
+<td><strong>12.68×</strong></td>
+<td>单线程 279 ms → 15 线程 22 ms</td>
+</tr>
+<tr>
+<td>4 线程共享计数器</td>
+<td>见下表</td>
+<td>每种写法 3 轮取最优</td>
+</tr>
+</tbody></table>
+<p>共享计数器的四种写法（4 线程 × 200 万次）：</p>
+<table>
+<thead>
+<tr>
+<th>写法</th>
+<th>ns&#x2F;op</th>
+<th>最优耗时</th>
+<th>相对</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>synchronized</code></td>
+<td>6</td>
+<td>55 ms</td>
+<td>6×</td>
+</tr>
+<tr>
+<td><code>AtomicLong</code></td>
+<td>5</td>
+<td>47 ms</td>
+<td>5×</td>
+</tr>
+<tr>
+<td><code>LongAdder</code></td>
+<td><strong>1</strong></td>
+<td><strong>8 ms</strong></td>
+<td>1×</td>
+</tr>
+<tr>
+<td>线程本地（无共享）</td>
+<td><strong>0</strong></td>
+<td>0 ms</td>
+<td>—</td>
+</tr>
+</tbody></table>
+<p><strong>这张表就是全系列的起点</strong>：同样一个「加一」，写法不同差 6 倍；而无共享时成本是 0（被 JIT 优化掉了，见 3.3）。</p>
+<h3 id="1-3-三个数字能推出什么"><a href="#1-3-三个数字能推出什么" class="headerlink" title="1.3 三个数字能推出什么"></a>1.3 三个数字能推出什么</h3><table>
+<thead>
+<tr>
+<th>你看到的现像</th>
+<th>用哪个数字解释</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>线程池开到 200 反而更慢</td>
+<td>切换 2.43 µs × 切换频率；核数只有 15</td>
+</tr>
+<tr>
+<td>每秒创建几千个线程</td>
+<td>32 µs × 5000 &#x3D; 160 ms&#x2F;秒 纯粹花在创建上</td>
+</tr>
+<tr>
+<td>CAS 计数器在 32 线程下崩了</td>
+<td>⑤ 会测：竞争下 CAS 的失败重试成本</td>
+</tr>
+<tr>
+<td>加了 <code>synchronized</code> 吞吐掉一半</td>
+<td>临界区里如果有 IO，锁的持有时间被放大</td>
+</tr>
+</tbody></table>
+<h2 id="2-搭实验台"><a href="#2-搭实验台" class="headerlink" title="2. 搭实验台"></a>2. 搭实验台</h2><h3 id="2-1-环境：一个-JDK-就够，工具是自带的"><a href="#2-1-环境：一个-JDK-就够，工具是自带的" class="headerlink" title="2.1 环境：一个 JDK 就够，工具是自带的"></a>2.1 环境：一个 JDK 就够，工具是自带的</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">java -version          <span class="comment"># openjdk 21.0.12.1</span></span><br><span class="line">jcmd -l                <span class="comment"># 列出所有 JVM 进程</span></span><br><span class="line">jcmd &lt;pid&gt; Thread.<span class="built_in">print</span> <span class="comment"># 线程栈（等于 jstack）</span></span><br><span class="line">jcmd &lt;pid&gt; JFR.start name=lab duration=5s filename=/tmp/lab.jfr settings=profile</span><br><span class="line">jcmd &lt;pid&gt; JFR.dump name=lab filename=/tmp/lab.jfr</span><br><span class="line">jfr summary /tmp/lab.jfr</span><br></pre></td></tr></table></figure>
+
+<p>实测：5 秒的 profile 录制产出 <strong>361 KB</strong> 的 <code>.jfr</code> 文件，<code>jfr summary</code> 能直接看事件统计；<code>jcmd Thread.print</code> 能抓到线程状态（<code>RUNNABLE</code> &#x2F; <code>TIMED_WAITING</code> &#x2F; <code>BLOCKED</code>）。</p>
+<pre class="mermaid">flowchart LR
+    J["Your JVM&lt;br/>(JDK 21)"] --> C["jcmd&lt;br/>thread dump / JFR control"]
+    J --> F["JFR events&lt;br/>park / monitor / gc / io"]
+    F --> A["jfr print / summary&lt;br/>or JMC"]
+    C --> S["jstack output&lt;br/>deadlock detection"]
+    J -.-> M["Micro benchmarks&lt;br/>hand-written or JMH"]</pre>
+
+<h3 id="2-2-工具可用性实测（别假设有）"><a href="#2-2-工具可用性实测（别假设有）" class="headerlink" title="2.2 工具可用性实测（别假设有）"></a>2.2 工具可用性实测（别假设有）</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>本文环境</th>
+<th>用途</th>
+<th>没有时的兜底</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>JDK 21</td>
+<td>✅ 21.0.12.1</td>
+<td>基线（虚拟线程 GA、偏向锁已移除）</td>
+<td>—</td>
+</tr>
+<tr>
+<td>JFR &#x2F; jcmd</td>
+<td>✅ 自带</td>
+<td>事件、线程栈、火焰图</td>
+<td>—</td>
+</tr>
+<tr>
+<td>JOL（jol-core）</td>
+<td>✅ 本地 <code>.m2</code> 有 0.17</td>
+<td>看对象头与锁状态（⑥）</td>
+<td><code>jcmd VM.info</code> + 打印对象</td>
+</tr>
+<tr>
+<td>JMH</td>
+<td>❌ 本地仓库没有</td>
+<td>权威微基准</td>
+<td><strong>手写基准 + 预热 + 多轮取最优</strong>，并在文中标注</td>
+</tr>
+</tbody></table>
+<p><strong>本文所有微基准都是手写的</strong>，不是 JMH——这个差异必须说清，因为手写基准更容易被 JIT 骗（见 2.4）。</p>
+<h3 id="2-3-手写基准的四条纪律"><a href="#2-3-手写基准的四条纪律" class="headerlink" title="2.3 手写基准的四条纪律"></a>2.3 手写基准的四条纪律</h3><table>
+<thead>
+<tr>
+<th>纪律</th>
+<th>做法</th>
+<th>不做的后果</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>预热</td>
+<td>先跑几轮 JIT 编译，再计时</td>
+<td>测到的是解释执行，慢 10 倍</td>
+</tr>
+<tr>
+<td>多轮取最优</td>
+<td>至少 3 轮，取最小值（不是平均）</td>
+<td>被 GC、其它进程干扰拉高</td>
+</tr>
+<tr>
+<td>消费结果</td>
+<td>把结果写进 <code>volatile</code> 静态字段</td>
+<td>JIT 把整个循环删掉（3.3 的 0 ns&#x2F;op）</td>
+</tr>
+<tr>
+<td>报告口径</td>
+<td>写清线程数、数据量、硬件</td>
+<td>数字不可比</td>
+</tr>
+</tbody></table>
+<pre class="mermaid">flowchart LR
+    A["Write bench"] --> B["Warm up&lt;br/>JIT compiles hot paths"]
+    B --> C["Run N reps"]
+    C --> D["Take min&lt;br/>(not avg)"]
+    D --> E["Consume result&lt;br/>(volatile sink)"]
+    E --> F["Record env&lt;br/>cores / JDK / heap"]</pre>
+
+<h3 id="2-4-反面教材：我第一版基准测出的「10-倍加速比」"><a href="#2-4-反面教材：我第一版基准测出的「10-倍加速比」" class="headerlink" title="2.4 反面教材：我第一版基准测出的「10 倍加速比」"></a>2.4 反面教材：我第一版基准测出的「10 倍加速比」</h3><p>第一版我用了很小的任务（单线程 20 ms），结果是：</p>
+<figure class="highlight text"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">threads=8   2 ms   加速比=10.00x     &lt;-- 8 线程跑出 10 倍？不可能</span><br><span class="line">线程本地     0 ns/op (0 ms)          &lt;-- 无共享直接 0 成本？假的</span><br><span class="line">一次「切换」 87 ns                   &lt;-- 比一次系统调用还快？假的</span><br></pre></td></tr></table></figure>
+
+<p>三个数字全是错的，原因各不相同：</p>
+<table>
+<thead>
+<tr>
+<th>错误数字</th>
+<th>真实原因</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>8 线程 10× 加速</td>
+<td>任务太小（20ms），JIT 与 GC 噪声盖过真实耗时</td>
+</tr>
+<tr>
+<td>无共享 0 ns&#x2F;op</td>
+<td>循环被 JIT 判定为死代码，整个删掉了</td>
+</tr>
+<tr>
+<td>切换 87 ns</td>
+<td>我让线程<strong>自旋等标志位</strong>，测到的是缓存行在核间传递，不是线程切换</td>
+</tr>
+</tbody></table>
+<p>修正后（放大任务到 279 ms、把结果写进 <code>volatile</code>、用真实 <code>park/unpark</code>）才得到本文表格里的数字：<strong>切换 2.43 µs，比 87 ns 慢 28 倍</strong>。</p>
+<p><strong>这就是「可复现实验」的意义</strong>：不是跑出一个数字就完事，而是要能解释这个数字为什么是这个量级。</p>
+<h3 id="2-5-动手验证：验证你的基准有没有被-JIT-优化"><a href="#2-5-动手验证：验证你的基准有没有被-JIT-优化" class="headerlink" title="2.5 动手验证：验证你的基准有没有被 JIT 优化"></a>2.5 动手验证：验证你的基准有没有被 JIT 优化</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> /tmp/conc</span><br><span class="line"><span class="built_in">cat</span> &gt; Dead.java &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line">public class Dead &#123;</span><br><span class="line">    static volatile long sink;</span><br><span class="line">    public static void main(String[] a) &#123;</span><br><span class="line">        long x = 0;</span><br><span class="line">        long s = System.nanoTime();</span><br><span class="line">        <span class="keyword">for</span> (long i = 0; i &lt; 2_000_000_000L; i++) x += i;</span><br><span class="line">        sink = x;                 // 注释掉这行再跑一次：循环会被 JIT 消除</span><br><span class="line">        System.out.printf(<span class="string">&quot;loop %,d ms%n&quot;</span>, (System.nanoTime() - s) / 1_000_000);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line">EOF</span><br><span class="line">javac Dead.java</span><br><span class="line">java -XX:+PrintCompilation Dead | <span class="built_in">tail</span> -3</span><br><span class="line"><span class="comment"># 把 sink = x 注释掉，重新编译再跑</span></span><br><span class="line">java -XX:+PrintCompilation Dead | <span class="built_in">tail</span> -3</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：有 <code>sink = x</code> 时约几百毫秒；注释掉之后耗时接近 0（JIT 判定为死代码，整个循环消失）。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>两次耗时差不多 → 你的基准本来就没被优化（或者跑了 <code>-Xint</code>，那是解释执行，慢 10 倍以上）；</li>
+<li>第二次也是几百毫秒 → 说明 <code>x</code> 有副作用没被消除，检查是否真注释掉了。</li>
+</ul>
+<h2 id="3-基线四件套"><a href="#3-基线四件套" class="headerlink" title="3. 基线四件套"></a>3. 基线四件套</h2><h3 id="3-1-创建：一个线程-32-µs"><a href="#3-1-创建：一个线程-32-µs" class="headerlink" title="3.1 创建：一个线程 32 µs"></a>3.1 创建：一个线程 32 µs</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 顺序创建 + 启动 + join，跑 1 万个，取 2 轮最优</span></span><br><span class="line"><span class="keyword">for</span> (<span class="type">int</span> <span class="variable">i</span> <span class="operator">=</span> <span class="number">0</span>; i &lt; N; i++) &#123; <span class="type">Thread</span> <span class="variable">t</span> <span class="operator">=</span> <span class="keyword">new</span> <span class="title class_">Thread</span>(() -&gt; &#123;&#125;); t.start(); t.join(); &#125;</span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>实测</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>单线程创建+回收</td>
+<td><strong>32 µs</strong></td>
+</tr>
+<tr>
+<td>1 万个顺序创建总耗时</td>
+<td>≈ 320 ms</td>
+</tr>
+</tbody></table>
+<p><strong>换算到生产</strong>：如果每秒新建 5000 个线程（比如 <code>new Thread</code> 处理请求），就有 <strong>160 ms&#x2F;秒</strong> 花在创建上，CPU 有效利用率直接掉一截。这也是线程池存在的第一个理由。</p>
+<h3 id="3-2-切换：一次真实切换-2-43-µs"><a href="#3-2-切换：一次真实切换-2-43-µs" class="headerlink" title="3.2 切换：一次真实切换 2.43 µs"></a>3.2 切换：一次真实切换 2.43 µs</h3><figure class="highlight java"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment">// 两个线程通过 LockSupport.park/unpark 互相唤醒</span></span><br><span class="line"><span class="keyword">for</span> (<span class="type">int</span> <span class="variable">r</span> <span class="operator">=</span> <span class="number">0</span>; r &lt; rounds; r++) &#123;</span><br><span class="line">    LockSupport.park();</span><br><span class="line">    switches.incrementAndGet();</span><br><span class="line">    LockSupport.unpark(peer);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>实测</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>一次 park&#x2F;unpark 切换</td>
+<td><strong>2,426 ns（2.43 µs）</strong></td>
+</tr>
+<tr>
+<td>切换次数</td>
+<td>100,000</td>
+</tr>
+<tr>
+<td>自旋方式的「假切换」</td>
+<td>87 ns（第一版，错）</td>
+</tr>
+</tbody></table>
+<p><strong>为什么差 28 倍</strong>：自旋时线程一直在 RUNNABLE，另一核只是拿到缓存行；<code>park/unpark</code> 是真的把线程挂起、由内核重新调度，涉及 futex&#x2F;condvar 与调度器。</p>
+<p><strong>换算</strong>：每秒 10 万次切换 &#x3D; 0.24 秒纯切换开销。线程数开到核数的 10 倍以上时，这个成本会吃掉大部分 CPU。</p>
+<h3 id="3-3-加速比：15-核能拿到-12-68-倍"><a href="#3-3-加速比：15-核能拿到-12-68-倍" class="headerlink" title="3.3 加速比：15 核能拿到 12.68 倍"></a>3.3 加速比：15 核能拿到 12.68 倍</h3><table>
+<thead>
+<tr>
+<th>线程数</th>
+<th>耗时</th>
+<th>加速比</th>
+<th>效率</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>279 ms</td>
+<td>1×</td>
+<td>100%</td>
+</tr>
+<tr>
+<td>2</td>
+<td>148 ms</td>
+<td>1.89×</td>
+<td>94%</td>
+</tr>
+<tr>
+<td>4</td>
+<td>76 ms</td>
+<td>3.67×</td>
+<td>92%</td>
+</tr>
+<tr>
+<td>8</td>
+<td>37 ms</td>
+<td>7.54×</td>
+<td>94%</td>
+</tr>
+<tr>
+<td>15</td>
+<td>22 ms</td>
+<td><strong>12.68×</strong></td>
+<td><strong>85%</strong></td>
+</tr>
+</tbody></table>
+<p><strong>读法</strong>：纯 CPU 密集任务在 15 核上能拿到 12.68 倍，效率 85%——剩下的 15% 花在任务分发、GC、以及最后几个线程的收尾上。这是「理论上限」的实测值，任何带共享状态的任务都会低于它。</p>
+<p><strong>为什么「无共享 0 ns&#x2F;op」是假的</strong>：JIT 发现每个线程只写自己的数组、而数组只被主线程读一次，于是把整个循环消除。修正方法是把结果写进 <code>volatile</code> 静态字段（本文的 <code>SINK</code>），让 JIT 不敢删。</p>
+<figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line"><span class="comment"># 想验证 JIT 到底优化了什么</span></span><br><span class="line">java -XX:+PrintCompilation -XX:+UnlockDiagnosticVMOptions Lab1.java | grep -c <span class="string">&quot;made not entrant&quot;</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="3-4-竞争：同样的加一，差-6-倍"><a href="#3-4-竞争：同样的加一，差-6-倍" class="headerlink" title="3.4 竞争：同样的加一，差 6 倍"></a>3.4 竞争：同样的加一，差 6 倍</h3><table>
+<thead>
+<tr>
+<th>写法</th>
+<th>ns&#x2F;op</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>synchronized</code>（4 线程）</td>
+<td>6</td>
+<td>中等竞争，锁大部分时间没被抢</td>
+</tr>
+<tr>
+<td><code>AtomicLong</code>（4 线程）</td>
+<td>5</td>
+<td>CAS 失败重试，比锁略快</td>
+</tr>
+<tr>
+<td><code>LongAdder</code>（4 线程）</td>
+<td><strong>1</strong></td>
+<td>分段累加，写扩散到不同缓存行</td>
+</tr>
+<tr>
+<td>线程本地</td>
+<td>0（被优化）</td>
+<td>无共享 &#x3D; 无同步</td>
+</tr>
+</tbody></table>
+<p><strong>注意</strong>：这是「4 线程中等竞争」的数字。⑤ 会测 32&#x2F;64 线程的曲线——竞争加剧时，<code>AtomicLong</code> 会明显退化，而 <code>LongAdder</code> 几乎线性。</p>
+<h3 id="3-5-动手验证：跑出你自己的四个基线"><a href="#3-5-动手验证：跑出你自己的四个基线" class="headerlink" title="3.5 动手验证：跑出你自己的四个基线"></a>3.5 动手验证：跑出你自己的四个基线</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">mkdir</span> -p /tmp/conc &amp;&amp; <span class="built_in">cd</span> /tmp/conc</span><br><span class="line"><span class="comment"># 1) 环境自检</span></span><br><span class="line">java -version</span><br><span class="line">jcmd -l</span><br><span class="line"><span class="comment"># 2) 起一个长跑进程，验证 JFR 可用</span></span><br><span class="line"><span class="built_in">cat</span> &gt; LongRun.java &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line">public class LongRun &#123;</span><br><span class="line">    static volatile long sink;</span><br><span class="line">    public static void main(String[] a) throws Exception &#123;</span><br><span class="line">        Thread w = new Thread(() -&gt; &#123; long x = <span class="number">0</span>; while (true) &#123; x += System.nanoTime() % <span class="number">7</span>; sink = x; &#125; &#125;, &quot;worker&quot;);</span><br><span class="line">        w.setDaemon(true); w.start();</span><br><span class="line">        Thread.sleep(<span class="number">30000</span>);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line">EOF</span><br><span class="line">java LongRun.java &amp;</span><br><span class="line">PID=$(jcmd -l | grep LongRun | awk &#x27;&#123;print <span class="variable">$1</span>&#125;&#x27; | head -<span class="number">1</span>)</span><br><span class="line">jcmd <span class="variable">$PID</span> JFR.start name=lab duration=<span class="number">5</span>s filename=/tmp/conc/lab.jfr settings=profile</span><br><span class="line">sleep <span class="number">6</span></span><br><span class="line">jfr summary /tmp/conc/lab.jfr | head -<span class="number">20</span></span><br><span class="line">jcmd <span class="variable">$PID</span> Thread.print | grep -A2 &#x27;&quot;worker&quot;&#x27;</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：<code>jfr summary</code> 里能看到 <code>jdk.ThreadPark</code>、<code>jdk.JavaMonitorEnter</code>、<code>jdk.GCPhasePause</code> 等事件；<code>Thread.print</code> 里 <code>worker</code> 线程状态是 <code>RUNNABLE</code>。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>JFR 文件为空或没有事件 → 检查 <code>settings=profile</code> 是否生效（<code>jfr summary</code> 会列出事件类型）；</li>
+<li><code>Thread.print</code> 报连接失败 → pid 拿错了（<code>jcmd -l</code> 可能列出多个 Java 进程）。</li>
+</ul>
+<h3 id="3-6-动手验证：量你自己的线程创建与切换"><a href="#3-6-动手验证：量你自己的线程创建与切换" class="headerlink" title="3.6 动手验证：量你自己的线程创建与切换"></a>3.6 动手验证：量你自己的线程创建与切换</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> /tmp/conc</span><br><span class="line"><span class="built_in">cat</span> &gt; Cost.java &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line">import java.util.concurrent.atomic.AtomicLong;</span><br><span class="line">import java.util.concurrent.locks.LockSupport;</span><br><span class="line"></span><br><span class="line">public class Cost &#123;</span><br><span class="line">    public static void main(String[] a) throws Exception &#123;</span><br><span class="line">        int N = 10000;</span><br><span class="line">        long t0 = System.nanoTime();</span><br><span class="line">        <span class="keyword">for</span> (int i = 0; i &lt; N; i++) &#123; Thread t = new Thread(() -&gt; &#123;&#125;); t.start(); t.join(); &#125;</span><br><span class="line">        System.out.printf(&quot;thread create: %,d ns%n&quot;, (System.nanoTime() - t0) / N);</span><br><span class="line"></span><br><span class="line">        int rounds = <span class="number">50000</span>;</span><br><span class="line">        AtomicLong sw = new AtomicLong();</span><br><span class="line">        Thread[] ts = new Thread[<span class="number">2</span>];</span><br><span class="line">        for (int i = <span class="number">0</span>; i &lt; <span class="number">2</span>; i++) &#123;</span><br><span class="line">            final int me = i;</span><br><span class="line">            ts[i] = new Thread(() -&gt; &#123;</span><br><span class="line">                for (int r = <span class="number">0</span>; r &lt; rounds; r++) &#123;</span><br><span class="line">                    LockSupport.park();</span><br><span class="line">                    sw.incrementAndGet();</span><br><span class="line">                    LockSupport.unpark(ts[<span class="number">1</span> - me]);</span><br><span class="line">                &#125;</span><br><span class="line">            &#125;);</span><br><span class="line">            ts[i].start();</span><br><span class="line">        &#125;</span><br><span class="line">        long s = System.nanoTime();</span><br><span class="line">        LockSupport.unpark(ts[<span class="number">0</span>]);</span><br><span class="line">        ts[<span class="number">0</span>].join(<span class="number">20000</span>); ts[<span class="number">1</span>].join(<span class="number">20000</span>);</span><br><span class="line">        System.out.printf(&quot;park/unpark switch: %,d ns  (%,d switches)%n&quot;,</span><br><span class="line">                (System.nanoTime() - s) / sw.get(), sw.get());</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line">EOF</span><br><span class="line">java Cost.java</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：线程创建在 20<del>50 µs&#x2F;个，切换在 1</del>5 µs&#x2F;次（取决于机器与内核）。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>切换 &gt; 20 µs → 机器有虚拟化层或 CPU 争抢严重（容器配额、其他进程）；</li>
+<li>切换 &lt; 200 ns → 你的线程在自旋而不是真的挂起，检查是否用了 <code>park</code>；</li>
+<li>两个数字都远大于本文 → 先查宿主机负载，再谈 JVM 参数。</li>
+</ul>
+<h2 id="4-这套基线怎么用"><a href="#4-这套基线怎么用" class="headerlink" title="4. 这套基线怎么用"></a>4. 这套基线怎么用</h2><h3 id="4-1-判断表"><a href="#4-1-判断表" class="headerlink" title="4.1 判断表"></a>4.1 判断表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>大概率是哪类成本</th>
+<th>第一件事</th>
+<th>别做什么</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>加线程后吞吐不涨、CPU 高</td>
+<td>切换 + 竞争</td>
+<td>看核数 vs 线程数，测加速比</td>
+<td>别继续加线程</td>
+</tr>
+<tr>
+<td>单次请求偶发变慢</td>
+<td>锁竞争 &#x2F; GC</td>
+<td>JFR 看 <code>JavaMonitorEnter</code> 与 GC</td>
+<td>别先改代码逻辑</td>
+</tr>
+<tr>
+<td>CPU 使用率 300% 但业务量不大</td>
+<td>自旋 &#x2F; 频繁 CAS 失败</td>
+<td>⑤ 的竞争曲线</td>
+<td>别以为是「多核利用好」</td>
+</tr>
+<tr>
+<td>创建线程的地方很多</td>
+<td>32 µs × 频率</td>
+<td>换线程池</td>
+<td>别调大堆内存</td>
+</tr>
+<tr>
+<td>不知道从哪查起</td>
+<td>—</td>
+<td>先跑本文四个基线</td>
+<td>别凭感觉调优</td>
+</tr>
+</tbody></table>
+<h3 id="4-3-动手验证：用-JFR-抓一次锁竞争"><a href="#4-3-动手验证：用-JFR-抓一次锁竞争" class="headerlink" title="4.3 动手验证：用 JFR 抓一次锁竞争"></a>4.3 动手验证：用 JFR 抓一次锁竞争</h3><figure class="highlight bash"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line"><span class="built_in">cd</span> /tmp/conc</span><br><span class="line"><span class="built_in">cat</span> &gt; Locky.java &lt;&lt;<span class="string">&#x27;EOF&#x27;</span></span><br><span class="line">public class Locky &#123;</span><br><span class="line">    static final Object LOCK = new Object();</span><br><span class="line">    static long count;</span><br><span class="line">    public static void main(String[] a) throws Exception &#123;</span><br><span class="line">        Runnable r = () -&gt; &#123; <span class="keyword">for</span> (int i = 0; i &lt; 20_000_000; i++) synchronized (LOCK) &#123; count++; &#125; &#125;;</span><br><span class="line">        Thread[] ts = new Thread[8];</span><br><span class="line">        <span class="keyword">for</span> (int i = 0; i &lt; ts.length; i++) &#123; ts[i] = new Thread(r); ts[i].start(); &#125;</span><br><span class="line">        <span class="keyword">for</span> (Thread t : ts) t.join();</span><br><span class="line">        System.out.println(<span class="string">&quot;count=&quot;</span> + count);</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br><span class="line">EOF</span><br><span class="line">javac Locky.java</span><br><span class="line">java -XX:StartFlightRecording=duration=15s,filename=/tmp/conc/lock.jfr,settings=profile Locky</span><br><span class="line">jfr summary /tmp/conc/lock.jfr | grep -E <span class="string">&quot;JavaMonitorEnter|ThreadPark&quot;</span></span><br><span class="line">jfr <span class="built_in">print</span> --events jdk.JavaMonitorEnter /tmp/conc/lock.jfr | <span class="built_in">head</span> -20</span><br></pre></td></tr></table></figure>
+
+<p><strong>预期观察点</strong>：<code>jdk.JavaMonitorEnter</code> 事件数量巨大（几十万到上百万），每条带 <code>duration</code> 与 <code>monitorClass</code>，能直接看到「等锁花了多久」。</p>
+<p><strong>判定标准</strong>：</p>
+<ul>
+<li>没有该事件 → 锁没竞争（线程数不够，或临界区外的工作太多）；</li>
+<li>事件很多但 <code>duration</code> 都很小（&lt; 1 µs）→ 竞争不激烈，瓶颈不在锁；</li>
+<li><code>duration</code> 到毫秒级 → 临界区里有慢操作（IO、日志），要缩小临界区。</li>
+</ul>
+<h3 id="4-4-判断树：先查哪一类成本"><a href="#4-4-判断树：先查哪一类成本" class="headerlink" title="4.4 判断树：先查哪一类成本"></a>4.4 判断树：先查哪一类成本</h3><pre class="mermaid">flowchart TD
+    A["并发性能问题"] --> B{"CPU 使用率高吗"}
+    B -- 高 --> C{"线程数 > 核数 2 倍以上?"}
+    C -- 是 --> D["调度成本&lt;br/>减线程 / 换异步"]
+    C -- 否 --> E["自旋或 CAS 竞争&lt;br/>看 5 的曲线"]
+    B -- 低 --> F{"吞吐也低?"}
+    F -- 是 --> G["阻塞等待&lt;br/>JFR ThreadPark / IO"]
+    F -- 否 --> H["正常，只是延迟毛刺&lt;br/>看 GC"]</pre>
+
+<h3 id="4-2-与-MySQL-Redis-系列的同一套方法"><a href="#4-2-与-MySQL-Redis-系列的同一套方法" class="headerlink" title="4.2 与 MySQL &#x2F; Redis 系列的同一套方法"></a>4.2 与 MySQL &#x2F; Redis 系列的同一套方法</h3><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>MySQL ①</th>
+<th>Redis ①</th>
+<th>Java 并发（本文）</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>先量什么</td>
+<td>逻辑读&#x2F;物理读</td>
+<td>RTT&#x2F;内存</td>
+<td>创建&#x2F;切换&#x2F;竞争</td>
+</tr>
+<tr>
+<td>基线工具</td>
+<td><code>performance_schema</code></td>
+<td><code>INFO</code>&#x2F;<code>redis-benchmark</code></td>
+<td>JFR&#x2F;<code>jcmd</code></td>
+</tr>
+<tr>
+<td>成本量级</td>
+<td>页 100ns~100µs</td>
+<td>往返 31µs</td>
+<td>切换 2.4µs、创建 32µs</td>
+</tr>
+<tr>
+<td>共同结论</td>
+<td><strong>没有基线就没有优化</strong></td>
+<td>同</td>
+<td>同</td>
+</tr>
+</tbody></table>
+<p><strong>三个系列的收官篇都是「找拐点、算容量」</strong>，因为软件性能的尽头是同一件事：知道自己的上限在哪。</p>
+<h2 id="5-总结"><a href="#5-总结" class="headerlink" title="5. 总结"></a>5. 总结</h2><h3 id="5-1-面试速答表"><a href="#5-1-面试速答表" class="headerlink" title="5.1 面试速答表"></a>5.1 面试速答表</h3><table>
+<thead>
+<tr>
+<th>面试题</th>
+<th>一句话答案</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>并发问题的本质是什么</td>
+<td>共享可变状态下的原子性、可见性、有序性</td>
+</tr>
+<tr>
+<td>创建一个线程要多久</td>
+<td>本文实测 32 µs（创建+启动+回收）</td>
+</tr>
+<tr>
+<td>一次线程切换要多久</td>
+<td>本文实测 2.43 µs（真实 park&#x2F;unpark）</td>
+</tr>
+<tr>
+<td>多线程一定更快吗</td>
+<td>纯 CPU 密集 15 核可到 12.68×；共享状态多则会倒退</td>
+</tr>
+<tr>
+<td>为什么无共享时开销是 0</td>
+<td>JIT 会把无用计算删掉，基准必须消费结果</td>
+</tr>
+<tr>
+<td>微基准为什么容易错</td>
+<td>JIT 优化、缺少预热、GC 干扰、死代码消除</td>
+</tr>
+<tr>
+<td>JMH 解决什么问题</td>
+<td>预热、分叉、死代码消除、统计——手写基准的坑它都填了</td>
+</tr>
+<tr>
+<td>JFR 能看什么</td>
+<td>线程 park、锁进入、GC、IO、异常，是 JDK 自带的生产级工具</td>
+</tr>
+<tr>
+<td><code>jcmd Thread.print</code> 和 jstack 区别</td>
+<td>同一个东西，<code>jcmd</code> 是统一入口</td>
+</tr>
+<tr>
+<td>该看 CPU 使用率还是线程数</td>
+<td>看「线程数 &#x2F; 核数」与切换成本，CPU 高可能只是自旋</td>
+</tr>
+</tbody></table>
+<h3 id="5-2-实战避坑表"><a href="#5-2-实战避坑表" class="headerlink" title="5.2 实战避坑表"></a>5.2 实战避坑表</h3><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>基准跑出离谱的加速比</td>
+<td>任务太小、JIT 噪声</td>
+<td>放大任务到几百毫秒</td>
+</tr>
+<tr>
+<td>基准显示 0 开销</td>
+<td>死代码被消除</td>
+<td>结果写入 <code>volatile</code> 字段</td>
+</tr>
+<tr>
+<td>「切换」只要 87 ns</td>
+<td>线程在自旋，不是真切换</td>
+<td>用 <code>LockSupport.park</code> 测</td>
+</tr>
+<tr>
+<td>两台机器数字对不上</td>
+<td>核数、JDK、容器配额不同</td>
+<td>记录环境，只做相对比较</td>
+</tr>
+<tr>
+<td>JFR 文件没内容</td>
+<td>没等录制结束就 dump</td>
+<td><code>duration</code> 到期或显式 <code>JFR.dump</code></td>
+</tr>
+</tbody></table>
+<h3 id="5-3-工具速查表"><a href="#5-3-工具速查表" class="headerlink" title="5.3 工具速查表"></a>5.3 工具速查表</h3><table>
+<thead>
+<tr>
+<th>工具</th>
+<th>看什么</th>
+<th>判定标准</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>jcmd -l</code></td>
+<td>所有 JVM 进程</td>
+<td>找不到 pid 就查不到一切</td>
+</tr>
+<tr>
+<td><code>jcmd &lt;pid&gt; Thread.print</code></td>
+<td>线程状态与栈</td>
+<td>BLOCKED 多 &#x3D; 锁竞争</td>
+</tr>
+<tr>
+<td><code>jcmd &lt;pid&gt; JFR.start/dump</code></td>
+<td>事件录制</td>
+<td>5 秒 profile 约几百 KB</td>
+</tr>
+<tr>
+<td><code>jfr summary</code></td>
+<td>事件类型与数量</td>
+<td>没有 <code>jdk.ThreadPark</code> 说明没抓到阻塞</td>
+</tr>
+<tr>
+<td><code>-XX:+PrintCompilation</code></td>
+<td>JIT 编译与去优化</td>
+<td>用于验证基准是否被优化</td>
+</tr>
+<tr>
+<td>手写基准 + <code>volatile</code> sink</td>
+<td>微基准</td>
+<td>必须预热 + 多轮取最优</td>
+</tr>
+</tbody></table>
+<h3 id="5-4-实操建议"><a href="#5-4-实操建议" class="headerlink" title="5.4 实操建议"></a>5.4 实操建议</h3><ol>
+<li><strong>先在自己的机器上跑一遍四个基线</strong>，把数字记下来——后面十一篇都要跟它对照。</li>
+<li><strong>微基准必须做三件事</strong>：预热、多轮取最优、消费结果；否则数字不可信。</li>
+<li><strong>记住两个量级</strong>：创建 32 µs、切换 2.43 µs。任何「加线程&#x2F;加池」的方案都要先按这两个数字算账。</li>
+<li>**用 JFR 而不是只看 <code>top</code>**：CPU 高可能是自旋，线程多可能是阻塞，只有事件能区分。</li>
+<li>**建一份 <code>concurrency-lab.md</code>**，记录「场景 &#x2F; 线程数 &#x2F; 数据量 &#x2F; 环境 &#x2F; 数字 &#x2F; 结论」。</li>
+</ol>
+<hr>
+<p><strong>下一篇预告</strong>：②《线程与调度：一次上下文切换值多少钱》。本文量了「切换 2.43 µs」，下一篇拆开这个数字：线程数超过核数后吞吐为什么断崖、JFR 里 <code>jdk.ThreadPark</code> 与 <code>jdk.JavaMonitorEnter</code> 怎么读、虚拟线程与平台线程在调度上的本质差别，以及线程数到底该设多少。</p>
+
+    </div>
+
+    
+    
+    
+
+    <footer class="post-footer">
+          <div class="post-tags">
+              <a href="/tags/Java/" rel="tag"># Java</a>
+              <a href="/tags/%E9%9D%A2%E8%AF%95/" rel="tag"># 面试</a>
+              <a href="/tags/%E5%B9%B6%E5%8F%91/" rel="tag"># 并发</a>
+              <a href="/tags/JMH/" rel="tag"># JMH</a>
+              <a href="/tags/JFR/" rel="tag"># JFR</a>
+              <a href="/tags/%E6%80%A7%E8%83%BD%E6%B5%8B%E8%AF%95/" rel="tag"># 性能测试</a>
+          </div>
+
+        
+
+          <div class="post-nav">
+            <div class="post-nav-item">
+                <a href="/post/b815463e.html" rel="prev" title="容量规划与分片：什么时候才该上 Cluster">
+                  <i class="fa fa-angle-left"></i> 容量规划与分片：什么时候才该上 Cluster
+                </a>
+            </div>
+            <div class="post-nav-item">
+                <a href="/post/4f3149da.html" rel="next" title="线程与调度：一次上下文切换值多少钱">
+                  线程与调度：一次上下文切换值多少钱 <i class="fa fa-angle-right"></i>
+                </a>
+            </div>
+          </div>
+    </footer>
+  </article>
+</div>
+
+
+
+
+
+
+</div>
+  </main>
+
+  <footer class="footer">
+    <div class="footer-inner">
+
+  <div class="copyright">
+    &copy; 
+    <span itemprop="copyrightYear">2026</span>
+    <span class="with-love">
+      <i class="fa fa-heart"></i>
+    </span>
+    <span class="author" itemprop="copyrightHolder"></span>
+  </div>
+<div class="wordcount">
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-chart-line"></i>
+    </span>
+      <span>Word count total: </span>
+    <span title="Word count total">778k</span>
+  </span>
+  <span class="post-meta-item">
+    <span class="post-meta-item-icon">
+      <i class="fa fa-coffee"></i>
+    </span>
+      <span>Reading time total &asymp;</span>
+    <span title="Reading time total">47:09</span>
+  </span>
+</div>
+  <div class="powered-by">Powered by <span class="exturl" data-url="aHR0cHM6Ly9oZXhvLmlv">Hexo</span> & <span class="exturl" data-url="aHR0cHM6Ly90aGVtZS1uZXh0LmpzLm9yZw==">NexT.Gemini</span>
+  </div>
+
+    </div>
+  </footer>
+
+  
+  <div class="toggle sidebar-toggle" role="button">
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+    <span class="toggle-line"></span>
+  </div>
+  <div class="sidebar-dimmer"></div>
+
+<noscript>
+  <div class="noscript-warning">Theme NexT works best with JavaScript enabled</div>
+</noscript>
+
+<!-- hexo injector body_end start --><script>
+(function () {
+  if (!document.querySelector('.mermaid')) return; // 页面无图表则不加载
+  var s = document.createElement('script');
+  s.src = '/lib/mermaid/dist/mermaid.min.js';
+  s.onload = function () {
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'default'
+    });
+    mermaid.run(); // 渲染所有 .mermaid 元素（插件格式 pre.mermaid 与标签遗留 code.mermaid）
+  };
+  s.onerror = function () { console.error('mermaid.min.js 加载失败'); };
+  document.body.appendChild(s);
+})();
+</script><!-- hexo injector body_end end --></body>
+</html>
